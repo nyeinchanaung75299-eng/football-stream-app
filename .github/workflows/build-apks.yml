@@ -1,0 +1,62 @@
+name: Build Android APKs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create Android platform for Admin App
+        working-directory: admin_app
+        run: flutter create --platforms=android .
+
+      - name: Get Admin dependencies
+        working-directory: admin_app
+        run: flutter pub get
+
+      - name: Build Admin APK
+        working-directory: admin_app
+        run: flutter build apk --debug
+
+      - name: Upload Admin APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Football-Admin-APK
+          path: admin_app/build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Create Android platform for User App
+        working-directory: user_app
+        run: flutter create --platforms=android .
+
+      - name: Get User dependencies
+        working-directory: user_app
+        run: flutter pub get
+
+      - name: Build User APK
+        working-directory: user_app
+        run: flutter build apk --debug
+
+      - name: Upload User APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Football-User-APK
+          path: user_app/build/app/outputs/flutter-apk/app-debug.apk
