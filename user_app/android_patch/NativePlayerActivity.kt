@@ -8,6 +8,7 @@ import android.view.WindowManager
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
@@ -16,6 +17,7 @@ import androidx.media3.exoplayer.drm.LocalMediaDrmCallback
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 
+@UnstableApi
 class NativePlayerActivity : Activity() {
     private var player: ExoPlayer? = null
     private lateinit var playerView: PlayerView
@@ -47,7 +49,7 @@ class NativePlayerActivity : Activity() {
             val httpFactory = DefaultHttpDataSource.Factory()
                 .setAllowCrossProtocolRedirects(true)
                 .setDefaultRequestProperties(headers)
-            val mediaSourceFactory = DefaultMediaSourceFactory(this, httpFactory)
+            val mediaSourceFactory = DefaultMediaSourceFactory(httpFactory)
             val mediaItemBuilder = MediaItem.Builder().setUri(url)
             when (streamType) {
                 "dash", "mpd" -> mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_MPD)
