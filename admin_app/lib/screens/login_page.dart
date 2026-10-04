@@ -43,8 +43,19 @@ class _LoginPageState extends State<LoginPage> {
       }
     } catch (e) {
       if (!mounted) return;
+      final raw = e.toString().toLowerCase();
+      final networkProblem = raw.contains('socketexception') ||
+          raw.contains('network is unreachable') ||
+          raw.contains('connection failed') ||
+          raw.contains('failed host lookup');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
+        SnackBar(
+          content: Text(
+            networkProblem
+                ? 'Can’t reach Supabase. Turn on VPN, then try again.'
+                : 'Login failed. Check your email and password.',
+          ),
+        ),
       );
     } finally {
       if (mounted) setState(() => loading = false);

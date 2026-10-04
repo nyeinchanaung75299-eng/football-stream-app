@@ -71,7 +71,7 @@ class _HomePageState extends State<HomePage> {
             return _StateMessage(
               icon: Icons.wifi_off_rounded,
               title: 'Couldn’t load matches',
-              subtitle: snapshot.error.toString(),
+              subtitle: 'Can’t reach the server. Turn on VPN and try again.',
               action: 'TRY AGAIN',
               onPressed: refresh,
             );
