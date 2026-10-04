@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'live_upload_page.dart';
-import 'live_links_page.dart';
+import '../widgets/theme_mode_button.dart';
 import 'edit_live_page.dart';
 import 'highlights_page.dart';
+import 'live_links_page.dart';
+import 'live_upload_page.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
@@ -16,139 +17,247 @@ class DashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 92,
-        backgroundColor: const Color(0xFF263238),
-        foregroundColor: Colors.white,
-        title: const Text(
-          'Football Admin Dashboard',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
+        title: const Text('Football Admin'),
         actions: [
+          const ThemeModeButton(),
           IconButton(
             tooltip: 'Logout',
             onPressed: () => Supabase.instance.client.auth.signOut(),
-            icon: const Icon(Icons.logout),
+            icon: const Icon(Icons.logout_rounded),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
-          _SectionCard(
-            title: 'Live Management',
-            titleIcon: Icons.live_tv,
-            titleColor: Colors.redAccent,
-            items: [
-              _MenuItem(
-                icon: Icons.add_circle_outline,
-                text: 'Upload Live',
-                onTap: () => open(context, const LiveUploadPage()),
+          Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFF0F5132),
+                  Color(0xFF16A34A),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-              _MenuItem(
-                icon: Icons.link,
-                text: 'Upload Live Links',
-                onTap: () => open(context, const LiveLinksPage()),
-              ),
-              _MenuItem(
-                icon: Icons.edit_document,
-                text: 'Edit & Delete Live',
-                onTap: () => open(context, const EditLivePage()),
-              ),
-            ],
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF16A34A).withValues(alpha: .18),
+                  blurRadius: 30,
+                  offset: const Offset(0, 14),
+                ),
+              ],
+            ),
+            child: const Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Admin Dashboard',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -.4,
+                        ),
+                      ),
+                      SizedBox(height: 7),
+                      Text(
+                        'Control every live match from one clean place.',
+                        style: TextStyle(
+                          color: Color(0xFFE5F7EB),
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(width: 14),
+                _HeroBall(),
+              ],
+            ),
           ),
-          const SizedBox(height: 18),
-          _SectionCard(
+          const SizedBox(height: 22),
+          Text(
+            'Live Management',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -.2,
+                ),
+          ),
+          const SizedBox(height: 12),
+          _ActionCard(
+            icon: Icons.add_circle_rounded,
+            title: 'Upload Live',
+            subtitle: 'Create a match, teams, logos and kickoff time.',
+            iconColor: colors.primary,
+            onTap: () => open(context, const LiveUploadPage()),
+          ),
+          const SizedBox(height: 10),
+          _ActionCard(
+            icon: Icons.link_rounded,
+            title: 'Upload Live Links',
+            subtitle: 'Add HLS, MPD, ClearKey or WebView sources.',
+            iconColor: const Color(0xFF6D5DFB),
+            onTap: () => open(context, const LiveLinksPage()),
+          ),
+          const SizedBox(height: 10),
+          _ActionCard(
+            icon: Icons.edit_note_rounded,
+            title: 'Edit & Delete Live',
+            subtitle: 'Switch Live/Active status or remove a match.',
+            iconColor: const Color(0xFFF59E0B),
+            onTap: () => open(context, const EditLivePage()),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Highlights',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -.2,
+                ),
+          ),
+          const SizedBox(height: 12),
+          _ActionCard(
+            icon: Icons.play_circle_fill_rounded,
             title: 'Highlights Management',
-            titleIcon: Icons.play_circle_fill,
-            titleColor: Colors.orange,
-            items: [
-              _MenuItem(
-                icon: Icons.add_box_outlined,
-                text: 'Upload Highlight',
-                onTap: () => open(context, const HighlightsPage()),
-              ),
-            ],
+            subtitle: 'Upload highlight title, thumbnail and video URL.',
+            iconColor: const Color(0xFFF97316),
+            onTap: () => open(context, const HighlightsPage()),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.title,
-    required this.titleIcon,
-    required this.titleColor,
-    required this.items,
-  });
-
-  final String title;
-  final IconData titleIcon;
-  final Color titleColor;
-  final List<_MenuItem> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 2,
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 20, 18, 16),
+          const SizedBox(height: 22),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: colors.surfaceContainerHighest.withValues(alpha: .45),
+              borderRadius: BorderRadius.circular(20),
+            ),
             child: Row(
               children: [
-                Icon(titleIcon, color: titleColor, size: 30),
-                const SizedBox(width: 14),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w800,
+                Icon(Icons.cloud_done_outlined, color: colors.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Supabase connected • Changes appear in the user app.',
+                    style: TextStyle(color: colors.onSurfaceVariant),
                   ),
                 ),
               ],
             ),
           ),
-          const Divider(height: 1),
-          ...items.map((item) => Column(
-                children: [
-                  ListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    leading: Icon(item.icon, size: 30),
-                    title: Text(
-                      item.text,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: item.onTap,
-                  ),
-                  if (item != items.last)
-                    const Divider(height: 1, indent: 64, endIndent: 16),
-                ],
-              )),
         ],
       ),
     );
   }
 }
 
-class _MenuItem {
-  const _MenuItem({
+class _HeroBall extends StatelessWidget {
+  const _HeroBall();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 74,
+      height: 74,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .14),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withValues(alpha: .22)),
+      ),
+      child: const Icon(
+        Icons.sports_soccer_rounded,
+        color: Colors.white,
+        size: 42,
+      ),
+    );
+  }
+}
+
+class _ActionCard extends StatelessWidget {
+  const _ActionCard({
     required this.icon,
-    required this.text,
+    required this.title,
+    required this.subtitle,
+    required this.iconColor,
     required this.onTap,
   });
 
   final IconData icon;
-  final String text;
+  final String title;
+  final String subtitle;
+  final Color iconColor;
   final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: BorderSide(
+          color: colors.outlineVariant.withValues(alpha: .5),
+        ),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: .12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(icon, color: iconColor, size: 27),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        height: 1.35,
+                        fontSize: 13,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 17,
+                color: colors.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'app_theme.dart';
 import 'screens/auth_gate.dart';
+import 'theme_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -8,7 +10,10 @@ Future<void> main() async {
   const url = 'https://woggzixprvyjnfjzsglz.supabase.co';
   const anonKey = 'sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O';
 
-  await Supabase.initialize(url: url, anonKey: anonKey);
+  await Future.wait([
+    Supabase.initialize(url: url, anonKey: anonKey),
+    AppThemeController.instance.load(),
+  ]);
 
   runApp(const FootballAdminApp());
 }
@@ -18,30 +23,18 @@ class FootballAdminApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Football Admin',
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF5F6F8),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF263238),
-          brightness: Brightness.light,
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey.shade300),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey.shade300),
-          ),
-        ),
-      ),
-      home: const AuthGate(),
+    return AnimatedBuilder(
+      animation: AppThemeController.instance,
+      builder: (context, _) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Football Admin',
+          theme: AppTheme.light(),
+          darkTheme: AppTheme.dark(),
+          themeMode: AppThemeController.instance.mode,
+          home: const AuthGate(),
+        );
+      },
     );
   }
 }

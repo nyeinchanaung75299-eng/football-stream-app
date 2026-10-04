@@ -44,7 +44,9 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     if ((!useWebView && mediaUrl.isEmpty) || (useWebView && browserUrl.isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(useWebView ? 'WebView URL is required.' : 'Link is required.'),
+          content: Text(
+            useWebView ? 'WebView URL is required.' : 'Stream link is required.',
+          ),
         ),
       );
       return;
@@ -55,7 +57,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       await Supabase.instance.client.from('stream_links').insert({
         'match_id': matchId,
         'label': resolution.text.trim().isEmpty ? 'Auto' : resolution.text.trim(),
-        'resolution': resolution.text.trim().isEmpty ? 'Auto' : resolution.text.trim(),
+        'resolution':
+            resolution.text.trim().isEmpty ? 'Auto' : resolution.text.trim(),
         'stream_type': streamType,
         'stream_url': mediaUrl,
         'referer': referer.text.trim().isEmpty ? null : referer.text.trim(),
@@ -89,136 +92,303 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     }
   }
 
-  Widget gap() => const SizedBox(height: 12);
-
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Live Links Upload')),
+      appBar: AppBar(title: const Text('Upload Live Link')),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: loadMatches(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
+
           final matches = snapshot.data!;
 
           return ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
             children: [
-              DropdownButtonFormField<String>(
-                value: matchId,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Select Match'),
-                items: matches
-                    .map(
-                      (m) => DropdownMenuItem(
-                        value: m['id'] as String,
-                        child: Text(
-                          '${m['home_team']} vs ${m['away_team']} • ${m['league']}',
-                          overflow: TextOverflow.ellipsis,
+              Container(
+                padding: const EdgeInsets.all(15),
+                decoration: BoxDecoration(
+                  color: colors.primary.withValues(alpha: .08),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline_rounded, color: colors.primary),
+                    const SizedBox(width: 11),
+                    const Expanded(
+                      child: Text(
+                        'Supports HLS, MPD/DASH, your authorized ClearKey, and WebView links.',
+                        style: TextStyle(height: 1.35),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              _Panel(
+                title: 'Source',
+                icon: Icons.live_tv_rounded,
+                child: Column(
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: matchId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Select match',
+                        prefixIcon: Icon(Icons.sports_soccer_rounded),
+                      ),
+                      items: matches
+                          .map(
+                            (m) => DropdownMenuItem(
+                              value: m['id'] as String,
+                              child: Text(
+                                '${m['home_team']} vs ${m['away_team']} • ${m['league']}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) => setState(() => matchId = v),
+                    ),
+                    const SizedBox(height: 13),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: resolution,
+                            decoration: const InputDecoration(
+                              labelText: 'Resolution',
+                              hintText: 'Auto / 720p / 1080p',
+                              prefixIcon: Icon(Icons.hd_rounded),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: streamType,
+                            decoration: const InputDecoration(
+                              labelText: 'Player type',
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'hls',
+                                child: Text('HLS'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'dash',
+                                child: Text('MPD / DASH'),
+                              ),
+                            ],
+                            onChanged: useWebView
+                                ? null
+                                : (v) =>
+                                    setState(() => streamType = v ?? 'dash'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 13),
+                    TextField(
+                      controller: link,
+                      minLines: 2,
+                      maxLines: 4,
+                      enabled: !useWebView,
+                      keyboardType: TextInputType.url,
+                      decoration: const InputDecoration(
+                        labelText: 'Stream link',
+                        hintText: 'https://...m3u8 or ...manifest.mpd',
+                        prefixIcon: Icon(Icons.link_rounded),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _Panel(
+                title: 'Headers',
+                icon: Icons.http_rounded,
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: referer,
+                      decoration: const InputDecoration(
+                        labelText: 'Referer',
+                        hintText: 'Optional',
+                        prefixIcon: Icon(Icons.reply_all_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 13),
+                    TextField(
+                      controller: origin,
+                      decoration: const InputDecoration(
+                        labelText: 'Origin',
+                        hintText: 'Optional',
+                        prefixIcon: Icon(Icons.public_rounded),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _Panel(
+                title: 'ClearKey (optional)',
+                icon: Icons.key_rounded,
+                subtitle: 'Use only for streams you are authorized to play.',
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: keyId,
+                      enabled: !useWebView && streamType == 'dash',
+                      decoration: const InputDecoration(
+                        labelText: 'keyID',
+                        hintText: 'Leave blank for non-DRM',
+                        prefixIcon: Icon(Icons.vpn_key_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 13),
+                    TextField(
+                      controller: keyData,
+                      enabled: !useWebView && streamType == 'dash',
+                      minLines: 1,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'keyData',
+                        hintText: 'Leave blank for non-DRM',
+                        prefixIcon: Icon(Icons.password_rounded),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _Panel(
+                title: 'Playback mode',
+                icon: Icons.tune_rounded,
+                child: Column(
+                  children: [
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Use WebView',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text(
+                        useWebView
+                            ? 'Web page player mode'
+                            : 'Native HLS / MPD player mode',
+                      ),
+                      value: useWebView,
+                      onChanged: (v) => setState(() => useWebView = v),
+                    ),
+                    if (useWebView) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: webViewUrl,
+                        keyboardType: TextInputType.url,
+                        decoration: const InputDecoration(
+                          labelText: 'WebView URL',
+                          prefixIcon: Icon(Icons.language_rounded),
                         ),
                       ),
-                    )
-                    .toList(),
-                onChanged: (v) => setState(() => matchId = v),
-              ),
-              gap(),
-              TextField(
-                controller: resolution,
-                decoration: const InputDecoration(labelText: 'Resolution'),
-              ),
-              gap(),
-              DropdownButtonFormField<String>(
-                value: streamType,
-                decoration: const InputDecoration(labelText: 'Player Type'),
-                items: const [
-                  DropdownMenuItem(value: 'hls', child: Text('HLS (.m3u8)')),
-                  DropdownMenuItem(value: 'dash', child: Text('MPD / DASH (.mpd)')),
-                ],
-                onChanged: useWebView
-                    ? null
-                    : (v) => setState(() => streamType = v ?? 'dash'),
-              ),
-              gap(),
-              TextField(
-                controller: link,
-                minLines: 2,
-                maxLines: 4,
-                enabled: !useWebView,
-                decoration: const InputDecoration(
-                  labelText: 'Link',
-                  hintText: 'https://...m3u8 or https://...manifest.mpd',
+                    ],
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Player notification',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: const Text(
+                        'Show media playback notification when supported.',
+                      ),
+                      value: sendNotification,
+                      onChanged: (v) =>
+                          setState(() => sendNotification = v),
+                    ),
+                  ],
                 ),
-              ),
-              gap(),
-              TextField(
-                controller: referer,
-                decoration: const InputDecoration(
-                  labelText: 'Referer',
-                  hintText: 'Optional HTTP Referer header',
-                ),
-              ),
-              gap(),
-              TextField(
-                controller: origin,
-                decoration: const InputDecoration(
-                  labelText: 'Origin',
-                  hintText: 'Optional HTTP Origin header',
-                ),
-              ),
-              gap(),
-              TextField(
-                controller: keyId,
-                enabled: !useWebView && streamType == 'dash',
-                decoration: const InputDecoration(
-                  labelText: 'keyID',
-                  hintText: 'ClearKey KID in HEX; leave blank for non-DRM',
-                ),
-              ),
-              gap(),
-              TextField(
-                controller: keyData,
-                enabled: !useWebView && streamType == 'dash',
-                minLines: 1,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'keyData',
-                  hintText: 'ClearKey key in HEX; leave blank for non-DRM',
-                ),
-              ),
-              gap(),
-              TextField(
-                controller: webViewUrl,
-                enabled: useWebView,
-                decoration: const InputDecoration(
-                  labelText: 'webView',
-                  hintText: 'https://example.com/player',
-                ),
-              ),
-              const SizedBox(height: 8),
-              SwitchListTile(
-                title: const Text('MPD or WebView'),
-                subtitle: Text(useWebView ? 'WebView mode' : 'Media player mode'),
-                value: useWebView,
-                onChanged: (v) => setState(() => useWebView = v),
-              ),
-              SwitchListTile(
-                title: const Text('Notification Send'),
-                value: sendNotification,
-                onChanged: (v) => setState(() => sendNotification = v),
               ),
               const SizedBox(height: 18),
-              SizedBox(
-                height: 52,
-                child: FilledButton(
-                  onPressed: loading ? null : save,
-                  child: Text(loading ? 'UPLOADING...' : 'UPLOAD'),
-                ),
+              FilledButton.icon(
+                onPressed: loading ? null : save,
+                icon: loading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.cloud_upload_rounded),
+                label: Text(loading ? 'UPLOADING...' : 'UPLOAD LINK'),
               ),
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _Panel extends StatelessWidget {
+  const _Panel({
+    required this.title,
+    required this.icon,
+    required this.child,
+    this.subtitle,
+  });
+
+  final String title;
+  final IconData icon;
+  final Widget child;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: BorderSide(
+          color: colors.outlineVariant.withValues(alpha: .5),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(17),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: colors.primary),
+                const SizedBox(width: 9),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 5),
+              Text(
+                subtitle!,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 15),
+            child,
+          ],
+        ),
       ),
     );
   }

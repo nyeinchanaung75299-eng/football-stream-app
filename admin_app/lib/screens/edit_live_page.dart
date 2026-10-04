@@ -36,61 +36,106 @@ class _EditLivePageState extends State<EditLivePage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Edit & Delete Live')),
+      appBar: AppBar(title: const Text('Manage Live Matches')),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: load(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
+
           final rows = snapshot.data!;
           if (rows.isEmpty) {
-            return const Center(child: Text('No matches yet.'));
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.sports_soccer_outlined,
+                      size: 58,
+                      color: colors.onSurfaceVariant,
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'No matches yet',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
           }
 
           return ListView.separated(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
             itemCount: rows.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final m = rows[index];
               final live = m['is_live'] == true;
               final active = m['is_active'] == true;
+
               return Card(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(22),
+                  side: BorderSide(
+                    color: colors.outlineVariant.withValues(alpha: .5),
+                  ),
+                ),
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(
-                          '${m['home_team']}  vs  ${m['away_team']}',
-                          style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        subtitle: Text('${m['league']}\n${m['kickoff_at']}'),
-                      ),
                       Row(
                         children: [
-                          Expanded(
-                            child: SwitchListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('LIVE'),
-                              value: live,
-                              onChanged: (v) => setFlags(m['id'], live: v),
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: (live ? Colors.red : colors.primary)
+                                  .withValues(alpha: .11),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Icon(
+                              live
+                                  ? Icons.podcasts_rounded
+                                  : Icons.sports_soccer_rounded,
+                              color: live ? Colors.redAccent : colors.primary,
                             ),
                           ),
+                          const SizedBox(width: 12),
                           Expanded(
-                            child: SwitchListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('Active'),
-                              value: active,
-                              onChanged: (v) => setFlags(m['id'], active: v),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${m['home_team']}  vs  ${m['away_team']}',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${m['league']}',
+                                  style: TextStyle(
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           IconButton(
                             tooltip: 'Delete',
-                            color: Colors.red,
+                            color: Colors.redAccent,
                             onPressed: () async {
                               final ok = await showDialog<bool>(
                                 context: context,
@@ -115,7 +160,29 @@ class _EditLivePageState extends State<EditLivePage> {
                               );
                               if (ok == true) await deleteMatch(m['id']);
                             },
-                            icon: const Icon(Icons.delete_outline),
+                            icon: const Icon(Icons.delete_outline_rounded),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SwitchListTile.adaptive(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('LIVE'),
+                              value: live,
+                              onChanged: (v) => setFlags(m['id'], live: v),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: SwitchListTile.adaptive(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Active'),
+                              value: active,
+                              onChanged: (v) => setFlags(m['id'], active: v),
+                            ),
                           ),
                         ],
                       ),

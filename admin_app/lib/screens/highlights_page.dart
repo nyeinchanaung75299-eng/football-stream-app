@@ -15,7 +15,13 @@ class _HighlightsPageState extends State<HighlightsPage> {
   bool loading = false;
 
   Future<void> save() async {
-    if (title.text.trim().isEmpty || video.text.trim().isEmpty) return;
+    if (title.text.trim().isEmpty || video.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Title and video URL are required.')),
+      );
+      return;
+    }
+
     setState(() => loading = true);
     try {
       await Supabase.instance.client.from('highlights').insert({
@@ -25,8 +31,17 @@ class _HighlightsPageState extends State<HighlightsPage> {
         'video_url': video.text.trim(),
         'is_active': true,
       });
+
       if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Highlight uploaded.')),
+      );
       Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -34,32 +49,58 @@ class _HighlightsPageState extends State<HighlightsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Highlights Management')),
+      appBar: AppBar(title: const Text('Highlights')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
-          TextField(
-            controller: title,
-            decoration: const InputDecoration(labelText: 'Title'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: thumbnail,
-            decoration: const InputDecoration(labelText: 'Thumbnail URL'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: video,
-            decoration: const InputDecoration(labelText: 'Video URL'),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 52,
-            child: FilledButton(
-              onPressed: loading ? null : save,
-              child: const Text('UPLOAD HIGHLIGHT'),
+          Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+              side: BorderSide(
+                color: colors.outlineVariant.withValues(alpha: .5),
+              ),
             ),
+            child: Padding(
+              padding: const EdgeInsets.all(17),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: title,
+                    decoration: const InputDecoration(
+                      labelText: 'Highlight title',
+                      prefixIcon: Icon(Icons.title_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 13),
+                  TextField(
+                    controller: thumbnail,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: 'Thumbnail URL',
+                      prefixIcon: Icon(Icons.image_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 13),
+                  TextField(
+                    controller: video,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: 'Video URL',
+                      prefixIcon: Icon(Icons.play_circle_outline_rounded),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: loading ? null : save,
+            icon: const Icon(Icons.cloud_upload_rounded),
+            label: Text(loading ? 'UPLOADING...' : 'UPLOAD HIGHLIGHT'),
           ),
         ],
       ),
