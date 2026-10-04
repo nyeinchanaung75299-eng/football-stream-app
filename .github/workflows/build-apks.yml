@@ -1,4 +1,4 @@
-name: Build Android V5 Release APKs
+name: Build Android V6.3 Fixture Picker APKs
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
       - name: Upload Admin APKs
         uses: actions/upload-artifact@v4
         with:
-          name: Football-Admin-V5-Release-APKs
+          name: Football-Admin-V6.3-Release-APKs
           path: admin_app/build/app/outputs/flutter-apk/*-release.apk
 
       - name: Create Android platform for Viewer
@@ -107,5 +107,5 @@ jobs:
       - name: Upload Viewer APKs
         uses: actions/upload-artifact@v4
         with:
-          name: Football-Viewer-V5-Release-APKs
+          name: Football-Viewer-V6.3-Release-APKs
           path: user_app/build/app/outputs/flutter-apk/*-release.apk
