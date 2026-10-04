@@ -77,7 +77,10 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       if (!mounted) return;
       setState(() {
         fixtures = [];
-        errorText = e.toString();
+        final raw = e.toString();
+        errorText = raw.contains('API_FOOTBALL_KEY') || raw.contains('FOOTBALL_API_KEY_MISSING')
+            ? 'Football API is not connected. Check API_FOOTBALL_KEY in Supabase Edge Functions > Secrets.'
+            : 'Could not load fixtures. Please try again.';
       });
     } finally {
       if (mounted) setState(() => loading = false);
@@ -120,8 +123,15 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
             'home_logo_url': f['home_logo'],
             'away_logo_url': f['away_logo'],
             'kickoff_at': f['kickoff_at'],
+            'home_score': f['home_score'],
+            'away_score': f['away_score'],
+            'status_short': f['status_short'] ?? 'NS',
+            'status_elapsed': f['status_elapsed'],
+            'is_finished': f['is_finished'] == true,
             'is_live': f['is_live'] == true,
             'is_active': true,
+            'is_featured': true,
+            'publish_state': 'published',
           },
           onConflict: 'external_fixture_id',
         );
@@ -182,7 +192,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pick Football Fixtures'),
+        title: const Text('Pick Big Matches'),
       ),
       bottomNavigationBar: selectedIds.isEmpty
           ? null
@@ -201,7 +211,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                   label: Text(
                     importing
                         ? 'ADDING...'
-                        : 'ADD SELECTED (${selectedIds.length})',
+                        : 'PUBLISH SELECTED (${selectedIds.length})',
                   ),
                 ),
               ),
@@ -216,7 +226,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
               borderRadius: BorderRadius.circular(18),
             ),
             child: const Text(
-              'This list is only for choosing fixtures. Nothing appears in the user app until you select it and press ADD SELECTED.',
+              'Only the matches you tick are published as featured matches. The viewer will not list the rest.',
               style: TextStyle(height: 1.4),
             ),
           ),

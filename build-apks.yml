@@ -1,4 +1,4 @@
-name: Build Android Release APKs
+name: Build Android V7 Pro APKs
 
 on:
   workflow_dispatch:
@@ -8,16 +8,15 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -25,80 +24,88 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Flutter info
-        run: flutter --version
-
-      # ---------- ADMIN APP ----------
-      - name: Create Android platform for Admin App
+      - name: Create Android platform for Admin
         working-directory: admin_app
         run: flutter create --platforms=android .
 
-      - name: Ensure Admin Internet Permission
+      - name: Patch Admin permissions
         working-directory: admin_app
         run: |
-          python3 - <<'PY'
+          python3 - <<'PY2'
           from pathlib import Path
-          p = Path('android/app/src/main/AndroidManifest.xml')
-          s = p.read_text()
-          perm = '<uses-permission android:name="android.permission.INTERNET"/>'
-          if perm not in s:
-              s = s.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
-                            '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    ' + perm)
+          p=Path('android/app/src/main/AndroidManifest.xml')
+          s=p.read_text()
+          marker='<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          perms=['<uses-permission android:name="android.permission.INTERNET"/>','<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>']
+          missing=[x for x in perms if x not in s]
+          if missing:
+              s=s.replace(marker, marker+'\n    '+'\n    '.join(missing))
               p.write_text(s)
-          PY
+          PY2
 
       - name: Get Admin dependencies
         working-directory: admin_app
         run: flutter pub get
 
-      - name: Build Admin Release APKs
+      - name: Build Admin release APKs
         working-directory: admin_app
         run: flutter build apk --release --split-per-abi
 
-      - name: Upload Admin Release APKs
+      - name: Upload Admin APKs
         uses: actions/upload-artifact@v4
         with:
-          name: Football-Admin-Release-APKs
+          name: Football-Admin-V7-Pro-Release-APKs
           path: admin_app/build/app/outputs/flutter-apk/*-release.apk
 
-      # ---------- USER APP ----------
-      - name: Create Android platform for User App
+      - name: Create Android platform for Viewer
         working-directory: user_app
         run: flutter create --platforms=android .
 
-      - name: Set User App Android minSdk 24
+      - name: Patch Viewer for Android 12 Media3
         working-directory: user_app
         run: |
-          if [ -f android/app/build.gradle.kts ]; then
-            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' android/app/build.gradle.kts
-          elif [ -f android/app/build.gradle ]; then
-            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' android/app/build.gradle
-          fi
-
-      - name: Ensure User App Internet Permission
-        working-directory: user_app
-        run: |
-          python3 - <<'PY'
+          python3 - <<'PY2'
           from pathlib import Path
-          p = Path('android/app/src/main/AndroidManifest.xml')
-          s = p.read_text()
-          perm = '<uses-permission android:name="android.permission.INTERNET"/>'
-          if perm not in s:
-              s = s.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
-                            '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    ' + perm)
-              p.write_text(s)
-          PY
+          import shutil
+          m=Path('android/app/src/main/AndroidManifest.xml')
+          s=m.read_text()
+          marker='<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          perms=['<uses-permission android:name="android.permission.INTERNET"/>','<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>']
+          missing=[x for x in perms if x not in s]
+          if missing: s=s.replace(marker, marker+'\n    '+'\n    '.join(missing))
+          activity='        <activity android:name=".NativePlayerActivity" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="false" android:theme="@style/LaunchTheme" />\n'
+          if 'NativePlayerActivity' not in s: s=s.replace('    </application>', activity+'    </application>')
+          m.write_text(s)
 
-      - name: Get User dependencies
+          gk=Path('android/app/build.gradle.kts')
+          if gk.exists():
+              g=gk.read_text().replace('minSdk = flutter.minSdkVersion','minSdk = 24')
+              if 'androidx.media3:media3-exoplayer:' not in g:
+                  g += '\n\ndependencies {\n    implementation("androidx.media3:media3-exoplayer:1.4.1")\n    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")\n    implementation("androidx.media3:media3-exoplayer-dash:1.4.1")\n    implementation("androidx.media3:media3-ui:1.4.1")\n}\n'
+              gk.write_text(g)
+          else:
+              gp=Path('android/app/build.gradle')
+              g=gp.read_text().replace('minSdkVersion flutter.minSdkVersion','minSdkVersion 24')
+              if 'androidx.media3:media3-exoplayer:' not in g:
+                  g += '\n\ndependencies {\n    implementation "androidx.media3:media3-exoplayer:1.4.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.4.1"\n    implementation "androidx.media3:media3-exoplayer-dash:1.4.1"\n    implementation "androidx.media3:media3-ui:1.4.1"\n}\n'
+              gp.write_text(g)
+
+          dest=Path('android/app/src/main/kotlin/com/example/football_viewer')
+          dest.mkdir(parents=True, exist_ok=True)
+          shutil.copy2('android_patch/MainActivity.kt', dest/'MainActivity.kt')
+          shutil.copy2('android_patch/NativePlayerActivity.kt', dest/'NativePlayerActivity.kt')
+          PY2
+
+      - name: Get Viewer dependencies
         working-directory: user_app
         run: flutter pub get
 
-      - name: Build User Release APKs
+      - name: Build Viewer release APKs
         working-directory: user_app
         run: flutter build apk --release --split-per-abi
 
-      - name: Upload User Release APKs
+      - name: Upload Viewer APKs
         uses: actions/upload-artifact@v4
         with:
-          name: Football-User-Release-APKs
+          name: Football-Viewer-V7-Pro-Release-APKs
           path: user_app/build/app/outputs/flutter-apk/*-release.apk

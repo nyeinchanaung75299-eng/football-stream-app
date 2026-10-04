@@ -10,18 +10,15 @@ class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
   void open(BuildContext context, Widget page) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => page),
-    );
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Football Admin'),
+        title: const Text('Football Admin Pro'),
         actions: [
           const ThemeModeButton(),
           IconButton(
@@ -33,153 +30,53 @@ class DashboardPage extends StatelessWidget {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
         children: [
-          Container(
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [
-                  Color(0xFF0F5132),
-                  Color(0xFF16A34A),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(28),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF16A34A).withValues(alpha: .18),
-                  blurRadius: 30,
-                  offset: const Offset(0, 14),
-                ),
-              ],
-            ),
-            child: const Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Live Match Manager',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 26,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -.4,
-                        ),
-                      ),
-                      SizedBox(height: 7),
-                      Text(
-                        'Pick fixtures from the football API or create your own match.',
-                        style: TextStyle(
-                          color: Color(0xFFE5F7EB),
-                          height: 1.4,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(width: 14),
-                _HeroBall(),
-              ],
-            ),
-          ),
-          const SizedBox(height: 22),
           Text(
-            'Add Matches',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            'Control Center',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.w900,
-                  letterSpacing: -.2,
+                  letterSpacing: -.4,
                 ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 4),
+          Text(
+            'Only the controls you need.',
+            style: TextStyle(color: colors.onSurfaceVariant),
+          ),
+          const SizedBox(height: 18),
           _ActionCard(
-            icon: Icons.event_available_rounded,
-            title: 'Pick Football Fixtures',
-            subtitle:
-                'Load today, tomorrow or live matches and add only the games you want.',
-            iconColor: colors.primary,
+            icon: Icons.star_rounded,
+            title: 'Pick Big Matches',
+            subtitle: 'Choose fixtures from the API and publish only selected games.',
+            iconColor: const Color(0xFFF59E0B),
             onTap: () => open(context, const FixtureImportPage()),
           ),
           const SizedBox(height: 10),
           _ActionCard(
-            icon: Icons.edit_calendar_rounded,
-            title: 'Create Match Manually',
-            subtitle:
-                'Type the teams yourself and use your own logo URLs when needed.',
+            icon: Icons.add_circle_outline_rounded,
+            title: 'Manual Match',
+            subtitle: 'Create your own match and use your own logo URLs.',
             iconColor: const Color(0xFF0EA5E9),
             onTap: () => open(context, const LiveUploadPage()),
           ),
-          const SizedBox(height: 24),
-          Text(
-            'Manage',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -.2,
-                ),
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           _ActionCard(
-            icon: Icons.link_rounded,
-            title: 'Live Links',
-            subtitle: 'Add, edit, disable or delete stream servers.',
-            iconColor: const Color(0xFF6D5DFB),
-            onTap: () => open(context, const LiveLinksPage()),
+            icon: Icons.sports_score_rounded,
+            title: 'Matches & Scores',
+            subtitle: 'Edit score, teams, logos, kickoff, publish state or delete.',
+            iconColor: colors.primary,
+            onTap: () => open(context, const EditLivePage()),
           ),
           const SizedBox(height: 10),
           _ActionCard(
-            icon: Icons.tune_rounded,
-            title: 'Edit Matches',
-            subtitle:
-                'Fix team names, logos, date/time, LIVE status or delete a match.',
-            iconColor: const Color(0xFFF59E0B),
-            onTap: () => open(context, const EditLivePage()),
-          ),
-          const SizedBox(height: 22),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: colors.surfaceContainerHighest.withValues(alpha: .45),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.cloud_done_outlined, color: colors.primary),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Supabase connected • Imported and manual matches use the same match list.',
-                    style: TextStyle(color: colors.onSurfaceVariant),
-                  ),
-                ),
-              ],
-            ),
+            icon: Icons.dns_rounded,
+            title: 'Stream Servers',
+            subtitle: 'Add primary/backup links and edit or disable them.',
+            iconColor: const Color(0xFF7C3AED),
+            onTap: () => open(context, const LiveLinksPage()),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _HeroBall extends StatelessWidget {
-  const _HeroBall();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 74,
-      height: 74,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: .14),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withValues(alpha: .22)),
-      ),
-      child: const Icon(
-        Icons.sports_soccer_rounded,
-        color: Colors.white,
-        size: 42,
       ),
     );
   }
@@ -203,14 +100,11 @@ class _ActionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-
     return Card(
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(22),
-        side: BorderSide(
-          color: colors.outlineVariant.withValues(alpha: .5),
-        ),
+        side: BorderSide(color: colors.outlineVariant.withValues(alpha: .45)),
       ),
       child: InkWell(
         onTap: onTap,
@@ -232,13 +126,11 @@ class _ActionCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                    Text(title,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                        )),
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
@@ -252,11 +144,7 @@ class _ActionCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Icon(
-                Icons.arrow_forward_ios_rounded,
-                size: 17,
-                color: colors.onSurfaceVariant,
-              ),
+              Icon(Icons.chevron_right_rounded, color: colors.onSurfaceVariant),
             ],
           ),
         ),

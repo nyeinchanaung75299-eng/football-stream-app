@@ -78,3 +78,20 @@ flutter run \
 - Anonymous users can read active matches and active stream links.
 - This starter targets the common Android use case. Test your exact HLS/DASH streams on the target devices.
 - DRM-protected streams require the proper licensed DRM integration and cannot be handled by merely pasting a URL.
+
+## V2: Own ClearKey / headers / WebView
+
+`Upload Live Links` now supports:
+- Resolution / server label
+- HLS or MPD/DASH URL
+- Referer header
+- Origin header
+- ClearKey `keyID` + `keyData` in HEX (Android)
+- Optional WebView URL
+- Player/WebView switch
+- Player notification switch
+
+If this Supabase project already used the original schema, run:
+`supabase/upgrade_stream_links_v2.sql`
+
+ClearKey is client-side DRM and is not strong key secrecy. For stronger protection use a licensed DRM system and license server.

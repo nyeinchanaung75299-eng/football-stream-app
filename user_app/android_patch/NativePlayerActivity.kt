@@ -12,11 +12,13 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
@@ -36,14 +38,16 @@ import org.json.JSONArray
 class NativePlayerActivity : Activity() {
     private var player: ExoPlayer? = null
     private var trackSelector: DefaultTrackSelector? = null
-
     private lateinit var playerView: PlayerView
     private lateinit var qualityButton: TextView
+    private lateinit var serverButton: TextView
+    private lateinit var statusText: TextView
 
     private var sources = JSONArray()
     private var selectedServerIndex = 0
     private var qualityOptions = mutableListOf<QualityOption>()
     private var forcedQualityLabel: String? = null
+    private var autoFallbackTried = mutableSetOf<Int>()
 
     private data class QualityOption(
         val label: String,
@@ -55,7 +59,14 @@ class NativePlayerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        try {
+            createPlayerScreen()
+        } catch (t: Throwable) {
+            showFatalError("Player failed to start")
+        }
+    }
 
+    private fun createPlayerScreen() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.statusBarColor = Color.BLACK
         window.navigationBarColor = Color.BLACK
@@ -63,79 +74,70 @@ class NativePlayerActivity : Activity() {
 
         val json = intent.getStringExtra("sourcesJson").orEmpty()
         if (json.isBlank()) {
-            finish()
+            showFatalError("No stream source")
             return
         }
 
-        try {
-            sources = JSONArray(json)
+        sources = try {
+            JSONArray(json)
         } catch (_: Throwable) {
-            finish()
+            showFatalError("Invalid stream source")
             return
         }
 
         if (sources.length() == 0) {
-            finish()
+            showFatalError("No stream source")
             return
         }
 
         selectedServerIndex = intent.getIntExtra("selectedIndex", 0)
             .coerceIn(0, sources.length() - 1)
 
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-        }
-
+        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         playerView = PlayerView(this).apply {
             setBackgroundColor(Color.BLACK)
-            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             useController = true
             controllerAutoShow = true
+            controllerShowTimeoutMs = 3000
         }
+        root.addView(playerView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-        root.addView(
-            playerView,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        )
-
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(6))
+            setBackgroundColor(Color.argb(115, 0, 0, 0))
+        }
         val back = overlayButton("←").apply {
+            textSize = 28f
             contentDescription = "Back"
             setOnClickListener { finish() }
         }
-
-        root.addView(
-            back,
-            FrameLayout.LayoutParams(
-                dp(52),
-                dp(46),
-                Gravity.TOP or Gravity.START
-            ).apply {
-                leftMargin = dp(14)
-                topMargin = dp(14)
-            }
-        )
-
-        qualityButton = overlayButton("Auto ▾").apply {
-            textSize = 15f
-            setPadding(dp(14), 0, dp(14), 0)
-            contentDescription = "Quality"
+        serverButton = overlayButton("Server").apply {
+            textSize = 14f
+            setPadding(dp(12), 0, dp(12), 0)
+            setOnClickListener { showServerMenu() }
+        }
+        qualityButton = overlayButton("Auto").apply {
+            textSize = 14f
+            setPadding(dp(12), 0, dp(12), 0)
             setOnClickListener { showQualityMenu() }
         }
+        topBar.addView(back, LinearLayout.LayoutParams(dp(48), dp(42)))
+        topBar.addView(serverButton, LinearLayout.LayoutParams(0, dp(42), 1f))
+        topBar.addView(qualityButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)))
+        root.addView(topBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
 
-        root.addView(
-            qualityButton,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                dp(46),
-                Gravity.TOP or Gravity.END
-            ).apply {
-                rightMargin = dp(14)
-                topMargin = dp(14)
-            }
-        )
+        statusText = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setBackgroundColor(Color.argb(165, 0, 0, 0))
+            visibility = View.GONE
+        }
+        root.addView(statusText, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
 
         setContentView(root)
         playServer(selectedServerIndex)
@@ -147,202 +149,206 @@ class NativePlayerActivity : Activity() {
     }
 
     private fun playServer(index: Int) {
-        val source = sources.getJSONObject(index)
-        val url = source.optString("url")
-        if (url.isBlank()) return
+        if (index !in 0 until sources.length()) return
+        val source = sources.optJSONObject(index) ?: return
+        val url = source.optString("url").trim()
+        if (url.isBlank()) {
+            tryNextServer("Empty stream URL")
+            return
+        }
 
         selectedServerIndex = index
         forcedQualityLabel = null
         qualityOptions.clear()
-        qualityButton.text = "Auto ▾"
+        qualityButton.text = "Auto"
+        serverButton.text = source.optString("label", "Server ${index + 1}")
+        showStatus("Opening ${serverButton.text}…")
 
+        playerView.player = null
         player?.release()
         player = null
         trackSelector = null
 
         try {
             val headers = mutableMapOf<String, String>()
-            val referer = source.optString("referer")
-            val origin = source.optString("origin")
+            val referer = source.optString("referer").trim()
+            val origin = source.optString("origin").trim()
             if (referer.isNotBlank()) headers["Referer"] = referer
             if (origin.isNotBlank()) headers["Origin"] = origin
 
             val httpFactory = DefaultHttpDataSource.Factory()
                 .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(12000)
+                .setReadTimeoutMs(15000)
                 .setDefaultRequestProperties(headers)
 
             val mediaSourceFactory = DefaultMediaSourceFactory(httpFactory)
-            val item = MediaItem.Builder().setUri(url)
-
+            val itemBuilder = MediaItem.Builder().setUri(url)
             when (source.optString("streamType", "auto").lowercase()) {
-                "dash", "mpd" -> item.setMimeType(MimeTypes.APPLICATION_MPD)
-                "hls", "m3u8" -> item.setMimeType(MimeTypes.APPLICATION_M3U8)
-                // FLV / MP4 / direct:
-                // Let Media3 progressive extraction detect the format.
+                "dash", "mpd" -> itemBuilder.setMimeType(MimeTypes.APPLICATION_MPD)
+                "hls", "m3u8" -> itemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
             }
 
-            val keyId = source.optString("keyId")
-            val keyData = source.optString("keyData")
-
+            val keyId = source.optString("keyId").trim()
+            val keyData = source.optString("keyData").trim()
             if (keyId.isNotBlank() && keyData.isNotBlank()) {
-                val clearKeyJson =
-                    "{\"keys\":[{\"kty\":\"oct\",\"kid\":\"" +
-                        toBase64Url(keyId) +
-                        "\",\"k\":\"" +
-                        toBase64Url(keyData) +
-                        "\"}],\"type\":\"temporary\"}"
-
-                val callback = LocalMediaDrmCallback(
-                    clearKeyJson.toByteArray(Charsets.UTF_8)
-                )
-
+                val clearKeyJson = "{\"keys\":[{\"kty\":\"oct\",\"kid\":\"${toBase64Url(keyId)}\",\"k\":\"${toBase64Url(keyData)}\"}],\"type\":\"temporary\"}"
+                val callback = LocalMediaDrmCallback(clearKeyJson.toByteArray(Charsets.UTF_8))
                 val drm = DefaultDrmSessionManager.Builder()
                     .setPlayClearSamplesWithoutKeys(true)
                     .setMultiSession(false)
-                    .setUuidAndExoMediaDrmProvider(
-                        C.CLEARKEY_UUID,
-                        FrameworkMediaDrm.DEFAULT_PROVIDER
-                    )
+                    .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
                     .build(callback)
-
                 mediaSourceFactory.setDrmSessionManagerProvider { drm }
-
-                item.setDrmConfiguration(
-                    MediaItem.DrmConfiguration.Builder(
-                        C.CLEARKEY_UUID
-                    ).build()
-                )
+                itemBuilder.setDrmConfiguration(MediaItem.DrmConfiguration.Builder(C.CLEARKEY_UUID).build())
             }
 
             val selector = DefaultTrackSelector(this)
             trackSelector = selector
-
-            val exoPlayer = ExoPlayer.Builder(this)
+            val exo = ExoPlayer.Builder(this)
                 .setTrackSelector(selector)
                 .setMediaSourceFactory(mediaSourceFactory)
                 .build()
 
-            exoPlayer.addListener(
-                object : Player.Listener {
-                    override fun onTracksChanged(tracks: Tracks) {
-                        rebuildQualityOptions(tracks)
+            exo.addListener(object : Player.Listener {
+                override fun onTracksChanged(tracks: Tracks) {
+                    rebuildQualityOptions(tracks)
+                }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    when (playbackState) {
+                        Player.STATE_READY -> hideStatus()
+                        Player.STATE_BUFFERING -> showStatus("Buffering…")
+                        Player.STATE_ENDED -> showStatus("Stream ended")
                     }
                 }
-            )
 
-            player = exoPlayer
-            playerView.player = exoPlayer
-            exoPlayer.setMediaItem(item.build())
-            exoPlayer.prepare()
-            exoPlayer.playWhenReady = true
+                override fun onPlayerError(error: PlaybackException) {
+                    tryNextServer("Server unavailable")
+                }
+            })
+
+            player = exo
+            playerView.player = exo
+            exo.setMediaItem(itemBuilder.build())
+            exo.prepare()
+            exo.playWhenReady = true
         } catch (_: Throwable) {
-            // Keep this screen open so the user can go back and choose another server.
+            tryNextServer("Server unavailable")
         }
     }
 
-    private fun rebuildQualityOptions(tracks: Tracks) {
-        val bestByHeight = linkedMapOf<Int, QualityOption>()
+    private fun tryNextServer(message: String) {
+        autoFallbackTried.add(selectedServerIndex)
+        for (i in 0 until sources.length()) {
+            if (!autoFallbackTried.contains(i)) {
+                showStatus("$message • trying backup…")
+                playerView.postDelayed({ playServer(i) }, 550)
+                return
+            }
+        }
+        showStatus("No working server\nTap Server to choose again")
+        autoFallbackTried.clear()
+    }
 
+    private fun showServerMenu() {
+        val popup = PopupMenu(this, serverButton)
+        for (i in 0 until sources.length()) {
+            val source = sources.optJSONObject(i)
+            val label = source?.optString("label", "Server ${i + 1}") ?: "Server ${i + 1}"
+            popup.menu.add(0, 12000 + i, i, label).apply { isChecked = i == selectedServerIndex }
+        }
+        popup.setOnMenuItemClickListener { item ->
+            val i = item.itemId - 12000
+            if (i in 0 until sources.length()) {
+                autoFallbackTried.clear()
+                playServer(i)
+                true
+            } else false
+        }
+        popup.show()
+    }
+
+    private fun rebuildQualityOptions(tracks: Tracks) {
+        val best = linkedMapOf<Int, QualityOption>()
         for (group in tracks.groups) {
             if (group.type != C.TRACK_TYPE_VIDEO) continue
-
             for (trackIndex in 0 until group.length) {
                 if (!group.isTrackSupported(trackIndex)) continue
-
                 val format = group.getTrackFormat(trackIndex)
                 val height = format.height
                 if (height <= 0) continue
-
                 val bitrate = format.bitrate
-                val option = QualityOption(
-                    label = "${height}p",
-                    group = group,
-                    trackIndex = trackIndex,
-                    height = height,
-                    bitrate = bitrate
-                )
-
-                val existing = bestByHeight[height]
-                if (existing == null || bitrate > existing.bitrate) {
-                    bestByHeight[height] = option
-                }
+                val option = QualityOption("${height}p", group, trackIndex, height, bitrate)
+                val old = best[height]
+                if (old == null || bitrate > old.bitrate) best[height] = option
             }
         }
-
-        qualityOptions = bestByHeight.values
-            .sortedByDescending { it.height }
-            .toMutableList()
-
+        qualityOptions = best.values.sortedByDescending { it.height }.toMutableList()
         runOnUiThread {
-            qualityButton.visibility =
-                if (qualityOptions.size > 1) View.VISIBLE else View.VISIBLE
-
-            qualityButton.text =
-                (forcedQualityLabel ?: "Auto") + " ▾"
+            qualityButton.text = forcedQualityLabel ?: "Auto"
+            qualityButton.visibility = View.VISIBLE
         }
     }
 
     private fun showQualityMenu() {
         val selector = trackSelector ?: return
         val popup = PopupMenu(this, qualityButton)
-
-        popup.menu.add(0, QUALITY_AUTO_ID, 0, "Auto").apply {
-            isCheckable = true
-            isChecked = forcedQualityLabel == null
-        }
-
+        popup.menu.add(0, 9000, 0, "Auto").apply { isChecked = forcedQualityLabel == null }
         qualityOptions.forEachIndexed { index, option ->
-            popup.menu.add(
-                0,
-                QUALITY_BASE_ID + index,
-                index + 1,
-                option.label
-            ).apply {
-                isCheckable = true
-                isChecked = forcedQualityLabel == option.label
-            }
+            popup.menu.add(0, 9100 + index, index + 1, option.label).apply { isChecked = forcedQualityLabel == option.label }
         }
-
-        popup.setOnMenuItemClickListener { menuItem ->
-            if (menuItem.itemId == QUALITY_AUTO_ID) {
-                selector.parameters = selector
-                    .buildUponParameters()
-                    .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                    .build()
-
+        popup.setOnMenuItemClickListener { item ->
+            if (item.itemId == 9000) {
+                selector.parameters = selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_VIDEO).build()
                 forcedQualityLabel = null
-                qualityButton.text = "Auto ▾"
-                return@setOnMenuItemClickListener true
+                qualityButton.text = "Auto"
+                true
+            } else {
+                val option = qualityOptions.getOrNull(item.itemId - 9100) ?: return@setOnMenuItemClickListener false
+                val override = TrackSelectionOverride(option.group.mediaTrackGroup, option.trackIndex)
+                selector.parameters = selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_VIDEO).setOverrideForType(override).build()
+                forcedQualityLabel = option.label
+                qualityButton.text = option.label
+                true
             }
-
-            val index = menuItem.itemId - QUALITY_BASE_ID
-            val option = qualityOptions.getOrNull(index)
-                ?: return@setOnMenuItemClickListener false
-
-            val override = TrackSelectionOverride(
-                option.group.mediaTrackGroup,
-                option.trackIndex
-            )
-
-            selector.parameters = selector
-                .buildUponParameters()
-                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                .setOverrideForType(override)
-                .build()
-
-            forcedQualityLabel = option.label
-            qualityButton.text = "${option.label} ▾"
-            true
         }
-
         popup.show()
     }
 
-    private fun overlayButton(textValue: String): TextView {
-        return TextView(this).apply {
-            text = textValue
+    private fun showStatus(text: String) {
+        runOnUiThread {
+            if (::statusText.isInitialized) {
+                statusText.text = text
+                statusText.visibility = View.VISIBLE
+            }
+        }
+    }
+
+    private fun hideStatus() {
+        runOnUiThread {
+            if (::statusText.isInitialized) statusText.visibility = View.GONE
+        }
+    }
+
+    private fun showFatalError(text: String) {
+        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        val message = TextView(this).apply {
             setTextColor(Color.WHITE)
-            textSize = 28f
+            textSize = 18f
+            gravity = Gravity.CENTER
+            this.text = "$text\n\nTap to go back"
+            setPadding(dp(24), dp(24), dp(24), dp(24))
+            setOnClickListener { finish() }
+        }
+        root.addView(message, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        setContentView(root)
+    }
+
+    private fun overlayButton(value: String): TextView {
+        return TextView(this).apply {
+            text = value
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
             setBackgroundColor(Color.argb(150, 0, 0, 0))
             isClickable = true
@@ -353,69 +359,39 @@ class NativePlayerActivity : Activity() {
     private fun hideSystemBars() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
-            window.insetsController?.let { controller ->
-                controller.hide(
-                    WindowInsets.Type.statusBars() or
-                        WindowInsets.Type.navigationBars()
-                )
-                controller.systemBarsBehavior =
-                    WindowInsetsController
-                        .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            window.insetsController?.let { c ->
+                c.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
         } else {
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility =
-                View.SYSTEM_UI_FLAG_FULLSCREEN or
-                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
-                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
-                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         }
     }
 
     override fun onDestroy() {
-        playerView.player = null
+        if (::playerView.isInitialized) playerView.player = null
         player?.release()
         player = null
         trackSelector = null
         super.onDestroy()
     }
 
-    private fun dp(value: Int): Int {
-        return (value * resources.displayMetrics.density).toInt()
-    }
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun toBase64Url(value: String): String {
         val clean = value.replace(" ", "").trim()
-
-        if (
-            clean.matches(Regex("^[0-9a-fA-F]+$")) &&
-            clean.length % 2 == 0
-        ) {
+        if (clean.matches(Regex("^[0-9a-fA-F]+$")) && clean.length % 2 == 0) {
             val bytes = ByteArray(clean.length / 2)
             for (i in bytes.indices) {
                 val p = i * 2
-                bytes[i] =
-                    clean.substring(p, p + 2).toInt(16).toByte()
+                bytes[i] = clean.substring(p, p + 2).toInt(16).toByte()
             }
-
-            return Base64.encodeToString(
-                bytes,
-                Base64.URL_SAFE or
-                    Base64.NO_WRAP or
-                    Base64.NO_PADDING
-            )
+            return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
         }
-
-        return clean
-            .replace("+", "-")
-            .replace("/", "_")
-            .trimEnd('=')
-    }
-
-    companion object {
-        private const val QUALITY_AUTO_ID = 9000
-        private const val QUALITY_BASE_ID = 9100
+        return clean.replace("+", "-").replace("/", "_").trimEnd('=')
     }
 }

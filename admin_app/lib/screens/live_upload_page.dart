@@ -83,6 +83,10 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
         'sort_order': int.tryParse(order.text) ?? 0,
         'is_live': isLive,
         'is_active': true,
+        'is_featured': true,
+        'publish_state': 'published',
+        'source': 'manual',
+        'status_short': isLive ? 'LIVE' : 'NS',
       });
 
       if (!mounted) return;
