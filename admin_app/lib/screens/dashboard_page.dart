@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../widgets/theme_mode_button.dart';
 import 'edit_live_page.dart';
-import 'highlights_page.dart';
+import 'fixture_import_page.dart';
 import 'live_links_page.dart';
 import 'live_upload_page.dart';
 
@@ -62,7 +62,7 @@ class DashboardPage extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Admin Dashboard',
+                        'Live Match Manager',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 26,
@@ -72,7 +72,7 @@ class DashboardPage extends StatelessWidget {
                       ),
                       SizedBox(height: 7),
                       Text(
-                        'Control every live match from one clean place.',
+                        'Pick fixtures from the football API or create your own match.',
                         style: TextStyle(
                           color: Color(0xFFE5F7EB),
                           height: 1.4,
@@ -88,7 +88,7 @@ class DashboardPage extends StatelessWidget {
           ),
           const SizedBox(height: 22),
           Text(
-            'Live Management',
+            'Add Matches',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w900,
                   letterSpacing: -.2,
@@ -96,43 +96,46 @@ class DashboardPage extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _ActionCard(
-            icon: Icons.add_circle_rounded,
-            title: 'Upload Live',
-            subtitle: 'Create a match, teams, logos and kickoff time.',
+            icon: Icons.event_available_rounded,
+            title: 'Pick Football Fixtures',
+            subtitle:
+                'Load today, tomorrow or live matches and add only the games you want.',
             iconColor: colors.primary,
-            onTap: () => open(context, const LiveUploadPage()),
+            onTap: () => open(context, const FixtureImportPage()),
           ),
           const SizedBox(height: 10),
           _ActionCard(
+            icon: Icons.edit_calendar_rounded,
+            title: 'Create Match Manually',
+            subtitle:
+                'Type the teams yourself and use your own logo URLs when needed.',
+            iconColor: const Color(0xFF0EA5E9),
+            onTap: () => open(context, const LiveUploadPage()),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Manage',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -.2,
+                ),
+          ),
+          const SizedBox(height: 12),
+          _ActionCard(
             icon: Icons.link_rounded,
-            title: 'Upload Live Links',
-            subtitle: 'Add HLS, MPD, ClearKey or WebView sources.',
+            title: 'Live Links',
+            subtitle: 'Add, edit, disable or delete stream servers.',
             iconColor: const Color(0xFF6D5DFB),
             onTap: () => open(context, const LiveLinksPage()),
           ),
           const SizedBox(height: 10),
           _ActionCard(
-            icon: Icons.edit_note_rounded,
-            title: 'Edit & Delete Live',
-            subtitle: 'Switch Live/Active status or remove a match.',
+            icon: Icons.tune_rounded,
+            title: 'Edit Matches',
+            subtitle:
+                'Fix team names, logos, date/time, LIVE status or delete a match.',
             iconColor: const Color(0xFFF59E0B),
             onTap: () => open(context, const EditLivePage()),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Highlights',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -.2,
-                ),
-          ),
-          const SizedBox(height: 12),
-          _ActionCard(
-            icon: Icons.play_circle_fill_rounded,
-            title: 'Highlights Management',
-            subtitle: 'Upload highlight title, thumbnail and video URL.',
-            iconColor: const Color(0xFFF97316),
-            onTap: () => open(context, const HighlightsPage()),
           ),
           const SizedBox(height: 22),
           Container(
@@ -147,7 +150,7 @@ class DashboardPage extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Supabase connected • Changes appear in the user app.',
+                    'Supabase connected • Imported and manual matches use the same match list.',
                     style: TextStyle(color: colors.onSurfaceVariant),
                   ),
                 ),
