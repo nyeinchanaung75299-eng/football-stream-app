@@ -12,7 +12,7 @@ class HomePage extends StatelessWidget {
         .select('''
           id,league,home_team,away_team,home_logo_url,away_logo_url,
           kickoff_at,is_live,sort_order,
-          stream_links(id,label,stream_type,stream_url,is_active,sort_order)
+          stream_links(id,label,resolution,stream_type,stream_url,referer,origin,key_id,key_data,use_webview,webview_url,send_notification,is_active,sort_order)
         ''')
         .eq('is_active', true)
         .order('sort_order')
