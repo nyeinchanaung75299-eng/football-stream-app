@@ -104,15 +104,16 @@
 
     function sourceSupport(source){
       const type=sourceType(source);
-      const keyId=String(source.keyId||source.key_id||'').trim();
-      const keyData=String(source.keyData||source.key_data||'').trim();
 
-      if(isIOS() && type==='flv'){
-        return {ok:false, reason:'FLV is not supported on iPhone/iPad browser'};
+      // Do not blacklist a line only because of iOS/Safari.
+      // Browser capabilities change over time and some iOS/WebKit builds can
+      // play sources that older builds could not. We attempt playback first.
+      if(type==='flv' && window.mpegts && typeof mpegts.isSupported==='function'){
+        if(!mpegts.isSupported()){
+          return {ok:true, reason:'Browser support may be limited'};
+        }
       }
-      if(isIOS() && type==='dash' && keyId && keyData){
-        return {ok:false, reason:'ClearKey DASH is not supported by iPhone/iPad Safari'};
-      }
+
       return {ok:true, reason:''};
     }
 
@@ -131,14 +132,15 @@
         const item=document.createElement('button');
         item.type='button';
         item.className='football-menu-item'+
-          (index===currentSourceIndex?' current':'')+
-          (!support.ok?' unsupported':'');
-        item.disabled=!support.ok;
+          (index===currentSourceIndex?' current':'');
+        item.disabled=false;
         const label=String(source.label||source.resolution||('Server '+(index+1)));
         item.innerHTML=
           '<span class="football-menu-item-main">'+
           '<span class="football-menu-item-label">'+escapeHtml(label)+'</span>'+
-          '<span class="football-menu-item-sub">'+escapeHtml(support.ok?(type==='AUTO'?'Auto / Direct':type):support.reason)+'</span>'+
+          '<span class="football-menu-item-sub">'+escapeHtml(
+            support.reason || (type==='AUTO'?'Auto / Direct':type)
+          )+'</span>'+
           '</span>'+
           (index===currentSourceIndex?'<span class="football-menu-item-badge">PLAYING</span>':'');
         item.addEventListener('click',()=>{
@@ -268,16 +270,6 @@
       const source=sources[index], url=String(source.url||'').trim(), type=sourceType(source);
       const support=sourceSupport(source);
 
-      if(!support.ok){
-        const fallback=sources.findIndex((candidate,i)=>i!==index&&sourceSupport(candidate).ok);
-        if(fallback>=0){
-          showMessage(support.reason+' • opening another line…');
-          return loadSource(fallback);
-        }
-        showMessage(support.reason);
-        return;
-      }
-
       currentSourceIndex=index;
       updateServerButton(index);
       closePlayerMenu();
@@ -310,7 +302,7 @@
           if(keyId&&keyData){const clearKeys={};clearKeys[keyId]=keyData;shakaPlayer.configure({drm:{clearKeys}})}
           shakaPlayer.addEventListener('error',event=>{
             const detail=event&&event.detail?event.detail:{};
-            showMessage('Playback error'+(detail.code?' ('+detail.code+')':'')+'. Try another line.');
+            showMessage('Playback error'+(detail.code?' ('+detail.code+')':'')+'. This line failed in this browser. Try another line.');
           });
           await shakaPlayer.load(url);
           currentTracks=shakaPlayer.getVariantTracks(); fillQualityOptions();
@@ -323,7 +315,7 @@
         if(warning)showMessage(warning);
       }catch(error){
         console.error(error);
-        showMessage((error&&error.message?error.message:'Playback failed.')+' Try another line.');
+        showMessage((error&&error.message?error.message:'Playback failed.')+' This line failed in this browser. Try another line.');
       }
     }
 
@@ -365,9 +357,9 @@
       try{const parsed=JSON.parse(String(sourcesJson||'[]'));sources=Array.isArray(parsed)?parsed.filter(x=>x&&x.url):[]}catch(_){sources=[]}
       titleEl.textContent=String(title||'Football Live');
       let startIndex=Math.max(0,Math.min(Number(selectedIndex)||0,sources.length-1));
-      if(sources[startIndex] && !sourceSupport(sources[startIndex]).ok){
-        const supported=sources.findIndex(source=>sourceSupport(source).ok);
-        if(supported>=0) startIndex=supported;
+      if(isIOS() && sources[startIndex] && sourceType(sources[startIndex])==='flv'){
+        const hlsIndex=sources.findIndex(source=>sourceType(source)==='hls');
+        if(hlsIndex>=0) startIndex=hlsIndex;
       }
       currentSourceIndex=startIndex;
       updateServerButton(startIndex);

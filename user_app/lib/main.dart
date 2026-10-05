@@ -60,7 +60,7 @@ class _StartupErrorPage extends StatelessWidget {
                 SizedBox(height: 14),
                 Text('Server connection unavailable', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
                 SizedBox(height: 8),
-                Text('Turn on your VPN and reopen the app.', textAlign: TextAlign.center),
+                Text('Check your internet connection or try another network, then reopen the app.', textAlign: TextAlign.center),
               ],
             ),
           ),
