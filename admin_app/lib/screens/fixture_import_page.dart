@@ -90,9 +90,19 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       setState(() {
         fixtures = [];
         final raw = e.toString();
-        errorText = raw.contains('API_FOOTBALL_KEY') || raw.contains('FOOTBALL_API_KEY_MISSING')
-            ? 'Football API is not connected. Check API_FOOTBALL_KEY in Supabase Edge Functions > Secrets.'
-            : 'Could not load fixtures. Please try again.';
+        final lower = raw.toLowerCase();
+        if (lower.contains('account is suspended') ||
+            lower.contains('football_api_account_suspended')) {
+          errorText =
+              'API-Football is currently suspended, so new fixtures and automatic scores cannot be loaded. Existing matches, manual matches and stream tools still work.';
+        } else if (raw.contains('API_FOOTBALL_KEY') ||
+            raw.contains('FOOTBALL_API_KEY_MISSING')) {
+          errorText =
+              'Football API is not connected. Check API_FOOTBALL_KEY in Supabase Edge Functions > Secrets.';
+        } else {
+          errorText =
+              'Could not load fixtures: ${raw.replaceFirst('Exception: ', '')}';
+        }
       });
     } finally {
       if (mounted) setState(() => loading = false);
