@@ -69,7 +69,9 @@ jobs:
           PY
 
           rm -f public/streams.json
-          git add -A public/matches.json public/status.json public/streams.json
+          # Stage metadata and tracked deletions without requiring the removed
+          # streams.json to exist; existing signed releases stay on feed.
+          git add -A public/
 
           if git diff --cached --quiet; then
             echo "No feed changes."

@@ -31,7 +31,6 @@ class _HomePageState extends State<HomePage> {
   RealtimeChannel? _channel;
   Timer? _debounce;
   Timer? _scoreRefresh;
-  String? _fallbackLabel;
 
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
@@ -401,28 +400,43 @@ class _HomePageState extends State<HomePage> {
       throw StateError('Supabase is unavailable on this network.');
     }
 
-    final data = await client
-        .from('matches')
-        .select('''
-          id,league,home_team,away_team,home_logo_url,away_logo_url,
-          kickoff_at,is_live,sort_order,home_score,away_score,status_short,
-          status_elapsed,is_finished,is_featured,publish_state,
-          last_score_sync_at,updated_at
-        ''')
-        .eq('is_active', true)
-        .eq('publish_state', 'published')
-        .eq('is_featured', true)
-        .order('kickoff_at')
-        .order('sort_order')
-        .timeout(const Duration(seconds: 5));
+    // Complete this fallback only when its safe availability counts are ready.
+    // If either query fails, another hedged source can still return a full feed.
+    // The count view exposes no upstream URLs, headers, or playback keys.
+    final data = await Future.wait<List<Map<String, dynamic>>>([
+      client
+          .from('matches')
+          .select('''
+            id,league,home_team,away_team,home_logo_url,away_logo_url,
+            kickoff_at,is_live,sort_order,home_score,away_score,status_short,
+            status_elapsed,is_finished,is_featured,publish_state,
+            last_score_sync_at,updated_at
+          ''')
+          .eq('is_active', true)
+          .eq('publish_state', 'published')
+          .eq('is_featured', true)
+          .order('kickoff_at')
+          .order('sort_order')
+          .timeout(const Duration(seconds: 5)),
+      client
+          .from('match_stream_counts')
+          .select('match_id,stream_count')
+          .timeout(const Duration(seconds: 5)),
+    ]);
 
-    final rows = List<Map<String, dynamic>>.from(data);
+    final rows = List<Map<String, dynamic>>.from(data[0]);
     for (final row in rows) {
       row['stream_count'] = 0;
       row['stream_links'] = const <Map<String, dynamic>>[];
     }
+    final counts = data[1]
+        .map((row) => <String, dynamic>{
+              'id': row['match_id'],
+              'stream_count': (row['stream_count'] as num?)?.toInt() ?? 0,
+            })
+        .toList();
     return _sortMatchesChronologically(
-      _visibleMatches(rows),
+      _visibleMatches(_mergeAvailability(rows, counts)),
     );
   }
 
@@ -453,7 +467,6 @@ class _HomePageState extends State<HomePage> {
       attempts,
       delay: const Duration(milliseconds: 650),
     );
-    _fallbackLabel = result.label;
 
     unawaited(
       AnalyticsService.capture(

@@ -79,9 +79,27 @@ jobs:
           git show origin/feed:public/matches.json > build/web/matches.json
           git show origin/feed:public/status.json > build/web/status.json || true
 
-          mkdir -p build/web/releases
-          git show origin/feed:public/releases/latest.json > build/web/releases/latest.json || true
-          git show origin/feed:public/releases/NCA-latest.apk > build/web/releases/NCA-latest.apk || true
+          # Signing may not be configured yet. Publish a release only when both
+          # files exist, rather than leaving empty files from failed redirects.
+          if git cat-file -e origin/feed:public/releases/latest.json 2>/dev/null && \
+             git cat-file -e origin/feed:public/releases/NCA-latest.apk 2>/dev/null; then
+            mkdir -p build/web/releases
+            git show origin/feed:public/releases/latest.json > build/web/releases/latest.json
+            git show origin/feed:public/releases/NCA-latest.apk > build/web/releases/NCA-latest.apk
+            python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          release = Path('build/web/releases')
+          manifest = json.loads((release / 'latest.json').read_text(encoding='utf-8'))
+          apk = (release / 'NCA-latest.apk').read_bytes()
+          if not apk or len(apk) != manifest['size_bytes']:
+              raise SystemExit('Release APK size does not match the updater manifest.')
+          if hashlib.sha256(apk).hexdigest() != manifest['sha256']:
+              raise SystemExit('Release APK hash does not match the updater manifest.')
+          PY
+          else
+            echo "No complete signed updater release on feed yet."
+          fi
 
       - name: Upload Web build artifact
         uses: actions/upload-artifact@v7

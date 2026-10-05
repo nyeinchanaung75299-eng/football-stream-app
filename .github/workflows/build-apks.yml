@@ -34,7 +34,13 @@ jobs:
 
       - name: Create Android platform for Admin
         working-directory: admin_app
-        run: flutter create --platforms=android .
+        run: |
+          HAD_WIDGET_TEST=false
+          if [ -e test/widget_test.dart ]; then HAD_WIDGET_TEST=true; fi
+          flutter create --platforms=android .
+          # The generated counter test targets MyApp, which is not this app.
+          # Keep any test that was already part of the checked-out project.
+          if [ "$HAD_WIDGET_TEST" = false ]; then rm -f test/widget_test.dart; fi
 
       - name: Patch Admin permissions
         working-directory: admin_app
@@ -86,7 +92,11 @@ jobs:
 
       - name: Create Android platform for Viewer
         working-directory: user_app
-        run: flutter create --platforms=android .
+        run: |
+          HAD_WIDGET_TEST=false
+          if [ -e test/widget_test.dart ]; then HAD_WIDGET_TEST=true; fi
+          flutter create --platforms=android .
+          if [ "$HAD_WIDGET_TEST" = false ]; then rm -f test/widget_test.dart; fi
 
       - name: Patch Viewer for Android 12 Media3
         working-directory: user_app
@@ -166,16 +176,21 @@ jobs:
 
           s = gk.read_text()
           if 'val ncaKeystoreProperties = Properties()' not in s:
-              prefix = (
+              imports = (
                   'import java.io.FileInputStream\n'
                   'import java.util.Properties\n\n'
+              )
+              properties = (
                   'val ncaKeystoreProperties = Properties()\n'
                   'val ncaKeystorePropertiesFile = rootProject.file("key.properties")\n'
                   'if (ncaKeystorePropertiesFile.exists()) {\n'
                   '    ncaKeystoreProperties.load(FileInputStream(ncaKeystorePropertiesFile))\n'
                   '}\n\n'
               )
-              s = prefix + s
+              if 'plugins {' not in s or 'android {' not in s:
+                  raise SystemExit('Expected Flutter Gradle template blocks were not found.')
+              # Gradle requires plugins before arbitrary declarations/blocks.
+              s = imports + s.replace('android {', properties + 'android {', 1)
 
           if 'create("ncaRelease")' not in s:
               signing = (
@@ -188,12 +203,16 @@ jobs:
                   '        }\n'
                   '    }\n\n'
               )
+              if '    buildTypes {' not in s:
+                  raise SystemExit('Expected Flutter Gradle buildTypes block was not found.')
               s = s.replace('    buildTypes {', signing + '    buildTypes {', 1)
 
           s = s.replace(
               'signingConfig = signingConfigs.getByName("debug")',
               'signingConfig = signingConfigs.getByName("ncaRelease")',
           )
+          if 'signingConfig = signingConfigs.getByName("ncaRelease")' not in s:
+              raise SystemExit('Release signing configuration was not applied.')
           gk.write_text(s)
           PY2
 

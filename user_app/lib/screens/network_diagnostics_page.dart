@@ -418,16 +418,6 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
     }
   }
 
-  int _formatRank(Map<String, dynamic> row) {
-    final type = _streamType(row).toLowerCase();
-    if (type == 'hls') return 0;
-    if (type == 'dash') return 1;
-    if (type == 'mp4') return 2;
-    if (type == 'auto') return 3;
-    if (type == 'flv') return 4;
-    return 5;
-  }
-
   String _streamType(Map<String, dynamic> row) {
     final declared =
         (row['stream_type'] ?? 'auto').toString().toLowerCase();
