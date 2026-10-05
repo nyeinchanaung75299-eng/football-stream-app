@@ -1,4 +1,4 @@
-name: Build Android V9.4 Premium APKs
+name: Build Android V9.5 Premium APKs
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
       - name: Upload Admin APKs
         uses: actions/upload-artifact@v7
         with:
-          name: Football-Admin-V9.4-Premium-Release-APKs
+          name: Football-Admin-V9.5-Premium-Release-APKs
           path: admin_app/build/app/outputs/flutter-apk/*-release.apk
 
       - name: Create Android platform for Viewer
@@ -107,5 +107,5 @@ jobs:
       - name: Upload Viewer APKs
         uses: actions/upload-artifact@v7
         with:
-          name: Football-Viewer-V9.4-Premium-Release-APKs
+          name: Football-Viewer-V9.5-Premium-Release-APKs
           path: user_app/build/app/outputs/flutter-apk/*-release.apk
