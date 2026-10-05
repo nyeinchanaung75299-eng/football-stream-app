@@ -43,6 +43,15 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     return v.isEmpty ? null : v;
   }
 
+  String detectStreamType(String value, {String fallback = 'auto'}) {
+    final v = value.trim().toLowerCase();
+    if (v.contains('.m3u8')) return 'hls';
+    if (v.contains('.mpd')) return 'dash';
+    if (v.contains('.flv')) return 'flv';
+    if (v.contains('.mp4')) return 'mp4';
+    return fallback;
+  }
+
   void message(String text) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(text)),
@@ -91,16 +100,24 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
           ? 'Server'
           : serverName.text.trim();
 
+      final effectiveType = useWebView
+          ? 'auto'
+          : detectStreamType(link.text, fallback: streamType);
+
       await Supabase.instance.client.from('stream_links').insert({
         'match_id': matchId,
         'label': name,
         'resolution': name,
-        'stream_type': useWebView ? 'auto' : streamType,
+        'stream_type': effectiveType,
         'stream_url': useWebView ? '' : link.text.trim(),
         'referer': nullable(referer.text),
         'origin': nullable(origin.text),
-        'key_id': nullable(keyId.text),
-        'key_data': nullable(keyData.text),
+        'key_id': !useWebView && effectiveType == 'dash'
+            ? nullable(keyId.text)
+            : null,
+        'key_data': !useWebView && effectiveType == 'dash'
+            ? nullable(keyData.text)
+            : null,
         'use_webview': useWebView,
         'webview_url': useWebView ? webViewUrl.text.trim() : null,
         'send_notification': false,
@@ -253,8 +270,15 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                       enabled: !web,
                       minLines: 2,
                       maxLines: 4,
+                      onChanged: (value) {
+                        final detected = detectStreamType(value);
+                        if (detected != 'auto' && detected != type) {
+                          setSheetState(() => type = detected);
+                        }
+                      },
                       decoration: const InputDecoration(
                         labelText: 'Stream URL',
+                        helperText: 'm3u8 / mpd / flv / mp4 is detected automatically.',
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -285,23 +309,23 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        TextField(
-                          controller: kid,
-                          enabled: !web && type == 'dash',
-                          decoration: const InputDecoration(
-                            labelText: 'ClearKey keyID',
-                            hintText: 'DASH only',
+                        if (!web && type == 'dash') ...[
+                          TextField(
+                            controller: kid,
+                            decoration: const InputDecoration(
+                              labelText: 'ClearKey keyID',
+                              hintText: 'Optional',
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: key,
-                          enabled: !web && type == 'dash',
-                          decoration: const InputDecoration(
-                            labelText: 'ClearKey keyData',
-                            hintText: 'DASH only',
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: key,
+                            decoration: const InputDecoration(
+                              labelText: 'ClearKey keyData',
+                              hintText: 'Optional',
+                            ),
                           ),
-                        ),
+                        ],
                         const SizedBox(height: 4),
                         SwitchListTile.adaptive(
                           contentPadding: EdgeInsets.zero,
@@ -341,17 +365,20 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
     if (save != true) return;
 
+    final effectiveType =
+        web ? 'auto' : detectStreamType(url.text, fallback: type);
+
     await Supabase.instance.client
         .from('stream_links')
         .update({
           'label': name.text.trim().isEmpty ? 'Server' : name.text.trim(),
           'resolution': name.text.trim().isEmpty ? 'Server' : name.text.trim(),
-          'stream_type': web ? 'auto' : type,
+          'stream_type': effectiveType,
           'stream_url': web ? '' : url.text.trim(),
           'referer': nullable(ref.text),
           'origin': nullable(org.text),
-          'key_id': nullable(kid.text),
-          'key_data': nullable(key.text),
+          'key_id': !web && effectiveType == 'dash' ? nullable(kid.text) : null,
+          'key_data': !web && effectiveType == 'dash' ? nullable(key.text) : null,
           'use_webview': web,
           'webview_url': web ? nullable(webUrl.text) : null,
           'send_notification': false,
@@ -450,9 +477,16 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                         minLines: 2,
                         maxLines: 4,
                         keyboardType: TextInputType.url,
+                        onChanged: (value) {
+                          final detected = detectStreamType(value);
+                          if (detected != 'auto' && detected != streamType) {
+                            setState(() => streamType = detected);
+                          }
+                        },
                         decoration: const InputDecoration(
                           labelText: 'Stream URL',
                           hintText: 'Paste m3u8 / mpd / flv / mp4 / direct URL',
+                          helperText: 'Stream type is detected automatically.',
                           prefixIcon: Icon(Icons.link_rounded),
                         ),
                       ),
@@ -484,23 +518,23 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          TextField(
-                            controller: keyId,
-                            enabled: !useWebView && streamType == 'dash',
-                            decoration: const InputDecoration(
-                              labelText: 'ClearKey keyID',
-                              hintText: 'DASH only',
+                          if (!useWebView && streamType == 'dash') ...[
+                            TextField(
+                              controller: keyId,
+                              decoration: const InputDecoration(
+                                labelText: 'ClearKey keyID',
+                                hintText: 'Optional',
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: keyData,
-                            enabled: !useWebView && streamType == 'dash',
-                            decoration: const InputDecoration(
-                              labelText: 'ClearKey keyData',
-                              hintText: 'DASH only',
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: keyData,
+                              decoration: const InputDecoration(
+                                labelText: 'ClearKey keyData',
+                                hintText: 'Optional',
+                              ),
                             ),
-                          ),
+                          ],
                           const SizedBox(height: 4),
                           SwitchListTile.adaptive(
                             contentPadding: EdgeInsets.zero,
