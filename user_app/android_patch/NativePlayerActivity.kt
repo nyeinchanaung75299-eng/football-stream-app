@@ -117,7 +117,7 @@ class NativePlayerActivity : Activity() {
 
         playerView = PlayerView(this).apply {
             setBackgroundColor(Color.BLACK)
-            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             useController = true
             controllerAutoShow = true
             controllerShowTimeoutMs = 3000
