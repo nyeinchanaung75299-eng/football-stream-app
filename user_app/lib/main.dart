@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'analytics_service.dart';
 import 'app_theme.dart';
@@ -39,6 +40,7 @@ class FootballViewerApp extends StatelessWidget {
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: AppThemeController.instance.mode,
+          navigatorObservers: [PosthogObserver()],
           home: startupError == null ? const HomePage() : const _StartupErrorPage(),
         );
       },
