@@ -258,7 +258,7 @@ async function roomStreams(args: {
 }
 
 async function fawaMatches() {
-  const html = await fetchText(FAWA_HOME);
+  const html = await fetchFawaText(FAWA_HOME);
   const grouped = new Map<string, any>();
 
   // Fawa has nested/unclosed <a> tags. Parsing one whole card with a single
@@ -272,7 +272,7 @@ async function fawaMatches() {
     const name = decodeHtml(stripTags(hit[1])).replace(/\s+/g, " ").trim();
     if (!/\bvs\b/i.test(name)) continue;
 
-    const before = html.slice(Math.max(0, hit.index - 700), hit.index);
+    const before = html.slice(Math.max(0, hit.index - 1800), hit.index);
     const hrefRegex = /href=["']([^"']+\.html)["']/gi;
     let hrefHit: RegExpExecArray | null;
     let href = "";
@@ -332,6 +332,60 @@ async function fawaMatches() {
     grouped.set(key, existing);
   }
 
+  // Fallback for Fawa revisions that drop the user-item__name class.
+  // Only same-site .html links whose visible text contains "vs" are accepted.
+  if (grouped.size === 0) {
+    const anchorRegex =
+      /<a\b[^>]*href=["']([^"']+\.html(?:\?[^"']*)?)["'][^>]*>([\s\S]{0,2200}?)<\/a>/gi;
+    let anchorHit: RegExpExecArray | null;
+    while ((anchorHit = anchorRegex.exec(html)) !== null) {
+      const href = decodeHtml(anchorHit[1]).trim();
+      const visible = decodeHtml(stripTags(anchorHit[2]))
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!/\bvs\b/i.test(visible)) continue;
+
+      const cleaned = visible
+        .replace(/\s*---\s*CH\s*\d+\s*$/i, "")
+        .trim();
+      const teams = cleaned.split(/\s+vs\s+/i);
+      if (teams.length < 2) continue;
+
+      const pageUrl = absoluteFawaUrl(href);
+      if (!pageUrl) continue;
+      const key = cleaned.toLowerCase();
+
+      const existing = grouped.get(key) ?? {
+        source: "fawa",
+        source_id: key,
+        page_url: pageUrl,
+        league: "Football",
+        home_team: teams[0]?.trim() || cleaned,
+        away_team: teams[1]?.trim() || "",
+        home_logo: null,
+        away_logo: null,
+        match_time: null,
+        time_label: null,
+        hot: false,
+        status: null,
+        match_status: null,
+        anchors: [],
+      };
+
+      if (!existing.anchors.some((item: any) => item.page_url === pageUrl)) {
+        existing.anchors.push({
+          uid: href,
+          nick_name: channelLabel(visible),
+          icon: null,
+          room_num: href,
+          page_url: pageUrl,
+        });
+      }
+
+      grouped.set(key, existing);
+    }
+  }
+
   const matches = [...grouped.values()].sort((a, b) =>
     String(a.home_team).localeCompare(String(b.home_team))
   );
@@ -351,7 +405,7 @@ async function fawaStreams(body: any) {
     return json({ error: "Invalid Fawa match page." }, 400);
   }
 
-  const html = await fetchText(pageUrl);
+  const html = await fetchFawaText(pageUrl);
   const origin = new URL(pageUrl).origin;
   const urls = extractMediaUrls(html, pageUrl);
 
@@ -820,6 +874,42 @@ function decodeHtml(value: string) {
     .replace(/&#39;/gi, "'")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">");
+}
+
+async function fetchFawaText(url: string) {
+  const candidates = [url];
+
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.hostname === "www.fawanews.sc" ||
+      parsed.hostname === "fawanews.sc"
+    ) {
+      const alt = new URL(parsed.toString());
+      alt.protocol = parsed.protocol === "https:" ? "http:" : "https:";
+      candidates.push(alt.toString());
+
+      const hostAlt = new URL(parsed.toString());
+      hostAlt.hostname =
+        parsed.hostname === "www.fawanews.sc"
+          ? "fawanews.sc"
+          : "www.fawanews.sc";
+      candidates.push(hostAlt.toString());
+    }
+  } catch (_) {}
+
+  let lastError: unknown = null;
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      return await fetchText(candidate);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Fawa source is unreachable.");
 }
 
 async function fetchText(url: string) {
