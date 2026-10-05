@@ -6,7 +6,7 @@ const workerPath = fileURLToPath(
   new URL('../cloudflare/public-api/src/index.js', import.meta.url),
 );
 const source = readFileSync(workerPath, 'utf8') +
-  '\nexport { advertisedLinkCount, protectedClientLinks, rewriteDashManifest, rewriteHlsPlaylist, resolveProtectedTarget };\n';
+  '\nexport { advertisedLinkCount, protectedClientLinks, rewriteDashManifest, rewriteHlsPlaylist, resolveProtectedTarget, workerFetchUrl, isFawaSession };\n';
 const mod = await import(
   'data:text/javascript;base64,' + Buffer.from(source).toString('base64')
 );
@@ -17,6 +17,8 @@ const {
   rewriteDashManifest,
   rewriteHlsPlaylist,
   resolveProtectedTarget,
+  workerFetchUrl,
+  isFawaSession,
 } = mod;
 
 const kv = new Map();
@@ -207,6 +209,28 @@ const hls = await rewriteHlsPlaylist(
 assert.ok(!hls.includes('media.example'));
 assert.match(hls, /https:\/\/football-api\.example\/p\//);
 
+const fawaAlias = workerFetchUrl(
+  'http://193.47.62.41/hls/SZSZSZQQ.m3u8?token=abc',
+);
+assert.equal(
+  fawaAlias.toString(),
+  'http://fawa41-origin.nyeinchanaung.us.ci/hls/SZSZSZQQ.m3u8?token=abc',
+  'Fawa IP literal must be routed through the DNS-only origin alias',
+);
+assert.equal(
+  workerFetchUrl('https://media.example/live/master.m3u8').toString(),
+  'https://media.example/live/master.m3u8',
+  'normal upstream hostnames must stay unchanged',
+);
+assert.equal(
+  isFawaSession({
+    r: 'http://www.fawanews.sc/France%20vs%20Belgium.html',
+    o: 'http://www.fawanews.sc',
+  }),
+  true,
+  'Fawa referer/origin must select the browser-compatible request profile',
+);
+
 console.log('PASS protected non-DRM DASH is advertised');
 console.log('PASS keyed DASH remains private');
 console.log('PASS relative DASH SegmentTemplate uses protected base routing');
@@ -214,4 +238,7 @@ console.log('PASS nested-only BaseURL manifests receive a protected root base');
 console.log('PASS absolute DASH templates preserve substitution tokens');
 console.log('PASS protected DASH base cannot escape its upstream path');
 console.log('PASS existing HLS rewrite remains protected');
-console.log('7 protected playback regression checks passed.');
+console.log('PASS Fawa raw IP origins are routed through DNS aliases');
+console.log('PASS normal upstream hostnames are not rewritten');
+console.log('PASS Fawa sessions use a browser-compatible upstream profile');
+console.log('10 protected playback regression checks passed.');
