@@ -7,7 +7,7 @@ class FunctionGateway {
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
     defaultValue:
-        'https://football-public-api.nyeinchanaung75299-eng.workers.dev',
+        'https://football-api.nyeinchanaung.us.ci',
   );
 
   static Future<dynamic> invoke(
@@ -26,8 +26,9 @@ class FunctionGateway {
       '$base/admin/functions/${Uri.encodeComponent(functionName)}',
     );
 
+    late http.Response response;
     try {
-      final response = await http
+      response = await http
           .post(
             uri,
             headers: {
@@ -39,32 +40,31 @@ class FunctionGateway {
             body: jsonEncode(body ?? const <String, dynamic>{}),
           )
           .timeout(const Duration(seconds: 15));
-
-      dynamic decoded;
-      if (response.body.trim().isNotEmpty) {
-        try {
-          decoded = jsonDecode(response.body);
-        } catch (_) {
-          decoded = response.body;
-        }
-      }
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return decoded;
-      }
-
-      final detail = decoded is Map && decoded['error'] != null
-          ? decoded['error'].toString()
-          : 'HTTP ${response.statusCode}';
-      throw Exception('Gateway error: $detail');
     } catch (_) {
-      // Keep a direct Supabase fallback for networks where the project
-      // hostname is reachable and the edge gateway is temporarily unavailable.
+      // Keep a direct Supabase fallback only for an edge/network failure.
       final direct = await Supabase.instance.client.functions.invoke(
         functionName,
         body: body,
       );
       return direct.data;
     }
+
+    dynamic decoded;
+    if (response.body.trim().isNotEmpty) {
+      try {
+        decoded = jsonDecode(response.body);
+      } catch (_) {
+        decoded = response.body;
+      }
+    }
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return decoded;
+    }
+
+    final detail = decoded is Map && decoded['error'] != null
+        ? decoded['error'].toString()
+        : 'HTTP ${response.statusCode}';
+    throw Exception('Gateway error: $detail');
   }
 }
