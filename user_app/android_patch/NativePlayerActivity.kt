@@ -47,6 +47,7 @@ class NativePlayerActivity : Activity() {
 
     private var sources = JSONArray()
     private var selectedServerIndex = 0
+    private var matchId = ""
     private var qualityOptions = mutableListOf<QualityOption>()
     private var forcedQualityLabel: String? = null
     private var autoFallbackTried = mutableSetOf<Int>()
@@ -93,12 +94,16 @@ class NativePlayerActivity : Activity() {
             "resolution" to (source?.optString("resolution", "") ?: ""),
             "health_status" to (source?.optString("healthStatus", "unknown") ?: "unknown")
         )
+        if (matchId.isNotBlank()) {
+            base["match_id"] = matchId
+        }
         base.putAll(extra)
         MainActivity.emitPlayerEvent(event, base)
     }
 
     private fun createPlayerScreen() {
         // Parse the payload before doing any ExoPlayer work.
+        matchId = intent.getStringExtra("matchId").orEmpty()
         val json = intent.getStringExtra("sourcesJson").orEmpty()
         if (json.isBlank()) {
             showFatalError("No stream source")
