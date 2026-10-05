@@ -41,6 +41,10 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Test protected HLS/DASH proxy
+        if: steps.cloudflare.outputs.ready == 'true'
+        run: node scripts/test_protected_dash_proxy.mjs
+
       - name: Deploy Worker
         if: steps.cloudflare.outputs.ready == 'true'
         working-directory: cloudflare/public-api
