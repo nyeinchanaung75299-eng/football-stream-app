@@ -20,6 +20,7 @@ SELECT = """
 id,league,home_team,away_team,home_logo_url,away_logo_url,
 kickoff_at,is_live,sort_order,home_score,away_score,status_short,
 status_elapsed,is_finished,is_featured,publish_state,
+last_score_sync_at,updated_at,
 stream_links(
 id,stream_type,stream_url,referer,origin,key_id,key_data,
 use_webview,webview_url,is_active,health_status,available_from,expires_at
