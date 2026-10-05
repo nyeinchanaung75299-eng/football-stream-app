@@ -429,8 +429,27 @@ class _HomePageState extends State<HomePage> {
     if (existing != null) return existing;
 
     final request = () async {
+      List<Map<String, dynamic>> rows = const [];
       try {
-        final rows = playableLinks(await _loadPublicApiStreams(matchId));
+        rows = playableLinks(await _loadPublicApiStreams(matchId));
+      } catch (_) {
+        rows = const [];
+      }
+
+      if (rows.isEmpty) {
+        final mirrorRows = playableLinks(match['stream_links']);
+        rows = mirrorRows.where((row) {
+          final url = (row['stream_url'] ?? '').toString().trim();
+          if (url.isEmpty) return false;
+          // HTTPS web pages cannot directly play HTTP fallback media.
+          if (kIsWeb && url.toLowerCase().startsWith('http://')) {
+            return false;
+          }
+          return true;
+        }).toList();
+      }
+
+      try {
         if (rows.isNotEmpty) {
           _streamLinkCache[matchId] = _StreamCacheEntry(
             rows,
@@ -440,9 +459,6 @@ class _HomePageState extends State<HomePage> {
           _streamLinkCache.remove(matchId);
         }
         return rows;
-      } catch (_) {
-        _streamLinkCache.remove(matchId);
-        return const <Map<String, dynamic>>[];
       } finally {
         _streamLinkInflight.remove(matchId);
       }
@@ -495,12 +511,9 @@ class _HomePageState extends State<HomePage> {
     }
 
     final rows = _decodeMatches(response.body);
-    // The mirror contains metadata and a safe line count only. Keep that count
-    // so WATCH remains available on restricted networks; actual playback URLs
-    // are still resolved exclusively through the protected Cloudflare API.
-    for (final row in rows) {
-      row['stream_links'] = const <Map<String, dynamic>>[];
-    }
+    // The mirror may contain safe non-keyed direct backup lines. Protected
+    // Cloudflare playback remains first choice; these are used only when that
+    // API is unreachable on restricted networks.
     return rows;
   }
 
