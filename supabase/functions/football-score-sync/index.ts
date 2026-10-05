@@ -239,6 +239,9 @@ async function syncScores(
           status_elapsed: row?.fixture?.status?.elapsed ?? null,
           is_live: isLive,
           is_finished: isFinished,
+          // A finished match stays in the database for history/admin use,
+          // but is automatically removed from the public Live list.
+          ...(isFinished ? { is_featured: false } : {}),
           last_score_sync_at: now.toISOString(),
         })
         .eq("external_fixture_id", fixtureId);
