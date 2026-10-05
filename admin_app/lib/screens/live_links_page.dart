@@ -23,6 +23,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   String? matchId;
   bool useWebView = false;
   bool loading = false;
+  bool checkingAll = false;
+  final Set<String> checkingLinks = <String>{};
   bool testingHealth = false;
 
   final streamTypes = const <String, String>{
@@ -234,6 +236,64 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         .eq('id', id);
 
     if (mounted) setState(() {});
+  }
+
+  Future<void> checkHealth(String id, {bool quiet = false}) async {
+    if (checkingLinks.contains(id)) return;
+
+    setState(() => checkingLinks.add(id));
+    try {
+      final response = await Supabase.instance.client.functions.invoke(
+        'stream-health',
+        body: {'link_id': id},
+      );
+
+      if (!quiet && mounted) {
+        final data = response.data;
+        if (data is Map) {
+          final status = data['health_status'] ?? 'unknown';
+          final latency = data['latency_ms'];
+          message(
+            latency == null
+                ? 'Health: $status'
+                : 'Health: $status • ${latency}ms',
+          );
+        }
+      }
+    } catch (e) {
+      if (!quiet && mounted) message('Health check failed: $e');
+    } finally {
+      if (mounted) {
+        setState(() => checkingLinks.remove(id));
+      }
+    }
+  }
+
+  Future<void> checkAllHealth(List<Map<String, dynamic>> rows) async {
+    if (checkingAll) return;
+    setState(() => checkingAll = true);
+
+    try {
+      for (final row in rows.where((item) => item['is_active'] == true)) {
+        await checkHealth(row['id'].toString(), quiet: true);
+      }
+      if (mounted) message('Health check finished.');
+    } finally {
+      if (mounted) setState(() => checkingAll = false);
+    }
+  }
+
+  Color healthColor(String status) {
+    switch (status) {
+      case 'healthy':
+        return Colors.green;
+      case 'slow':
+        return Colors.orange;
+      case 'failed':
+        return Colors.redAccent;
+      default:
+        return Colors.blueGrey;
+    }
   }
 
   Future<void> editLink(Map<String, dynamic> row) async {
@@ -684,7 +744,29 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                     }
 
                     return Column(
-                      children: rows.map((row) {
+                      children: [
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: FilledButton.tonalIcon(
+                            onPressed: checkingAll
+                                ? null
+                                : () => checkAllHealth(rows),
+                            icon: checkingAll
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.health_and_safety_rounded),
+                            label: Text(
+                              checkingAll ? 'CHECKING...' : 'CHECK ALL HEALTH',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ...rows.map((row) {
                         final name =
                             '${row['label'] ?? row['resolution'] ?? 'Server'}';
                         final type = row['use_webview'] == true
@@ -768,6 +850,48 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                                           Icons.monitor_heart_rounded,
                                         ),
                                       ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 5,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: healthColor(health)
+                                              .withValues(alpha: .1),
+                                          borderRadius:
+                                              BorderRadius.circular(999),
+                                        ),
+                                        child: Text(
+                                          latency == null
+                                              ? health.toUpperCase()
+                                              : '${health.toUpperCase()} • ${latency}ms',
+                                          style: TextStyle(
+                                            color: healthColor(health),
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Check health now',
+                                        onPressed: checking
+                                            ? null
+                                            : () => checkHealth(
+                                                  row['id'].toString(),
+                                                ),
+                                        icon: checking
+                                            ? const SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                ),
+                                              )
+                                            : const Icon(
+                                                Icons.monitor_heart_rounded,
+                                              ),
+                                      ),
                                       IconButton(
                                         tooltip: 'Edit',
                                         onPressed: () => editLink(row),
@@ -818,7 +942,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                             ),
                           ),
                         );
-                      }).toList(),
+                        }),
+                      ],
                     );
                   },
                 ),
