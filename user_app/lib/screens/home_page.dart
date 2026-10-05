@@ -575,8 +575,20 @@ class _HomePageState extends State<HomePage> {
               ],
               selected: {_sourceTab},
               showSelectedIcon: false,
-              onSelectionChanged: (value) {
-                setState(() => _sourceTab = value.first);
+              onSelectionChanged: (value) async {
+                final next = value.first;
+                if (next == 1) {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const SocoPage(),
+                    ),
+                  );
+                  if (mounted) {
+                    setState(() => _sourceTab = 0);
+                  }
+                  return;
+                }
+                setState(() => _sourceTab = 0);
               },
             ),
           ),
@@ -612,8 +624,7 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           Expanded(
-            child: _sourceTab == 0
-                ? FutureBuilder<List<Map<String, dynamic>>>(
+            child: FutureBuilder<List<Map<String, dynamic>>>(
                     future: _future,
                     builder: (context, snapshot) {
                       if (snapshot.connectionState != ConnectionState.done &&
@@ -669,8 +680,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                       );
                     },
-                  )
-                : const SocoPage(),
+                  ),
           ),
         ],
       ),
