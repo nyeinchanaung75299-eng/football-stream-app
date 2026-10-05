@@ -142,38 +142,37 @@ jobs:
           python3 - <<'PY2'
           from pathlib import Path
 
-          gk=Path('android/app/build.gradle.kts')
+          gk = Path('android/app/build.gradle.kts')
           if not gk.exists():
               raise SystemExit('Expected Kotlin Gradle build file was not generated.')
 
-          s=gk.read_text()
+          s = gk.read_text()
           if 'val ncaKeystoreProperties = Properties()' not in s:
-              prefix='''import java.io.FileInputStream
-import java.util.Properties
-
-val ncaKeystoreProperties = Properties()
-val ncaKeystorePropertiesFile = rootProject.file("key.properties")
-if (ncaKeystorePropertiesFile.exists()) {
-    ncaKeystoreProperties.load(FileInputStream(ncaKeystorePropertiesFile))
-}
-
-'''
-              s=prefix+s
+              prefix = (
+                  'import java.io.FileInputStream\n'
+                  'import java.util.Properties\n\n'
+                  'val ncaKeystoreProperties = Properties()\n'
+                  'val ncaKeystorePropertiesFile = rootProject.file("key.properties")\n'
+                  'if (ncaKeystorePropertiesFile.exists()) {\n'
+                  '    ncaKeystoreProperties.load(FileInputStream(ncaKeystorePropertiesFile))\n'
+                  '}\n\n'
+              )
+              s = prefix + s
 
           if 'create("ncaRelease")' not in s:
-              signing='''    signingConfigs {
-        create("ncaRelease") {
-            keyAlias = ncaKeystoreProperties["keyAlias"] as String
-            keyPassword = ncaKeystoreProperties["keyPassword"] as String
-            storeFile = file(ncaKeystoreProperties["storeFile"] as String)
-            storePassword = ncaKeystoreProperties["storePassword"] as String
-        }
-    }
+              signing = (
+                  '    signingConfigs {\n'
+                  '        create("ncaRelease") {\n'
+                  '            keyAlias = ncaKeystoreProperties["keyAlias"] as String\n'
+                  '            keyPassword = ncaKeystoreProperties["keyPassword"] as String\n'
+                  '            storeFile = file(ncaKeystoreProperties["storeFile"] as String)\n'
+                  '            storePassword = ncaKeystoreProperties["storePassword"] as String\n'
+                  '        }\n'
+                  '    }\n\n'
+              )
+              s = s.replace('    buildTypes {', signing + '    buildTypes {', 1)
 
-'''
-              s=s.replace('    buildTypes {', signing+'    buildTypes {', 1)
-
-          s=s.replace(
+          s = s.replace(
               'signingConfig = signingConfigs.getByName("debug")',
               'signingConfig = signingConfigs.getByName("ncaRelease")',
           )
