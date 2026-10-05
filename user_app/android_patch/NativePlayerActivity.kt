@@ -372,7 +372,7 @@ class NativePlayerActivity : Activity() {
                 override fun onPlayerError(error: PlaybackException) {
                     emitPlaybackEvent(
                         "playback line failed",
-                        mapOf("error_code" to error.errorCodeName)
+                        mapOf("error_code" to error.errorCode)
                     )
                     tryNextServer("Server unavailable")
                 }
