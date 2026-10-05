@@ -102,9 +102,7 @@ jobs:
 
       - name: Build Viewer release APKs
         working-directory: user_app
-        run: >-
-          flutter build apk --release --split-per-abi
-          --dart-define=PUBLIC_API_BASE="${{ vars.PUBLIC_API_BASE }}"
+        run: flutter build apk --release --split-per-abi
 
       - name: Upload Viewer APKs
         uses: actions/upload-artifact@v7
