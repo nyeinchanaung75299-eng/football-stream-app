@@ -272,10 +272,14 @@ class _HomePageState extends State<HomePage> {
               itemBuilder: (context, index) {
                 final m = matches[index];
                 final links = playableLinks(m['stream_links']);
+                final nativeLinkCount = links.where((x) {
+                  if (x['use_webview'] == true) return false;
+                  return (x['stream_url']?.toString() ?? '').trim().isNotEmpty;
+                }).length;
                 return _MatchCard(
                   match: m,
-                  canWatch: links.isNotEmpty,
-                  linkCount: links.length,
+                  canWatch: nativeLinkCount > 0,
+                  linkCount: nativeLinkCount,
                   onWatch: () => openPlayer(m),
                 );
               },
