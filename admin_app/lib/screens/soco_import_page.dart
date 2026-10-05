@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../analytics_service.dart';
 import '../services/function_gateway.dart';
 
 class SocoImportPage extends StatefulWidget {
@@ -100,9 +101,20 @@ class _SocoImportPageState extends State<SocoImportPage> {
             );
       });
 
+      await AnalyticsService.capture(
+        'source match list loaded',
+        properties: {
+          'source': source,
+          'match_count': parsed.length,
+        },
+      );
       if (!mounted) return;
       setState(() => sourceMatches = parsed);
     } catch (_) {
+      await AnalyticsService.capture(
+        'source match list failed',
+        properties: {'source': source},
+      );
       if (!mounted) return;
       setState(() {
         sourceMatches = const [];
@@ -252,6 +264,19 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .where((row) => (row['url'] ?? '').toString().trim().isNotEmpty)
           .toList();
 
+      await AnalyticsService.capture(
+        'source lines loaded',
+        properties: {
+          'source': source,
+          'line_count': lines.length,
+          'source_live':
+              data is Map &&
+              (data['live_status'] == true ||
+                  data['live_status'] == 1 ||
+                  data['live_status']?.toString() == '1'),
+        },
+      );
+
       if (!mounted) return;
       if (lines.isEmpty) {
         message('No playable line is available for this streamer.');
@@ -265,6 +290,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
         sourceLiveStatus: data is Map ? data['live_status'] : null,
       );
     } catch (_) {
+      await AnalyticsService.capture(
+        'source lines failed',
+        properties: {'source': source},
+      );
       if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
         Navigator.of(context, rootNavigator: true).pop();
       }
@@ -451,6 +480,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
                             await Clipboard.setData(
                               ClipboardData(text: url),
                             );
+                            await AnalyticsService.capture(
+                              'source link copied',
+                              properties: {
+                                'source': source,
+                                'stream_type':
+                                    (line['stream_type'] ?? 'auto').toString(),
+                              },
+                            );
                             message('${_sourceLabel(source)} link copied.');
                           },
                           icon: const Icon(Icons.copy_rounded),
@@ -524,6 +561,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
         .maybeSingle();
 
     if (existing != null) {
+      await AnalyticsService.capture(
+        'source line duplicate',
+        properties: {
+          'source': source,
+          'destination_preset': presetTarget != null,
+        },
+      );
       message('This source line is already added.');
       return false;
     }
@@ -565,6 +609,17 @@ class _SocoImportPageState extends State<SocoImportPage> {
       resultText = 'health pending';
     }
 
+    await AnalyticsService.capture(
+      'source line imported',
+      properties: {
+        'source': source,
+        'stream_type': type,
+        'resolution': resolution,
+        'destination_preset': presetTarget != null,
+        'health_status': resultText,
+      },
+    );
+
     message('$sourceName $label added • $resultText');
     return true;
   }
@@ -596,6 +651,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
               sourceMatches = const [];
               errorText = null;
             });
+            AnalyticsService.capture(
+              'source provider selected',
+              properties: {'source': value},
+            );
             _loadSoco();
           };
 
