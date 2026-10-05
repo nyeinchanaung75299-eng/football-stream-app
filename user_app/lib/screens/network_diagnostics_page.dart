@@ -15,7 +15,7 @@ class NetworkDiagnosticsPage extends StatefulWidget {
 class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
   static const _socoUrl = 'https://m.sutbongtv.com/match.html';
   static const _publicApiUrl =
-      'https://football-public-api.nyeinchanaung75299-eng.workers.dev';
+      'https://football-api.nyeinchanaung.us.ci';
   static const _mirrorUrl =
       'https://raw.githubusercontent.com/'
       'nyeinchanaung75299-eng/football-stream-app/'
