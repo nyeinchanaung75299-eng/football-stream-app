@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -22,6 +23,10 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
       'https://raw.githubusercontent.com/'
       'nyeinchanaung75299-eng/football-stream-app/'
       'feed/public/matches.json';
+  static const _mirrorStreamsUrl =
+      'https://raw.githubusercontent.com/'
+      'nyeinchanaung75299-eng/football-stream-app/'
+      'feed/public/streams.json';
 
   bool _running = false;
   final List<_DiagResult> _results = [];
@@ -223,9 +228,11 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
   }
 
   Future<void> _checkStreams() async {
-    List<dynamic> matches;
+    final samples = <Map<String, dynamic>>[];
+    Object? supabaseError;
+
     try {
-      matches = await Supabase.instance.client
+      final matches = await Supabase.instance.client
           .from('matches')
           .select(
             'id,home_team,away_team,stream_links('
@@ -236,46 +243,99 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
           .eq('publish_state', 'published')
           .eq('is_featured', true)
           .limit(3)
-          .timeout(const Duration(seconds: 8));
-    } catch (e) {
-      _add(
-        _DiagResult(
-          title: 'Stream tests',
-          detail: 'Could not load stream samples: ${_shortError(e)}',
-          status: _DiagStatus.fail,
-        ),
-      );
-      return;
-    }
+          .timeout(const Duration(seconds: 6));
 
-    final samples = <Map<String, dynamic>>[];
-    for (final rawMatch in matches) {
-      final match = Map<String, dynamic>.from(rawMatch as Map);
-      final links = List<Map<String, dynamic>>.from(
-        match['stream_links'] ?? const [],
-      );
+      for (final rawMatch in matches) {
+        final match = Map<String, dynamic>.from(rawMatch as Map);
+        final links = List<Map<String, dynamic>>.from(
+          match['stream_links'] ?? const [],
+        ).where((x) => x['is_active'] == true).toList()
+          ..sort((a, b) => _formatRank(a).compareTo(_formatRank(b)));
 
-      links.where((x) => x['is_active'] == true).toList()
-        ..sort((a, b) => _formatRank(a).compareTo(_formatRank(b)));
-
-      for (final link in links) {
-        final url = (link['stream_url'] ?? '').toString().trim();
-        if (url.isEmpty) continue;
-        samples.add({
-          ...link,
-          'match': '${match['home_team']} vs ${match['away_team']}',
-        });
+        for (final link in links) {
+          final url = (link['stream_url'] ?? '').toString().trim();
+          if (url.isEmpty) continue;
+          samples.add({
+            ...link,
+            'match': '${match['home_team']} vs ${match['away_team']}',
+          });
+          if (samples.length >= 5) break;
+        }
         if (samples.length >= 5) break;
       }
-      if (samples.length >= 5) break;
+    } catch (e) {
+      supabaseError = e;
+    }
+
+    if (samples.isEmpty) {
+      final client = http.Client();
+      try {
+        final stamp = DateTime.now().millisecondsSinceEpoch;
+        final response = await client
+            .get(
+              Uri.parse('$_mirrorStreamsUrl?t=$stamp'),
+              headers: const {
+                'Accept': 'application/json',
+                'Cache-Control': 'no-cache',
+              },
+            )
+            .timeout(const Duration(seconds: 8));
+
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map) {
+            for (final entry in decoded.entries) {
+              final rawLinks = entry.value;
+              if (rawLinks is! List) continue;
+              final links = rawLinks
+                  .map((raw) => Map<String, dynamic>.from(raw as Map))
+                  .where((x) => x['is_active'] == true)
+                  .toList()
+                ..sort((a, b) => _formatRank(a).compareTo(_formatRank(b)));
+
+              for (final link in links) {
+                final url = (link['stream_url'] ?? '').toString().trim();
+                if (url.isEmpty) continue;
+                samples.add({
+                  ...link,
+                  'match': 'GitHub fallback',
+                });
+                if (samples.length >= 5) break;
+              }
+              if (samples.length >= 5) break;
+            }
+          }
+        }
+
+        if (samples.isNotEmpty) {
+          _add(
+            _DiagResult(
+              title: 'Stream list fallback',
+              detail:
+                  'Supabase stream list unavailable; GitHub fallback loaded • '
+                  'HTTP ${response.statusCode}',
+              status: _DiagStatus.ok,
+            ),
+          );
+        }
+      } catch (_) {
+        // Report the combined failure below.
+      } finally {
+        client.close();
+      }
     }
 
     if (samples.isEmpty) {
       _add(
-        const _DiagResult(
+        _DiagResult(
           title: 'Stream tests',
-          detail: 'No active stream URL is available to test.',
-          status: _DiagStatus.warning,
+          detail: supabaseError == null
+              ? 'No active stream URL is available to test.'
+              : 'Could not load stream samples from Supabase or GitHub fallback: '
+                  '${_shortError(supabaseError)}',
+          status: supabaseError == null
+              ? _DiagStatus.warning
+              : _DiagStatus.fail,
         ),
       );
       return;
