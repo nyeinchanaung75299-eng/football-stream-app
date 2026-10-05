@@ -59,10 +59,21 @@ counts_url = (
 data = get_json(match_url)
 counts = get_json(counts_url)
 
+backup_lines = get_json(
+    SUPABASE_URL.rstrip("/")
+    + "/functions/v1/public-feed-lines"
+)
+
 if not isinstance(data, list):
     raise SystemExit("Supabase match feed did not return a list")
 if not isinstance(counts, list):
     raise SystemExit("Supabase stream count view did not return a list")
+if not isinstance(backup_lines, dict) or backup_lines.get("ok") is not True:
+    raise SystemExit("Safe stream backup function did not return a valid payload")
+
+raw_backup_lines = backup_lines.get("lines")
+if not isinstance(raw_backup_lines, list):
+    raise SystemExit("Safe stream backup function did not return a line list")
 
 count_by_match = {}
 for row in counts:
@@ -76,6 +87,16 @@ for row in counts:
     except (TypeError, ValueError):
         count_by_match[match_id] = 0
 
+backup_by_match = {}
+for line in raw_backup_lines:
+    if not isinstance(line, dict):
+        continue
+    match_id = str(line.get("match_id") or "").strip()
+    stream_url = str(line.get("stream_url") or "").strip()
+    if not match_id or not stream_url:
+        continue
+    backup_by_match.setdefault(match_id, []).append(line)
+
 safe_data = []
 for row in data:
     if not isinstance(row, dict):
@@ -83,8 +104,10 @@ for row in data:
 
     clean = dict(row)
     match_id = str(clean.get("id") or "").strip()
+    direct_lines = backup_by_match.get(match_id, [])
     clean["stream_count"] = count_by_match.get(match_id, 0)
-    clean["public_stream_count"] = 0
+    clean["public_stream_count"] = len(direct_lines)
+    clean["stream_links"] = direct_lines
     safe_data.append(clean)
 
 out = sys.argv[1] if len(sys.argv) > 1 else "matches.json"
@@ -104,7 +127,8 @@ print(
             "matches": len(safe_data),
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "output": out,
-            "public_feed": "metadata-and-safe-counts-only",
+            "public_feed": "metadata-plus-safe-non-keyed-direct-backups",
+            "backup_lines": sum(len(v) for v in backup_by_match.values()),
         }
     )
 )
