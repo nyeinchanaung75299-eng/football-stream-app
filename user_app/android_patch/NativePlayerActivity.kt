@@ -43,6 +43,7 @@ class NativePlayerActivity : Activity() {
     private lateinit var qualityButton: TextView
     private lateinit var serverButton: TextView
     private lateinit var statusText: TextView
+    private lateinit var displayModeButton: TextView
 
     private var sources = JSONArray()
     private var selectedServerIndex = 0
@@ -118,7 +119,9 @@ class NativePlayerActivity : Activity() {
 
         playerView = PlayerView(this).apply {
             setBackgroundColor(Color.BLACK)
-            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            // FILL uses the exact PlayerView size on every phone:
+            // no letterbox bars and no crop/zoom. Aspect ratio may stretch slightly.
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
             useController = true
             // Keep the video clean. Controls appear only after the user taps.
             controllerAutoShow = false
@@ -160,6 +163,12 @@ class NativePlayerActivity : Activity() {
             setOnClickListener { showQualityMenu() }
         }
 
+        displayModeButton = overlayButton("Fill").apply {
+            textSize = 13f
+            setPadding(dp(10), 0, dp(10), 0)
+            setOnClickListener { toggleDisplayMode() }
+        }
+
         topBar.addView(back, LinearLayout.LayoutParams(dp(48), dp(42)))
         topBar.addView(
             serverButton,
@@ -167,6 +176,13 @@ class NativePlayerActivity : Activity() {
         )
         topBar.addView(
             qualityButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                dp(42)
+            )
+        )
+        topBar.addView(
+            displayModeButton,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 dp(42)
@@ -410,6 +426,20 @@ class NativePlayerActivity : Activity() {
             }
         }
         popup.show()
+    }
+
+    private fun toggleDisplayMode() {
+        if (!::playerView.isInitialized || !::displayModeButton.isInitialized) return
+
+        if (playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FILL) {
+            // FIT preserves the original aspect ratio and can show bars.
+            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            displayModeButton.text = "Fit"
+        } else {
+            // FILL stretches to the exact screen bounds: no crop, no zoom, no bars.
+            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+            displayModeButton.text = "Fill"
+        }
     }
 
     private fun showStatus(text: String) {
