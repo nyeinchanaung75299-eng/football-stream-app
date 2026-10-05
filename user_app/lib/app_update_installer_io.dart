@@ -20,7 +20,9 @@ Future<void> downloadAndInstallApk(
           const Duration(seconds: 20),
         );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('APK download failed (HTTP ${response.statusCode}).');
+      throw Exception(
+        'APK download failed (HTTP ${response.statusCode}).',
+      );
     }
 
     final dir = await getTemporaryDirectory();
@@ -45,17 +47,11 @@ Future<void> downloadAndInstallApk(
     onProgress?.call(1);
 
     final expected = expectedSha256.trim().toLowerCase();
-    if (!RegExp(r'^[0-9a-f]{64}
-      file.path,
-      type: 'application/vnd.android.package-archive',
-    );
-  } finally {
-    client.close();
-  }
-}
-).hasMatch(expected)) {
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(expected)) {
       if (await file.exists()) await file.delete();
-      throw const FormatException('Update manifest is missing a valid SHA-256.');
+      throw const FormatException(
+        'Update manifest is missing a valid SHA-256.',
+      );
     }
 
     final digest = await sha256.bind(file.openRead()).first;
@@ -64,10 +60,15 @@ Future<void> downloadAndInstallApk(
       throw StateError('Downloaded APK failed SHA-256 verification.');
     }
 
-    await OpenFilex.open(
+    final openResult = await OpenFilex.open(
       file.path,
       type: 'application/vnd.android.package-archive',
     );
+    if (openResult.type != ResultType.done) {
+      throw StateError(
+        'Could not open the Android installer: ${openResult.message}',
+      );
+    }
   } finally {
     client.close();
   }
