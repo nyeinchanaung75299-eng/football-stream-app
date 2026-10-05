@@ -1,0 +1,9 @@
+project_id = "woggzixprvyjnfjzsglz"
+
+# These functions enforce their own x-cron-secret / signed-admin checks in code.
+# Disabling gateway JWT verification allows Supabase Cron to reach that code.
+[functions.football-score-sync]
+verify_jwt = false
+
+[functions.stream-health]
+verify_jwt = false
