@@ -107,9 +107,156 @@ class AppUpdateService {
               ? data['version_name'].toString()
               : 'new version';
       final apkUrl = data['apk_url']?.toString().trim() ?? '';
+      final apkSha256 = data['sha256']?.toString().trim().toLowerCase() ?? '';
       final notes = data['notes']?.toString().trim() ?? '';
       final mandatory = data['mandatory'] == true;
-      if (apkUrl.isEmpty || !context.mounted) return;
+      final validHash = RegExp(r'^[0-9a-f]{64}
+
+      await AnalyticsService.capture(
+        'update available',
+        properties: {
+          'manual': force,
+          'current_build': currentBuild,
+          'latest_build': latestBuild,
+          'version': version,
+          'mandatory': mandatory,
+        },
+      );
+
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: !mandatory,
+        builder: (dialogContext) => AlertDialog(
+          icon: const Icon(Icons.system_update_alt_rounded),
+          title: Text('NCA $version available'),
+          content: Text(
+            notes.isEmpty
+                ? 'A newer version of NCA is ready. Update now?'
+                : notes,
+          ),
+          actions: [
+            if (!mandatory)
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Later'),
+              ),
+            FilledButton.icon(
+              onPressed: () {
+                AnalyticsService.capture(
+                  'update accepted',
+                  properties: {
+                    'latest_build': latestBuild,
+                    'version': version,
+                  },
+                );
+                Navigator.pop(dialogContext);
+                _download(context, apkUrl, apkSha256);
+              },
+              icon: const Icon(Icons.download_rounded),
+              label: const Text('Update now'),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {
+      // Update checking must never block the app.
+      if (force && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not check for updates right now.'),
+          ),
+        );
+      }
+    }
+  }
+
+  static Future<void> _download(
+    BuildContext context,
+    String apkUrl,
+    String apkSha256,
+  ) async {
+    final progress = ValueNotifier<double>(0);
+
+    await AnalyticsService.capture('update download started');
+
+    if (context.mounted) {
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => ValueListenableBuilder<double>(
+          valueListenable: progress,
+          builder: (context, value, _) => AlertDialog(
+            title: const Text('Downloading NCA update'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LinearProgressIndicator(
+                  value: value > 0 && value < 1 ? value : null,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  value > 0
+                      ? '${(value * 100).clamp(0, 100).toStringAsFixed(0)}%'
+                      : 'Starting download…',
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    try {
+      await downloadAndInstallApk(
+        apkUrl,
+        expectedSha256: apkSha256,
+        onProgress: (value) => progress.value = value,
+      );
+      await AnalyticsService.capture(
+        'update download completed',
+        properties: {'sha256_verified': true},
+      );
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).maybePop();
+      }
+    } catch (_) {
+      await AnalyticsService.capture('update download failed');
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).maybePop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Update download failed. Please check your connection and try again.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      progress.dispose();
+    }
+  }
+}
+).hasMatch(apkSha256);
+      if (apkUrl.isEmpty || !validHash) {
+        await AnalyticsService.capture(
+          'update check failed',
+          properties: {
+            'manual': force,
+            'reason': apkUrl.isEmpty
+                ? 'apk_url_missing'
+                : 'apk_sha256_missing_or_invalid',
+          },
+        );
+        if (force && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('The update package could not be verified.'),
+            ),
+          );
+        }
+        return;
+      }
+      if (!context.mounted) return;
 
       await AnalyticsService.capture(
         'update available',
