@@ -139,32 +139,42 @@ async function jsonpMatches(args: {
       seen.add(id);
       return true;
     })
-    .map((row: any) => ({
-      source: args.source,
-      source_id: String(row.scheduleId ?? ""),
-      schedule_id: row.scheduleId,
-      league: row.subCateName ?? row.categoryName ?? "Football",
-      home_team: row.hostName ?? "Home",
-      away_team: row.guestName ?? "Away",
-      home_logo: row.hostIcon ?? null,
-      away_logo: row.guestIcon ?? null,
-      match_time: Number.isFinite(Number(row.matchTime))
-        ? new Date(Number(row.matchTime)).toISOString()
-        : null,
-      hot: String(row.hot ?? "0") === "1",
-      status: row.status ?? null,
-      match_status: row.matchStatus ?? null,
-      anchors: Array.isArray(row.anchors)
-        ? row.anchors
-            .map((anchor: any) => ({
-              uid: anchor.uid ?? null,
-              nick_name: anchor.nickName ?? "Streamer",
-              icon: anchor.cutOutIcon ?? anchor.icon ?? null,
-              room_num: String(anchor.anchor?.roomNum ?? "").trim(),
-            }))
-            .filter((anchor: any) => anchor.room_num)
-        : [],
-    }))
+    .map((row: any) => {
+      const rawAnchors = Array.isArray(row.anchors) ? row.anchors : [];
+      return {
+        source: args.source,
+        source_id: String(row.scheduleId ?? ""),
+        schedule_id: row.scheduleId,
+        league: args.source === "yyzb"
+          ? friendlyText(row.subCateName ?? row.categoryName ?? "Football")
+          : row.subCateName ?? row.categoryName ?? "Football",
+        home_team: args.source === "yyzb"
+          ? friendlyText(row.hostName ?? "Home")
+          : row.hostName ?? "Home",
+        away_team: args.source === "yyzb"
+          ? friendlyText(row.guestName ?? "Away")
+          : row.guestName ?? "Away",
+        original_home_team: row.hostName ?? null,
+        original_away_team: row.guestName ?? null,
+        home_logo: row.hostIcon ?? null,
+        away_logo: row.guestIcon ?? null,
+        match_time: Number.isFinite(Number(row.matchTime))
+          ? new Date(Number(row.matchTime)).toISOString()
+          : null,
+        hot: String(row.hot ?? "0") === "1",
+        status: row.status ?? null,
+        match_status: row.matchStatus ?? null,
+        anchors: rawAnchors
+          .map((anchor: any, index: number) => ({
+            uid: anchor.uid ?? null,
+            nick_name: `Streamer ${index + 1}`,
+            original_nick_name: anchor.nickName ?? null,
+            icon: anchor.cutOutIcon ?? anchor.icon ?? null,
+            room_num: String(anchor.anchor?.roomNum ?? "").trim(),
+          }))
+          .filter((anchor: any) => anchor.room_num),
+      };
+    })
     .sort(compareMatches);
 
   return json({
@@ -208,13 +218,15 @@ async function roomStreams(args: {
     roomLine("SD (720p) · FLV", "flv", stream.flv, "720p", referer),
   ].filter((item) => item.url);
 
+  const checkedLines = await probeLines(lines);
+
   return json({
     ok: true,
     room_num: roomNum,
     title: room.title ?? null,
     anchor_name: room.anchor?.nickName ?? null,
     live_status: room.liveStatus ?? null,
-    lines,
+    lines: checkedLines,
     source: args.source,
     generated_at: new Date().toISOString(),
   });
@@ -222,32 +234,51 @@ async function roomStreams(args: {
 
 async function fawaMatches() {
   const html = await fetchText(FAWA_HOME);
-  const matches: any[] = [];
-  const seen = new Set<string>();
+  const grouped = new Map<string, any>();
 
-  const blockRegex =
-    /<a\s+href=["']([^"']+\.html)["'][^>]*>[\s\S]{0,1200}?class=["']user-item__name["'][^>]*>([^<]+)<\/div>[\s\S]{0,700}?class=["']user-item__playing["'][^>]*>([^<]+)<\/div>/gi;
+  // Fawa has nested/unclosed <a> tags. Parsing one whole card with a single
+  // regex is brittle, so anchor each record on the stable name element and
+  // inspect only the nearby markup for its href + league/time text.
+  const nameRegex =
+    /<div\s+class=["']user-item__name["'][^>]*>([\s\S]*?)<\/div>/gi;
 
   let hit: RegExpExecArray | null;
-  while ((hit = blockRegex.exec(html)) !== null) {
-    const href = decodeHtml(hit[1]).trim();
-    const name = decodeHtml(stripTags(hit[2])).trim();
-    const playing = decodeHtml(stripTags(hit[3])).trim();
-
-    if (!href || !name || seen.has(href)) continue;
+  while ((hit = nameRegex.exec(html)) !== null) {
+    const name = decodeHtml(stripTags(hit[1])).replace(/\s+/g, " ").trim();
     if (!/\bvs\b/i.test(name)) continue;
-    seen.add(href);
 
-    const teams = name
-      .replace(/\s+---\s+CH\s*\d+\s*$/i, "")
-      .split(/\s+vs\s+/i);
+    const before = html.slice(Math.max(0, hit.index - 700), hit.index);
+    const hrefRegex = /href=["']([^"']+\.html)["']/gi;
+    let hrefHit: RegExpExecArray | null;
+    let href = "";
+    while ((hrefHit = hrefRegex.exec(before)) !== null) {
+      href = decodeHtml(hrefHit[1]).trim();
+    }
+    if (!href) continue;
 
-    matches.push({
+    const after = html.slice(nameRegex.lastIndex, nameRegex.lastIndex + 900);
+    const playingHit = after.match(
+      /class=["']user-item__playing["'][^>]*>([\s\S]*?)<\/div>/i,
+    );
+    const playing = playingHit
+      ? decodeHtml(stripTags(playingHit[1])).replace(/\s+/g, " ").trim()
+      : "Football";
+
+    const baseName = name
+      .replace(/\s*---\s*CH\s*\d+\s*$/i, "")
+      .trim();
+    const teams = baseName.split(/\s+vs\s+/i);
+    if (teams.length < 2) continue;
+
+    const key = baseName.toLowerCase();
+    const existing = grouped.get(key) ?? {
       source: "fawa",
-      source_id: href,
+      source_id: key,
       page_url: absoluteFawaUrl(href),
-      league: playing.replace(/\s+\d{1,2}:\d{2}\s*$/, "").trim() || "Football",
-      home_team: teams[0]?.trim() || name,
+      league:
+        playing.replace(/\s+\d{1,2}:\d{2}\s*$/, "").trim() ||
+        "Football",
+      home_team: teams[0]?.trim() || baseName,
       away_team: teams[1]?.trim() || "",
       home_logo: null,
       away_logo: null,
@@ -256,18 +287,27 @@ async function fawaMatches() {
       hot: false,
       status: null,
       match_status: null,
-      anchors: [
-        {
-          uid: href,
-          nick_name: channelLabel(name),
-          icon: null,
-          room_num: href,
-        },
-      ],
-    });
+      anchors: [],
+    };
+
+    const anchorKey = absoluteFawaUrl(href);
+    if (
+      anchorKey &&
+      !existing.anchors.some((item: any) => item.page_url === anchorKey)
+    ) {
+      existing.anchors.push({
+        uid: href,
+        nick_name: channelLabel(name),
+        icon: null,
+        room_num: href,
+        page_url: anchorKey,
+      });
+    }
+
+    grouped.set(key, existing);
   }
 
-  matches.sort((a, b) =>
+  const matches = [...grouped.values()].sort((a, b) =>
     String(a.home_team).localeCompare(String(b.home_team))
   );
 
@@ -322,11 +362,13 @@ async function fawaStreams(body: any) {
       expires_at: streamExpiry(value),
     }));
 
+  const checkedLines = await probeLines(lines);
+
   return json({
     ok: true,
     page_url: pageUrl,
     title: pageTitle(html),
-    lines,
+    lines: checkedLines,
     source: "fawa",
     generated_at: new Date().toISOString(),
   });
@@ -349,6 +391,126 @@ function roomLine(
     origin: new URL(referer).origin,
     expires_at: streamExpiry(cleaned),
   };
+}
+
+async function probeLines(lines: any[]) {
+  return await Promise.all(lines.map((line) => probeLine(line)));
+}
+
+async function probeLine(line: any) {
+  const value = String(line?.url ?? "").trim();
+  if (!value) {
+    return { ...line, health_status: "dead", health_http: null };
+  }
+
+  const headers: Record<string, string> = {
+    Accept: "*/*",
+    Range: "bytes=0-1023",
+    "User-Agent": "Mozilla/5.0 NCA-Admin/9.8",
+  };
+
+  if (line.referer) headers.Referer = String(line.referer);
+  if (line.origin) headers.Origin = String(line.origin);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5500);
+
+  try {
+    const response = await fetch(value, {
+      method: "GET",
+      headers,
+      redirect: "follow",
+      signal: controller.signal,
+    });
+
+    const status = response.status;
+    const goodHttp = status >= 200 && status < 400;
+
+    let looksPlayable = goodHttp;
+    const type = String(line.stream_type ?? "").toLowerCase();
+
+    if (goodHttp && type === "hls") {
+      try {
+        const reader = response.body?.getReader();
+        const chunk = reader ? await reader.read() : null;
+        await reader?.cancel();
+        if (chunk?.value) {
+          const text = new TextDecoder().decode(chunk.value);
+          looksPlayable = text.includes("#EXTM3U") || status === 206;
+        }
+      } catch (_) {
+        looksPlayable = goodHttp;
+      }
+    } else {
+      try {
+        await response.body?.cancel();
+      } catch (_) {}
+    }
+
+    return {
+      ...line,
+      health_status: looksPlayable
+        ? "healthy"
+        : [401, 403, 404, 410].includes(status)
+          ? "dead"
+          : "unknown",
+      health_http: status,
+      checked_at: new Date().toISOString(),
+    };
+  } catch (_) {
+    return {
+      ...line,
+      health_status: "unknown",
+      health_http: null,
+      checked_at: new Date().toISOString(),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function friendlyText(value: unknown) {
+  let text = String(value ?? "").trim();
+  if (!text) return text;
+
+  const replacements: Array<[string, string]> = [
+    ["中国台北", "Chinese Taipei"],
+    ["乌兹别克", "Uzbekistan"],
+    ["菲律宾", "Philippines"],
+    ["哈萨克斯坦", "Kazakhstan"],
+    ["俄罗斯", "Russia"],
+    ["英格兰", "England"],
+    ["比利时", "Belgium"],
+    ["柬埔寨", "Cambodia"],
+    ["马来西亚", "Malaysia"],
+    ["印度尼西亚", "Indonesia"],
+    ["新西兰", "New Zealand"],
+    ["澳大利亚", "Australia"],
+    ["韩国", "South Korea"],
+    ["朝鲜", "North Korea"],
+    ["越南", "Vietnam"],
+    ["泰国", "Thailand"],
+    ["日本", "Japan"],
+    ["缅甸", "Myanmar"],
+    ["老挝", "Laos"],
+    ["新加坡", "Singapore"],
+    ["伊朗", "Iran"],
+    ["伊拉克", "Iraq"],
+    ["沙特", "Saudi Arabia"],
+    ["卡塔尔", "Qatar"],
+    ["阿联酋", "UAE"],
+    ["国际友谊", "International Friendly"],
+    ["中亚女", "Central Asia Women "],
+    ["女足", " Women "],
+    ["后备队", " Reserves"],
+    ["足球", "Football"],
+  ];
+
+  for (const [from, to] of replacements) {
+    text = text.replaceAll(from, to);
+  }
+
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function streamExpiry(value: string) {
