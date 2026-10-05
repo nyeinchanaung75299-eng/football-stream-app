@@ -39,6 +39,9 @@ class _HomePageState extends State<HomePage> {
   static const _mirrorBase =
       'https://nyeinchanaung75299-eng.github.io/'
       'football-stream-app/matches.json';
+  static const _mirrorStreamsBase =
+      'https://nyeinchanaung75299-eng.github.io/'
+      'football-stream-app/streams.json';
 
   @override
   void initState() {
@@ -237,6 +240,40 @@ class _HomePageState extends State<HomePage> {
     throw lastError ?? const FormatException('Stream API is unavailable.');
   }
 
+  Future<List<Map<String, dynamic>>> _loadMirrorStreams(
+    String matchId,
+  ) async {
+    final bucket =
+        DateTime.now().millisecondsSinceEpoch ~/ (60 * 1000);
+    final response = await http
+        .get(
+          Uri.parse('$_mirrorStreamsBase?v=$bucket'),
+          headers: const {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+          },
+        )
+        .timeout(const Duration(seconds: 8));
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Mirror streams returned HTTP ${response.statusCode}',
+      );
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map) {
+      throw const FormatException('Mirror stream feed is invalid.');
+    }
+
+    final raw = decoded[matchId];
+    if (raw is! List) return const [];
+
+    return raw
+        .map((row) => Map<String, dynamic>.from(row as Map))
+        .toList();
+  }
+
   Future<List<Map<String, dynamic>>> _resolveLinks(
     Map<String, dynamic> match,
   ) async {
@@ -248,6 +285,14 @@ class _HomePageState extends State<HomePage> {
 
     try {
       links = playableLinks(await _loadPublicApiStreams(matchId));
+      if (links.isNotEmpty) return links;
+    } catch (_) {}
+
+    // Last-resort VPN-free path: GitHub Pages is already reachable whenever
+    // the web viewer itself is loaded, so use its mirrored stream config when
+    // local networks block Cloudflare Workers and Supabase.
+    try {
+      links = playableLinks(await _loadMirrorStreams(matchId));
       if (links.isNotEmpty) return links;
     } catch (_) {}
 
