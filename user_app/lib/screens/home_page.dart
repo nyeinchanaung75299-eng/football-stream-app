@@ -595,7 +595,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                         SizedBox(height: 2),
                         Text(
-                          'V9.3 • Premium viewer',
+                          'V9.5 • Premium viewer',
                           style: TextStyle(fontSize: 12.5),
                         ),
                       ],
