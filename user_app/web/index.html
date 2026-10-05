@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Football Live web viewer">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0b3d2e">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <title>Football Live</title>
+  <style>
+    html,body{margin:0;width:100%;height:100%;background:#f6f8f7}
+    body{overflow:hidden}
+    #football-player-overlay{display:none;position:fixed;inset:0;z-index:2147483647;background:#000;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    #football-player-overlay.open{display:flex;flex-direction:column}
+    #football-player-topbar{min-height:56px;display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(0,0,0,.76);box-sizing:border-box;flex-wrap:wrap}
+    #football-player-title{font-weight:800;flex:1 1 220px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    #football-player-video-wrap{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#000}
+    #football-player-video{width:100%;height:100%;object-fit:contain;background:#000}
+    #football-player-video.fill{object-fit:cover}
+    #football-player-message{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);max-width:min(680px,88vw);padding:12px 16px;border-radius:12px;background:rgba(0,0,0,.72);color:#fff;text-align:center;line-height:1.4;display:none}
+    .football-control{min-height:38px;padding:0 12px;border:1px solid rgba(255,255,255,.22);border-radius:10px;color:#fff;background:rgba(255,255,255,.10);font-weight:700}
+    select.football-control{max-width:190px}
+    button.football-control{cursor:pointer}
+    @media(max-width:720px){#football-player-topbar{gap:6px;padding:6px}#football-player-title{flex-basis:calc(100% - 58px)}.football-control{min-height:36px;padding:0 9px}select.football-control{max-width:145px}}
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/shaka-player@4/dist/shaka-player.compiled.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.js"></script>
+</head>
+<body>
+  <div id="football-player-overlay" aria-hidden="true">
+    <div id="football-player-topbar">
+      <button id="football-player-close" class="football-control" type="button">← Back</button>
+      <div id="football-player-title">Football Live</div>
+      <select id="football-player-server" class="football-control" aria-label="Server"></select>
+      <select id="football-player-quality" class="football-control" aria-label="Quality"><option value="auto">Auto</option></select>
+      <button id="football-player-fit" class="football-control" type="button">Fill</button>
+      <button id="football-player-fullscreen" class="football-control" type="button">Fullscreen</button>
+    </div>
+    <div id="football-player-video-wrap">
+      <video id="football-player-video" controls playsinline></video>
+      <div id="football-player-message"></div>
+    </div>
+  </div>
+  <script>
+  (() => {
+    const overlay=document.getElementById('football-player-overlay');
+    const video=document.getElementById('football-player-video');
+    const titleEl=document.getElementById('football-player-title');
+    const serverSelect=document.getElementById('football-player-server');
+    const qualitySelect=document.getElementById('football-player-quality');
+    const messageEl=document.getElementById('football-player-message');
+    const closeButton=document.getElementById('football-player-close');
+    const fitButton=document.getElementById('football-player-fit');
+    const fullscreenButton=document.getElementById('football-player-fullscreen');
+    let sources=[], shakaPlayer=null, mpegtsPlayer=null, currentTracks=[];
+
+    function showMessage(text){messageEl.textContent=text||'';messageEl.style.display=text?'block':'none'}
+
+    async function destroyPlayback(){
+      showMessage(''); currentTracks=[]; qualitySelect.innerHTML='<option value="auto">Auto</option>';
+      try{video.pause()}catch(_){}
+      try{video.removeAttribute('src');video.load()}catch(_){}
+      if(mpegtsPlayer){
+        try{mpegtsPlayer.pause()}catch(_){}
+        try{mpegtsPlayer.unload()}catch(_){}
+        try{mpegtsPlayer.detachMediaElement()}catch(_){}
+        try{mpegtsPlayer.destroy()}catch(_){}
+        mpegtsPlayer=null;
+      }
+      if(shakaPlayer){try{await shakaPlayer.destroy()}catch(_){} shakaPlayer=null}
+    }
+
+    function sourceType(source){
+      const declared=String(source.streamType||source.stream_type||'auto').toLowerCase();
+      if(declared!=='auto')return declared;
+      const u=String(source.url||'').toLowerCase();
+      if(u.includes('.m3u8'))return 'hls';
+      if(u.includes('.mpd'))return 'dash';
+      if(u.includes('.flv'))return 'flv';
+      if(u.includes('.mp4'))return 'mp4';
+      return 'auto';
+    }
+
+    function browserHeaderWarning(source){
+      return (source.referer||source.origin)
+        ? 'This line requires Referer/Origin. Chrome may block it unless the stream server allows browser CORS/referrer access.'
+        : '';
+    }
+
+    function fillServerOptions(selectedIndex){
+      serverSelect.innerHTML='';
+      sources.forEach((source,index)=>{
+        const option=document.createElement('option');
+        option.value=String(index);
+        option.textContent=String(source.label||source.resolution||('Server '+(index+1)));
+        serverSelect.appendChild(option);
+      });
+      serverSelect.value=String(Math.max(0,Math.min(selectedIndex,sources.length-1)));
+    }
+
+    function fillQualityOptions(){
+      const unique=new Map();
+      currentTracks.forEach(track=>{
+        const h=track.height||0, bw=track.bandwidth||0;
+        if(h>0){const key=String(h), old=unique.get(key); if(!old||bw>(old.bandwidth||0))unique.set(key,track)}
+      });
+      qualitySelect.innerHTML='<option value="auto">Auto</option>';
+      [...unique.values()].sort((a,b)=>(b.height||0)-(a.height||0)).forEach(track=>{
+        const option=document.createElement('option');
+        option.value=String(track.id);
+        option.textContent=(track.height||'?')+'p';
+        qualitySelect.appendChild(option);
+      });
+      qualitySelect.value='auto';
+    }
+
+    async function loadSource(index){
+      if(!sources.length){showMessage('No stream source.');return}
+      index=Math.max(0,Math.min(Number(index)||0,sources.length-1));
+      serverSelect.value=String(index);
+      const source=sources[index], url=String(source.url||'').trim(), type=sourceType(source);
+      await destroyPlayback();
+      if(!url){showMessage('This line has no stream URL.');return}
+      const warning=browserHeaderWarning(source);
+      try{
+        if(type==='flv'){
+          if(!window.mpegts||!mpegts.isSupported())throw new Error('FLV is not supported by this browser.');
+          mpegtsPlayer=mpegts.createPlayer({type:'flv',isLive:true,url});
+          mpegtsPlayer.attachMediaElement(video);mpegtsPlayer.load();await video.play().catch(()=>{});
+          if(warning)showMessage(warning);return;
+        }
+        if(type==='hls'||type==='dash'||url.includes('.m3u8')||url.includes('.mpd')){
+          if(!window.shaka)throw new Error('Web streaming engine did not load.');
+          shaka.polyfill.installAll();
+          if(!shaka.Player.isBrowserSupported())throw new Error('This browser does not support the web player.');
+          shakaPlayer=new shaka.Player();
+          await shakaPlayer.attach(video);
+          const keyId=String(source.keyId||source.key_id||'').trim();
+          const keyData=String(source.keyData||source.key_data||'').trim();
+          if(keyId&&keyData){const clearKeys={};clearKeys[keyId]=keyData;shakaPlayer.configure({drm:{clearKeys}})}
+          shakaPlayer.addEventListener('error',event=>{
+            const detail=event&&event.detail?event.detail:{};
+            showMessage('Playback error'+(detail.code?' ('+detail.code+')':'')+'. Try another line.');
+          });
+          await shakaPlayer.load(url);
+          currentTracks=shakaPlayer.getVariantTracks(); fillQualityOptions();
+          await video.play().catch(()=>{});
+          if(warning)showMessage(warning); return;
+        }
+        video.src=url; await video.play().catch(()=>{}); if(warning)showMessage(warning);
+      }catch(error){
+        console.error(error);
+        showMessage((error&&error.message?error.message:'Playback failed.')+' Try another line.');
+      }
+    }
+
+    qualitySelect.addEventListener('change',()=>{
+      if(!shakaPlayer)return;
+      const value=qualitySelect.value;
+      if(value==='auto'){shakaPlayer.configure({abr:{enabled:true}});return}
+      const track=currentTracks.find(x=>String(x.id)===value); if(!track)return;
+      shakaPlayer.configure({abr:{enabled:false}}); shakaPlayer.selectVariantTrack(track,true);
+    });
+    serverSelect.addEventListener('change',()=>loadSource(Number(serverSelect.value)));
+    closeButton.addEventListener('click',async()=>{await destroyPlayback();overlay.classList.remove('open');overlay.setAttribute('aria-hidden','true')});
+    fitButton.addEventListener('click',()=>{const fill=video.classList.toggle('fill');fitButton.textContent=fill?'Fit':'Fill'});
+    fullscreenButton.addEventListener('click',async()=>{try{if(!document.fullscreenElement)await overlay.requestFullscreen();else await document.exitFullscreen()}catch(_){}});
+    document.addEventListener('keydown',event=>{if(event.key==='Escape'&&overlay.classList.contains('open')&&!document.fullscreenElement)closeButton.click()});
+
+    window.openFootballPlayer=async(sourcesJson,selectedIndex,title)=>{
+      try{const parsed=JSON.parse(String(sourcesJson||'[]'));sources=Array.isArray(parsed)?parsed.filter(x=>x&&x.url):[]}catch(_){sources=[]}
+      titleEl.textContent=String(title||'Football Live');
+      fillServerOptions(Number(selectedIndex)||0);
+      overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');
+      await loadSource(Number(selectedIndex)||0);
+    };
+  })();
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
