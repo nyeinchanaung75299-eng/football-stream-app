@@ -151,7 +151,7 @@ class _HomePageState extends State<HomePage> {
     List<Map<String, dynamic>> rows,
   ) {
     const finishedStatuses = {'FT', 'AET', 'PEN'};
-    const grace = Duration(minutes: 10);
+    const grace = Duration(minutes: 8);
     final now = DateTime.now();
 
     return rows.where((row) {
