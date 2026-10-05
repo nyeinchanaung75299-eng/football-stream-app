@@ -26,7 +26,7 @@ class _HomePageState extends State<HomePage> {
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
     defaultValue:
-        'https://football-public-api.nyeinchanaung75299-eng.workers.dev',
+        'https://football-api.nyeinchanaung.us.ci',
   );
 
   static const _mirrorBase =
@@ -260,6 +260,7 @@ class _HomePageState extends State<HomePage> {
     ) {
       if (winner.isCompleted) return;
       _fallbackLabel = sourceLabel;
+      if (mounted) setState(() {});
       winner.complete(rows);
     }
 
@@ -757,6 +758,43 @@ class _HomePageState extends State<HomePage> {
               },
             ),
           ),
+          if (_fallbackLabel != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 2, 14, 6),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primaryContainer
+                      .withValues(alpha: .50),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _fallbackLabel == 'Fast public API'
+                          ? Icons.bolt_rounded
+                          : Icons.cloud_done_rounded,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _fallbackLabel == 'Fast public API'
+                            ? 'Connected through secure edge'
+                            : 'Backup feed active',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(
                     future: _future,
@@ -851,6 +889,10 @@ class _MatchCard extends StatelessWidget {
 
     return Card(
       margin: EdgeInsets.zero,
+      elevation: live ? 2 : 0,
+      shadowColor: colors.primary.withValues(alpha: .10),
+      surfaceTintColor: Colors.transparent,
+      clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
         side: BorderSide(
@@ -958,8 +1000,13 @@ class _MatchCard extends StatelessWidget {
             const SizedBox(height: 9),
             SizedBox(
               width: double.infinity,
-              height: 38,
+              height: 44,
               child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
                 onPressed: canWatch ? onWatch : null,
                 icon: const Icon(Icons.play_arrow_rounded, size: 20),
                 label: Text(
