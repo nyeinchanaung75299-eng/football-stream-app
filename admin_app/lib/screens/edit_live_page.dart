@@ -20,9 +20,42 @@ class _EditLivePageState extends State<EditLivePage> {
           'id,league,home_team,away_team,home_logo_url,away_logo_url,'
           'kickoff_at,sort_order,is_live,is_active,is_featured,publish_state,'
           'home_score,away_score,status_short,status_elapsed,external_fixture_id',
-        )
-        .order('kickoff_at', ascending: false);
-    return List<Map<String, dynamic>>.from(data);
+        );
+
+    final rows = List<Map<String, dynamic>>.from(data);
+    final now = DateTime.now();
+
+    rows.sort((a, b) {
+      final aLive = a['is_live'] == true;
+      final bLive = b['is_live'] == true;
+      if (aLive != bLive) return aLive ? -1 : 1;
+
+      final aTime = DateTime.tryParse(a['kickoff_at']?.toString() ?? '')
+              ?.toLocal() ??
+          DateTime(9999);
+      final bTime = DateTime.tryParse(b['kickoff_at']?.toString() ?? '')
+              ?.toLocal() ??
+          DateTime(9999);
+
+      final aFuture = !aTime.isBefore(now);
+      final bFuture = !bTime.isBefore(now);
+
+      if (aFuture != bFuture) return aFuture ? -1 : 1;
+
+      if (aFuture) {
+        final byTime = aTime.compareTo(bTime);
+        if (byTime != 0) return byTime;
+      } else {
+        final byTime = bTime.compareTo(aTime);
+        if (byTime != 0) return byTime;
+      }
+
+      final aOrder = (a['sort_order'] as num?)?.toInt() ?? 0;
+      final bOrder = (b['sort_order'] as num?)?.toInt() ?? 0;
+      return aOrder.compareTo(bOrder);
+    });
+
+    return rows;
   }
 
   void message(String text) {
@@ -476,17 +509,59 @@ class _EditLivePageState extends State<EditLivePage> {
                         ],
                       ),
                       const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Wrap(
+                          spacing: 7,
+                          runSpacing: 7,
+                          children: [
+                            _Badge(
+                              text: featured ? 'BIG MATCH' : 'HIDDEN',
+                              color: featured
+                                  ? Colors.amber.shade700
+                                  : Colors.blueGrey,
+                            ),
+                            _Badge(
+                              text: published ? 'PUBLISHED' : 'DRAFT',
+                              color: published
+                                  ? colors.primary
+                                  : Colors.blueGrey,
+                            ),
+                            if (live)
+                              const _Badge(
+                                text: 'LIVE',
+                                color: Colors.redAccent,
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       Row(
                         children: [
-                          _Badge(text: featured ? 'BIG MATCH' : 'HIDDEN', color: featured ? Colors.amber.shade700 : Colors.blueGrey),
-                          const SizedBox(width: 7),
-                          _Badge(text: published ? 'PUBLISHED' : 'DRAFT', color: published ? colors.primary : Colors.blueGrey),
-                          if (live) ...[
-                            const SizedBox(width: 7),
-                            const _Badge(text: 'LIVE', color: Colors.redAccent),
-                          ],
-                          const Spacer(),
-                          TextButton(onPressed: () => editMatch(m), child: const Text('EDIT')),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => LiveLinksPage(
+                                      initialMatchId: m['id'] as String,
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.link_rounded, size: 18),
+                              label: const Text('STREAMS'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.tonalIcon(
+                              onPressed: () => editMatch(m),
+                              icon: const Icon(Icons.edit_rounded, size: 18),
+                              label: const Text('EDIT'),
+                            ),
+                          ),
                         ],
                       ),
                     ],
