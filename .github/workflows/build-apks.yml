@@ -44,7 +44,7 @@ jobs:
           p=Path('android/app/src/main/AndroidManifest.xml')
           s=p.read_text()
           marker='<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
-          perms=['<uses-permission android:name="android.permission.INTERNET"/>','<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>','<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>']
+          perms=['<uses-permission android:name="android.permission.INTERNET"/>','<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>']
           missing=[x for x in perms if x not in s]
           if missing:
               s=s.replace(marker, marker+'\n    '+'\n    '.join(missing))
@@ -84,7 +84,7 @@ jobs:
           m=Path('android/app/src/main/AndroidManifest.xml')
           s=m.read_text()
           marker='<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
-          perms=['<uses-permission android:name="android.permission.INTERNET"/>','<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>']
+          perms=['<uses-permission android:name="android.permission.INTERNET"/>','<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>','<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>']
           missing=[x for x in perms if x not in s]
           if missing: s=s.replace(marker, marker+'\n    '+'\n    '.join(missing))
           activity='        <activity android:name=".NativePlayerActivity" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="false" android:theme="@style/LaunchTheme" />\n'
