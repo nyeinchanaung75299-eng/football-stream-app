@@ -3,52 +3,67 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 Deno.serve(async (req) => {
   try {
-    // Cron only
     if (req.method !== "POST") {
       return json({ error: "Method not allowed." }, 405);
     }
 
-    // Custom Cron authentication
-    const cronSecret = Deno.env.get("CRON_SECRET");
-
-    if (
-      !cronSecret ||
-      req.headers.get("x-cron-secret") !== cronSecret
-    ) {
-      return json({ error: "Unauthorized" }, 401);
-    }
-
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const footballKey = Deno.env.get("API_FOOTBALL_KEY");
+    const cronSecret = Deno.env.get("CRON_SECRET");
 
     if (!supabaseUrl || !serviceRole) {
-      return json(
-        { error: "Supabase server credentials are missing." },
-        500,
-      );
+      return json({ error: "Supabase server credentials are missing." }, 500);
     }
 
     if (!footballKey) {
-      return json(
-        { error: "API_FOOTBALL_KEY is not configured." },
-        500,
-      );
+      return json({ error: "API_FOOTBALL_KEY is not configured." }, 500);
     }
 
-    const client = createClient(supabaseUrl, serviceRole);
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const cronAuthorized =
+      !!cronSecret && req.headers.get("x-cron-secret") === cronSecret;
 
+    let adminAuthorized = false;
+
+    if (!cronAuthorized && anonKey && authHeader.startsWith("Bearer ")) {
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: {
+          headers: {
+            Authorization: authHeader,
+          },
+        },
+      });
+
+      const {
+        data: { user },
+        error: userError,
+      } = await userClient.auth.getUser();
+
+      if (!userError && user) {
+        const { data: profile } = await userClient
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .single();
+
+        adminAuthorized = profile?.role === "admin";
+      }
+    }
+
+    if (!cronAuthorized && !adminAuthorized) {
+      return json({ error: "Unauthorized" }, 401);
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const force = adminAuthorized && body?.force === true;
+
+    const client = createClient(supabaseUrl, serviceRole);
     const now = new Date();
 
-    // Sync matches from 6 hours before kickoff
-    // until 90 minutes into the future.
-    const windowStart = new Date(
-      now.getTime() - 6 * 60 * 60 * 1000,
-    );
-
-    const windowEnd = new Date(
-      now.getTime() + 90 * 60 * 1000,
-    );
+    const windowStart = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+    const windowEnd = new Date(now.getTime() + 90 * 60 * 1000);
 
     const { data: rows, error } = await client
       .from("matches")
@@ -69,27 +84,18 @@ Deno.serve(async (req) => {
       .eq("is_featured", true)
       .not("external_fixture_id", "is", null);
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     const minIntervalSeconds = Number(
       Deno.env.get("SCORE_SYNC_INTERVAL_SECONDS") ?? "600",
     );
 
     const candidates = (rows ?? []).filter((match: any) => {
-      // Finished games don't need further score syncing.
-      if (match.is_finished === true) {
-        return false;
-      }
-
-      if (!match.kickoff_at) {
-        return false;
-      }
+      if (match.is_finished === true) return false;
+      if (!match.kickoff_at) return false;
 
       const kickoff = new Date(match.kickoff_at);
 
-      // Ignore matches too far away.
       if (
         kickoff.getTime() < windowStart.getTime() ||
         kickoff.getTime() > windowEnd.getTime()
@@ -97,19 +103,11 @@ Deno.serve(async (req) => {
         return false;
       }
 
-      // Don't call API again too quickly.
-      if (match.last_score_sync_at) {
-        const previousSync = new Date(
-          match.last_score_sync_at,
-        );
+      if (!force && match.last_score_sync_at) {
+        const previousSync = new Date(match.last_score_sync_at);
+        const elapsed = now.getTime() - previousSync.getTime();
 
-        const elapsed =
-          now.getTime() - previousSync.getTime();
-
-        if (
-          elapsed <
-          Math.max(30, minIntervalSeconds) * 1000
-        ) {
+        if (elapsed < Math.max(30, minIntervalSeconds) * 1000) {
           return false;
         }
       }
@@ -122,6 +120,7 @@ Deno.serve(async (req) => {
         ok: true,
         synced: 0,
         api_calls: 0,
+        forced: force,
         message: "Nothing due.",
       });
     }
@@ -130,31 +129,17 @@ Deno.serve(async (req) => {
     let apiCalls = 0;
     let failedUpdates = 0;
 
-    // API-Football supports multiple fixture IDs.
-    // Keep batches small.
-    for (
-      let offset = 0;
-      offset < candidates.length;
-      offset += 20
-    ) {
-      const batch = candidates.slice(
-        offset,
-        offset + 20,
-      );
+    for (let offset = 0; offset < candidates.length; offset += 20) {
+      const batch = candidates.slice(offset, offset + 20);
 
       const ids = batch
         .map((item: any) => item.external_fixture_id)
         .filter(Boolean)
         .join("-");
 
-      if (!ids) {
-        continue;
-      }
+      if (!ids) continue;
 
-      const url = new URL(
-        "https://v3.football.api-sports.io/fixtures",
-      );
-
+      const url = new URL("https://v3.football.api-sports.io/fixtures");
       url.searchParams.set("ids", ids);
 
       const apiResponse = await fetch(url, {
@@ -168,23 +153,14 @@ Deno.serve(async (req) => {
       apiCalls += 1;
 
       if (!apiResponse.ok) {
-        console.error(
-          "API-Football request failed:",
-          apiResponse.status,
-        );
+        console.error("API-Football request failed:", apiResponse.status);
         continue;
       }
 
       const payload = await apiResponse.json();
 
-      if (
-        payload?.errors &&
-        Object.keys(payload.errors).length > 0
-      ) {
-        console.error(
-          "API-Football returned errors:",
-          payload.errors,
-        );
+      if (payload?.errors && Object.keys(payload.errors).length > 0) {
+        console.error("API-Football returned errors:", payload.errors);
         continue;
       }
 
@@ -194,13 +170,9 @@ Deno.serve(async (req) => {
 
       for (const row of fixtures) {
         const fixtureId = row?.fixture?.id;
+        if (!fixtureId) continue;
 
-        if (!fixtureId) {
-          continue;
-        }
-
-        const statusShort =
-          row?.fixture?.status?.short ?? "NS";
+        const statusShort = row?.fixture?.status?.short ?? "NS";
 
         const isLive = [
           "1H",
@@ -214,47 +186,24 @@ Deno.serve(async (req) => {
           "SUSP",
         ].includes(statusShort);
 
-        const isFinished = [
-          "FT",
-          "AET",
-          "PEN",
-        ].includes(statusShort);
+        const isFinished = ["FT", "AET", "PEN"].includes(statusShort);
 
         const { error: updateError } = await client
           .from("matches")
           .update({
-            kickoff_at:
-              row?.fixture?.date ?? null,
-
-            home_score:
-              row?.goals?.home ?? null,
-
-            away_score:
-              row?.goals?.away ?? null,
-
-            status_short:
-              statusShort,
-
-            status_elapsed:
-              row?.fixture?.status?.elapsed ?? null,
-
-            is_live:
-              isLive,
-
-            is_finished:
-              isFinished,
-
-            last_score_sync_at:
-              now.toISOString(),
+            kickoff_at: row?.fixture?.date ?? null,
+            home_score: row?.goals?.home ?? 0,
+            away_score: row?.goals?.away ?? 0,
+            status_short: statusShort,
+            status_elapsed: row?.fixture?.status?.elapsed ?? null,
+            is_live: isLive,
+            is_finished: isFinished,
+            last_score_sync_at: now.toISOString(),
           })
-          .eq(
-            "external_fixture_id",
-            fixtureId,
-          );
+          .eq("external_fixture_id", fixtureId);
 
         if (updateError) {
           failedUpdates += 1;
-
           console.error(
             `Failed updating fixture ${fixtureId}:`,
             updateError,
@@ -271,36 +220,27 @@ Deno.serve(async (req) => {
       candidates: candidates.length,
       failed_updates: failedUpdates,
       api_calls: apiCalls,
+      forced: force,
       checked_at: now.toISOString(),
     });
   } catch (error) {
     console.error(error);
-
     return json(
       {
         ok: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : String(error),
+        error: error instanceof Error ? error.message : String(error),
       },
       500,
     );
   }
 });
 
-function json(
-  data: unknown,
-  status = 200,
-) {
-  return new Response(
-    JSON.stringify(data),
-    {
-      status,
-      headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
-      },
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
     },
-  );
+  });
 }

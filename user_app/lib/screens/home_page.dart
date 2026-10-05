@@ -346,10 +346,13 @@ class _MatchCard extends StatelessWidget {
     final kickoff = DateTime.parse(match['kickoff_at']).toLocal();
     final live = match['is_live'] == true;
     final finished = match['is_finished'] == true;
-    final homeScore = (match['home_score'] as num?)?.toInt();
-    final awayScore = (match['away_score'] as num?)?.toInt();
+    final rawHomeScore = (match['home_score'] as num?)?.toInt();
+    final rawAwayScore = (match['away_score'] as num?)?.toInt();
+    final homeScore = rawHomeScore ?? 0;
+    final awayScore = rawAwayScore ?? 0;
     final elapsed = (match['status_elapsed'] as num?)?.toInt();
-    final showScore = homeScore != null && awayScore != null && (live || finished);
+    final hasStoredScore = rawHomeScore != null && rawAwayScore != null;
+    final showScore = live || finished || hasStoredScore;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -406,11 +409,25 @@ class _MatchCard extends StatelessWidget {
                   width: 78,
                   child: Center(
                     child: showScore
-                        ? Text(
-                            '$homeScore - $awayScore',
-                            style: const TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: live
+                                  ? Colors.redAccent.withValues(alpha: .08)
+                                  : colors.surfaceContainerHighest
+                                      .withValues(alpha: .55),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '$homeScore - $awayScore',
+                              style: const TextStyle(
+                                fontSize: 23,
+                                fontWeight: FontWeight.w900,
+                                height: 1,
+                              ),
                             ),
                           )
                         : Column(

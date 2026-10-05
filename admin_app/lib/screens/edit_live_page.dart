@@ -32,7 +32,10 @@ class _EditLivePageState extends State<EditLivePage> {
   Future<void> syncScores() async {
     setState(() => syncing = true);
     try {
-      final res = await Supabase.instance.client.functions.invoke('football-score-sync');
+      final res = await Supabase.instance.client.functions.invoke(
+        'football-score-sync',
+        body: const {'force': true},
+      );
       if (!mounted) return;
       final data = res.data;
       if (data is Map && data['synced'] != null) {
@@ -83,6 +86,20 @@ class _EditLivePageState extends State<EditLivePage> {
     bool active = m['is_active'] == true;
     bool featured = m['is_featured'] != false;
     bool published = (m['publish_state'] ?? 'published') == 'published';
+
+    int scoreValue(TextEditingController controller) =>
+        int.tryParse(controller.text.trim()) ?? 0;
+
+    void changeScore(
+      TextEditingController controller,
+      int delta,
+      void Function(void Function()) setSheetState,
+    ) {
+      setSheetState(() {
+        final next = (scoreValue(controller) + delta).clamp(0, 99);
+        controller.text = '$next';
+      });
+    }
 
     final save = await showModalBottomSheet<bool>(
       context: context,
@@ -153,12 +170,156 @@ class _EditLivePageState extends State<EditLivePage> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(child: TextField(controller: homeScore, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Home score'))),
-                        const SizedBox(width: 10),
-                        Expanded(child: TextField(controller: awayScore, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Away score'))),
-                      ],
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest
+                            .withValues(alpha: .45),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Goal Score',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      home.text.trim().isEmpty
+                                          ? 'Home'
+                                          : home.text.trim(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 7),
+                                    TextField(
+                                      controller: homeScore,
+                                      textAlign: TextAlign.center,
+                                      keyboardType: TextInputType.number,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Home score',
+                                      ),
+                                    ),
+                                    const SizedBox(height: 7),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: OutlinedButton(
+                                            onPressed: () => changeScore(
+                                              homeScore,
+                                              -1,
+                                              setSheetState,
+                                            ),
+                                            child: const Text('−'),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: FilledButton(
+                                            onPressed: () => changeScore(
+                                              homeScore,
+                                              1,
+                                              setSheetState,
+                                            ),
+                                            child: const Text('+ GOAL'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 10),
+                                child: Text(
+                                  '—',
+                                  style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      away.text.trim().isEmpty
+                                          ? 'Away'
+                                          : away.text.trim(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 7),
+                                    TextField(
+                                      controller: awayScore,
+                                      textAlign: TextAlign.center,
+                                      keyboardType: TextInputType.number,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Away score',
+                                      ),
+                                    ),
+                                    const SizedBox(height: 7),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: OutlinedButton(
+                                            onPressed: () => changeScore(
+                                              awayScore,
+                                              -1,
+                                              setSheetState,
+                                            ),
+                                            child: const Text('−'),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: FilledButton(
+                                            onPressed: () => changeScore(
+                                              awayScore,
+                                              1,
+                                              setSheetState,
+                                            ),
+                                            child: const Text('+ GOAL'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            m['external_fixture_id'] == null
+                                ? 'Manual match: score is controlled here.'
+                                : 'API match: score can auto-sync; manual correction is still allowed.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextField(controller: order, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Display order')),
