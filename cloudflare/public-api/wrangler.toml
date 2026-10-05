@@ -1,0 +1,7 @@
+name = "football-public-api"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[vars]
+SUPABASE_URL = "https://woggzixprvyjnfjzsglz.supabase.co"
+GITHUB_MIRROR_URL = "https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/matches.json"
