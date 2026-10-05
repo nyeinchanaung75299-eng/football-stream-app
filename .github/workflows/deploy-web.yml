@@ -48,12 +48,13 @@ jobs:
         run: |
           git fetch origin feed:refs/remotes/origin/feed
           git show origin/feed:public/matches.json > build/web/matches.json
+          git show origin/feed:public/streams.json > build/web/streams.json
           git show origin/feed:public/status.json > build/web/status.json || true
 
       - name: Upload Web build artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Football-Viewer-V9.8-Web
+          name: NCA-V9.8-Web
           path: user_app/build/web
 
       - name: Upload GitHub Pages artifact
