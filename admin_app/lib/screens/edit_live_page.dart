@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'live_links_page.dart';
+import '../services/function_gateway.dart';
 
 class EditLivePage extends StatefulWidget {
   const EditLivePage({super.key});
@@ -78,12 +79,11 @@ class _EditLivePageState extends State<EditLivePage> {
   Future<void> syncScores() async {
     setState(() => syncing = true);
     try {
-      final res = await Supabase.instance.client.functions.invoke(
+      final data = await FunctionGateway.invoke(
         'football-score-sync',
         body: const {'force': true},
       );
       if (!mounted) return;
-      final data = res.data;
       if (data is Map && data['synced'] != null) {
         message('Score sync: ${data['synced']} match(es) updated.');
       } else {
