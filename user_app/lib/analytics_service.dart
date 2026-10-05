@@ -15,6 +15,11 @@ class AnalyticsService {
       final config = PostHogConfig(_projectToken);
       config.host = _host;
       config.debug = kDebugMode;
+      config.captureApplicationLifecycleEvents = true;
+      config.surveys = false;
+      config.sessionReplay = false;
+      config.errorTrackingConfig.captureFlutterErrors = true;
+      config.errorTrackingConfig.capturePlatformDispatcherErrors = true;
       await Posthog().setup(config);
       _ready = true;
       await capture('app opened', properties: {
