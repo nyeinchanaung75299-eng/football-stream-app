@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/function_gateway.dart';
 
 class LiveLinksPage extends StatefulWidget {
   const LiveLinksPage({super.key, this.initialMatchId});
@@ -163,12 +164,10 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         body['match_id'] = matchId;
       }
 
-      final res = await Supabase.instance.client.functions.invoke(
+      final data = await FunctionGateway.invoke(
         'stream-health',
         body: body,
       );
-
-      final data = res.data;
       if (!mounted) return;
 
       if (data is Map && data['summary'] is Map) {
@@ -243,13 +242,12 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
     setState(() => checkingLinks.add(id));
     try {
-      final response = await Supabase.instance.client.functions.invoke(
+      final data = await FunctionGateway.invoke(
         'stream-health',
         body: {'link_id': id},
       );
 
       if (!quiet && mounted) {
-        final data = response.data;
         if (data is Map) {
           final status = data['health_status'] ?? 'unknown';
           final latency = data['latency_ms'];
