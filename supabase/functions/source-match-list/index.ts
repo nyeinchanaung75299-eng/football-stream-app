@@ -87,48 +87,57 @@ async function jsonpMatches(args: {
 }) {
   const raw = await fetchText(`${args.url}?v=${Date.now()}`);
   const payload = parseJsonp(raw);
-  const buckets = payload?.data ?? {};
-
-  const flattened: any[] = [];
-  if (buckets && typeof buckets === "object") {
-    for (const value of Object.values(buckets)) {
-      if (Array.isArray(value)) flattened.push(...value);
-    }
-  }
+  const flattened = collectMatchRows(payload?.data ?? payload);
 
   const seen = new Set<string>();
   const matches = flattened
-    .filter((row: any) => Number(row.categoryId) === 1)
+    .filter(isFootballRow)
     .filter((row: any) => {
-      const id = String(row.scheduleId ?? "");
+      const id = String(
+        row.scheduleId ?? row.schedule_id ?? row.fixtureId ?? row.id ?? "",
+      ).trim();
       if (!id || seen.has(id)) return false;
       seen.add(id);
       return true;
     })
     .map((row: any) => {
-      const anchors = Array.isArray(row.anchors) ? row.anchors : [];
+      const scheduleId =
+        row.scheduleId ?? row.schedule_id ?? row.fixtureId ?? row.id;
+      const anchors = Array.isArray(row.anchors)
+        ? row.anchors
+        : Array.isArray(row.anchorList)
+          ? row.anchorList
+          : [];
+
       return {
         source: args.source,
-        source_id: String(row.scheduleId ?? ""),
-        schedule_id: row.scheduleId,
-        league: args.source === "yyzb"
-          ? friendlyText(row.subCateName ?? row.categoryName ?? "Football")
-          : row.subCateName ?? row.categoryName ?? "Football",
-        home_team: args.source === "yyzb"
-          ? friendlyText(row.hostName ?? "Home")
-          : row.hostName ?? "Home",
-        away_team: args.source === "yyzb"
-          ? friendlyText(row.guestName ?? "Away")
-          : row.guestName ?? "Away",
-        match_time: Number.isFinite(Number(row.matchTime))
-          ? new Date(Number(row.matchTime)).toISOString()
-          : null,
-        hot: String(row.hot ?? "0") === "1",
+        source_id: String(scheduleId ?? ""),
+        schedule_id: scheduleId,
+        league: sourceText(
+          args.source,
+          row.subCateName ?? row.leagueName ?? row.categoryName ?? "Football",
+        ),
+        home_team: sourceText(
+          args.source,
+          row.hostName ?? row.homeName ?? row.home_team ?? "Home",
+        ),
+        away_team: sourceText(
+          args.source,
+          row.guestName ?? row.awayName ?? row.away_team ?? "Away",
+        ),
+        match_time: normalizeMatchTime(
+          row.matchTime ?? row.match_time ?? row.startTime ?? row.kickoff,
+        ),
+        hot:
+          row.hot === true ||
+          String(row.hot ?? row.isHot ?? "0") === "1",
         anchors: anchors
           .map((anchor: any, index: number) => ({
-            uid: anchor.uid ?? null,
-            nick_name: `Streamer ${index + 1}`,
-            room_num: String(anchor.anchor?.roomNum ?? "").trim(),
+            uid: anchor.uid ?? anchor.id ?? null,
+            nick_name:
+              friendlyText(anchor.nickName ?? anchor.name ?? "") ||
+              `Streamer ${index + 1}`,
+            room_num: roomNumber(anchor),
           }))
           .filter((anchor: any) => anchor.room_num),
       };
@@ -223,6 +232,86 @@ async function fawaMatches() {
   });
 }
 
+function collectMatchRows(value: any, depth = 0, output: any[] = []) {
+  if (depth > 6 || value == null) return output;
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectMatchRows(item, depth + 1, output);
+    return output;
+  }
+
+  if (typeof value !== "object") return output;
+
+  const row = value as Record<string, any>;
+  const looksLikeMatch =
+    row.hostName != null ||
+    row.guestName != null ||
+    row.homeName != null ||
+    row.awayName != null ||
+    row.home_team != null ||
+    row.away_team != null;
+
+  if (looksLikeMatch) output.push(row);
+
+  for (const child of Object.values(row)) {
+    if (child && typeof child === "object") {
+      collectMatchRows(child, depth + 1, output);
+    }
+  }
+
+  return output;
+}
+
+function isFootballRow(row: any) {
+  const categoryId = Number(row?.categoryId ?? row?.category_id);
+  if (Number.isFinite(categoryId) && categoryId === 1) return true;
+
+  const category = [
+    row?.categoryName,
+    row?.subCateName,
+    row?.leagueName,
+    row?.sportName,
+  ].map((value) => String(value ?? "").toLowerCase()).join(" ");
+
+  if (/football|soccer|足球/.test(category)) return true;
+
+  // Some source revisions omit categoryId entirely but still expose the same
+  // football schedule shape.
+  return !Number.isFinite(categoryId) &&
+    (row?.hostName != null || row?.homeName != null) &&
+    (row?.guestName != null || row?.awayName != null);
+}
+
+function sourceText(source: "soco" | "yyzb", value: unknown) {
+  return source === "yyzb" ? friendlyText(value) : String(value ?? "").trim();
+}
+
+function normalizeMatchTime(value: unknown) {
+  if (value == null || value === "") return null;
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    const millis = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+    const date = new Date(millis);
+    if (Number.isFinite(date.getTime())) return date.toISOString();
+  }
+
+  const parsed = new Date(String(value));
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function roomNumber(anchor: any) {
+  return String(
+    anchor?.anchor?.roomNum ??
+      anchor?.anchor?.room_num ??
+      anchor?.room?.roomNum ??
+      anchor?.roomNum ??
+      anchor?.room_num ??
+      anchor?.roomId ??
+      "",
+  ).trim();
+}
+
 function friendlyText(value: unknown) {
   let text = String(value ?? "").trim();
   const replacements: Array<[string, string]> = [
@@ -295,35 +384,60 @@ function decodeHtml(value: string) {
 }
 
 async function fetchText(url: string) {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/javascript,application/json,text/html,text/plain,*/*",
-      "User-Agent": "Mozilla/5.0 NCA-Admin/9.8",
-      "Cache-Control": "no-cache",
-    },
-    redirect: "follow",
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
 
-  if (!response.ok) {
-    throw new Error(`Source returned HTTP ${response.status}.`);
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/javascript,application/json,text/html,text/plain,*/*",
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36 NCA-Admin/9.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+      redirect: "follow",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Source returned HTTP ${response.status}.`);
+    }
+
+    return await response.text();
+  } finally {
+    clearTimeout(timer);
   }
-
-  return await response.text();
 }
 
 function parseJsonp(text: string): any {
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    return JSON.parse(trimmed);
+  const trimmed = text.replace(/^\uFEFF/, "").trim().replace(/;\s*$/, "");
+
+  const candidates = [trimmed];
+
+  const firstParen = trimmed.indexOf("(");
+  const lastParen = trimmed.lastIndexOf(")");
+  if (firstParen >= 0 && lastParen > firstParen) {
+    candidates.push(trimmed.slice(firstParen + 1, lastParen).trim());
   }
 
-  const first = trimmed.indexOf("(");
-  const last = trimmed.lastIndexOf(")");
-  if (first < 0 || last <= first) {
-    throw new Error("Source returned an invalid payload.");
+  const assignment = trimmed.match(/^[\w.$]+\s*=\s*([\s\S]+)$/);
+  if (assignment?.[1]) candidates.push(assignment[1].trim());
+
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidates.push(trimmed.slice(firstBrace, lastBrace + 1));
   }
 
-  return JSON.parse(trimmed.slice(first + 1, last));
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate.replace(/;\s*$/, ""));
+    } catch (_) {}
+  }
+
+  throw new Error("Source returned an invalid JSON/JSONP payload.");
 }
 
 function json(data: unknown, status = 200) {
