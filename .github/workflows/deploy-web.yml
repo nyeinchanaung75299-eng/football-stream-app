@@ -40,8 +40,9 @@ jobs:
       - name: Build Viewer Web
         working-directory: user_app
         run: |
-          flutter build web --release --base-href "/football-stream-app/"
+          flutter build web --release --base-href "/"
           cp build/web/index.html build/web/404.html
+          printf '%s\n' 'app.nyeinchanaung.us.ci' > build/web/CNAME
 
       - name: Add same-origin VPN-off match backup
         working-directory: user_app
