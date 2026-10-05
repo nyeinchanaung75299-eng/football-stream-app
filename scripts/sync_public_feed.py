@@ -133,7 +133,7 @@ for row in data:
                 pass
 
         if link.get("use_webview") is True:
-            return bool(str(link.get("webview_url") or "").strip())
+            return False
         return bool(str(link.get("stream_url") or "").strip())
 
     clean["stream_count"] = sum(1 for link in links if advertised(link))
