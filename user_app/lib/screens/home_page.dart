@@ -393,6 +393,9 @@ class _HomePageState extends State<HomePage> {
               'origin': (x['origin'] ?? '').toString(),
               'keyId': (x['key_id'] ?? '').toString(),
               'keyData': (x['key_data'] ?? '').toString(),
+              'resolution': (x['resolution'] ?? '').toString(),
+              'healthStatus': (x['health_status'] ?? 'unknown').toString(),
+              'priority': (x['priority'] as num?)?.toInt() ?? 100,
             })
         .where((x) => (x['url'] as String).trim().isNotEmpty)
         .toList();
@@ -441,6 +444,15 @@ class _HomePageState extends State<HomePage> {
                               ),
                               const SizedBox(height: 3),
                               Text(
+                                'Best available lines are shown first',
+                                style: TextStyle(
+                                  color: colors.primary,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
                                 '${match['home_team']} vs ${match['away_team']}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -481,50 +493,170 @@ class _HomePageState extends State<HomePage> {
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final source = nativeSources[index];
-                        final label =
-                            (source['label'] ?? 'Server ${index + 1}')
-                                .toString();
+                        final rawLabel =
+                            (source['label'] ?? '').toString().trim();
+                        final label = rawLabel.isEmpty
+                            ? 'Line ${index + 1}'
+                            : rawLabel;
                         final type =
                             (source['streamType'] ?? 'auto')
                                 .toString()
-                                .toUpperCase();
+                                .toLowerCase();
+                        final resolution =
+                            (source['resolution'] ?? '').toString().trim();
+                        final health =
+                            (source['healthStatus'] ?? 'unknown')
+                                .toString()
+                                .toLowerCase();
+                        final hasKey =
+                            (source['keyId']?.toString().trim().isNotEmpty ??
+                                    false) &&
+                                (source['keyData']
+                                        ?.toString()
+                                        .trim()
+                                        .isNotEmpty ??
+                                    false);
 
-                        return ListTile(
-                          minTileHeight: 66,
+                        String detail;
+                        IconData icon;
+                        if (type == 'hls' || type == 'm3u8') {
+                          detail = 'Recommended • iPhone & Android';
+                          icon = Icons.workspace_premium_rounded;
+                        } else if (type == 'dash' || type == 'mpd') {
+                          detail = hasKey
+                              ? 'DASH • Adaptive • ClearKey'
+                              : 'DASH • Adaptive quality';
+                          icon = Icons.high_quality_rounded;
+                        } else if (type == 'mp4') {
+                          detail = 'Direct video • High compatibility';
+                          icon = Icons.play_circle_fill_rounded;
+                        } else if (type == 'flv') {
+                          detail = 'Legacy live • Android preferred';
+                          icon = Icons.live_tv_rounded;
+                        } else {
+                          detail = 'Auto • Direct stream';
+                          icon = Icons.auto_awesome_rounded;
+                        }
+
+                        if (resolution.isNotEmpty &&
+                            !label.toLowerCase().contains(
+                                  resolution.toLowerCase(),
+                                )) {
+                          detail = '$resolution • $detail';
+                        }
+
+                        final statusText = switch (health) {
+                          'healthy' => 'READY',
+                          'slow' => 'SLOW',
+                          'failed' => 'CHECK',
+                          _ => 'AUTO',
+                        };
+                        final statusColor = switch (health) {
+                          'healthy' => colors.primary,
+                          'slow' => Colors.orange,
+                          'failed' => colors.error,
+                          _ => colors.onSurfaceVariant,
+                        };
+
+                        return Material(
+                          color: colors.surface,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(18),
                             side: BorderSide(
                               color: colors.outlineVariant
                                   .withValues(alpha: .55),
                             ),
                           ),
-                          leading: CircleAvatar(
-                            backgroundColor:
-                                colors.primaryContainer.withValues(alpha: .7),
-                            foregroundColor: colors.onPrimaryContainer,
-                            child: Text(
-                              '${index + 1}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: () =>
+                                Navigator.pop(sheetContext, index),
+                            child: Padding(
+                              padding: const EdgeInsets.all(13),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 46,
+                                    height: 46,
+                                    decoration: BoxDecoration(
+                                      color: colors.primaryContainer
+                                          .withValues(alpha: .72),
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Icon(
+                                      icon,
+                                      color: colors.onPrimaryContainer,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                label,
+                                                maxLines: 1,
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w900,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 8,
+                                                vertical: 4,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: statusColor
+                                                    .withValues(alpha: .10),
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                              ),
+                                              child: Text(
+                                                statusText,
+                                                style: TextStyle(
+                                                  color: statusColor,
+                                                  fontSize: 9.5,
+                                                  fontWeight: FontWeight.w900,
+                                                  letterSpacing: .5,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          detail,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: colors.onSurfaceVariant,
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Icon(
+                                    Icons.play_arrow_rounded,
+                                    color: colors.primary,
+                                  ),
+                                ],
                               ),
                             ),
                           ),
-                          title: Text(
-                            label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          subtitle: Text(
-                            type == 'HLS' || type == 'M3U8'
-                                ? 'HLS • Preferred'
-                                : (type == 'AUTO' ? 'Auto / Direct' : type),
-                          ),
-                          trailing: const Icon(Icons.play_arrow_rounded),
-                          onTap: () =>
-                              Navigator.pop(sheetContext, index),
                         );
                       },
                     ),
@@ -595,7 +727,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                         SizedBox(height: 2),
                         Text(
-                          'V9.5 • Premium viewer',
+                          'V9.6 • Premium viewer',
                           style: TextStyle(fontSize: 12.5),
                         ),
                       ],
@@ -1011,7 +1143,9 @@ class _MatchCard extends StatelessWidget {
                 icon: const Icon(Icons.play_arrow_rounded, size: 20),
                 label: Text(
                   canWatch
-                      ? (linkCount > 1 ? 'WATCH • $linkCount LINES' : 'WATCH')
+                      ? (linkCount > 1
+                          ? 'WATCH LIVE  •  $linkCount LINES'
+                          : 'WATCH LIVE')
                       : 'NOT READY',
                 ),
               ),
