@@ -143,6 +143,19 @@ class _HomePageState extends State<HomePage> {
     return _stabilizeAvailability(primary);
   }
 
+  List<Map<String, dynamic>> _visibleMatches(
+    List<Map<String, dynamic>> rows,
+  ) {
+    const finishedStatuses = {'FT', 'AET', 'PEN'};
+    return rows.where((row) {
+      if (row['is_finished'] == true) return false;
+      final status =
+          (row['status_short'] ?? '').toString().trim().toUpperCase();
+      if (finishedStatuses.contains(status)) return false;
+      return true;
+    }).toList();
+  }
+
   List<Map<String, dynamic>> _decodeMatches(String body) {
     final decoded = jsonDecode(body);
     final raw = decoded is Map<String, dynamic>
@@ -155,9 +168,11 @@ class _HomePageState extends State<HomePage> {
 
     return _stabilizeAvailability(
       _sortMatchesChronologically(
-        raw
-            .map((row) => Map<String, dynamic>.from(row as Map))
-            .toList(),
+        _visibleMatches(
+          raw
+              .map((row) => Map<String, dynamic>.from(row as Map))
+              .toList(),
+        ),
       ),
     );
   }
@@ -359,7 +374,9 @@ class _HomePageState extends State<HomePage> {
         .timeout(const Duration(seconds: 5));
 
     return _sortMatchesChronologically(
-      List<Map<String, dynamic>>.from(data),
+      _visibleMatches(
+        List<Map<String, dynamic>>.from(data),
+      ),
     );
   }
 
