@@ -1,9 +1,22 @@
 {
-  "name": "Football Live",
-  "short_name": "Football",
+  "name": "NCA",
+  "short_name": "NCA",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#f6f8f7",
   "theme_color": "#0b3d2e",
-  "description": "Football Live web viewer"
+  "description": "NCA live viewer",
+  "icons": [
+    {
+      "src": "icons/nca_icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/nca_icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
 }
