@@ -14,6 +14,10 @@ class NetworkDiagnosticsPage extends StatefulWidget {
 
 class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
   static const _socoUrl = 'https://m.sutbongtv.com/match.html';
+  static const _publicApiBase = String.fromEnvironment(
+    'PUBLIC_API_BASE',
+    defaultValue: '',
+  );
   static const _mirrorUrl =
       'https://raw.githubusercontent.com/'
       'nyeinchanaung75299-eng/football-stream-app/'
@@ -36,6 +40,7 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
     });
 
     await _checkSupabase();
+    await _checkPublicApi();
     await _checkMirror();
     await _checkSoco();
     await _checkStreams();
@@ -80,6 +85,452 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
           status: _DiagStatus.fail,
         ),
       );
+    }
+  }
+
+  Future<void> _checkPublicApi() async {
+    final base = _publicApiBase.trim();
+    if (base.isEmpty) {
+      _add(
+        const _DiagResult(
+          title: 'Public fallback API',
+          detail: 'Not configured in this build.',
+          status: _DiagStatus.warning,
+        ),
+      );
+      return;
+    }
+
+    final started = DateTime.now();
+    final client = http.Client();
+
+    try {
+      final cleanBase = base.replaceAll(RegExp(r'/+    final started = DateTime.now();
+    final client = http.Client();
+    try {
+      final response = await client
+          .get(
+            Uri.parse(_mirrorUrl),
+            headers: const {
+              'Accept': 'application/json',
+              'Cache-Control': 'no-cache',
+            },
+          )
+          .timeout(const Duration(seconds: 8));
+
+      final ok = response.statusCode >= 200 &&
+          response.statusCode < 300 &&
+          response.body.trim().startsWith('[');
+
+      _add(
+        _DiagResult(
+          title: 'GitHub match mirror',
+          detail: ok
+              ? 'VPN-free fallback OK • HTTP ${response.statusCode} • ${_ms(started)} ms'
+              : 'Mirror reached but feed is unavailable • HTTP ${response.statusCode}',
+          status: ok ? _DiagStatus.ok : _DiagStatus.fail,
+        ),
+      );
+    } on TimeoutException {
+      _add(
+        const _DiagResult(
+          title: 'GitHub match mirror',
+          detail: 'Mirror timed out on this network.',
+          status: _DiagStatus.fail,
+        ),
+      );
+    } catch (e) {
+      _add(
+        _DiagResult(
+          title: 'GitHub match mirror',
+          detail: 'Mirror failed: ${_shortError(e)}',
+          status: _DiagStatus.fail,
+        ),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<void> _checkSoco() async {
+    final started = DateTime.now();
+    final client = http.Client();
+    try {
+      final response = await client
+          .get(
+            Uri.parse(_socoUrl),
+            headers: const {'Accept': 'text/html,*/*'},
+          )
+          .timeout(const Duration(seconds: 8));
+
+      final ok = response.statusCode >= 200 && response.statusCode < 400;
+      _add(
+        _DiagResult(
+          title: 'Soco source',
+          detail: ok
+              ? 'Direct connection OK • HTTP ${response.statusCode} • ${_ms(started)} ms'
+              : 'Host reached but returned HTTP ${response.statusCode}',
+          status: ok ? _DiagStatus.ok : _DiagStatus.warning,
+        ),
+      );
+    } on TimeoutException {
+      _add(
+        const _DiagResult(
+          title: 'Soco source',
+          detail: 'Timed out without VPN on this network.',
+          status: _DiagStatus.fail,
+        ),
+      );
+    } catch (e) {
+      _add(
+        _DiagResult(
+          title: 'Soco source',
+          detail: kIsWeb
+              ? 'Browser could not fetch it directly. This can be CORS or network blocking.'
+              : 'Direct connection failed: ${_shortError(e)}',
+          status: kIsWeb ? _DiagStatus.warning : _DiagStatus.fail,
+        ),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<void> _checkStreams() async {
+    List<dynamic> matches;
+    try {
+      matches = await Supabase.instance.client
+          .from('matches')
+          .select(
+            'id,home_team,away_team,stream_links('
+            'label,stream_type,stream_url,referer,origin,is_active,health_status'
+            ')',
+          )
+          .eq('is_active', true)
+          .eq('publish_state', 'published')
+          .eq('is_featured', true)
+          .limit(3)
+          .timeout(const Duration(seconds: 8));
+    } catch (e) {
+      _add(
+        _DiagResult(
+          title: 'Stream tests',
+          detail: 'Could not load stream samples: ${_shortError(e)}',
+          status: _DiagStatus.fail,
+        ),
+      );
+      return;
+    }
+
+    final samples = <Map<String, dynamic>>[];
+    for (final rawMatch in matches) {
+      final match = Map<String, dynamic>.from(rawMatch as Map);
+      final links = List<Map<String, dynamic>>.from(
+        match['stream_links'] ?? const [],
+      );
+
+      links.where((x) => x['is_active'] == true).toList()
+        ..sort((a, b) => _formatRank(a).compareTo(_formatRank(b)));
+
+      for (final link in links) {
+        final url = (link['stream_url'] ?? '').toString().trim();
+        if (url.isEmpty) continue;
+        samples.add({
+          ...link,
+          'match': '${match['home_team']} vs ${match['away_team']}',
+        });
+        if (samples.length >= 5) break;
+      }
+      if (samples.length >= 5) break;
+    }
+
+    if (samples.isEmpty) {
+      _add(
+        const _DiagResult(
+          title: 'Stream tests',
+          detail: 'No active stream URL is available to test.',
+          status: _DiagStatus.warning,
+        ),
+      );
+      return;
+    }
+
+    for (final sample in samples) {
+      await _probeStream(sample);
+    }
+  }
+
+  Future<void> _probeStream(Map<String, dynamic> sample) async {
+    final urlText = (sample['stream_url'] ?? '').toString().trim();
+    final uri = Uri.tryParse(urlText);
+    if (uri == null || !uri.hasScheme) return;
+
+    final type = _streamType(sample);
+    final label = (sample['label'] ?? 'Line').toString();
+    final host = uri.host.isEmpty ? 'stream host' : uri.host;
+    final started = DateTime.now();
+    final client = http.Client();
+
+    try {
+      final request = http.Request('GET', uri)
+        ..headers['Accept'] = '*/*'
+        ..headers['Range'] = 'bytes=0-1024';
+
+      if (!kIsWeb) {
+        final referer = (sample['referer'] ?? '').toString().trim();
+        final origin = (sample['origin'] ?? '').toString().trim();
+        if (referer.isNotEmpty) request.headers['Referer'] = referer;
+        if (origin.isNotEmpty) request.headers['Origin'] = origin;
+      }
+
+      final response = await client
+          .send(request)
+          .timeout(const Duration(seconds: 10));
+
+      final code = response.statusCode;
+      final ok = code == 200 || code == 206 || (code >= 300 && code < 400);
+
+      // Read only the first response chunk. This is reachability testing,
+      // not video relaying or downloading.
+      try {
+        await response.stream.first.timeout(const Duration(seconds: 2));
+      } catch (_) {}
+
+      _add(
+        _DiagResult(
+          title: '$label • $type',
+          detail: ok
+              ? '$host reachable • HTTP $code • ${_ms(started)} ms'
+              : '$host reached but returned HTTP $code',
+          status: ok
+              ? _DiagStatus.ok
+              : (code == 401 || code == 403
+                  ? _DiagStatus.warning
+                  : _DiagStatus.fail),
+        ),
+      );
+    } on TimeoutException {
+      _add(
+        _DiagResult(
+          title: '$label • $type',
+          detail: '$host timed out on this network.',
+          status: _DiagStatus.fail,
+        ),
+      );
+    } catch (e) {
+      _add(
+        _DiagResult(
+          title: '$label • $type',
+          detail: kIsWeb
+              ? '$host browser test failed. CORS or network access may be blocking it.'
+              : '$host direct test failed: ${_shortError(e)}',
+          status: kIsWeb ? _DiagStatus.warning : _DiagStatus.fail,
+        ),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  int _formatRank(Map<String, dynamic> row) {
+    final type = _streamType(row).toLowerCase();
+    if (type == 'hls') return 0;
+    if (type == 'dash') return 1;
+    if (type == 'mp4') return 2;
+    if (type == 'auto') return 3;
+    if (type == 'flv') return 4;
+    return 5;
+  }
+
+  String _streamType(Map<String, dynamic> row) {
+    final declared =
+        (row['stream_type'] ?? 'auto').toString().toLowerCase();
+    final url = (row['stream_url'] ?? '').toString().toLowerCase();
+
+    if (declared == 'hls' || declared == 'm3u8' || url.contains('.m3u8')) {
+      return 'HLS';
+    }
+    if (declared == 'dash' || declared == 'mpd' || url.contains('.mpd')) {
+      return 'DASH';
+    }
+    if (declared == 'flv' || url.contains('.flv')) return 'FLV';
+    if (declared == 'mp4' || url.contains('.mp4')) return 'MP4';
+    return 'Auto';
+  }
+
+  int _ms(DateTime started) =>
+      DateTime.now().difference(started).inMilliseconds;
+
+  String _shortError(Object e) {
+    final text = e.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+    return text.length <= 110 ? text : '${text.substring(0, 107)}...';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final okCount =
+        _results.where((x) => x.status == _DiagStatus.ok).length;
+    final failCount =
+        _results.where((x) => x.status == _DiagStatus.fail).length;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('VPN-Free Diagnostics'),
+        actions: [
+          IconButton(
+            tooltip: 'Run again',
+            onPressed: _running ? null : _run,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    failCount == 0 && okCount > 0
+                        ? Icons.verified_rounded
+                        : Icons.network_check_rounded,
+                    size: 34,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _running
+                              ? 'Testing direct connections…'
+                              : (failCount == 0
+                                  ? 'Direct connection looks usable'
+                                  : 'Some endpoints need attention'),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          kIsWeb
+                              ? 'Web tests also reflect browser CORS rules.'
+                              : 'Tests use the phone network directly. No VPN bypass is performed.',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_running) ...[
+            const SizedBox(height: 10),
+            const LinearProgressIndicator(),
+          ],
+          const SizedBox(height: 10),
+          ..._results.map((result) => _ResultTile(result: result)),
+          const SizedBox(height: 14),
+          const Text(
+            'HLS-first policy',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Healthy HLS (.m3u8) lines are preferred first. If a line fails, '
+            'the player can try the next configured line. A network or host '
+            'block still requires a directly reachable authorized source.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _DiagStatus { ok, warning, fail }
+
+class _DiagResult {
+  const _DiagResult({
+    required this.title,
+    required this.detail,
+    required this.status,
+  });
+
+  final String title;
+  final String detail;
+  final _DiagStatus status;
+}
+
+class _ResultTile extends StatelessWidget {
+  const _ResultTile({required this.result});
+
+  final _DiagResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    final (icon, color) = switch (result.status) {
+      _DiagStatus.ok => (Icons.check_circle_rounded, Colors.green),
+      _DiagStatus.warning => (Icons.warning_amber_rounded, Colors.orange),
+      _DiagStatus.fail => (Icons.cancel_rounded, colors.error),
+    };
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Icon(icon, color: color),
+        title: Text(
+          result.title,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: Text(result.detail),
+      ),
+    );
+  }
+}
+), '');
+      final response = await client
+          .get(
+            Uri.parse('$cleanBase/health'),
+            headers: const {'Accept': 'application/json'},
+          )
+          .timeout(const Duration(seconds: 8));
+
+      final ok = response.statusCode >= 200 &&
+          response.statusCode < 300;
+
+      _add(
+        _DiagResult(
+          title: 'Public fallback API',
+          detail: ok
+              ? 'Reachable without Supabase direct access • ${_ms(started)} ms'
+              : 'Fallback API returned HTTP ${response.statusCode}',
+          status: ok ? _DiagStatus.ok : _DiagStatus.fail,
+        ),
+      );
+    } on TimeoutException {
+      _add(
+        const _DiagResult(
+          title: 'Public fallback API',
+          detail: 'Configured, but timed out on this network.',
+          status: _DiagStatus.fail,
+        ),
+      );
+    } catch (e) {
+      _add(
+        _DiagResult(
+          title: 'Public fallback API',
+          detail: 'Connection failed: ${_shortError(e)}',
+          status: _DiagStatus.fail,
+        ),
+      );
+    } finally {
+      client.close();
     }
   }
 
