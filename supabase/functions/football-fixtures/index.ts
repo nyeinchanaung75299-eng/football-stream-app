@@ -97,9 +97,16 @@ Deno.serve(async (req) => {
     const payload = await apiResponse.json();
 
     if (payload.errors && Object.keys(payload.errors).length > 0) {
+      const providerError = JSON.stringify(payload.errors);
+      const suspended = providerError.toLowerCase().includes("suspended");
       return json(
         {
-          error: JSON.stringify(payload.errors),
+          error: suspended
+            ? "API-Football account is suspended. Reactivate it or replace API_FOOTBALL_KEY."
+            : providerError,
+          code: suspended
+            ? "FOOTBALL_API_ACCOUNT_SUSPENDED"
+            : "FOOTBALL_PROVIDER_ERROR",
         },
         502,
       );
