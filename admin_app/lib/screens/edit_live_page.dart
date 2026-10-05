@@ -511,6 +511,12 @@ class _EditLivePageState extends State<EditLivePage> {
 
           final now = DateTime.now();
           final visibleRows = rows.where((m) {
+            final current =
+                m['is_active'] == true &&
+                m['is_featured'] != false &&
+                (m['publish_state'] ?? 'published') == 'published';
+            if (!current) return false;
+
             if (view == 'live') return m['is_live'] == true;
             if (view == 'upcoming') {
               final kickoff =

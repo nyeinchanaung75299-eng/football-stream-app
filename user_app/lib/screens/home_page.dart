@@ -375,6 +375,20 @@ class _HomePageState extends State<HomePage> {
     final rows = raw
         .map((row) => Map<String, dynamic>.from(row as Map))
         .toList();
+
+    if (decoded is Map<String, dynamic> &&
+        decoded['blocked_streams'] is List) {
+      final blocked = (decoded['blocked_streams'] as List)
+          .map((row) => Map<String, dynamic>.from(row as Map))
+          .map((row) => <String, dynamic>{
+                ...row,
+                // A local non-playable sentinel keeps the option visible in
+                // the chooser without exposing an upstream URL or key.
+                'stream_url': 'blocked://keyed-dash',
+              });
+      rows.addAll(blocked);
+    }
+
     if (rows.isEmpty) {
       throw const FormatException('No stream lines returned.');
     }
@@ -707,6 +721,8 @@ class _HomePageState extends State<HomePage> {
               'resolution': (x['resolution'] ?? '').toString(),
               'healthStatus': (x['health_status'] ?? 'unknown').toString(),
               'priority': (x['priority'] as num?)?.toInt() ?? 100,
+              'blockedReason': (x['blocked_reason'] ?? '').toString(),
+              'viewerMessage': (x['viewer_message'] ?? '').toString(),
             })
         .where((x) => (x['url'] as String).trim().isNotEmpty)
         .toList();
@@ -827,6 +843,11 @@ class _HomePageState extends State<HomePage> {
                             (source['healthStatus'] ?? 'unknown')
                                 .toString()
                                 .toLowerCase();
+                        final blocked =
+                            (source['blockedReason'] ?? '')
+                                .toString()
+                                .trim()
+                                .isNotEmpty;
                         final hasKey =
                             (source['keyId']?.toString().trim().isNotEmpty ??
                                     false) &&
@@ -838,7 +859,10 @@ class _HomePageState extends State<HomePage> {
 
                         String detail;
                         IconData icon;
-                        if (type == 'hls' || type == 'm3u8') {
+                        if (blocked) {
+                          detail = 'KEYED DASH • Viewer blocked • add HLS/non-DRM backup';
+                          icon = Icons.lock_rounded;
+                        } else if (type == 'hls' || type == 'm3u8') {
                           detail = 'Recommended • iPhone & Android';
                           icon = Icons.workspace_premium_rounded;
                         } else if (type == 'dash' || type == 'mpd') {
@@ -864,18 +888,22 @@ class _HomePageState extends State<HomePage> {
                           detail = '$resolution • $detail';
                         }
 
-                        final statusText = switch (health) {
-                          'healthy' => 'READY',
-                          'slow' => 'SLOW',
-                          'failed' => 'CHECK',
-                          _ => 'AUTO',
-                        };
-                        final statusColor = switch (health) {
-                          'healthy' => colors.primary,
-                          'slow' => Colors.orange,
-                          'failed' => colors.error,
-                          _ => colors.onSurfaceVariant,
-                        };
+                        final statusText = blocked
+                            ? 'BLOCKED'
+                            : switch (health) {
+                                'healthy' => 'READY',
+                                'slow' => 'SLOW',
+                                'failed' => 'CHECK',
+                                _ => 'AUTO',
+                              };
+                        final statusColor = blocked
+                            ? colors.error
+                            : switch (health) {
+                                'healthy' => colors.primary,
+                                'slow' => Colors.orange,
+                                'failed' => colors.error,
+                                _ => colors.onSurfaceVariant,
+                              };
 
                         return Material(
                           color: colors.surface,
@@ -888,8 +916,9 @@ class _HomePageState extends State<HomePage> {
                           ),
                           clipBehavior: Clip.antiAlias,
                           child: InkWell(
-                            onTap: () =>
-                                Navigator.pop(sheetContext, index),
+                            onTap: blocked
+                                ? null
+                                : () => Navigator.pop(sheetContext, index),
                             child: Padding(
                               padding: const EdgeInsets.all(13),
                               child: Row(

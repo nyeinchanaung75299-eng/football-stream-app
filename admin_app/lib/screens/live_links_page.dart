@@ -638,6 +638,211 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     }
   }
 
+  Widget _serverCard(
+    Map<String, dynamic> row,
+    ColorScheme colors,
+  ) {
+    final name = '${row['label'] ?? row['resolution'] ?? 'Server'}';
+    final streamKey = (row['stream_type'] ?? 'auto').toString();
+    final type = row['use_webview'] == true
+        ? 'WEBVIEW'
+        : streamTypes[streamKey] ?? 'Auto / Direct';
+    final url = row['use_webview'] == true
+        ? '${row['webview_url'] ?? ''}'
+        : '${row['stream_url'] ?? ''}';
+    final active = row['is_active'] == true;
+    final health = (row['health_status'] ?? 'unknown').toString();
+    final latency = (row['health_latency_ms'] as num?)?.toInt();
+    final checking = checkingLinks.contains(row['id'].toString());
+    final keyedDash =
+        streamKey == 'dash' &&
+        ((row['key_id']?.toString().trim().isNotEmpty ?? false) ||
+            (row['key_data']?.toString().trim().isNotEmpty ?? false));
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Card(
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(
+            color: colors.outlineVariant.withValues(alpha: .5),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: colors.primary.withValues(alpha: .10),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      keyedDash ? Icons.lock_rounded : Icons.dns_rounded,
+                      color: keyedDash ? colors.error : colors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: colors.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                type,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: colors.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                            _HealthChip(
+                              status: health,
+                              latencyMs: latency,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    tooltip: 'Server actions',
+                    onSelected: (value) {
+                      if (value == 'edit') {
+                        editLink(row);
+                      } else if (value == 'delete') {
+                        deleteLink(row['id'].toString());
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'edit',
+                        child: ListTile(
+                          dense: true,
+                          leading: Icon(Icons.edit_rounded),
+                          title: Text('Edit'),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: ListTile(
+                          dense: true,
+                          leading: Icon(
+                            Icons.delete_outline_rounded,
+                            color: Colors.redAccent,
+                          ),
+                          title: Text('Delete'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              if (keyedDash) ...[
+                const SizedBox(height: 9),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: colors.errorContainer.withValues(alpha: .45),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'KEYED DASH • Viewer shows this as blocked. '
+                    'Use HLS or non-DRM DASH for public playback.',
+                    style: TextStyle(
+                      color: colors.onErrorContainer,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+              if (url.trim().isNotEmpty) ...[
+                const SizedBox(height: 9),
+                Text(
+                  url,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 9),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: checking
+                          ? null
+                          : () => checkHealth(row['id'].toString()),
+                      icon: checking
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.monitor_heart_rounded, size: 18),
+                      label: Text(checking ? 'CHECKING' : 'CHECK'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Active',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(width: 4),
+                  Switch.adaptive(
+                    value: active,
+                    onChanged: (value) =>
+                        setActive(row['id'].toString(), value),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -927,208 +1132,9 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                     }
 
                     return Column(
-                      children: [
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: FilledButton.tonalIcon(
-                            onPressed: checkingAll
-                                ? null
-                                : () => checkAllHealth(rows),
-                            icon: checkingAll
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.health_and_safety_rounded),
-                            label: Text(
-                              checkingAll ? 'CHECKING...' : 'CHECK ALL HEALTH',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        ...rows.map((row) {
-                        final name =
-                            '${row['label'] ?? row['resolution'] ?? 'Server'}';
-                        final type = row['use_webview'] == true
-                            ? 'WEBVIEW'
-                            : streamTypes[
-                                      (row['stream_type'] ?? 'auto').toString()
-                                    ] ??
-                                'Auto / Direct';
-                        final url = row['use_webview'] == true
-                            ? '${row['webview_url'] ?? ''}'
-                            : '${row['stream_url'] ?? ''}';
-                        final active = row['is_active'] == true;
-                        final health =
-                            (row['health_status'] ?? 'unknown').toString();
-                        final latency =
-                            (row['health_latency_ms'] as num?)?.toInt();
-                        final checking =
-                            checkingLinks.contains(row['id'].toString());
-
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: Card(
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                              side: BorderSide(
-                                color: colors.outlineVariant
-                                    .withValues(alpha: .5),
-                              ),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(14),
-                              child: Column(
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        width: 42,
-                                        height: 42,
-                                        decoration: BoxDecoration(
-                                          color: colors.primary
-                                              .withValues(alpha: .1),
-                                          borderRadius:
-                                              BorderRadius.circular(13),
-                                        ),
-                                        child: Icon(
-                                          Icons.dns_rounded,
-                                          color: colors.primary,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 11),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              name,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w900,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 3),
-                                            Text(
-                                              type,
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color:
-                                                    colors.onSurfaceVariant,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Test server',
-                                        onPressed: testingHealth
-                                            ? null
-                                            : () => testHealth(
-                                                  linkId:
-                                                      row['id'].toString(),
-                                                ),
-                                        icon: const Icon(
-                                          Icons.monitor_heart_rounded,
-                                        ),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 5,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: healthColor(health)
-                                              .withValues(alpha: .1),
-                                          borderRadius:
-                                              BorderRadius.circular(999),
-                                        ),
-                                        child: Text(
-                                          latency == null
-                                              ? health.toUpperCase()
-                                              : '${health.toUpperCase()} • ${latency}ms',
-                                          style: TextStyle(
-                                            color: healthColor(health),
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w900,
-                                          ),
-                                        ),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Check health now',
-                                        onPressed: checking
-                                            ? null
-                                            : () => checkHealth(
-                                                  row['id'].toString(),
-                                                ),
-                                        icon: checking
-                                            ? const SizedBox(
-                                                width: 18,
-                                                height: 18,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                ),
-                                              )
-                                            : const Icon(
-                                                Icons.monitor_heart_rounded,
-                                              ),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Edit',
-                                        onPressed: () => editLink(row),
-                                        icon: const Icon(Icons.edit_rounded),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Delete',
-                                        color: Colors.redAccent,
-                                        onPressed: () =>
-                                            deleteLink(row['id']),
-                                        icon: const Icon(
-                                          Icons.delete_outline_rounded,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 7),
-                                  Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: _HealthChip(
-                                      status: health,
-                                      latencyMs: latency,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 7),
-                                  Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: Text(
-                                      url,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: colors.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ),
-                                  SwitchListTile.adaptive(
-                                    dense: true,
-                                    contentPadding: EdgeInsets.zero,
-                                    title: const Text('Active'),
-                                    value: active,
-                                    onChanged: (v) =>
-                                        setActive(row['id'], v),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                        }),
-                      ],
+                      children: rows
+                          .map((row) => _serverCard(row, colors))
+                          .toList(),
                     );
                   },
                 ),
