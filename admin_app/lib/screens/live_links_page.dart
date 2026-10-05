@@ -783,6 +783,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                             (row['health_status'] ?? 'unknown').toString();
                         final latency =
                             (row['health_latency_ms'] as num?)?.toInt();
+                        final checking =
+                            checkingLinks.contains(row['id'].toString());
 
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 10),
