@@ -376,8 +376,18 @@ class _HomePageState extends State<HomePage> {
     final links = await _resolveLinks(match);
     if (links.isEmpty) {
       if (!mounted) return;
+      final advertised =
+          (match['stream_count'] as num?)?.toInt() ?? 0;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Stream is not available yet.')),
+        SnackBar(
+          content: Text(
+            advertised > 0
+                ? '$advertised line(s) are configured, but this network cannot '
+                    'open a playable public line yet. Add an HLS/public backup '
+                    'line in Admin for reliable VPN-off playback.'
+                : 'Stream is not available yet.',
+          ),
+        ),
       );
       return;
     }
