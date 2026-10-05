@@ -473,7 +473,7 @@ class _HomePageState extends State<HomePage> {
         final first = await Future.any<List<Map<String, dynamic>>>([
           protectedFuture,
           Future<List<Map<String, dynamic>>>.delayed(
-            const Duration(milliseconds: 350),
+            Duration(milliseconds: kIsWeb ? 2500 : 350),
             () => const <Map<String, dynamic>>[],
           ),
         ]);
