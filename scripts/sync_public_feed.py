@@ -31,7 +31,7 @@ params = {
     "is_active": "eq.true",
     "publish_state": "eq.published",
     "is_featured": "eq.true",
-    "order": "sort_order.asc,kickoff_at.asc",
+    "order": "kickoff_at.asc,sort_order.asc",
 }
 url = SUPABASE_URL.rstrip("/") + "/rest/v1/matches?" + urllib.parse.urlencode(params)
 

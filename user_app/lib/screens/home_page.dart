@@ -48,6 +48,35 @@ class _HomePageState extends State<HomePage> {
         .subscribe();
   }
 
+  List<Map<String, dynamic>> _sortMatchesChronologically(
+    List<Map<String, dynamic>> rows,
+  ) {
+    rows.sort((a, b) {
+      final aText = a['kickoff_at']?.toString();
+      final bText = b['kickoff_at']?.toString();
+
+      final aTime = aText == null ? null : DateTime.tryParse(aText);
+      final bTime = bText == null ? null : DateTime.tryParse(bText);
+
+      if (aTime == null && bTime == null) {
+        final aOrder = (a['sort_order'] as num?)?.toInt() ?? 0;
+        final bOrder = (b['sort_order'] as num?)?.toInt() ?? 0;
+        return aOrder.compareTo(bOrder);
+      }
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      final timeCompare = aTime.compareTo(bTime);
+      if (timeCompare != 0) return timeCompare;
+
+      final aOrder = (a['sort_order'] as num?)?.toInt() ?? 0;
+      final bOrder = (b['sort_order'] as num?)?.toInt() ?? 0;
+      return aOrder.compareTo(bOrder);
+    });
+
+    return rows;
+  }
+
   Future<List<Map<String, dynamic>>> loadMatches() async {
     try {
       final data = await Supabase.instance.client
@@ -65,12 +94,14 @@ class _HomePageState extends State<HomePage> {
           .eq('is_active', true)
           .eq('publish_state', 'published')
           .eq('is_featured', true)
-          .order('sort_order')
           .order('kickoff_at')
+          .order('sort_order')
           .timeout(const Duration(seconds: 6));
 
       _usingMirror = false;
-      return List<Map<String, dynamic>>.from(data);
+      return _sortMatchesChronologically(
+        List<Map<String, dynamic>>.from(data),
+      );
     } catch (_) {
       final bucket =
           DateTime.now().millisecondsSinceEpoch ~/ (5 * 60 * 1000);
@@ -97,9 +128,11 @@ class _HomePageState extends State<HomePage> {
       }
 
       _usingMirror = true;
-      return decoded
-          .map((row) => Map<String, dynamic>.from(row as Map))
-          .toList();
+      return _sortMatchesChronologically(
+        decoded
+            .map((row) => Map<String, dynamic>.from(row as Map))
+            .toList(),
+      );
     }
   }
 
