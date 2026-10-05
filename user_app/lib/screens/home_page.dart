@@ -33,6 +33,7 @@ class _HomePageState extends State<HomePage> {
   Timer? _debounce;
   Timer? _scoreRefresh;
   late Future<String> _versionLabel;
+  late Future<String> _updateVersionLabel;
 
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
@@ -128,6 +129,7 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _future = loadMatches();
     _versionLabel = _loadVersionLabel();
+    _updateVersionLabel = AppUpdateService.versionSummary();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) AppUpdateService.check(context);
     });
@@ -1068,11 +1070,10 @@ class _HomePageState extends State<HomePage> {
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
                 subtitle: FutureBuilder<String>(
-                  future: _versionLabel,
+                  future: _updateVersionLabel,
                   builder: (context, snapshot) => Text(
-                    snapshot.data == null
-                        ? 'Check and install the latest NCA APK'
-                        : 'Installed: ${snapshot.data!.split(' • ').take(2).join(' • ')} • tap to check latest',
+                    snapshot.data ??
+                        'Check and install the latest NCA APK',
                   ),
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
