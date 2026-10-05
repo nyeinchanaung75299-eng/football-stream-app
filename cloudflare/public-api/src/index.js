@@ -455,6 +455,26 @@ async function protectedClientLinks(raw, env, publicOrigin) {
   return output.sort(compareLinks);
 }
 
+const WORKER_IP_HOST_ALIASES = Object.freeze({
+  "193.47.62.41": "fawa41-origin.nyeinchanaung.us.ci",
+  "193.47.62.44": "fawa44-origin.nyeinchanaung.us.ci",
+  "193.47.62.55": "fawa55-origin.nyeinchanaung.us.ci",
+  "193.47.62.59": "fawa59-origin.nyeinchanaung.us.ci",
+});
+
+function workerFetchUrl(value) {
+  const url = value instanceof URL ? new URL(value.toString()) : new URL(value);
+  const alias = WORKER_IP_HOST_ALIASES[url.hostname];
+  if (alias) url.hostname = alias;
+  return url;
+}
+
+function isFawaSession(session) {
+  const referer = String(session?.r || "").toLowerCase();
+  const origin = String(session?.o || "").toLowerCase();
+  return referer.includes("fawanews.") || origin.includes("fawanews.");
+}
+
 async function handleProtectedPlayback(request, sessionToken, childPath, env) {
   if (!env.PLAYBACK_TOKENS) {
     return json({ error: "Protected playback is unavailable." }, 503);
@@ -514,7 +534,10 @@ async function handleProtectedPlayback(request, sessionToken, childPath, env) {
 
   let upstream;
   try {
-    upstream = new URL(upstreamUrl);
+    // Cloudflare Workers cannot subrequest raw IP-literal URLs. Known Fawa
+    // origins are routed through DNS-only A-record aliases in our zone while
+    // the protected session keeps the original URL private.
+    upstream = workerFetchUrl(upstreamUrl);
   } catch (_) {
     return json({ error: "Invalid upstream URL." }, 400);
   }
@@ -523,10 +546,19 @@ async function handleProtectedPlayback(request, sessionToken, childPath, env) {
   }
 
   const headers = new Headers();
-  headers.set("Accept", request.headers.get("Accept") || "*/*");
+  const fawa = isFawaSession(session);
+  headers.set(
+    "Accept",
+    fawa
+      ? "application/vnd.apple.mpegurl,application/x-mpegURL,video/*,*/*;q=0.8"
+      : request.headers.get("Accept") || "*/*",
+  );
   headers.set(
     "User-Agent",
-    request.headers.get("User-Agent") || "Mozilla/5.0 NCA-Protected-Playback",
+    fawa
+      ? "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36"
+      : request.headers.get("User-Agent") ||
+          "Mozilla/5.0 NCA-Protected-Playback",
   );
   const range = request.headers.get("Range");
   if (range) headers.set("Range", range);
