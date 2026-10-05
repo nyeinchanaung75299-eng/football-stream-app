@@ -22,10 +22,27 @@
     #football-player-video{width:100%;height:100%;object-fit:contain;background:#000}
     #football-player-video.fill{object-fit:cover}
     #football-player-message{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);max-width:min(680px,88vw);padding:12px 16px;border-radius:12px;background:rgba(0,0,0,.72);color:#fff;text-align:center;line-height:1.4;display:none}
-    .football-control{min-height:38px;padding:0 12px;border:1px solid rgba(255,255,255,.22);border-radius:10px;color:#fff;background:rgba(255,255,255,.10);font-weight:700}
-    select.football-control{max-width:190px}
+    .football-control{min-height:38px;padding:0 12px;border:1px solid rgba(255,255,255,.22);border-radius:10px;color:#fff;background:#171717;font-weight:800}
     button.football-control{cursor:pointer}
-    @media(max-width:720px){#football-player-topbar{gap:6px;padding:6px}#football-player-title{flex-basis:calc(100% - 58px)}.football-control{min-height:36px;padding:0 9px}select.football-control{max-width:145px}}
+    #football-player-server,#football-player-quality{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #football-player-menu{position:absolute;z-index:5;top:62px;right:10px;width:min(360px,calc(100vw - 20px));max-height:min(64vh,520px);overflow:hidden;border:1px solid rgba(255,255,255,.18);border-radius:16px;background:#121212;box-shadow:0 16px 40px rgba(0,0,0,.45);color:#fff}
+    #football-player-menu.hidden{display:none}
+    #football-player-menu-title{padding:12px 14px 8px;font-size:13px;font-weight:900;color:#bdbdbd;text-transform:uppercase;letter-spacing:.05em}
+    #football-player-menu-items{max-height:min(56vh,450px);overflow-y:auto;padding:4px 8px 10px;-webkit-overflow-scrolling:touch}
+    .football-menu-item{width:100%;display:flex;align-items:center;gap:10px;min-height:52px;margin:4px 0;padding:9px 10px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:#1d1d1d;color:#fff;text-align:left}
+    .football-menu-item.current{border-color:#38b979;background:#173128}
+    .football-menu-item.unsupported{opacity:.48}
+    .football-menu-item-main{min-width:0;flex:1}
+    .football-menu-item-label{display:block;font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .football-menu-item-sub{display:block;margin-top:2px;font-size:12px;color:#bdbdbd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .football-menu-item-badge{flex:0 0 auto;font-size:11px;font-weight:900;color:#8fe3b9}
+    @media(max-width:720px){
+      #football-player-topbar{gap:6px;padding:6px}
+      #football-player-title{flex-basis:calc(100% - 58px)}
+      .football-control{min-height:36px;padding:0 9px}
+      #football-player-server,#football-player-quality{max-width:132px}
+      #football-player-menu{top:102px;left:8px;right:8px;width:auto;max-height:62vh}
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/shaka-player@4/dist/shaka-player.compiled.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.js"></script>
@@ -35,10 +52,14 @@
     <div id="football-player-topbar">
       <button id="football-player-close" class="football-control" type="button">← Back</button>
       <div id="football-player-title">Football Live</div>
-      <select id="football-player-server" class="football-control" aria-label="Server"></select>
-      <select id="football-player-quality" class="football-control" aria-label="Quality"><option value="auto">Auto</option></select>
+      <button id="football-player-server" class="football-control" type="button" aria-label="Choose line">Line</button>
+      <button id="football-player-quality" class="football-control" type="button" aria-label="Choose quality">Auto</button>
       <button id="football-player-fit" class="football-control" type="button">Fill</button>
       <button id="football-player-fullscreen" class="football-control" type="button">Fullscreen</button>
+    </div>
+    <div id="football-player-menu" class="hidden" role="dialog" aria-modal="false">
+      <div id="football-player-menu-title"></div>
+      <div id="football-player-menu-items"></div>
     </div>
     <div id="football-player-video-wrap">
       <video id="football-player-video" controls playsinline></video>
@@ -50,13 +71,17 @@
     const overlay=document.getElementById('football-player-overlay');
     const video=document.getElementById('football-player-video');
     const titleEl=document.getElementById('football-player-title');
-    const serverSelect=document.getElementById('football-player-server');
-    const qualitySelect=document.getElementById('football-player-quality');
+    const serverButton=document.getElementById('football-player-server');
+    const qualityButton=document.getElementById('football-player-quality');
+    const menuPanel=document.getElementById('football-player-menu');
+    const menuTitle=document.getElementById('football-player-menu-title');
+    const menuItems=document.getElementById('football-player-menu-items');
     const messageEl=document.getElementById('football-player-message');
     const closeButton=document.getElementById('football-player-close');
     const fitButton=document.getElementById('football-player-fit');
     const fullscreenButton=document.getElementById('football-player-fullscreen');
     let sources=[], shakaPlayer=null, mpegtsPlayer=null, currentTracks=[];
+    let currentSourceIndex=0;
     let controlsTimer=null;
 
     function hideControls(){
@@ -72,8 +97,119 @@
 
     function showMessage(text){messageEl.textContent=text||'';messageEl.style.display=text?'block':'none'}
 
+    function isIOS(){
+      return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+    }
+
+    function sourceSupport(source){
+      const type=sourceType(source);
+      const keyId=String(source.keyId||source.key_id||'').trim();
+      const keyData=String(source.keyData||source.key_data||'').trim();
+
+      if(isIOS() && type==='flv'){
+        return {ok:false, reason:'FLV is not supported on iPhone/iPad browser'};
+      }
+      if(isIOS() && type==='dash' && keyId && keyData){
+        return {ok:false, reason:'ClearKey DASH is not supported by iPhone/iPad Safari'};
+      }
+      return {ok:true, reason:''};
+    }
+
+    function closePlayerMenu(){
+      menuPanel.classList.add('hidden');
+      menuItems.innerHTML='';
+    }
+
+    function openLineMenu(){
+      revealControls();
+      menuTitle.textContent='Choose line';
+      menuItems.innerHTML='';
+      sources.forEach((source,index)=>{
+        const type=sourceType(source).toUpperCase();
+        const support=sourceSupport(source);
+        const item=document.createElement('button');
+        item.type='button';
+        item.className='football-menu-item'+
+          (index===currentSourceIndex?' current':'')+
+          (!support.ok?' unsupported':'');
+        item.disabled=!support.ok;
+        const label=String(source.label||source.resolution||('Server '+(index+1)));
+        item.innerHTML=
+          '<span class="football-menu-item-main">'+
+          '<span class="football-menu-item-label">'+escapeHtml(label)+'</span>'+
+          '<span class="football-menu-item-sub">'+escapeHtml(support.ok?(type==='AUTO'?'Auto / Direct':type):support.reason)+'</span>'+
+          '</span>'+
+          (index===currentSourceIndex?'<span class="football-menu-item-badge">PLAYING</span>':'');
+        item.addEventListener('click',()=>{
+          closePlayerMenu();
+          loadSource(index);
+        });
+        menuItems.appendChild(item);
+      });
+      menuPanel.classList.remove('hidden');
+    }
+
+    function openQualityMenu(){
+      revealControls();
+      menuTitle.textContent='Video quality';
+      menuItems.innerHTML='';
+
+      const auto=document.createElement('button');
+      auto.type='button';
+      auto.className='football-menu-item'+(qualityButton.dataset.mode!=='manual'?' current':'');
+      auto.innerHTML='<span class="football-menu-item-main"><span class="football-menu-item-label">Auto</span><span class="football-menu-item-sub">Adaptive quality</span></span>';
+      auto.addEventListener('click',()=>{
+        if(shakaPlayer) shakaPlayer.configure({abr:{enabled:true}});
+        qualityButton.textContent='Auto';
+        qualityButton.dataset.mode='auto';
+        closePlayerMenu();
+      });
+      menuItems.appendChild(auto);
+
+      currentTracks.forEach(track=>{
+        const item=document.createElement('button');
+        item.type='button';
+        const label=(track.height||'?')+'p';
+        item.className='football-menu-item'+(qualityButton.dataset.trackId===String(track.id)?' current':'');
+        item.innerHTML='<span class="football-menu-item-main"><span class="football-menu-item-label">'+escapeHtml(label)+'</span><span class="football-menu-item-sub">Manual quality</span></span>';
+        item.addEventListener('click',()=>{
+          if(shakaPlayer){
+            shakaPlayer.configure({abr:{enabled:false}});
+            shakaPlayer.selectVariantTrack(track,true);
+          }
+          qualityButton.textContent=label;
+          qualityButton.dataset.mode='manual';
+          qualityButton.dataset.trackId=String(track.id);
+          closePlayerMenu();
+        });
+        menuItems.appendChild(item);
+      });
+
+      if(currentTracks.length===0){
+        const info=document.createElement('div');
+        info.className='football-menu-item unsupported';
+        info.innerHTML='<span class="football-menu-item-main"><span class="football-menu-item-label">Auto only</span><span class="football-menu-item-sub">This browser/source does not expose manual qualities.</span></span>';
+        menuItems.appendChild(info);
+      }
+
+      menuPanel.classList.remove('hidden');
+    }
+
+    function escapeHtml(value){
+      return String(value)
+        .replaceAll('&','&amp;')
+        .replaceAll('<','&lt;')
+        .replaceAll('>','&gt;')
+        .replaceAll('"','&quot;')
+        .replaceAll("'","&#039;");
+    }
+
     async function destroyPlayback(){
-      showMessage(''); currentTracks=[]; qualitySelect.innerHTML='<option value="auto">Auto</option>';
+      showMessage(''); currentTracks=[];
+      qualityButton.textContent='Auto';
+      qualityButton.dataset.mode='auto';
+      qualityButton.dataset.trackId='';
       try{video.pause()}catch(_){}
       try{video.removeAttribute('src');video.load()}catch(_){}
       if(mpegtsPlayer){
@@ -103,38 +239,48 @@
         : '';
     }
 
-    function fillServerOptions(selectedIndex){
-      serverSelect.innerHTML='';
-      sources.forEach((source,index)=>{
-        const option=document.createElement('option');
-        option.value=String(index);
-        option.textContent=String(source.label||source.resolution||('Server '+(index+1)));
-        serverSelect.appendChild(option);
-      });
-      serverSelect.value=String(Math.max(0,Math.min(selectedIndex,sources.length-1)));
+    function updateServerButton(index){
+      const source=sources[index]||{};
+      serverButton.textContent=String(
+        source.label||source.resolution||('Server '+(index+1))
+      );
     }
 
     function fillQualityOptions(){
       const unique=new Map();
       currentTracks.forEach(track=>{
         const h=track.height||0, bw=track.bandwidth||0;
-        if(h>0){const key=String(h), old=unique.get(key); if(!old||bw>(old.bandwidth||0))unique.set(key,track)}
+        if(h>0){
+          const key=String(h), old=unique.get(key);
+          if(!old||bw>(old.bandwidth||0)) unique.set(key,track);
+        }
       });
-      qualitySelect.innerHTML='<option value="auto">Auto</option>';
-      [...unique.values()].sort((a,b)=>(b.height||0)-(a.height||0)).forEach(track=>{
-        const option=document.createElement('option');
-        option.value=String(track.id);
-        option.textContent=(track.height||'?')+'p';
-        qualitySelect.appendChild(option);
-      });
-      qualitySelect.value='auto';
+      currentTracks=[...unique.values()]
+        .sort((a,b)=>(b.height||0)-(a.height||0));
+      qualityButton.textContent='Auto';
+      qualityButton.dataset.mode='auto';
+      qualityButton.dataset.trackId='';
     }
 
     async function loadSource(index){
       if(!sources.length){showMessage('No stream source.');return}
       index=Math.max(0,Math.min(Number(index)||0,sources.length-1));
-      serverSelect.value=String(index);
       const source=sources[index], url=String(source.url||'').trim(), type=sourceType(source);
+      const support=sourceSupport(source);
+
+      if(!support.ok){
+        const fallback=sources.findIndex((candidate,i)=>i!==index&&sourceSupport(candidate).ok);
+        if(fallback>=0){
+          showMessage(support.reason+' • opening another line…');
+          return loadSource(fallback);
+        }
+        showMessage(support.reason);
+        return;
+      }
+
+      currentSourceIndex=index;
+      updateServerButton(index);
+      closePlayerMenu();
       await destroyPlayback();
       if(!url){showMessage('This line has no stream URL.');return}
       const warning=browserHeaderWarning(source);
@@ -181,30 +327,50 @@
       }
     }
 
-    qualitySelect.addEventListener('change',()=>{
-      if(!shakaPlayer)return;
-      const value=qualitySelect.value;
-      if(value==='auto'){shakaPlayer.configure({abr:{enabled:true}});return}
-      const track=currentTracks.find(x=>String(x.id)===value); if(!track)return;
-      shakaPlayer.configure({abr:{enabled:false}}); shakaPlayer.selectVariantTrack(track,true);
+    serverButton.addEventListener('click',event=>{
+      event.stopPropagation();
+      if(menuPanel.classList.contains('hidden')) openLineMenu();
+      else closePlayerMenu();
     });
-    serverSelect.addEventListener('change',()=>{revealControls();loadSource(Number(serverSelect.value))});
+    qualityButton.addEventListener('click',event=>{
+      event.stopPropagation();
+      if(menuPanel.classList.contains('hidden')) openQualityMenu();
+      else closePlayerMenu();
+    });
     closeButton.addEventListener('click',async()=>{await destroyPlayback();overlay.classList.remove('open');overlay.setAttribute('aria-hidden','true')});
     overlay.addEventListener('pointermove',()=>{if(overlay.classList.contains('open'))revealControls()});
     overlay.addEventListener('pointerup',event=>{
-      if(event.target===video||event.target===document.getElementById('football-player-video-wrap'))revealControls();
+      if(event.target===video||event.target===document.getElementById('football-player-video-wrap')){
+        closePlayerMenu();
+        revealControls();
+      }
     });
     fitButton.addEventListener('click',()=>{const fill=video.classList.toggle('fill');fitButton.textContent=fill?'Fit':'Fill'});
-    fullscreenButton.addEventListener('click',async()=>{try{if(!document.fullscreenElement)await overlay.requestFullscreen();else await document.exitFullscreen()}catch(_){}});
+    fullscreenButton.addEventListener('click',async()=>{
+      try{
+        if(video.webkitEnterFullscreen && isIOS()){
+          video.webkitEnterFullscreen();
+          return;
+        }
+        if(!document.fullscreenElement) await overlay.requestFullscreen();
+        else await document.exitFullscreen();
+      }catch(_){}
+    });
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&overlay.classList.contains('open')&&!document.fullscreenElement)closeButton.click()});
 
     window.openFootballPlayer=async(sourcesJson,selectedIndex,title)=>{
       try{const parsed=JSON.parse(String(sourcesJson||'[]'));sources=Array.isArray(parsed)?parsed.filter(x=>x&&x.url):[]}catch(_){sources=[]}
       titleEl.textContent=String(title||'Football Live');
-      fillServerOptions(Number(selectedIndex)||0);
+      let startIndex=Math.max(0,Math.min(Number(selectedIndex)||0,sources.length-1));
+      if(sources[startIndex] && !sourceSupport(sources[startIndex]).ok){
+        const supported=sources.findIndex(source=>sourceSupport(source).ok);
+        if(supported>=0) startIndex=supported;
+      }
+      currentSourceIndex=startIndex;
+      updateServerButton(startIndex);
       overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');
       hideControls();
-      await loadSource(Number(selectedIndex)||0);
+      await loadSource(startIndex);
     };
   })();
   </script>
