@@ -19,7 +19,7 @@ id,league,home_team,away_team,home_logo_url,away_logo_url,
 kickoff_at,is_live,sort_order,home_score,away_score,status_short,
 status_elapsed,is_finished,is_featured,publish_state,
 last_score_sync_at,updated_at,
-stream_links(id,is_active,use_webview,available_from,expires_at)
+stream_links(id,is_active,use_webview,available_from,expires_at,key_id,key_data,stream_url)
 """.replace("\n", "").replace(" ", "")
 
 params = {
@@ -79,6 +79,10 @@ for row in data:
         if not isinstance(link, dict) or link.get("is_active") is not True:
             return False
         if link.get("use_webview") is True:
+            return False
+        if str(link.get("key_id") or "").strip() or str(link.get("key_data") or "").strip():
+            return False
+        if not str(link.get("stream_url") or "").strip():
             return False
 
         available_from = parse_time(link.get("available_from"))
