@@ -12,91 +12,78 @@ PUBLISHABLE_KEY = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "").strip()
 if not SUPABASE_URL or not PUBLISHABLE_KEY:
     raise SystemExit("SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are required")
 
-# Public GitHub fallback contains match metadata only. It intentionally never
-# publishes stream_url, Referer, Origin, ClearKey data, or WebView URLs.
-SELECT = """
+MATCH_SELECT = """
 id,league,home_team,away_team,home_logo_url,away_logo_url,
 kickoff_at,is_live,sort_order,home_score,away_score,status_short,
 status_elapsed,is_finished,is_featured,publish_state,
-last_score_sync_at,updated_at,
-stream_links(id,is_active,use_webview,available_from,expires_at,key_id,key_data,stream_url)
+last_score_sync_at,updated_at
 """.replace("\n", "").replace(" ", "")
 
-params = {
-    "select": SELECT,
+headers = {
+    "apikey": PUBLISHABLE_KEY,
+    "Accept": "application/json",
+    "User-Agent": "football-stream-public-feed/5.0",
+}
+
+
+def get_json(url):
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=20) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+match_params = {
+    "select": MATCH_SELECT,
     "is_active": "eq.true",
     "publish_state": "eq.published",
     "is_featured": "eq.true",
     "order": "kickoff_at.asc,sort_order.asc",
 }
 
-url = (
+match_url = (
     SUPABASE_URL.rstrip("/")
     + "/rest/v1/matches?"
-    + urllib.parse.urlencode(params)
+    + urllib.parse.urlencode(match_params)
 )
 
-request = urllib.request.Request(
-    url,
-    headers={
-        "apikey": PUBLISHABLE_KEY,
-        "Accept": "application/json",
-        "User-Agent": "football-stream-public-feed/4.0",
-    },
+counts_url = (
+    SUPABASE_URL.rstrip("/")
+    + "/rest/v1/match_stream_counts?"
+    + urllib.parse.urlencode(
+        {
+            "select": "match_id,stream_count",
+        }
+    )
 )
 
-with urllib.request.urlopen(request, timeout=20) as response:
-    data = json.loads(response.read().decode("utf-8"))
+data = get_json(match_url)
+counts = get_json(counts_url)
 
 if not isinstance(data, list):
-    raise SystemExit("Supabase feed did not return a list")
+    raise SystemExit("Supabase match feed did not return a list")
+if not isinstance(counts, list):
+    raise SystemExit("Supabase stream count view did not return a list")
 
-
-def parse_time(value):
-    text = str(value or "").strip()
-    if not text:
-        return None
+count_by_match = {}
+for row in counts:
+    if not isinstance(row, dict):
+        continue
+    match_id = str(row.get("match_id") or "").strip()
+    if not match_id:
+        continue
     try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed
-    except Exception:
-        return None
+        count_by_match[match_id] = max(0, int(row.get("stream_count") or 0))
+    except (TypeError, ValueError):
+        count_by_match[match_id] = 0
 
-
-now = datetime.now(timezone.utc)
 safe_data = []
-
 for row in data:
     if not isinstance(row, dict):
         continue
 
     clean = dict(row)
-    links = clean.pop("stream_links", None) or []
-
-    def advertised(link):
-        if not isinstance(link, dict) or link.get("is_active") is not True:
-            return False
-        if link.get("use_webview") is True:
-            return False
-        if str(link.get("key_id") or "").strip() or str(link.get("key_data") or "").strip():
-            return False
-        if not str(link.get("stream_url") or "").strip():
-            return False
-
-        available_from = parse_time(link.get("available_from"))
-        if available_from is not None and now < available_from:
-            return False
-
-        expires_at = parse_time(link.get("expires_at"))
-        if expires_at is not None and now >= expires_at:
-            return False
-
-        return True
-
-    # Count only. No playback address or header is written to GitHub.
-    clean["stream_count"] = sum(1 for link in links if advertised(link))
+    match_id = str(clean.get("id") or "").strip()
+    clean["stream_count"] = count_by_match.get(match_id, 0)
     clean["public_stream_count"] = 0
     safe_data.append(clean)
 
@@ -117,7 +104,7 @@ print(
             "matches": len(safe_data),
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "output": out,
-            "public_feed": "metadata-only",
+            "public_feed": "metadata-and-safe-counts-only",
         }
     )
 )
