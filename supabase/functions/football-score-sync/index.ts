@@ -242,7 +242,7 @@ async function syncScores(
           is_live: isLive,
           is_finished: isFinished,
           // Keep FT visible briefly so users can see the final score.
-          // A separate cleanup below removes it from Live after 10 minutes.
+          // A separate cleanup below removes it from Live after 8 minutes.
           last_score_sync_at: now.toISOString(),
         })
         .eq("external_fixture_id", fixtureId);
@@ -273,7 +273,7 @@ async function hideFinishedMatchesAfterGrace(
   client: any,
   now: Date,
 ) {
-  const graceMs = 10 * 60 * 1000;
+  const graceMs = 8 * 60 * 1000;
   const { data: rows, error } = await client
     .from("matches")
     .select("id,is_finished,status_short,last_score_sync_at,updated_at")
@@ -283,7 +283,7 @@ async function hideFinishedMatchesAfterGrace(
 
   if (error) {
     console.error("Finished-match cleanup query failed:", error);
-    return { hidden: 0, grace_minutes: 10 };
+    return { hidden: 0, grace_minutes: 8 };
   }
 
   const finishedStatuses = new Set(["FT", "AET", "PEN"]);
@@ -303,7 +303,7 @@ async function hideFinishedMatchesAfterGrace(
     .filter(Boolean);
 
   if (ids.length === 0) {
-    return { hidden: 0, grace_minutes: 10 };
+    return { hidden: 0, grace_minutes: 8 };
   }
 
   const { error: updateError } = await client
@@ -317,10 +317,10 @@ async function hideFinishedMatchesAfterGrace(
 
   if (updateError) {
     console.error("Finished-match cleanup update failed:", updateError);
-    return { hidden: 0, grace_minutes: 10 };
+    return { hidden: 0, grace_minutes: 8 };
   }
 
-  return { hidden: ids.length, grace_minutes: 10 };
+  return { hidden: ids.length, grace_minutes: 8 };
 }
 
 async function syncStreamHealth(
