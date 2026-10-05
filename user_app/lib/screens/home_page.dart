@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../native_player.dart';
 import 'soco_page.dart';
@@ -19,6 +21,12 @@ class _HomePageState extends State<HomePage> {
   RealtimeChannel? _channel;
   Timer? _debounce;
   int _sourceTab = 0;
+  bool _usingMirror = false;
+
+  static const _mirrorBase =
+      'https://raw.githubusercontent.com/'
+      'nyeinchanaung75299-eng/football-stream-app/'
+      'feed/public/matches.json';
 
   @override
   void initState() {
@@ -41,24 +49,58 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<List<Map<String, dynamic>>> loadMatches() async {
-    final data = await Supabase.instance.client
-        .from('matches')
-        .select('''
-          id,league,home_team,away_team,home_logo_url,away_logo_url,
-          kickoff_at,is_live,sort_order,home_score,away_score,status_short,
-          status_elapsed,is_finished,is_featured,publish_state,
-          stream_links(
-            id,label,resolution,stream_type,stream_url,referer,origin,
-            key_id,key_data,use_webview,webview_url,is_active,priority,
-            available_from,expires_at,health_status
+    try {
+      final data = await Supabase.instance.client
+          .from('matches')
+          .select('''
+            id,league,home_team,away_team,home_logo_url,away_logo_url,
+            kickoff_at,is_live,sort_order,home_score,away_score,status_short,
+            status_elapsed,is_finished,is_featured,publish_state,
+            stream_links(
+              id,label,resolution,stream_type,stream_url,referer,origin,
+              key_id,key_data,use_webview,webview_url,is_active,priority,
+              available_from,expires_at,health_status
+            )
+          ''')
+          .eq('is_active', true)
+          .eq('publish_state', 'published')
+          .eq('is_featured', true)
+          .order('sort_order')
+          .order('kickoff_at')
+          .timeout(const Duration(seconds: 6));
+
+      _usingMirror = false;
+      return List<Map<String, dynamic>>.from(data);
+    } catch (_) {
+      final bucket =
+          DateTime.now().millisecondsSinceEpoch ~/ (5 * 60 * 1000);
+      final uri = Uri.parse('$_mirrorBase?v=$bucket');
+      final response = await http
+          .get(
+            uri,
+            headers: const {
+              'Accept': 'application/json',
+              'Cache-Control': 'no-cache',
+            },
           )
-        ''')
-        .eq('is_active', true)
-        .eq('publish_state', 'published')
-        .eq('is_featured', true)
-        .order('sort_order')
-        .order('kickoff_at');
-    return List<Map<String, dynamic>>.from(data);
+          .timeout(const Duration(seconds: 8));
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(
+          'Mirror returned HTTP ${response.statusCode}',
+        );
+      }
+
+      final decoded = jsonDecode(response.body);
+      if (decoded is! List) {
+        throw const FormatException('Mirror feed is invalid.');
+      }
+
+      _usingMirror = true;
+      return decoded
+          .map((row) => Map<String, dynamic>.from(row as Map))
+          .toList();
+    }
   }
 
   Future<void> refresh({bool silent = false}) async {
@@ -375,6 +417,37 @@ class _HomePageState extends State<HomePage> {
               },
             ),
           ),
+          if (_sourceTab == 0 && _usingMirror)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(14, 0, 14, 6),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
+              ),
+              decoration: BoxDecoration(
+                color: Theme.of(context)
+                    .colorScheme
+                    .secondaryContainer
+                    .withValues(alpha: .65),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.cloud_done_rounded, size: 18),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Direct Supabase unavailable • using mirror feed',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: _sourceTab == 0
                 ? FutureBuilder<List<Map<String, dynamic>>>(

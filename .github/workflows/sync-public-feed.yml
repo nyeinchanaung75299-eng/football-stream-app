@@ -1,0 +1,76 @@
+name: Sync Public Match Feed
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/sync-public-feed.yml"
+      - "scripts/sync_public_feed.py"
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: public-match-feed
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Fetch public matches from Supabase
+        env:
+          SUPABASE_URL: https://woggzixprvyjnfjzsglz.supabase.co
+          SUPABASE_PUBLISHABLE_KEY: sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O
+        run: |
+          python3 scripts/sync_public_feed.py /tmp/matches.json
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/matches.json', encoding='utf-8'))
+          print(f"mirror matches: {len(data)}")
+          PY
+
+      - name: Publish feed branch
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin feed >/dev/null 2>&1; then
+            git fetch origin feed
+            git switch -C feed origin/feed
+          else
+            git switch --orphan feed
+            git rm -rf . || true
+          fi
+
+          mkdir -p public
+          cp /tmp/matches.json public/matches.json
+
+          python3 - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          json.dump(
+              {"ok": True, "updated_at": datetime.now(timezone.utc).isoformat()},
+              open("public/status.json","w", encoding="utf-8"),
+              separators=(",", ":"),
+          )
+          PY
+
+          git add public/matches.json public/status.json
+
+          if git diff --cached --quiet; then
+            echo "No feed changes."
+            exit 0
+          fi
+
+          git commit -m "Update public match feed"
+          git push origin feed

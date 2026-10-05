@@ -14,6 +14,10 @@ class NetworkDiagnosticsPage extends StatefulWidget {
 
 class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
   static const _socoUrl = 'https://m.sutbongtv.com/match.html';
+  static const _mirrorUrl =
+      'https://raw.githubusercontent.com/'
+      'nyeinchanaung75299-eng/football-stream-app/'
+      'feed/public/matches.json';
 
   bool _running = false;
   final List<_DiagResult> _results = [];
@@ -32,6 +36,7 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
     });
 
     await _checkSupabase();
+    await _checkMirror();
     await _checkSoco();
     await _checkStreams();
 
@@ -75,6 +80,54 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
           status: _DiagStatus.fail,
         ),
       );
+    }
+  }
+
+  Future<void> _checkMirror() async {
+    final started = DateTime.now();
+    final client = http.Client();
+    try {
+      final response = await client
+          .get(
+            Uri.parse(_mirrorUrl),
+            headers: const {
+              'Accept': 'application/json',
+              'Cache-Control': 'no-cache',
+            },
+          )
+          .timeout(const Duration(seconds: 8));
+
+      final ok = response.statusCode >= 200 &&
+          response.statusCode < 300 &&
+          response.body.trim().startsWith('[');
+
+      _add(
+        _DiagResult(
+          title: 'GitHub match mirror',
+          detail: ok
+              ? 'VPN-free fallback OK • HTTP ${response.statusCode} • ${_ms(started)} ms'
+              : 'Mirror reached but feed is unavailable • HTTP ${response.statusCode}',
+          status: ok ? _DiagStatus.ok : _DiagStatus.fail,
+        ),
+      );
+    } on TimeoutException {
+      _add(
+        const _DiagResult(
+          title: 'GitHub match mirror',
+          detail: 'Mirror timed out on this network.',
+          status: _DiagStatus.fail,
+        ),
+      );
+    } catch (e) {
+      _add(
+        _DiagResult(
+          title: 'GitHub match mirror',
+          detail: 'Mirror failed: ${_shortError(e)}',
+          status: _DiagStatus.fail,
+        ),
+      );
+    } finally {
+      client.close();
     }
   }
 
