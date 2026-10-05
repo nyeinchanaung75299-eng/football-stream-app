@@ -33,7 +33,7 @@ class FootballViewerApp extends StatelessWidget {
       builder: (context, _) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
-          title: 'Football Live',
+          title: 'NCA',
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: AppThemeController.instance.mode,
