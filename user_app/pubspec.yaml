@@ -18,6 +18,7 @@ dependencies:
   path_provider: ^2.1.5
   open_filex: ^4.7.0
   posthog_flutter: ^5.40.0
+  crypto: ^3.0.6
 
 dev_dependencies:
   flutter_test:
