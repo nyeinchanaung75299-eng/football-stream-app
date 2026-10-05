@@ -87,6 +87,7 @@
     const fullscreenButton=document.getElementById('football-player-fullscreen');
     let sources=[], shakaPlayer=null, mpegtsPlayer=null, currentTracks=[];
     let currentSourceIndex=0;
+    let currentMatchId='';
     let controlsTimer=null;
     let autoFallbackTried=new Set();
     let playbackToken=0;
@@ -100,6 +101,7 @@
           window.posthog.capture(name,{
             app:'nca_viewer',
             platform:'web',
+            ...(currentMatchId?{match_id:currentMatchId}:{}),
             ...properties
           });
         }
@@ -537,9 +539,10 @@
       });
     });
 
-    window.openFootballPlayer=async(sourcesJson,selectedIndex,title)=>{
+    window.openFootballPlayer=async(sourcesJson,selectedIndex,title,matchId)=>{
       try{const parsed=JSON.parse(String(sourcesJson||'[]'));sources=Array.isArray(parsed)?parsed.filter(x=>x&&x.url):[]}catch(_){sources=[]}
       autoFallbackTried.clear();
+      currentMatchId=String(matchId||'').trim();
       titleEl.textContent=String(title||'NCA');
       let startIndex=Math.max(0,Math.min(Number(selectedIndex)||0,sources.length-1));
       if(isIOS() && sources[startIndex]){
