@@ -15,14 +15,15 @@ PUBLISHABLE_KEY = os.environ.get(
     "sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O",
 )
 
+# Metadata-only mirror. Link fields are read only to calculate a safe public
+# count, then removed before the JSON file is written to GitHub.
 SELECT = """
 id,league,home_team,away_team,home_logo_url,away_logo_url,
 kickoff_at,is_live,sort_order,home_score,away_score,status_short,
 status_elapsed,is_finished,is_featured,publish_state,
 stream_links(
-id,label,resolution,stream_type,stream_url,referer,origin,
-key_id,key_data,use_webview,webview_url,is_active,priority,
-available_from,expires_at,health_status
+id,stream_type,stream_url,referer,origin,key_id,key_data,
+use_webview,is_active,health_status
 )
 """.replace("\n", "").replace(" ", "")
 
@@ -34,14 +35,18 @@ params = {
     "order": "kickoff_at.asc,sort_order.asc",
 }
 
-url = SUPABASE_URL.rstrip("/") + "/rest/v1/matches?" + urllib.parse.urlencode(params)
+url = (
+    SUPABASE_URL.rstrip("/")
+    + "/rest/v1/matches?"
+    + urllib.parse.urlencode(params)
+)
 
 request = urllib.request.Request(
     url,
     headers={
         "apikey": PUBLISHABLE_KEY,
         "Accept": "application/json",
-        "User-Agent": "football-stream-public-feed/2.0",
+        "User-Agent": "football-stream-public-feed/3.0",
     },
 )
 
@@ -52,46 +57,35 @@ with urllib.request.urlopen(request, timeout=20) as response:
 if not isinstance(data, list):
     raise SystemExit("Supabase feed did not return a list")
 
+
+def is_safe_public_link(link):
+    if link.get("is_active") is not True:
+        return False
+    if link.get("use_webview") is True:
+        return False
+    if any(
+        bool((link.get(field) or "").strip())
+        for field in ("referer", "origin", "key_id", "key_data")
+    ):
+        return False
+    return bool((link.get("stream_url") or "").strip())
+
+
 for match in data:
-    safe_links = []
-    for link in match.get("stream_links") or []:
-        if link.get("is_active") is not True:
-            continue
-
-        protected = any(
-            bool((link.get(field) or "").strip())
-            for field in ("referer", "origin", "key_id", "key_data")
-        )
-
-        if protected or link.get("use_webview") is True:
-            continue
-
-        stream_url = (link.get("stream_url") or "").strip()
-        if not stream_url:
-            continue
-
-        safe_links.append(
-            {
-                "id": link.get("id"),
-                "label": link.get("label"),
-                "resolution": link.get("resolution"),
-                "stream_type": link.get("stream_type"),
-                "stream_url": stream_url,
-                "use_webview": False,
-                "webview_url": None,
-                "is_active": True,
-                "priority": link.get("priority"),
-                "available_from": link.get("available_from"),
-                "expires_at": link.get("expires_at"),
-                "health_status": link.get("health_status"),
-            }
-        )
-
-    match["stream_links"] = safe_links
+    links = match.pop("stream_links", None) or []
+    match["stream_count"] = sum(
+        1 for link in links if is_safe_public_link(link)
+    )
 
 out = sys.argv[1] if len(sys.argv) > 1 else "matches.json"
+
 with open(out, "w", encoding="utf-8") as fh:
-    json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
+    json.dump(
+        data,
+        fh,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 print(
     json.dumps(
@@ -100,7 +94,7 @@ print(
             "matches": len(data),
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "output": out,
-            "public_feed": "sanitized",
+            "public_feed": "metadata-only",
         }
     )
 )
