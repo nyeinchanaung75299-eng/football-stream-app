@@ -147,12 +147,27 @@ class _HomePageState extends State<HomePage> {
     List<Map<String, dynamic>> rows,
   ) {
     const finishedStatuses = {'FT', 'AET', 'PEN'};
+    const grace = Duration(minutes: 10);
+    final now = DateTime.now();
+
     return rows.where((row) {
-      if (row['is_finished'] == true) return false;
       final status =
           (row['status_short'] ?? '').toString().trim().toUpperCase();
-      if (finishedStatuses.contains(status)) return false;
-      return true;
+      final finished =
+          row['is_finished'] == true || finishedStatuses.contains(status);
+      if (!finished) return true;
+
+      final detectedText =
+          row['last_score_sync_at']?.toString() ??
+          row['updated_at']?.toString();
+      final detectedAt = detectedText == null
+          ? null
+          : DateTime.tryParse(detectedText)?.toLocal();
+
+      // If an older fallback feed has no finish timestamp, keep it until the
+      // server-side cleanup removes it rather than hiding it too early.
+      if (detectedAt == null) return true;
+      return now.difference(detectedAt) < grace;
     }).toList();
   }
 
@@ -360,6 +375,7 @@ class _HomePageState extends State<HomePage> {
           id,league,home_team,away_team,home_logo_url,away_logo_url,
           kickoff_at,is_live,sort_order,home_score,away_score,status_short,
           status_elapsed,is_finished,is_featured,publish_state,
+          last_score_sync_at,updated_at,
           stream_links(
             id,label,resolution,stream_type,stream_url,referer,origin,
             key_id,key_data,use_webview,webview_url,is_active,priority,
