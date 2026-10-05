@@ -5,6 +5,13 @@ on:
   push:
     branches: [ "main", "master" ]
 
+permissions:
+  contents: write
+
+concurrency:
+  group: nca-android-release
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -36,7 +43,7 @@ jobs:
           p=Path('android/app/src/main/AndroidManifest.xml')
           s=p.read_text()
           marker='<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
-          perms=['<uses-permission android:name="android.permission.INTERNET"/>','<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>']
+          perms=['<uses-permission android:name="android.permission.INTERNET"/>','<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>','<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>']
           missing=[x for x in perms if x not in s]
           if missing:
               s=s.replace(marker, marker+'\n    '+'\n    '.join(missing))
@@ -114,10 +121,66 @@ jobs:
 
       - name: Build Viewer release APKs
         working-directory: user_app
-        run: flutter build apk --release --split-per-abi
+        run: |
+          BUILD_NUMBER=$((10000 + GITHUB_RUN_NUMBER))
+          flutter build apk --release --split-per-abi \
+            --build-name 9.8.0 \
+            --build-number "$BUILD_NUMBER"
+          flutter build apk --release \
+            --build-name 9.8.0 \
+            --build-number "$BUILD_NUMBER"
+          cp build/app/outputs/flutter-apk/app-release.apk /tmp/NCA-latest.apk
+          echo "NCA_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
 
       - name: Upload Viewer APKs
         uses: actions/upload-artifact@v7
         with:
           name: NCA-V9.8-Release-APKs
           path: user_app/build/app/outputs/flutter-apk/*-release.apk
+
+      - name: Publish in-app updater release
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin feed:refs/remotes/origin/feed
+
+          rm -rf /tmp/nca-feed
+          git worktree add --detach /tmp/nca-feed origin/feed
+          cd /tmp/nca-feed
+          git switch -C feed origin/feed
+
+          mkdir -p public/releases
+          cp /tmp/NCA-latest.apk public/releases/NCA-latest.apk
+
+          python3 - <<'PY'
+          import json, os
+          data = {
+              "version_name": "9.8.0",
+              "build_number": int(os.environ["NCA_BUILD_NUMBER"]),
+              "apk_url": "https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/releases/NCA-latest.apk",
+              "mandatory": False,
+              "notes": "NCA update is ready. Includes live-score, stream, VPN-free fallback and stability improvements."
+          }
+          with open("public/releases/latest.json", "w", encoding="utf-8") as f:
+              json.dump(data, f, separators=(",", ":"))
+          PY
+
+          git add public/releases/NCA-latest.apk public/releases/latest.json
+          if git diff --cached --quiet; then
+            echo "Release feed already up to date."
+            exit 0
+          fi
+
+          git commit -m "Publish NCA Android update $NCA_BUILD_NUMBER"
+
+          for attempt in 1 2 3; do
+            git pull --rebase origin feed || true
+            if git push origin feed; then
+              exit 0
+            fi
+            sleep 3
+          done
+
+          echo "Failed to publish in-app updater release."
+          exit 1
