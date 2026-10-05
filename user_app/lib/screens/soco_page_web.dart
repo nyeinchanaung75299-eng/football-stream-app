@@ -25,6 +25,8 @@ class _SocoPageState extends State<SocoPage> {
         final iframe = html.IFrameElement()
           ..src = _url
           ..allow = 'fullscreen; autoplay'
+          ..attributes['sandbox'] =
+              'allow-scripts allow-same-origin allow-forms allow-presentation'
           ..style.border = '0'
           ..style.width = '100%'
           ..style.height = '100%'
