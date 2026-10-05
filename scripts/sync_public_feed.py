@@ -6,14 +6,11 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-SUPABASE_URL = os.environ.get(
-    "SUPABASE_URL",
-    "https://woggzixprvyjnfjzsglz.supabase.co",
-)
-PUBLISHABLE_KEY = os.environ.get(
-    "SUPABASE_PUBLISHABLE_KEY",
-    "sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O",
-)
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
+PUBLISHABLE_KEY = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "").strip()
+
+if not SUPABASE_URL or not PUBLISHABLE_KEY:
+    raise SystemExit("SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are required")
 
 SELECT = """
 id,league,home_team,away_team,home_logo_url,away_logo_url,
@@ -33,7 +30,6 @@ params = {
     "is_featured": "eq.true",
     "order": "kickoff_at.asc,sort_order.asc",
 }
-
 url = SUPABASE_URL.rstrip("/") + "/rest/v1/matches?" + urllib.parse.urlencode(params)
 
 request = urllib.request.Request(
@@ -52,55 +48,91 @@ with urllib.request.urlopen(request, timeout=20) as response:
 if not isinstance(data, list):
     raise SystemExit("Supabase feed did not return a list")
 
-for match in data:
-    safe_links = []
-    for link in match.get("stream_links") or []:
-        if link.get("is_active") is not True:
-            continue
+SENSITIVE_QUERY_PARTS = {
+    "token",
+    "auth",
+    "signature",
+    "sig",
+    "key",
+    "expires",
+    "expire",
+    "policy",
+    "jwt",
+    "hdnts",
+    "hdnea",
+}
 
-        protected = any(
-            bool((link.get(field) or "").strip())
-            for field in ("referer", "origin", "key_id", "key_data")
+def looks_signed(value):
+    try:
+        parsed = urllib.parse.urlparse(str(value or ""))
+        keys = {str(k).lower() for k in urllib.parse.parse_qs(parsed.query)}
+        return any(
+            any(part in key for part in SENSITIVE_QUERY_PARTS)
+            for key in keys
         )
+    except Exception:
+        return True
 
-        if protected or link.get("use_webview") is True:
-            continue
+def sanitize_link(link):
+    if not isinstance(link, dict):
+        return None
+    if link.get("is_active") is not True:
+        return None
+    if link.get("use_webview") is True:
+        return None
 
-        stream_url = (link.get("stream_url") or "").strip()
-        if not stream_url:
-            continue
+    protected = (
+        link.get("referer"),
+        link.get("origin"),
+        link.get("key_id"),
+        link.get("key_data"),
+    )
+    if any(str(value or "").strip() for value in protected):
+        return None
 
-        safe_links.append(
-            {
-                "id": link.get("id"),
-                "label": link.get("label"),
-                "resolution": link.get("resolution"),
-                "stream_type": link.get("stream_type"),
-                "stream_url": stream_url,
-                "use_webview": False,
-                "webview_url": None,
-                "is_active": True,
-                "priority": link.get("priority"),
-                "available_from": link.get("available_from"),
-                "expires_at": link.get("expires_at"),
-                "health_status": link.get("health_status"),
-            }
-        )
+    stream_url = str(link.get("stream_url") or "").strip()
+    if not stream_url or looks_signed(stream_url):
+        return None
 
-    match["stream_links"] = safe_links
+    return {
+        "id": link.get("id"),
+        "label": link.get("label"),
+        "resolution": link.get("resolution"),
+        "stream_type": link.get("stream_type"),
+        "stream_url": stream_url,
+        "use_webview": False,
+        "webview_url": None,
+        "is_active": True,
+        "priority": link.get("priority"),
+        "available_from": link.get("available_from"),
+        "expires_at": link.get("expires_at"),
+        "health_status": link.get("health_status"),
+    }
+
+safe_data = []
+for row in data:
+    if not isinstance(row, dict):
+        continue
+    clean = dict(row)
+    links = clean.get("stream_links") or []
+    clean["stream_links"] = [
+        safe
+        for safe in (sanitize_link(item) for item in links)
+        if safe is not None
+    ]
+    safe_data.append(clean)
 
 out = sys.argv[1] if len(sys.argv) > 1 else "matches.json"
 with open(out, "w", encoding="utf-8") as fh:
-    json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
+    json.dump(safe_data, fh, ensure_ascii=False, separators=(",", ":"))
 
 print(
     json.dumps(
         {
             "ok": True,
-            "matches": len(data),
+            "matches": len(safe_data),
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "output": out,
-            "public_feed": "sanitized",
         }
     )
 )
