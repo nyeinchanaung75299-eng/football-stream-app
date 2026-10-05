@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/function_gateway.dart';
 
@@ -65,8 +66,9 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   Future<List<Map<String, dynamic>>> loadMatches() async {
     final data = await Supabase.instance.client
         .from('matches')
-        .select('id,home_team,away_team,league')
-        .order('kickoff_at', ascending: false);
+        .select('id,home_team,away_team,league,kickoff_at,sort_order')
+        .order('kickoff_at', ascending: true)
+        .order('sort_order', ascending: true);
     return List<Map<String, dynamic>>.from(data);
   }
 
@@ -530,18 +532,28 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                         value: matchId,
                         isExpanded: true,
                         decoration: const InputDecoration(
-                          labelText: 'Match',
-                          prefixIcon: Icon(Icons.sports_soccer_rounded),
+                          labelText: 'Match • earliest first',
+                          prefixIcon: Icon(Icons.schedule_rounded),
                         ),
                         items: matches
                             .map(
-                              (m) => DropdownMenuItem(
-                                value: m['id'] as String,
-                                child: Text(
-                                  '${m['home_team']} vs ${m['away_team']}',
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
+                              (m) {
+                                final rawKickoff =
+                                    m['kickoff_at']?.toString() ?? '';
+                                final kickoff =
+                                    DateTime.tryParse(rawKickoff)?.toLocal();
+                                final when = kickoff == null
+                                    ? '--:--'
+                                    : DateFormat('dd MMM • HH:mm')
+                                        .format(kickoff);
+                                return DropdownMenuItem(
+                                  value: m['id'] as String,
+                                  child: Text(
+                                    '$when  ·  ${m['home_team']} vs ${m['away_team']}',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                );
+                              },
                             )
                             .toList(),
                         onChanged: (v) => setState(() => matchId = v),
