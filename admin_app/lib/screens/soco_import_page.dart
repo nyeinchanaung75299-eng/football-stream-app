@@ -449,22 +449,39 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final type = (line['stream_type'] ?? 'auto').toString();
     final resolution = (line['resolution'] ?? label).toString();
 
-    await Supabase.instance.client.from('stream_links').insert({
-      'match_id': target,
-      'label': '$sourceName • $anchorName • $label',
-      'resolution': resolution,
-      'stream_type': type,
-      'stream_url': url,
-      'referer': nullable(line['referer']?.toString()),
-      'origin': nullable(line['origin']?.toString()),
-      'use_webview': false,
-      'webview_url': null,
-      'send_notification': false,
-      'is_active': true,
-      'expires_at': line['expires_at'],
-    });
+    final inserted = await Supabase.instance.client
+        .from('stream_links')
+        .insert({
+          'match_id': target,
+          'label': '$sourceName • $anchorName • $label',
+          'resolution': resolution,
+          'stream_type': type,
+          'stream_url': url,
+          'referer': nullable(line['referer']?.toString()),
+          'origin': nullable(line['origin']?.toString()),
+          'use_webview': false,
+          'webview_url': null,
+          'send_notification': false,
+          'is_active': true,
+          'expires_at': line['expires_at'],
+        })
+        .select('id')
+        .single();
 
-    message('$sourceName $label added to the selected match.');
+    var resultText = 'saved';
+    try {
+      final checked = await FunctionGateway.invoke(
+        'stream-health',
+        body: {'link_id': inserted['id']},
+      );
+      if (checked is Map && checked['health_status'] != null) {
+        resultText = checked['health_status'].toString();
+      }
+    } catch (_) {
+      resultText = 'health pending';
+    }
+
+    message('$sourceName $label added • $resultText');
     return true;
   }
 
