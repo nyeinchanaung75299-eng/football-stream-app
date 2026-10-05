@@ -27,6 +27,10 @@ Deno.serve(async (req) => {
     const footballDataKey =
       Deno.env.get("FOOTBALL_DATA_ORG_KEY") ??
       Deno.env.get("FOOTBALL_DATA_KEY");
+    // Compatibility: some existing installs stored a football-data.org token
+    // in API_FOOTBALL_KEY. We still try API-Football first, then reuse that
+    // token as the football-data.org fallback only when no dedicated key exists.
+    const footballDataFallbackKey = footballDataKey ?? apiFootballKey;
 
     if (!apiFootballKey && !footballDataKey) {
       return json(
@@ -106,10 +110,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (footballDataKey) {
+    if (footballDataFallbackKey) {
       try {
         const result = await loadFootballDataFixtures(
-          footballDataKey,
+          footballDataFallbackKey,
           mode,
           date,
           deletedFixtureIds,
@@ -118,6 +122,7 @@ Deno.serve(async (req) => {
           ...result,
           provider: "football_data_org",
           fallback_used: failures.length > 0,
+          compatibility_key_used: !footballDataKey && Boolean(apiFootballKey),
           primary_failure: failures[0]?.error ?? null,
         });
       } catch (error) {
