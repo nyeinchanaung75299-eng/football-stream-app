@@ -434,10 +434,6 @@ class _HomePageState extends State<HomePage> {
       ).where((row) {
         final url = (row['stream_url'] ?? '').toString().trim();
         if (url.isEmpty) return false;
-        // HTTPS web pages cannot directly play HTTP fallback media.
-        if (kIsWeb && url.toLowerCase().startsWith('http://')) {
-          return false;
-        }
         return true;
       }).toList();
 
