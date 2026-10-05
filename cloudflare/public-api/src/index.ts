@@ -219,90 +219,103 @@ async function handleStreams(
   }
 
   const base = env.SUPABASE_URL?.trim() ?? "";
-  const key =
-    env.SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
+  const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
 
   if (!base || !key) {
     return json(
-      {
-        error:
-          "Fresh stream configuration is not available.",
-      },
+      { error: "Fresh stream configuration is not available." },
       503,
+      { "Cache-Control": "no-store, max-age=0" },
     );
   }
 
-  const select = [
-    ...MATCH_FIELDS,
-    "stream_links(" + LINK_FIELDS.join(",") + ")",
-  ].join(",");
+  const commonHeaders = {
+    apikey: key,
+    Accept: "application/json",
+  };
 
-  const upstream = new URL(
-    base.replace(/\/+$/, "") +
-      "/rest/v1/matches",
+  // First validate that the match itself is publicly visible.
+  const matchUrl = new URL(
+    base.replace(/\/+$/, "") + "/rest/v1/matches",
   );
+  matchUrl.searchParams.set("select", "id");
+  matchUrl.searchParams.set("id", "eq." + matchId);
+  matchUrl.searchParams.set("is_active", "eq.true");
+  matchUrl.searchParams.set("publish_state", "eq.published");
+  matchUrl.searchParams.set("is_featured", "eq.true");
+  matchUrl.searchParams.set("limit", "1");
 
-  upstream.searchParams.set("select", select);
-  upstream.searchParams.set("id", "eq." + matchId);
-  upstream.searchParams.set("is_active", "eq.true");
-  upstream.searchParams.set(
-    "publish_state",
-    "eq.published",
-  );
-  upstream.searchParams.set("is_featured", "eq.true");
-  upstream.searchParams.set("limit", "1");
-
-  let response: Response;
   try {
-    response = await fetch(upstream, {
-      headers: {
-        apikey: key,
-        Accept: "application/json",
-      },
+    const matchResponse = await fetch(matchUrl, { headers: commonHeaders });
+    if (!matchResponse.ok) {
+      return json(
+        {
+          error: "Match validation upstream unavailable.",
+          upstream_status: matchResponse.status,
+        },
+        502,
+        { "Cache-Control": "no-store, max-age=0" },
+      );
+    }
+
+    const matchRows = await matchResponse.json<unknown>();
+    if (!Array.isArray(matchRows) || matchRows.length === 0) {
+      return json(
+        { error: "Match not found." },
+        404,
+        { "Cache-Control": "no-store, max-age=0" },
+      );
+    }
+
+    // Query stream_links directly instead of relying on an embedded PostgREST
+    // relation. The direct query is more reliable across anonymous edge
+    // requests and prevents WATCH from showing a count while returning 0 lines.
+    const streamUrl = new URL(
+      base.replace(/\/+$/, "") + "/rest/v1/stream_links",
+    );
+    streamUrl.searchParams.set("select", LINK_FIELDS.join(","));
+    streamUrl.searchParams.set("match_id", "eq." + matchId);
+    streamUrl.searchParams.set("is_active", "eq.true");
+    streamUrl.searchParams.set("order", "priority.asc,sort_order.asc");
+
+    const streamResponse = await fetch(streamUrl, {
+      headers: commonHeaders,
     });
+
+    if (!streamResponse.ok) {
+      return json(
+        {
+          error: "Stream configuration upstream unavailable.",
+          upstream_status: streamResponse.status,
+        },
+        502,
+        { "Cache-Control": "no-store, max-age=0" },
+      );
+    }
+
+    const rawStreams = await streamResponse.json<unknown>();
+    const streams = clientLinks(rawStreams);
+
+    return json(
+      {
+        ok: true,
+        match_id: matchId,
+        streams,
+        stream_count: streams.length,
+        generated_at: new Date().toISOString(),
+      },
+      200,
+      {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    );
   } catch (_) {
     return json(
       { error: "Stream configuration upstream unavailable." },
       502,
+      { "Cache-Control": "no-store, max-age=0" },
     );
   }
-
-  if (!response.ok) {
-    return json(
-      {
-        error: "Stream configuration upstream unavailable.",
-        upstream_status: response.status,
-      },
-      502,
-    );
-  }
-
-  const rows = await response.json<unknown>();
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return json({ error: "Match not found." }, 404);
-  }
-
-  const match =
-    rows[0] as Record<string, unknown>;
-
-  // Return the same active native playback configuration that the anonymous
-  // viewer is allowed to read from Supabase, but through Cloudflare. This makes
-  // the line picker work on networks where the Supabase hostname is blocked.
-  // Do not edge-cache signed URLs/keys because they can rotate or expire.
-  const streams = clientLinks(match.stream_links);
-
-  return json(
-    {
-      ok: true,
-      match_id: matchId,
-      streams,
-      generated_at: new Date().toISOString(),
-    },
-    200,
-    {
-      "Cache-Control": "no-store, max-age=0",
-    },
-  );
 }
 
 async function loadMatchRows(
