@@ -44,8 +44,6 @@
       #football-player-menu{top:102px;left:8px;right:8px;width:auto;max-height:62vh}
     }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/shaka-player@5.2.12/dist/shaka-player.compiled.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.js"></script>
 </head>
 <body>
   <div id="football-player-overlay" aria-hidden="true">
@@ -85,6 +83,39 @@
     let controlsTimer=null;
     let autoFallbackTried=new Set();
     let playbackToken=0;
+    const scriptLoads=new Map();
+
+    function loadScriptOnce(src,key){
+      if(window[key]) return Promise.resolve();
+      if(scriptLoads.has(src)) return scriptLoads.get(src);
+      const promise=new Promise((resolve,reject)=>{
+        const script=document.createElement('script');
+        script.src=src;
+        script.async=true;
+        script.onload=resolve;
+        script.onerror=()=>reject(new Error('Could not load '+key+' player engine.'));
+        document.head.appendChild(script);
+      });
+      scriptLoads.set(src,promise);
+      return promise;
+    }
+
+    async function ensurePlayerEngine(type,url){
+      if(type==='flv'){
+        await loadScriptOnce(
+          'https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.js',
+          'mpegts'
+        );
+        return;
+      }
+      if(type==='hls'||type==='dash'||url.includes('.m3u8')||url.includes('.mpd')){
+        if(type==='hls' && video.canPlayType('application/vnd.apple.mpegurl')) return;
+        await loadScriptOnce(
+          'https://cdn.jsdelivr.net/npm/shaka-player@5.2.12/dist/shaka-player.compiled.js',
+          'shaka'
+        );
+      }
+    }
 
     function hideControls(){
       document.getElementById('football-player-topbar').classList.add('controls-hidden');
@@ -339,6 +370,7 @@
       }
       const warning=browserHeaderWarning(source);
       try{
+        await ensurePlayerEngine(type,url);
         if(type==='flv'){
           if(!window.mpegts||!mpegts.isSupported())throw new Error('FLV is not supported by this browser.');
           mpegtsPlayer=mpegts.createPlayer({type:'flv',isLive:true,url});
