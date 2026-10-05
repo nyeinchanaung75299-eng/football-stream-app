@@ -23,6 +23,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   String? matchId;
   bool useWebView = false;
   bool loading = false;
+  bool testingHealth = false;
 
   final streamTypes = const <String, String>{
     'auto': 'Auto / Direct',
@@ -142,6 +143,53 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       message(e.toString());
     } finally {
       if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> testHealth({String? linkId}) async {
+    if (linkId == null && matchId == null) {
+      message('Select a match first.');
+      return;
+    }
+
+    setState(() => testingHealth = true);
+    try {
+      final body = <String, dynamic>{};
+      if (linkId != null) {
+        body['link_id'] = linkId;
+      } else {
+        body['match_id'] = matchId;
+      }
+
+      final res = await Supabase.instance.client.functions.invoke(
+        'stream-health',
+        body: body,
+      );
+
+      final data = res.data;
+      if (!mounted) return;
+
+      if (data is Map && data['summary'] is Map) {
+        final summary = Map<String, dynamic>.from(data['summary'] as Map);
+        message(
+          'Health: ${summary['healthy'] ?? 0} healthy, '
+          '${summary['slow'] ?? 0} slow, '
+          '${summary['failed'] ?? 0} failed.',
+        );
+      } else if (data is Map && data['health_status'] != null) {
+        message(
+          'Server: ${data['health_status']} '
+          '(${data['latency_ms'] ?? '-'} ms)',
+        );
+      } else {
+        message('Health check finished.');
+      }
+
+      setState(() {});
+    } catch (e) {
+      if (mounted) message('Health check failed: $e');
+    } finally {
+      if (mounted) setState(() => testingHealth = false);
     }
   }
 
@@ -588,6 +636,18 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                           ),
                     ),
                     const Spacer(),
+                    OutlinedButton.icon(
+                      onPressed: testingHealth ? null : () => testHealth(),
+                      icon: testingHealth
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.monitor_heart_rounded),
+                      label: const Text('TEST ALL'),
+                    ),
+                    const SizedBox(width: 6),
                     IconButton(
                       tooltip: 'Refresh',
                       onPressed: () => setState(() {}),
@@ -637,6 +697,10 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                             ? '${row['webview_url'] ?? ''}'
                             : '${row['stream_url'] ?? ''}';
                         final active = row['is_active'] == true;
+                        final health =
+                            (row['health_status'] ?? 'unknown').toString();
+                        final latency =
+                            (row['health_latency_ms'] as num?)?.toInt();
 
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 10),
@@ -693,6 +757,18 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                                         ),
                                       ),
                                       IconButton(
+                                        tooltip: 'Test server',
+                                        onPressed: testingHealth
+                                            ? null
+                                            : () => testHealth(
+                                                  linkId:
+                                                      row['id'].toString(),
+                                                ),
+                                        icon: const Icon(
+                                          Icons.monitor_heart_rounded,
+                                        ),
+                                      ),
+                                      IconButton(
                                         tooltip: 'Edit',
                                         onPressed: () => editLink(row),
                                         icon: const Icon(Icons.edit_rounded),
@@ -707,6 +783,14 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                                         ),
                                       ),
                                     ],
+                                  ),
+                                  const SizedBox(height: 7),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: _HealthChip(
+                                      status: health,
+                                      latencyMs: latency,
+                                    ),
                                   ),
                                   const SizedBox(height: 7),
                                   Align(
@@ -742,6 +826,49 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+
+class _HealthChip extends StatelessWidget {
+  const _HealthChip({
+    required this.status,
+    required this.latencyMs,
+  });
+
+  final String status;
+  final int? latencyMs;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = status.toLowerCase();
+    final color = switch (normalized) {
+      'healthy' => Colors.green,
+      'slow' => Colors.orange,
+      'failed' => Colors.redAccent,
+      _ => Colors.blueGrey,
+    };
+
+    final label = normalized == 'unknown'
+        ? 'UNKNOWN'
+        : normalized.toUpperCase();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: .30)),
+      ),
+      child: Text(
+        latencyMs == null ? label : '$label • ${latencyMs}ms',
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+        ),
       ),
     );
   }
