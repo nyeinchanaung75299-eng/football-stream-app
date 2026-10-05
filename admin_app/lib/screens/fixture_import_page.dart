@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'live_links_page.dart';
 
 class FixtureImportPage extends StatefulWidget {
   const FixtureImportPage({super.key});
@@ -112,42 +113,104 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     setState(() => importing = true);
 
     try {
+      final savedIds = <String>[];
+
       for (final f in chosen) {
-        await Supabase.instance.client.from('matches').upsert(
-          {
-            'external_fixture_id': f['fixture_id'],
-            'source': 'api_football',
-            'league': f['league_name'],
-            'home_team': f['home_name'],
-            'away_team': f['away_name'],
-            'home_logo_url': f['home_logo'],
-            'away_logo_url': f['away_logo'],
-            'kickoff_at': f['kickoff_at'],
-            'home_score': f['home_score'],
-            'away_score': f['away_score'],
-            'status_short': f['status_short'] ?? 'NS',
-            'status_elapsed': f['status_elapsed'],
-            'is_finished': f['is_finished'] == true,
-            'is_live': f['is_live'] == true,
-            'is_active': true,
-            'is_featured': true,
-            'publish_state': 'published',
-          },
-          onConflict: 'external_fixture_id',
-        );
+        final saved = await Supabase.instance.client
+            .from('matches')
+            .upsert(
+              {
+                'external_fixture_id': f['fixture_id'],
+                'source': 'api_football',
+                'league': f['league_name'],
+                'home_team': f['home_name'],
+                'away_team': f['away_name'],
+                'home_logo_url': f['home_logo'],
+                'away_logo_url': f['away_logo'],
+                'kickoff_at': f['kickoff_at'],
+                'home_score': f['home_score'],
+                'away_score': f['away_score'],
+                'status_short': f['status_short'] ?? 'NS',
+                'status_elapsed': f['status_elapsed'],
+                'is_finished': f['is_finished'] == true,
+                'is_live': f['is_live'] == true,
+                'is_active': true,
+                'is_featured': true,
+                'publish_state': 'published',
+              },
+              onConflict: 'external_fixture_id',
+            )
+            .select('id')
+            .single();
+
+        savedIds.add(saved['id'].toString());
       }
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '${chosen.length} match${chosen.length == 1 ? '' : 'es'} added.',
-          ),
-        ),
-      );
-
       setState(() => selectedIds.clear());
+
+      if (chosen.length == 1 && savedIds.isNotEmpty) {
+        final addStreams = await showModalBottomSheet<bool>(
+          context: context,
+          useSafeArea: true,
+          showDragHandle: true,
+          builder: (sheetContext) => Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.check_circle_rounded, size: 44),
+                const SizedBox(height: 10),
+                const Text(
+                  'Match published',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Add the live stream now, or come back later from Stream Servers.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () => Navigator.pop(sheetContext, true),
+                    icon: const Icon(Icons.add_link_rounded),
+                    label: const Text('ADD STREAM NOW'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => Navigator.pop(sheetContext, false),
+                  child: const Text('DONE'),
+                ),
+              ],
+            ),
+          ),
+        );
+
+        if (addStreams == true && mounted) {
+          await Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => LiveLinksPage(
+                initialMatchId: savedIds.first,
+              ),
+            ),
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${chosen.length} matches published. Open Stream Servers to add links.',
+            ),
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
