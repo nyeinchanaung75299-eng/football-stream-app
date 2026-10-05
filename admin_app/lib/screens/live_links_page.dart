@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../analytics_service.dart';
 import '../services/function_gateway.dart';
 import 'soco_import_page.dart';
 
@@ -145,6 +146,19 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         'is_active': true,
       });
 
+      await AnalyticsService.capture(
+        'stream added',
+        properties: {
+          'match_id': matchId!,
+          'stream_type': effectiveType,
+          'use_webview': useWebView,
+          'has_referer': referer.text.trim().isNotEmpty,
+          'has_origin': origin.text.trim().isNotEmpty,
+          'has_clearkey':
+              keyId.text.trim().isNotEmpty && keyData.text.trim().isNotEmpty,
+        },
+      );
+
       if (!mounted) return;
 
       message('Server added.');
@@ -159,6 +173,13 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       useWebView = false;
       setState(() {});
     } catch (e) {
+      await AnalyticsService.capture(
+        'stream add failed',
+        properties: {
+          'match_selected': matchId != null,
+          'use_webview': useWebView,
+        },
+      );
       if (!mounted) return;
       message(e.toString());
     } finally {
@@ -185,6 +206,14 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         'stream-health',
         body: body,
       );
+      await AnalyticsService.capture(
+        'stream health checked',
+        properties: {
+          'scope': linkId != null ? 'link' : 'match',
+          if (data is Map && data['health_status'] != null)
+            'health_status': data['health_status'].toString(),
+        },
+      );
       if (!mounted) return;
 
       if (data is Map && data['summary'] is Map) {
@@ -205,6 +234,10 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
       setState(() {});
     } catch (e) {
+      await AnalyticsService.capture(
+        'stream health check failed',
+        properties: {'scope': linkId != null ? 'link' : 'match'},
+      );
       if (mounted) message('Health check failed: $e');
     } finally {
       if (mounted) setState(() => testingHealth = false);
@@ -234,14 +267,24 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
     if (ok != true) return;
 
-    await Supabase.instance.client
-        .from('stream_links')
-        .delete()
-        .eq('id', id);
+    try {
+      await Supabase.instance.client
+          .from('stream_links')
+          .delete()
+          .eq('id', id);
 
-    if (mounted) {
-      message('Server deleted.');
-      setState(() {});
+      await AnalyticsService.capture(
+        'stream deleted',
+        properties: {'match_selected': matchId != null},
+      );
+
+      if (mounted) {
+        message('Server deleted.');
+        setState(() {});
+      }
+    } catch (e) {
+      await AnalyticsService.capture('stream delete failed');
+      if (mounted) message('Delete failed: $e');
     }
   }
 
@@ -250,6 +293,11 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         .from('stream_links')
         .update({'is_active': value})
         .eq('id', id);
+
+    await AnalyticsService.capture(
+      'stream active changed',
+      properties: {'is_active': value},
+    );
 
     if (mounted) setState(() {});
   }
@@ -264,6 +312,15 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         body: {'link_id': id},
       );
 
+      await AnalyticsService.capture(
+        'stream health checked',
+        properties: {
+          'scope': 'link',
+          if (data is Map && data['health_status'] != null)
+            'health_status': data['health_status'].toString(),
+        },
+      );
+
       if (!quiet && mounted) {
         if (data is Map) {
           final status = data['health_status'] ?? 'unknown';
@@ -276,6 +333,10 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         }
       }
     } catch (e) {
+      await AnalyticsService.capture(
+        'stream health check failed',
+        properties: {'scope': 'link'},
+      );
       if (!quiet && mounted) message('Health check failed: $e');
     } finally {
       if (mounted) {
@@ -289,9 +350,15 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     setState(() => checkingAll = true);
 
     try {
-      for (final row in rows.where((item) => item['is_active'] == true)) {
+      final activeRows =
+          rows.where((item) => item['is_active'] == true).toList();
+      for (final row in activeRows) {
         await checkHealth(row['id'].toString(), quiet: true);
       }
+      await AnalyticsService.capture(
+        'stream health batch completed',
+        properties: {'link_count': activeRows.length},
+      );
       if (mounted) message('Health check finished.');
     } finally {
       if (mounted) setState(() => checkingAll = false);
@@ -491,26 +558,46 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     final effectiveType =
         web ? 'auto' : detectStreamType(url.text, fallback: type);
 
-    await Supabase.instance.client
-        .from('stream_links')
-        .update({
-          'label': name.text.trim().isEmpty ? 'Server' : name.text.trim(),
-          'resolution': name.text.trim().isEmpty ? 'Server' : name.text.trim(),
-          'stream_type': effectiveType,
-          'stream_url': web ? '' : url.text.trim(),
-          'referer': nullable(ref.text),
-          'origin': nullable(org.text),
-          'key_id': !web && effectiveType == 'dash' ? nullable(kid.text) : null,
-          'key_data': !web && effectiveType == 'dash' ? nullable(key.text) : null,
-          'use_webview': web,
-          'webview_url': web ? nullable(webUrl.text) : null,
-          'send_notification': false,
-        })
-        .eq('id', row['id']);
+    try {
+      await Supabase.instance.client
+          .from('stream_links')
+          .update({
+            'label': name.text.trim().isEmpty ? 'Server' : name.text.trim(),
+            'resolution':
+                name.text.trim().isEmpty ? 'Server' : name.text.trim(),
+            'stream_type': effectiveType,
+            'stream_url': web ? '' : url.text.trim(),
+            'referer': nullable(ref.text),
+            'origin': nullable(org.text),
+            'key_id':
+                !web && effectiveType == 'dash' ? nullable(kid.text) : null,
+            'key_data':
+                !web && effectiveType == 'dash' ? nullable(key.text) : null,
+            'use_webview': web,
+            'webview_url': web ? nullable(webUrl.text) : null,
+            'send_notification': false,
+          })
+          .eq('id', row['id']);
 
-    if (mounted) {
-      message('Server updated.');
-      setState(() {});
+      await AnalyticsService.capture(
+        'stream updated',
+        properties: {
+          'stream_type': effectiveType,
+          'use_webview': web,
+          'has_referer': ref.text.trim().isNotEmpty,
+          'has_origin': org.text.trim().isNotEmpty,
+          'has_clearkey':
+              kid.text.trim().isNotEmpty && key.text.trim().isNotEmpty,
+        },
+      );
+
+      if (mounted) {
+        message('Server updated.');
+        setState(() {});
+      }
+    } catch (e) {
+      await AnalyticsService.capture('stream update failed');
+      if (mounted) message('Server update failed: $e');
     }
   }
 
@@ -580,8 +667,18 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                           onPressed: matchId == null
                               ? null
                               : () async {
+                                  await AnalyticsService.capture(
+                                    'admin section opened',
+                                    properties: {
+                                      'section': 'stream-source-picker',
+                                      'from': 'stream-servers',
+                                    },
+                                  );
                                   await Navigator.of(context).push(
                                     MaterialPageRoute<void>(
+                                      settings: const RouteSettings(
+                                        name: '/admin/stream-source-picker',
+                                      ),
                                       builder: (_) => SocoImportPage(
                                         initialMatchId: matchId,
                                       ),
