@@ -136,6 +136,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                 'is_active': true,
                 'is_featured': true,
                 'publish_state': 'published',
+                'deleted_at': null,
               },
               onConflict: 'external_fixture_id',
             )
