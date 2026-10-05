@@ -30,9 +30,8 @@ class _HomePageState extends State<HomePage> {
   );
 
   static const _mirrorBase =
-      'https://raw.githubusercontent.com/'
-      'nyeinchanaung75299-eng/football-stream-app/'
-      'feed/public/matches.json';
+      'https://nyeinchanaung75299-eng.github.io/'
+      'football-stream-app/matches.json';
 
   @override
   void initState() {
@@ -125,6 +124,83 @@ class _HomePageState extends State<HomePage> {
     }
 
     return _decodeMatches(response.body);
+  }
+
+  Future<List<Map<String, dynamic>>> _loadPublicApiStreams(
+    String matchId,
+  ) async {
+    final base = _publicApiBase.trim();
+    if (base.isEmpty) {
+      throw const FormatException('Public API is not configured.');
+    }
+
+    final cleanBase = base.replaceAll(RegExp(r"/+$"), "");
+    final uri = Uri.parse(
+      '$cleanBase/matches/${Uri.encodeComponent(matchId)}/streams',
+    );
+
+    final response = await http
+        .get(
+          uri,
+          headers: const {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+          },
+        )
+        .timeout(const Duration(seconds: 7));
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Public stream API returned HTTP ${response.statusCode}',
+      );
+    }
+
+    final decoded = jsonDecode(response.body);
+    final raw = decoded is Map<String, dynamic>
+        ? decoded['streams']
+        : decoded;
+
+    if (raw is! List) {
+      throw const FormatException('Stream response is invalid.');
+    }
+
+    return raw
+        .map((row) => Map<String, dynamic>.from(row as Map))
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _resolveLinks(
+    Map<String, dynamic> match,
+  ) async {
+    var links = playableLinks(match['stream_links']);
+    if (links.isNotEmpty) return links;
+
+    final matchId = match['id']?.toString().trim() ?? '';
+    if (matchId.isEmpty) return const [];
+
+    try {
+      links = playableLinks(await _loadPublicApiStreams(matchId));
+      if (links.isNotEmpty) return links;
+    } catch (_) {}
+
+    try {
+      final data = await Supabase.instance.client
+          .from('stream_links')
+          .select(
+            'id,label,resolution,stream_type,stream_url,referer,origin,'
+            'key_id,key_data,use_webview,webview_url,is_active,priority,'
+            'available_from,expires_at,health_status',
+          )
+          .eq('match_id', matchId)
+          .eq('is_active', true)
+          .order('priority')
+          .timeout(const Duration(seconds: 6));
+
+      links = playableLinks(data);
+      if (links.isNotEmpty) return links;
+    } catch (_) {}
+
+    return const [];
   }
 
   Future<List<Map<String, dynamic>>> _loadMirror() async {
@@ -263,7 +339,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> openPlayer(Map<String, dynamic> match) async {
-    final links = playableLinks(match['stream_links']);
+    final links = await _resolveLinks(match);
     if (links.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -578,10 +654,15 @@ class _HomePageState extends State<HomePage> {
                                   .trim()
                                   .isNotEmpty;
                             }).length;
+                            final fallbackCount =
+                                (m['stream_count'] as num?)?.toInt() ?? 0;
+                            final displayCount = nativeLinkCount > 0
+                                ? nativeLinkCount
+                                : fallbackCount;
                             return _MatchCard(
                               match: m,
-                              canWatch: nativeLinkCount > 0,
-                              linkCount: nativeLinkCount,
+                              canWatch: displayCount > 0,
+                              linkCount: displayCount,
                               onWatch: () => openPlayer(m),
                             );
                           },
