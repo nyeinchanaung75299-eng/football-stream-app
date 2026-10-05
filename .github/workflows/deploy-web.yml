@@ -41,6 +41,23 @@ jobs:
         working-directory: user_app
         run: |
           flutter build web --release --base-href "/football-stream-app/"
+          # GitHub Pages controls response cache headers, so stamp the
+          # bootstrap URL on every deploy. This prevents an old Flutter shell
+          # from surviving a new release while still allowing heavy assets to
+          # remain browser-cached for fast repeat visits.
+          BUILD_ID="${GITHUB_SHA::12}-${GITHUB_RUN_NUMBER}"
+          python3 - "$BUILD_ID" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path("build/web/index.html")
+          s = p.read_text(encoding="utf-8")
+          build_id = sys.argv[1]
+          s = s.replace(
+              'src="flutter_bootstrap.js"',
+              f'src="flutter_bootstrap.js?v={build_id}"',
+          )
+          p.write_text(s, encoding="utf-8")
+          PY
           cp build/web/index.html build/web/404.html
 
       - name: Add same-origin VPN-off match backup
