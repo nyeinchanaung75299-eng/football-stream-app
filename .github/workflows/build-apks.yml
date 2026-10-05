@@ -89,6 +89,9 @@ jobs:
           if missing: s=s.replace(marker, marker+'\n    '+'\n    '.join(missing))
           activity='        <activity android:name=".NativePlayerActivity" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="false" android:theme="@style/LaunchTheme" />\n'
           if 'NativePlayerActivity' not in s: s=s.replace('    </application>', activity+'    </application>')
+          posthog_meta='        <meta-data android:name="com.posthog.posthog.AUTO_INIT" android:value="false" />\n'
+          if 'com.posthog.posthog.AUTO_INIT' not in s:
+              s=s.replace('    </application>', posthog_meta+'    </application>')
           import re
           s=re.sub(r'android:label="[^"]+"','android:label="NCA"',s,count=1)
           if 'android:usesCleartextTraffic=' not in s:
