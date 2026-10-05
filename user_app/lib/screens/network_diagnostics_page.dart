@@ -154,11 +154,26 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
           response.statusCode < 300 &&
           response.body.trim().startsWith('[');
 
+      var backupLines = 0;
+      if (ok) {
+        try {
+          final decoded = jsonDecode(response.body);
+          if (decoded is List) {
+            for (final raw in decoded) {
+              if (raw is! Map) continue;
+              final links = raw['stream_links'];
+              if (links is List) backupLines += links.length;
+            }
+          }
+        } catch (_) {}
+      }
+
       _add(
         _DiagResult(
           title: 'GitHub match mirror',
           detail: ok
-              ? 'VPN-free fallback OK • HTTP ${response.statusCode} • ${_ms(started)} ms'
+              ? 'VPN-free fallback OK • $backupLines direct backup line(s) • '
+                  'HTTP ${response.statusCode} • ${_ms(started)} ms'
               : 'Mirror reached but feed is unavailable • HTTP ${response.statusCode}',
           status: ok ? _DiagStatus.ok : _DiagStatus.fail,
         ),
@@ -230,8 +245,9 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
 
   Future<void> _checkStreams() async {
     String? matchId;
+    List<Map<String, dynamic>> mirrorBackup = const [];
 
-    // Use the metadata-only GitHub mirror to discover a current match id.
+    // Use the GitHub mirror to discover a current match and safe direct backup.
     final client = http.Client();
     try {
       final response = await client
@@ -258,8 +274,20 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
             if (raw is! Map) continue;
             final count = (raw['stream_count'] as num?)?.toInt() ?? 0;
             final id = raw['id']?.toString().trim() ?? '';
+            final links = raw['stream_links'];
             if (count > 0 && id.isNotEmpty) {
               matchId = id;
+              if (links is List) {
+                mirrorBackup = links
+                    .whereType<Map>()
+                    .map((row) => Map<String, dynamic>.from(row))
+                    .where((row) {
+                      final url = (row['stream_url'] ?? '').toString().trim();
+                      return url.isNotEmpty &&
+                          (!kIsWeb || !url.toLowerCase().startsWith('http://'));
+                    })
+                    .toList();
+              }
               break;
             }
           }
@@ -342,9 +370,25 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
         title: 'Protected stream API',
         detail: 'Could not load protected playback URLs: '
             '${_shortError(lastError ?? 'unavailable')}',
-        status: _DiagStatus.fail,
+        status: mirrorBackup.isNotEmpty
+            ? _DiagStatus.warning
+            : _DiagStatus.fail,
       ),
     );
+
+    if (mirrorBackup.isNotEmpty) {
+      _add(
+        _DiagResult(
+          title: 'GitHub stream backup',
+          detail: '${mirrorBackup.length} direct backup line(s) available '
+              'without the protected API.',
+          status: _DiagStatus.ok,
+        ),
+      );
+      for (final sample in mirrorBackup.take(3)) {
+        await _probeStream(sample);
+      }
+    }
   }
 
   Future<void> _probeStream(Map<String, dynamic> sample) async {
