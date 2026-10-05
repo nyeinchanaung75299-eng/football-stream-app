@@ -107,7 +107,23 @@ Deno.serve(async (req) => {
 
     const rows = Array.isArray(payload.response) ? payload.response : [];
 
-    const fixtures = rows.map((row: any) => ({
+    const { data: deletedRows } = await userClient
+      .from("matches")
+      .select("external_fixture_id")
+      .not("deleted_at", "is", null);
+
+    const deletedFixtureIds = new Set(
+      (deletedRows ?? [])
+        .map((row: any) => Number(row.external_fixture_id))
+        .filter((id: number) => Number.isFinite(id)),
+    );
+
+    const fixtures = rows
+      .filter(
+        (row: any) =>
+          !deletedFixtureIds.has(Number(row.fixture?.id)),
+      )
+      .map((row: any) => ({
       fixture_id: row.fixture?.id,
       kickoff_at: row.fixture?.date,
       status_short: row.fixture?.status?.short ?? "NS",
@@ -135,9 +151,19 @@ Deno.serve(async (req) => {
       away_score: row.goals?.away ?? null,
     }));
 
+    fixtures.sort((a: any, b: any) => {
+      const at = new Date(a.kickoff_at ?? 0).getTime();
+      const bt = new Date(b.kickoff_at ?? 0).getTime();
+      if (at !== bt) return at - bt;
+      return String(a.home_name ?? "").localeCompare(
+        String(b.home_name ?? ""),
+      );
+    });
+
     return json({
       fixtures,
       results: fixtures.length,
+      hidden_deleted: deletedFixtureIds.size,
       remaining:
         apiResponse.headers.get("x-ratelimit-requests-remaining") ?? null,
     });
