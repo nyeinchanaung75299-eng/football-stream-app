@@ -19,6 +19,7 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
   static const _socoUrl = 'https://m.sutbongtv.com/match.html';
   static const _publicApiUrls = <String>[
     'https://football-api.nyeinchanaung.us.ci',
+    'https://football-api.nyeinchanaung.ccwu.cc',
     'https://football-public-api.nyeinchanaung75299-eng.workers.dev',
   ];
   static const _mirrorUrl =
@@ -129,7 +130,7 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
     _add(
       _DiagResult(
         title: 'Cloudflare public API',
-        detail: 'Both API endpoints failed: ${_shortError(lastError ?? 'unavailable')}',
+        detail: 'All API endpoints failed: ${_shortError(lastError ?? 'unavailable')}',
         status: _DiagStatus.fail,
       ),
     );
