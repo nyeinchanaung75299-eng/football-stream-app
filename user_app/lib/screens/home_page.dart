@@ -61,31 +61,63 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<T> _firstSuccessful<T>(Iterable<Future<T>> futures) {
-    final items = futures.toList(growable: false);
-    if (items.isEmpty) {
+  Future<T> _hedged<T>(
+    List<Future<T> Function()> attempts, {
+    Duration delay = const Duration(milliseconds: 450),
+  }) {
+    if (attempts.isEmpty) {
       return Future<T>.error(StateError('No fallback source is configured.'));
     }
 
     final completer = Completer<T>();
-    var remaining = items.length;
+    var nextIndex = 0;
+    var running = 0;
     Object? lastError;
+    StackTrace? lastStack;
+    Timer? timer;
 
-    for (final future in items) {
-      future.then((value) {
-        if (!completer.isCompleted) completer.complete(value);
+    void startNext() {
+      if (completer.isCompleted || nextIndex >= attempts.length) return;
+
+      final run = attempts[nextIndex++];
+      running += 1;
+
+      run().then((value) {
+        if (!completer.isCompleted) {
+          completer.complete(value);
+        }
       }).catchError((Object error, StackTrace stackTrace) {
+        running -= 1;
         lastError = error;
-        remaining -= 1;
-        if (remaining == 0 && !completer.isCompleted) {
+        lastStack = stackTrace;
+
+        if (!completer.isCompleted && nextIndex < attempts.length) {
+          startNext();
+        } else if (
+            !completer.isCompleted &&
+            nextIndex >= attempts.length &&
+            running == 0) {
           completer.completeError(
             lastError ?? StateError('All fallback sources failed.'),
-            stackTrace,
+            lastStack ?? StackTrace.current,
           );
         }
       });
     }
 
+    startNext();
+
+    if (attempts.length > 1) {
+      timer = Timer.periodic(delay, (value) {
+        if (completer.isCompleted || nextIndex >= attempts.length) {
+          value.cancel();
+          return;
+        }
+        startNext();
+      });
+    }
+
+    completer.future.whenComplete(() => timer?.cancel());
     return completer.future;
   }
 
@@ -245,8 +277,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadPublicApi() {
-    return _firstSuccessful(
-      _publicApiBases.map(_loadPublicApiFrom),
+    return _hedged(
+      _publicApiBases
+          .map<Future<List<Map<String, dynamic>>> Function()>(
+            (base) => () => _loadPublicApiFrom(base),
+          )
+          .toList(),
+      delay: const Duration(milliseconds: 400),
     );
   }
 
@@ -298,10 +335,13 @@ class _HomePageState extends State<HomePage> {
   Future<List<Map<String, dynamic>>> _loadPublicApiStreams(
     String matchId,
   ) {
-    return _firstSuccessful(
-      _publicApiBases.map(
-        (base) => _loadPublicApiStreamsFrom(base, matchId),
-      ),
+    return _hedged(
+      _publicApiBases
+          .map<Future<List<Map<String, dynamic>>> Function()>(
+            (base) => () => _loadPublicApiStreamsFrom(base, matchId),
+          )
+          .toList(),
+      delay: const Duration(milliseconds: 500),
     );
   }
 
@@ -388,41 +428,41 @@ class _HomePageState extends State<HomePage> {
   Future<List<Map<String, dynamic>>> loadMatches() async {
     final started = DateTime.now();
 
-    final contenders = <Future<_MatchLoadResult>>[
-      _loadPublicApi().then(
-        (rows) => _MatchLoadResult(rows, 'Fast public API'),
-      ),
-      Future<_MatchLoadResult>.delayed(
-        const Duration(milliseconds: 650),
-        () async => _MatchLoadResult(
-          await _loadMirror(),
-          'Backup feed',
-        ),
-      ),
+    final attempts = <Future<_MatchLoadResult> Function()>[
+      () async => _MatchLoadResult(
+            await _loadPublicApi(),
+            'Fast public API',
+          ),
+      () async => _MatchLoadResult(
+            await _loadMirror(),
+            'Backup feed',
+          ),
     ];
 
     if (_supabaseClientOrNull() != null) {
-      contenders.add(
-        Future<_MatchLoadResult>.delayed(
-          const Duration(milliseconds: 1100),
-          () async => _MatchLoadResult(
-            await _loadSupabaseMatches(),
-            'Direct database',
-          ),
-        ),
+      attempts.add(
+        () async => _MatchLoadResult(
+              await _loadSupabaseMatches(),
+              'Direct database',
+            ),
       );
     }
 
-    final result = await _firstSuccessful(contenders);
+    final result = await _hedged(
+      attempts,
+      delay: const Duration(milliseconds: 650),
+    );
     _fallbackLabel = result.label;
 
-    await AnalyticsService.capture(
-      'match feed loaded',
-      properties: {
-        'source': result.label ?? 'unknown',
-        'match_count': result.rows.length,
-        'latency_ms': DateTime.now().difference(started).inMilliseconds,
-      },
+    unawaited(
+      AnalyticsService.capture(
+        'match feed loaded',
+        properties: {
+          'source': result.label ?? 'unknown',
+          'match_count': result.rows.length,
+          'latency_ms': DateTime.now().difference(started).inMilliseconds,
+        },
+      ),
     );
 
     return result.rows;
