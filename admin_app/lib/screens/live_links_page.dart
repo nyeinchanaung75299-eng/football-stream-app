@@ -66,10 +66,20 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   Future<List<Map<String, dynamic>>> loadMatches() async {
     final data = await Supabase.instance.client
         .from('matches')
-        .select('id,home_team,away_team,league,kickoff_at,sort_order')
+        .select(
+          'id,home_team,away_team,league,kickoff_at,sort_order,is_active,deleted_at',
+        )
         .order('kickoff_at', ascending: true)
-        .order('sort_order', ascending: true);
-    return List<Map<String, dynamic>>.from(data);
+        .order('sort_order', ascending: true)
+        .order('home_team', ascending: true);
+
+    return List<Map<String, dynamic>>.from(data)
+        .where(
+          (row) =>
+              row['deleted_at'] == null &&
+              row['is_active'] == true,
+        )
+        .toList();
   }
 
   Future<List<Map<String, dynamic>>> loadLinks() async {
