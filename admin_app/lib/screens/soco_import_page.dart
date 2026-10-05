@@ -42,7 +42,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final data = await Supabase.instance.client
         .from('matches')
         .select(
-          'id,home_team,away_team,kickoff_at,sort_order,is_active,'
+          'id,home_team,away_team,kickoff_at,sort_order,is_live,is_active,'
           'is_finished,is_featured,publish_state,deleted_at',
         )
         .eq('is_active', true)
@@ -50,14 +50,25 @@ class _SocoImportPageState extends State<SocoImportPage> {
         .order('sort_order', ascending: true)
         .order('home_team', ascending: true);
 
+    final now = DateTime.now();
+    const staleKickoffGrace = Duration(hours: 5);
+
     return List<Map<String, dynamic>>.from(data)
-        .where(
-          (row) =>
-              row['deleted_at'] == null &&
+        .where((row) {
+          final kickoff = DateTime.tryParse(
+            row['kickoff_at']?.toString() ?? '',
+          )?.toLocal();
+          final stale = row['is_live'] != true &&
+              kickoff != null &&
+              now.difference(kickoff) > staleKickoffGrace;
+
+          return row['deleted_at'] == null &&
+              row['is_active'] == true &&
               row['is_finished'] != true &&
               row['is_featured'] != false &&
-              (row['publish_state'] ?? 'published') == 'published',
-        )
+              (row['publish_state'] ?? 'published') == 'published' &&
+              !stale;
+        })
         .toList();
   }
 
@@ -110,15 +121,17 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
       if (!mounted) return;
       setState(() => sourceMatches = parsed);
-    } catch (_) {
+    } catch (e) {
       await AnalyticsService.capture(
         'source match list failed',
         properties: {'source': source},
       );
       if (!mounted) return;
+      final detail = e.toString().replaceFirst('Exception: ', '');
       setState(() {
         sourceMatches = const [];
-        errorText = 'Could not load ${_sourceLabel(source)} sources. Pull to retry.';
+        errorText =
+            'Could not load ${_sourceLabel(source)} sources. $detail';
       });
     } finally {
       if (mounted) setState(() => loading = false);
@@ -289,7 +302,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         lines: lines,
         sourceLiveStatus: data is Map ? data['live_status'] : null,
       );
-    } catch (_) {
+    } catch (e) {
       await AnalyticsService.capture(
         'source lines failed',
         properties: {'source': source},
@@ -297,7 +310,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
         Navigator.of(context, rootNavigator: true).pop();
       }
-      message('Could not load ${_sourceLabel(source)} stream links.');
+      final detail = e.toString().replaceFirst('Exception: ', '');
+      message(
+        'Could not load ${_sourceLabel(source)} stream links. $detail',
+      );
     }
   }
 
