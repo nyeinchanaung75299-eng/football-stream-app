@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: nca-android-release
@@ -158,7 +159,7 @@ jobs:
           data = {
               "version_name": "9.8.0",
               "build_number": int(os.environ["NCA_BUILD_NUMBER"]),
-              "apk_url": "https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/releases/NCA-latest.apk",
+              "apk_url": "https://nyeinchanaung75299-eng.github.io/football-stream-app/releases/NCA-latest.apk",
               "mandatory": False,
               "notes": "NCA update is ready. Includes live-score, stream, VPN-free fallback and stability improvements."
           }
@@ -184,3 +185,8 @@ jobs:
 
           echo "Failed to publish in-app updater release."
           exit 1
+
+      - name: Refresh GitHub Pages release files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-web.yml --ref "${GITHUB_REF_NAME}"
