@@ -91,6 +91,7 @@
     let autoFallbackTried=new Set();
     let playbackToken=0;
     let playbackStartedToken=-1;
+    let bufferingReportedToken=-1;
     const scriptLoads=new Map();
 
     function capturePlayerEvent(name,properties={}){
@@ -522,6 +523,8 @@
     });
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&overlay.classList.contains('open')&&!document.fullscreenElement)closeButton.click()});
     video.addEventListener('waiting',()=>{
+      if(bufferingReportedToken===playbackToken)return;
+      bufferingReportedToken=playbackToken;
       capturePlayerEvent('playback buffering',{
         selected_index:currentSourceIndex,
         line_count:sources.length
