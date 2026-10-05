@@ -37,6 +37,16 @@ jobs:
         working-directory: user_app
         run: flutter pub get
 
+      - name: Verify Viewer source
+        working-directory: user_app
+        run: |
+          flutter analyze --no-fatal-infos
+          if find test -type f -name '*_test.dart' -print -quit 2>/dev/null | grep -q .; then
+            flutter test
+          else
+            echo "No Viewer tests found; analyze gate passed."
+          fi
+
       - name: Build Viewer Web
         working-directory: user_app
         run: |
