@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../analytics_service.dart';
 import '../widgets/theme_mode_button.dart';
 
 class LoginPage extends StatefulWidget {
@@ -24,6 +25,7 @@ class _LoginPageState extends State<LoginPage> {
     }
 
     setState(() => loading = true);
+    await AnalyticsService.capture('admin login attempted');
     try {
       await Supabase.instance.client.auth.signInWithPassword(
         email: email.text.trim(),
@@ -41,6 +43,8 @@ class _LoginPageState extends State<LoginPage> {
         await Supabase.instance.client.auth.signOut();
         throw Exception('This account is not an admin.');
       }
+
+      await AnalyticsService.capture('admin login succeeded');
     } catch (e) {
       if (!mounted) return;
       final raw = e.toString().toLowerCase();
@@ -48,6 +52,12 @@ class _LoginPageState extends State<LoginPage> {
           raw.contains('network is unreachable') ||
           raw.contains('connection failed') ||
           raw.contains('failed host lookup');
+      await AnalyticsService.capture(
+        'admin login failed',
+        properties: {
+          'reason': networkProblem ? 'network' : 'credentials_or_role',
+        },
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
