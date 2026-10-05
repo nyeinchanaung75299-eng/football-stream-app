@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'live_links_page.dart';
+import '../analytics_service.dart';
 import '../services/function_gateway.dart';
 
 class FixtureImportPage extends StatefulWidget {
@@ -67,6 +68,13 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         throw Exception('No fixture list returned.');
       }
 
+      await AnalyticsService.capture(
+        'fixture list loaded',
+        properties: {
+          'mode': mode,
+          'fixture_count': rows.length,
+        },
+      );
       if (!mounted) return;
       setState(() {
         fixtures = rows
@@ -74,6 +82,10 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
             .toList();
       });
     } catch (e) {
+      await AnalyticsService.capture(
+        'fixture list failed',
+        properties: {'mode': mode},
+      );
       if (!mounted) return;
       setState(() {
         fixtures = [];
@@ -158,6 +170,15 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         savedIds.add(saved['id'].toString());
       }
 
+      await AnalyticsService.capture(
+        'matches published',
+        properties: {
+          'requested_count': chosen.length,
+          'published_count': savedIds.length,
+          'skipped_deleted': skippedDeleted,
+        },
+      );
+
       if (!mounted) return;
 
       setState(() => selectedIds.clear());
@@ -218,6 +239,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         if (addStreams == true && mounted) {
           await Navigator.of(context).push(
             MaterialPageRoute<void>(
+              settings: const RouteSettings(
+                name: '/admin/stream-servers',
+              ),
               builder: (_) => LiveLinksPage(
                 initialMatchId: savedIds.first,
               ),
@@ -234,6 +258,10 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         );
       }
     } catch (e) {
+      await AnalyticsService.capture(
+        'match publish failed',
+        properties: {'requested_count': chosen.length},
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString())),
