@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/function_gateway.dart';
+import 'soco_import_page.dart';
 
 class LiveLinksPage extends StatefulWidget {
   const LiveLinksPage({super.key, this.initialMatchId});
@@ -567,6 +568,26 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                             )
                             .toList(),
                         onChanged: (v) => setState(() => matchId = v),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.tonalIcon(
+                          onPressed: matchId == null
+                              ? null
+                              : () async {
+                                  await Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => SocoImportPage(
+                                        initialMatchId: matchId,
+                                      ),
+                                    ),
+                                  );
+                                  if (mounted) setState(() {});
+                                },
+                          icon: const Icon(Icons.podcasts_rounded),
+                          label: const Text('PICK FROM SOCO'),
+                        ),
                       ),
                       const SizedBox(height: 12),
                       TextField(
