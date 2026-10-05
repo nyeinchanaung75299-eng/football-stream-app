@@ -6,7 +6,7 @@ const workerPath = fileURLToPath(
   new URL('../cloudflare/public-api/src/index.js', import.meta.url),
 );
 const source = readFileSync(workerPath, 'utf8') +
-  '\nexport { advertisedLinkCount, protectedClientLinks, rewriteDashManifest, rewriteHlsPlaylist, resolveProtectedTarget, workerFetchUrl, isFawaSession };\n';
+  '\nexport { advertisedLinkCount, protectedClientLinks, blockedClientLinks, rewriteDashManifest, rewriteHlsPlaylist, resolveProtectedTarget, workerFetchUrl, isFawaSession };\n';
 const mod = await import(
   'data:text/javascript;base64,' + Buffer.from(source).toString('base64')
 );
@@ -14,6 +14,7 @@ const mod = await import(
 const {
   advertisedLinkCount,
   protectedClientLinks,
+  blockedClientLinks,
   rewriteDashManifest,
   rewriteHlsPlaylist,
   resolveProtectedTarget,
@@ -56,11 +57,23 @@ assert.equal(
   1,
   'eligible non-DRM DASH must be advertised',
 );
+const keyedDashRow = {
+  ...dashRow,
+  id: 'dash-keyed',
+  key_id: 'secret-id',
+  key_data: 'secret-key',
+};
 assert.equal(
-  advertisedLinkCount([{ ...dashRow, key_id: 'secret-id', key_data: 'secret-key' }]),
-  0,
-  'keyed DASH must remain excluded from the public player',
+  advertisedLinkCount([keyedDashRow]),
+  1,
+  'keyed DASH must remain visible in public line-count metadata',
 );
+const blockedRows = blockedClientLinks([keyedDashRow]);
+assert.equal(blockedRows.length, 1);
+assert.equal(blockedRows[0].blocked_reason, 'keyed_dash_not_exposed');
+assert.equal(blockedRows[0].stream_url, null);
+assert.equal(blockedRows[0].key_id, null);
+assert.equal(blockedRows[0].key_data, null);
 
 const protectedRows = await protectedClientLinks(
   [dashRow],
@@ -232,7 +245,7 @@ assert.equal(
 );
 
 console.log('PASS protected non-DRM DASH is advertised');
-console.log('PASS keyed DASH remains private');
+console.log('PASS keyed DASH is counted and shown as safe blocked metadata');
 console.log('PASS relative DASH SegmentTemplate uses protected base routing');
 console.log('PASS nested-only BaseURL manifests receive a protected root base');
 console.log('PASS absolute DASH templates preserve substitution tokens');
@@ -241,4 +254,4 @@ console.log('PASS existing HLS rewrite remains protected');
 console.log('PASS Fawa raw IP origins are routed through DNS aliases');
 console.log('PASS normal upstream hostnames are not rewritten');
 console.log('PASS Fawa sessions use a browser-compatible upstream profile');
-console.log('10 protected playback regression checks passed.');
+console.log('11 protected playback regression checks passed.');
