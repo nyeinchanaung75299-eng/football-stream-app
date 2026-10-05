@@ -20,7 +20,6 @@ class _HomePageState extends State<HomePage> {
   late Future<List<Map<String, dynamic>>> _future;
   RealtimeChannel? _channel;
   Timer? _debounce;
-  int _sourceTab = 0;
   String? _fallbackLabel;
 
   static const _publicApiBase = String.fromEnvironment(
@@ -737,7 +736,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                         SizedBox(height: 2),
                         Text(
-                          'V9.6 • Premium viewer',
+                          'V9.7 • Clean premium viewer',
                           style: TextStyle(fontSize: 12.5),
                         ),
                       ],
@@ -773,23 +772,7 @@ class _HomePageState extends State<HomePage> {
                   );
                 },
               ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.public_rounded),
-                title: const Text(
-                  'Soco',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                subtitle: const Text('Open the secondary live source'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const SocoPage(),
-                    ),
-                  );
-                },
-              ),
+
             ],
           ),
         );
@@ -810,133 +793,19 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 16,
-        title: Row(
+        title: const Row(
           children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .primary
-                    .withValues(alpha: .12),
-                borderRadius: BorderRadius.circular(11),
-              ),
-              child: Icon(
-                Icons.sports_soccer_rounded,
-                size: 20,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-            const SizedBox(width: 10),
-            const Text('Football Live'),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 7,
-                vertical: 3,
-              ),
-              decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .primary
-                    .withValues(alpha: .10),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                'PRO',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontSize: 9.5,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: .8,
-                ),
-              ),
+            Icon(Icons.sports_soccer_rounded, size: 23),
+            SizedBox(width: 9),
+            Text(
+              'Football',
+              style: TextStyle(fontWeight: FontWeight.w900),
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Menu',
-            onPressed: _openAppMenu,
-            icon: const Icon(Icons.more_horiz_rounded),
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
-            child: SegmentedButton<int>(
-              segments: const [
-                ButtonSegment<int>(
-                  value: 0,
-                  icon: Icon(Icons.live_tv_rounded),
-                  label: Text('Main Live'),
-                ),
-                ButtonSegment<int>(
-                  value: 1,
-                  icon: Icon(Icons.public_rounded),
-                  label: Text('Soco'),
-                ),
-              ],
-              selected: {_sourceTab},
-              showSelectedIcon: false,
-              onSelectionChanged: (value) async {
-                final next = value.first;
-                if (next == 1) {
-                  await Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const SocoPage(),
-                    ),
-                  );
-                  if (mounted) {
-                    setState(() => _sourceTab = 0);
-                  }
-                  return;
-                }
-                setState(() => _sourceTab = 0);
-              },
-            ),
-          ),
-          if (_fallbackLabel != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 2, 14, 6),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .primaryContainer
-                      .withValues(alpha: .50),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      _fallbackLabel == 'Fast public API'
-                          ? Icons.bolt_rounded
-                          : Icons.cloud_done_rounded,
-                      size: 18,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _fallbackLabel == 'Fast public API'
-                            ? 'Connected through secure edge'
-                            : 'Backup feed active',
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(
                     future: _future,
@@ -997,6 +866,40 @@ class _HomePageState extends State<HomePage> {
                   ),
           ),
         ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: 0,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.live_tv_outlined),
+            selectedIcon: Icon(Icons.live_tv_rounded),
+            label: 'Live',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.public_outlined),
+            selectedIcon: Icon(Icons.public_rounded),
+            label: 'Soco',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings_rounded),
+            label: 'Settings',
+          ),
+        ],
+        onDestinationSelected: (index) async {
+          if (index == 1) {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const SocoPage(),
+              ),
+            );
+            return;
+          }
+          if (index == 2) {
+            await _openAppMenu();
+          }
+        },
       ),
     );
   }
