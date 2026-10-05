@@ -26,6 +26,8 @@ const MATCH_FIELDS = [
   "is_finished",
   "is_featured",
   "publish_state",
+  "last_score_sync_at",
+  "updated_at",
 ];
 
 const LINK_FIELDS = [
