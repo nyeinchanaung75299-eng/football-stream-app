@@ -121,8 +121,6 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    // WebView-only sources are kept for compatibility, but the native player
-    // list is deliberately clean and prioritised for reliable playback.
     final nativeSources = links
         .where((x) => x['use_webview'] != true)
         .map((x) => <String, dynamic>{
@@ -146,10 +144,69 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
+    var selectedIndex = 0;
+
+    if (nativeSources.length > 1) {
+      final picked = await showModalBottomSheet<int>(
+        context: context,
+        useSafeArea: true,
+        showDragHandle: true,
+        builder: (sheetContext) {
+          final colors = Theme.of(sheetContext).colorScheme;
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Choose line',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${match['home_team']} vs ${match['away_team']}',
+                  style: TextStyle(color: colors.onSurfaceVariant),
+                ),
+                const SizedBox(height: 12),
+                ...List.generate(nativeSources.length, (index) {
+                  final source = nativeSources[index];
+                  final label = (source['label'] ?? 'Server ${index + 1}').toString();
+                  final type = (source['streamType'] ?? 'auto').toString().toUpperCase();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(
+                          color: colors.outlineVariant.withValues(alpha: .5),
+                        ),
+                      ),
+                      leading: const Icon(Icons.dns_rounded),
+                      title: Text(
+                        label,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text(type == 'AUTO' ? 'Auto / Direct' : type),
+                      trailing: const Icon(Icons.play_arrow_rounded),
+                      onTap: () => Navigator.pop(sheetContext, index),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          );
+        },
+      );
+
+      if (picked == null) return;
+      selectedIndex = picked;
+    }
+
     try {
       await NativePlayer.open(
         sources: nativeSources,
-        selectedIndex: 0,
+        selectedIndex: selectedIndex,
         title: '${match['home_team']} vs ${match['away_team']}',
       );
     } catch (_) {
@@ -218,6 +275,7 @@ class _HomePageState extends State<HomePage> {
                 return _MatchCard(
                   match: m,
                   canWatch: links.isNotEmpty,
+                  linkCount: links.length,
                   onWatch: () => openPlayer(m),
                 );
               },
@@ -233,11 +291,13 @@ class _MatchCard extends StatelessWidget {
   const _MatchCard({
     required this.match,
     required this.canWatch,
+    required this.linkCount,
     required this.onWatch,
   });
 
   final Map<String, dynamic> match;
   final bool canWatch;
+  final int linkCount;
   final VoidCallback onWatch;
 
   @override
@@ -252,16 +312,17 @@ class _MatchCard extends StatelessWidget {
     final showScore = homeScore != null && awayScore != null && (live || finished);
 
     return Card(
+      margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         side: BorderSide(
           color: live
-              ? Colors.redAccent.withValues(alpha: .40)
-              : colors.outlineVariant.withValues(alpha: .45),
+              ? Colors.redAccent.withValues(alpha: .35)
+              : colors.outlineVariant.withValues(alpha: .4),
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
         child: Column(
           children: [
             Row(
@@ -272,49 +333,88 @@ class _MatchCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
+                      fontSize: 13,
                       fontWeight: FontWeight.w800,
                       color: colors.onSurfaceVariant,
                     ),
                   ),
                 ),
                 if (live)
-                  _Pill(text: elapsed == null ? 'LIVE' : "LIVE  $elapsed'", color: Colors.redAccent)
+                  _Pill(
+                    text: elapsed == null ? 'LIVE' : "LIVE  $elapsed'",
+                    color: Colors.redAccent,
+                  )
                 else if (finished)
                   const _Pill(text: 'FT', color: Colors.blueGrey)
                 else
-                  _Pill(text: DateFormat('dd MMM • HH:mm').format(kickoff), color: colors.primary),
+                  _Pill(
+                    text: DateFormat('HH:mm').format(kickoff),
+                    color: colors.primary,
+                  ),
               ],
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 9),
             Row(
               children: [
-                Expanded(child: _Team(name: '${match['home_team']}', logo: match['home_logo_url']?.toString())),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: showScore
-                      ? Text(
-                          '$homeScore - $awayScore',
-                          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: -1),
-                        )
-                      : Column(
-                          children: [
-                            Text('VS', style: TextStyle(color: colors.onSurfaceVariant, fontWeight: FontWeight.w900)),
-                            const SizedBox(height: 5),
-                            Text(DateFormat('HH:mm').format(kickoff), style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12)),
-                          ],
-                        ),
+                Expanded(
+                  child: _Team(
+                    name: '${match['home_team']}',
+                    logo: match['home_logo_url']?.toString(),
+                  ),
                 ),
-                Expanded(child: _Team(name: '${match['away_team']}', logo: match['away_logo_url']?.toString())),
+                SizedBox(
+                  width: 78,
+                  child: Center(
+                    child: showScore
+                        ? Text(
+                            '$homeScore - $awayScore',
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          )
+                        : Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'VS',
+                                style: TextStyle(
+                                  color: colors.onSurfaceVariant,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                DateFormat('dd MMM').format(kickoff),
+                                style: TextStyle(
+                                  color: colors.onSurfaceVariant,
+                                  fontSize: 10.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                ),
+                Expanded(
+                  child: _Team(
+                    name: '${match['away_team']}',
+                    logo: match['away_logo_url']?.toString(),
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 9),
             SizedBox(
               width: double.infinity,
-              height: 46,
+              height: 38,
               child: FilledButton.icon(
                 onPressed: canWatch ? onWatch : null,
-                icon: const Icon(Icons.play_arrow_rounded),
-                label: Text(canWatch ? 'WATCH' : 'NOT READY'),
+                icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                label: Text(
+                  canWatch
+                      ? (linkCount > 1 ? 'WATCH • $linkCount LINES' : 'WATCH')
+                      : 'NOT READY',
+                ),
               ),
             ),
           ],
@@ -326,6 +426,7 @@ class _MatchCard extends StatelessWidget {
 
 class _Team extends StatelessWidget {
   const _Team({required this.name, required this.logo});
+
   final String name;
   final String? logo;
 
@@ -333,31 +434,37 @@ class _Team extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final hasLogo = logo != null && logo!.trim().isNotEmpty;
+
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 66,
-          height: 66,
-          padding: const EdgeInsets.all(9),
+          width: 48,
+          height: 48,
+          padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
-            color: colors.surfaceContainerHighest.withValues(alpha: .55),
-            borderRadius: BorderRadius.circular(20),
+            color: colors.surfaceContainerHighest.withValues(alpha: .5),
+            borderRadius: BorderRadius.circular(15),
           ),
           child: hasLogo
               ? Image.network(
                   logo!,
                   fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const Icon(Icons.shield_outlined, size: 34),
+                  errorBuilder: (_, __, ___) =>
+                      const Icon(Icons.shield_outlined, size: 26),
                 )
-              : const Icon(Icons.shield_outlined, size: 34),
+              : const Icon(Icons.shield_outlined, size: 26),
         ),
-        const SizedBox(height: 9),
+        const SizedBox(height: 5),
         Text(
           name,
           textAlign: TextAlign.center,
-          maxLines: 2,
+          maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w800, height: 1.2),
+          style: const TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w800,
+          ),
         ),
       ],
     );
