@@ -12,6 +12,13 @@ import 'network_diagnostics_page.dart';
 import '../widgets/theme_mode_button.dart';
 import '../app_update_service.dart';
 
+class _MatchLoadResult {
+  const _MatchLoadResult(this.rows, this.label);
+
+  final List<Map<String, dynamic>> rows;
+  final String? label;
+}
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -46,6 +53,42 @@ class _HomePageState extends State<HomePage> {
   Uri _mirrorMatchesUri() =>
       kIsWeb ? Uri.base.resolve('matches.json') : Uri.parse(_mirrorBase);
 
+  SupabaseClient? _supabaseClientOrNull() {
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<T> _firstSuccessful<T>(Iterable<Future<T>> futures) {
+    final items = futures.toList(growable: false);
+    if (items.isEmpty) {
+      return Future<T>.error(StateError('No fallback source is configured.'));
+    }
+
+    final completer = Completer<T>();
+    var remaining = items.length;
+    Object? lastError;
+
+    for (final future in items) {
+      future.then((value) {
+        if (!completer.isCompleted) completer.complete(value);
+      }).catchError((Object error, StackTrace stackTrace) {
+        lastError = error;
+        remaining -= 1;
+        if (remaining == 0 && !completer.isCompleted) {
+          completer.completeError(
+            lastError ?? StateError('All fallback sources failed.'),
+            stackTrace,
+          );
+        }
+      });
+    }
+
+    return completer.future;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -53,20 +96,23 @@ class _HomePageState extends State<HomePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) AppUpdateService.check(context);
     });
-    _channel = Supabase.instance.client
-        .channel('v7-pro-featured')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'matches',
-          callback: (_) {
-            _debounce?.cancel();
-            _debounce = Timer(const Duration(milliseconds: 350), () {
-              if (mounted) refresh(silent: true);
-            });
-          },
-        )
-        .subscribe();
+    final supabase = _supabaseClientOrNull();
+    if (supabase != null) {
+      _channel = supabase
+          .channel('v7-pro-featured')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'matches',
+            callback: (_) {
+              _debounce?.cancel();
+              _debounce = Timer(const Duration(milliseconds: 350), () {
+                if (mounted) refresh(silent: true);
+              });
+            },
+          )
+          .subscribe();
+    }
 
     // Keep scores moving even on networks where Supabase Realtime is blocked.
     // The public Cloudflare feed is cached briefly, so a 60s silent refresh
@@ -175,86 +221,88 @@ class _HomePageState extends State<HomePage> {
       );
   }
 
-  Future<List<Map<String, dynamic>>> _loadPublicApi() async {
-    Object? lastError;
-    for (final base in _publicApiBases) {
-      try {
-        final response = await http
-            .get(
-              Uri.parse('$base/matches').replace(
-                queryParameters: {
-                  't': DateTime.now().millisecondsSinceEpoch.toString(),
-                },
-              ),
-              headers: const {
-                'Accept': 'application/json',
-                'Cache-Control': 'no-cache',
-              },
-            )
-            .timeout(const Duration(seconds: 6));
+  Future<List<Map<String, dynamic>>> _loadPublicApiFrom(
+    String base,
+  ) async {
+    final response = await http
+        .get(
+          Uri.parse('$base/matches').replace(
+            queryParameters: {
+              't': DateTime.now().millisecondsSinceEpoch.toString(),
+            },
+          ),
+          headers: const {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+          },
+        )
+        .timeout(const Duration(seconds: 5));
 
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          return _decodeMatches(response.body);
-        }
-        lastError = Exception(
-          'Public API returned HTTP ${response.statusCode}',
-        );
-      } catch (error) {
-        lastError = error;
-      }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Public API returned HTTP ${response.statusCode}');
     }
-    throw lastError ?? const FormatException('Public API is unavailable.');
+    return _decodeMatches(response.body);
+  }
+
+  Future<List<Map<String, dynamic>>> _loadPublicApi() {
+    return _firstSuccessful(
+      _publicApiBases.map(_loadPublicApiFrom),
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _loadPublicApiStreamsFrom(
+    String base,
+    String matchId,
+  ) async {
+    final uri = Uri.parse(
+      '$base/matches/${Uri.encodeComponent(matchId)}/streams',
+    ).replace(
+      queryParameters: {
+        't': DateTime.now().millisecondsSinceEpoch.toString(),
+      },
+    );
+
+    final response = await http
+        .get(
+          uri,
+          headers: const {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+          },
+        )
+        .timeout(const Duration(seconds: 6));
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Public stream API returned HTTP ${response.statusCode}',
+      );
+    }
+
+    final decoded = jsonDecode(response.body);
+    final raw = decoded is Map<String, dynamic>
+        ? decoded['streams']
+        : decoded;
+    if (raw is! List) {
+      throw const FormatException('Stream response is invalid.');
+    }
+
+    final rows = raw
+        .map((row) => Map<String, dynamic>.from(row as Map))
+        .toList();
+    if (rows.isEmpty) {
+      throw const FormatException('No stream lines returned.');
+    }
+    return rows;
   }
 
   Future<List<Map<String, dynamic>>> _loadPublicApiStreams(
     String matchId,
-  ) async {
-    Object? lastError;
-    for (final base in _publicApiBases) {
-      try {
-        final uri = Uri.parse(
-          '$base/matches/${Uri.encodeComponent(matchId)}/streams',
-        ).replace(
-          queryParameters: {
-            't': DateTime.now().millisecondsSinceEpoch.toString(),
-          },
-        );
-        final response = await http
-            .get(
-              uri,
-              headers: const {
-                'Accept': 'application/json',
-                'Cache-Control': 'no-cache',
-              },
-            )
-            .timeout(const Duration(seconds: 7));
-
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          lastError = Exception(
-            'Public stream API returned HTTP ${response.statusCode}',
-          );
-          continue;
-        }
-
-        final decoded = jsonDecode(response.body);
-        final raw = decoded is Map<String, dynamic>
-            ? decoded['streams']
-            : decoded;
-        if (raw is! List) {
-          lastError = const FormatException('Stream response is invalid.');
-          continue;
-        }
-
-        final rows = raw
-            .map((row) => Map<String, dynamic>.from(row as Map))
-            .toList();
-        if (rows.isNotEmpty) return rows;
-        lastError = const FormatException('No stream lines returned.');
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    throw lastError ?? const FormatException('Stream API is unavailable.');
+  ) {
+    return _firstSuccessful(
+      _publicApiBases.map(
+        (base) => _loadPublicApiStreamsFrom(base, matchId),
+      ),
+    );
   }
 
   Future<List<Map<String, dynamic>>> _resolveLinks(
@@ -297,18 +345,22 @@ class _HomePageState extends State<HomePage> {
     }
 
     final rows = _decodeMatches(response.body);
-    // A mirror snapshot may be older than the live stream configuration.
-    // Keep match metadata available on restricted networks, but never advertise
-    // WATCH from a stale stream_count. The player resolves fresh links on tap.
+    // The mirror contains metadata and a safe line count only. Keep that count
+    // so WATCH remains available on restricted networks; actual playback URLs
+    // are still resolved exclusively through the protected Cloudflare API.
     for (final row in rows) {
-      row['stream_count'] = 0;
       row['stream_links'] = const <Map<String, dynamic>>[];
     }
     return rows;
   }
 
   Future<List<Map<String, dynamic>>> _loadSupabaseMatches() async {
-    final data = await Supabase.instance.client
+    final client = _supabaseClientOrNull();
+    if (client == null) {
+      throw StateError('Supabase is unavailable on this network.');
+    }
+
+    final data = await client
         .from('matches')
         .select('''
           id,league,home_team,away_team,home_logo_url,away_logo_url,
@@ -334,29 +386,46 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<List<Map<String, dynamic>>> loadMatches() async {
-    // The edge feed is canonical for VPN-on and VPN-off. The GitHub mirror is
-    // metadata-only and is used to keep WATCH availability stable if one edge
-    // POP briefly serves stale data.
-    try {
-      final edgeRows = await _loadPublicApi();
-      // The edge response is authoritative. Do not merge WATCH availability
-      // from the static GitHub mirror: that snapshot can lag behind stream
-      // changes and was the reason VPN-off clients could show old line counts.
-      _fallbackLabel = 'Fast public API';
-      return edgeRows;
-    } catch (_) {}
+    final started = DateTime.now();
 
-    // Supabase is fresher than the static mirror. Try it before falling back
-    // so reachable live state is never replaced by an older snapshot.
-    try {
-      final rows = await _loadSupabaseMatches();
-      _fallbackLabel = null;
-      return rows;
-    } catch (_) {}
+    final contenders = <Future<_MatchLoadResult>>[
+      _loadPublicApi().then(
+        (rows) => _MatchLoadResult(rows, 'Fast public API'),
+      ),
+      Future<_MatchLoadResult>.delayed(
+        const Duration(milliseconds: 650),
+        () async => _MatchLoadResult(
+          await _loadMirror(),
+          'Backup feed',
+        ),
+      ),
+    ];
 
-    final rows = await _loadMirror();
-    _fallbackLabel = 'Backup feed';
-    return rows;
+    if (_supabaseClientOrNull() != null) {
+      contenders.add(
+        Future<_MatchLoadResult>.delayed(
+          const Duration(milliseconds: 1100),
+          () async => _MatchLoadResult(
+            await _loadSupabaseMatches(),
+            'Direct database',
+          ),
+        ),
+      );
+    }
+
+    final result = await _firstSuccessful(contenders);
+    _fallbackLabel = result.label;
+
+    await AnalyticsService.capture(
+      'match feed loaded',
+      properties: {
+        'source': result.label ?? 'unknown',
+        'match_count': result.rows.length,
+        'latency_ms': DateTime.now().difference(started).inMilliseconds,
+      },
+    );
+
+    return result.rows;
   }
 
   Future<void> refresh({bool silent = false}) async {
@@ -915,7 +984,8 @@ class _HomePageState extends State<HomePage> {
     _debounce?.cancel();
     _scoreRefresh?.cancel();
     final c = _channel;
-    if (c != null) Supabase.instance.client.removeChannel(c);
+    final supabase = _supabaseClientOrNull();
+    if (c != null && supabase != null) supabase.removeChannel(c);
     super.dispose();
   }
 
