@@ -121,56 +121,70 @@ async function jsonpMatches(args: {
 }) {
   const raw = await fetchText(`${args.url}?v=${Date.now()}`);
   const payload = parseJsonp(raw);
-  const buckets = payload?.data ?? {};
-
-  const flattened: any[] = [];
-  if (buckets && typeof buckets === "object") {
-    for (const value of Object.values(buckets)) {
-      if (Array.isArray(value)) flattened.push(...value);
-    }
-  }
+  const flattened = collectMatchRows(payload?.data ?? payload);
 
   const seen = new Set<string>();
   const matches = flattened
-    .filter((row: any) => Number(row.categoryId) === 1)
+    .filter(isFootballRow)
     .filter((row: any) => {
-      const id = String(row.scheduleId ?? "");
+      const id = String(
+        row.scheduleId ?? row.schedule_id ?? row.fixtureId ?? row.id ?? "",
+      ).trim();
       if (!id || seen.has(id)) return false;
       seen.add(id);
       return true;
     })
     .map((row: any) => {
-      const rawAnchors = Array.isArray(row.anchors) ? row.anchors : [];
+      const scheduleId =
+        row.scheduleId ?? row.schedule_id ?? row.fixtureId ?? row.id;
+      const rawAnchors = Array.isArray(row.anchors)
+        ? row.anchors
+        : Array.isArray(row.anchorList)
+          ? row.anchorList
+          : [];
+
       return {
         source: args.source,
-        source_id: String(row.scheduleId ?? ""),
-        schedule_id: row.scheduleId,
-        league: args.source === "yyzb"
-          ? friendlyText(row.subCateName ?? row.categoryName ?? "Football")
-          : row.subCateName ?? row.categoryName ?? "Football",
-        home_team: args.source === "yyzb"
-          ? friendlyText(row.hostName ?? "Home")
-          : row.hostName ?? "Home",
-        away_team: args.source === "yyzb"
-          ? friendlyText(row.guestName ?? "Away")
-          : row.guestName ?? "Away",
-        original_home_team: row.hostName ?? null,
-        original_away_team: row.guestName ?? null,
-        home_logo: row.hostIcon ?? null,
-        away_logo: row.guestIcon ?? null,
-        match_time: Number.isFinite(Number(row.matchTime))
-          ? new Date(Number(row.matchTime)).toISOString()
-          : null,
-        hot: String(row.hot ?? "0") === "1",
+        source_id: String(scheduleId ?? ""),
+        schedule_id: scheduleId,
+        league: sourceText(
+          args.source,
+          row.subCateName ?? row.leagueName ?? row.categoryName ?? "Football",
+        ),
+        home_team: sourceText(
+          args.source,
+          row.hostName ?? row.homeName ?? row.home_team ?? "Home",
+        ),
+        away_team: sourceText(
+          args.source,
+          row.guestName ?? row.awayName ?? row.away_team ?? "Away",
+        ),
+        original_home_team: row.hostName ?? row.homeName ?? null,
+        original_away_team: row.guestName ?? row.awayName ?? null,
+        home_logo: row.hostIcon ?? row.homeIcon ?? row.home_logo ?? null,
+        away_logo: row.guestIcon ?? row.awayIcon ?? row.away_logo ?? null,
+        match_time: normalizeMatchTime(
+          row.matchTime ?? row.match_time ?? row.startTime ?? row.kickoff,
+        ),
+        hot:
+          row.hot === true ||
+          String(row.hot ?? row.isHot ?? "0") === "1",
         status: row.status ?? null,
-        match_status: row.matchStatus ?? null,
+        match_status: row.matchStatus ?? row.match_status ?? null,
         anchors: rawAnchors
           .map((anchor: any, index: number) => ({
-            uid: anchor.uid ?? null,
-            nick_name: `Streamer ${index + 1}`,
-            original_nick_name: anchor.nickName ?? null,
-            icon: anchor.cutOutIcon ?? anchor.icon ?? null,
-            room_num: String(anchor.anchor?.roomNum ?? "").trim(),
+            uid: anchor.uid ?? anchor.id ?? null,
+            nick_name:
+              friendlyText(anchor.nickName ?? anchor.name ?? "") ||
+              `Streamer ${index + 1}`,
+            original_nick_name: anchor.nickName ?? anchor.name ?? null,
+            icon:
+              anchor.cutOutIcon ??
+              anchor.icon ??
+              anchor.avatar ??
+              anchor.avatarUrl ??
+              null,
+            room_num: roomNumber(anchor),
           }))
           .filter((anchor: any) => anchor.room_num),
       };
@@ -194,38 +208,49 @@ async function roomStreams(args: {
   refererOrigin: string;
 }) {
   const roomNum = String(args.roomNum ?? "").trim();
-  if (!/^\d{2,12}$/.test(roomNum)) {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(roomNum)) {
     return json({ error: "Invalid room number." }, 400);
   }
 
   const raw = await fetchText(
-    `${args.roomBase}/${roomNum}/detail.json?v=${Date.now()}`,
+    `${args.roomBase}/${encodeURIComponent(roomNum)}/detail.json?v=${Date.now()}`,
   );
   const payload = parseJsonp(raw);
-  const data = payload?.data ?? {};
-  const room = data.room ?? {};
-  const stream = data.stream ?? {};
+  const data = payload?.data ?? payload ?? {};
+  const room = data.room ?? data.roomInfo ?? data.info ?? {};
+  const stream =
+    data.stream ??
+    data.streams ??
+    data.playUrl ??
+    data.playUrls ??
+    room.stream ??
+    room.streams ??
+    {};
 
   const scheduleId = String(args.scheduleId ?? "").trim();
   const referer = scheduleId
-    ? `${args.refererOrigin}/room/${roomNum}?scheduleId=${encodeURIComponent(scheduleId)}`
-    : `${args.refererOrigin}/room/${roomNum}`;
+    ? `${args.refererOrigin}/room/${encodeURIComponent(roomNum)}?scheduleId=${encodeURIComponent(scheduleId)}`
+    : `${args.refererOrigin}/room/${encodeURIComponent(roomNum)}`;
 
-  const lines = [
-    roomLine("HD (1080p) · M3U8", "hls", stream.hdM3u8, "1080p", referer),
-    roomLine("SD (720p) · M3U8", "hls", stream.m3u8, "720p", referer),
-    roomLine("HD (1080p) · FLV", "flv", stream.hdFlv, "1080p", referer),
-    roomLine("SD (720p) · FLV", "flv", stream.flv, "720p", referer),
-  ].filter((item) => item.url);
-
+  const lines = extractStreamLines(stream, referer);
   const checkedLines = await probeLines(lines);
 
   return json({
     ok: true,
     room_num: roomNum,
-    title: room.title ?? null,
-    anchor_name: room.anchor?.nickName ?? null,
-    live_status: room.liveStatus ?? null,
+    title: room.title ?? room.name ?? data.title ?? null,
+    anchor_name:
+      room.anchor?.nickName ??
+      room.anchor?.name ??
+      room.nickName ??
+      room.name ??
+      null,
+    live_status:
+      room.liveStatus ??
+      room.live_status ??
+      data.liveStatus ??
+      data.live_status ??
+      null,
     lines: checkedLines,
     source: args.source,
     generated_at: new Date().toISOString(),
@@ -233,7 +258,7 @@ async function roomStreams(args: {
 }
 
 async function fawaMatches() {
-  const html = await fetchText(FAWA_HOME);
+  const html = await fetchFawaText(FAWA_HOME);
   const grouped = new Map<string, any>();
 
   // Fawa has nested/unclosed <a> tags. Parsing one whole card with a single
@@ -247,7 +272,7 @@ async function fawaMatches() {
     const name = decodeHtml(stripTags(hit[1])).replace(/\s+/g, " ").trim();
     if (!/\bvs\b/i.test(name)) continue;
 
-    const before = html.slice(Math.max(0, hit.index - 700), hit.index);
+    const before = html.slice(Math.max(0, hit.index - 1800), hit.index);
     const hrefRegex = /href=["']([^"']+\.html)["']/gi;
     let hrefHit: RegExpExecArray | null;
     let href = "";
@@ -307,6 +332,60 @@ async function fawaMatches() {
     grouped.set(key, existing);
   }
 
+  // Fallback for Fawa revisions that drop the user-item__name class.
+  // Only same-site .html links whose visible text contains "vs" are accepted.
+  if (grouped.size === 0) {
+    const anchorRegex =
+      /<a\b[^>]*href=["']([^"']+\.html(?:\?[^"']*)?)["'][^>]*>([\s\S]{0,2200}?)<\/a>/gi;
+    let anchorHit: RegExpExecArray | null;
+    while ((anchorHit = anchorRegex.exec(html)) !== null) {
+      const href = decodeHtml(anchorHit[1]).trim();
+      const visible = decodeHtml(stripTags(anchorHit[2]))
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!/\bvs\b/i.test(visible)) continue;
+
+      const cleaned = visible
+        .replace(/\s*---\s*CH\s*\d+\s*$/i, "")
+        .trim();
+      const teams = cleaned.split(/\s+vs\s+/i);
+      if (teams.length < 2) continue;
+
+      const pageUrl = absoluteFawaUrl(href);
+      if (!pageUrl) continue;
+      const key = cleaned.toLowerCase();
+
+      const existing = grouped.get(key) ?? {
+        source: "fawa",
+        source_id: key,
+        page_url: pageUrl,
+        league: "Football",
+        home_team: teams[0]?.trim() || cleaned,
+        away_team: teams[1]?.trim() || "",
+        home_logo: null,
+        away_logo: null,
+        match_time: null,
+        time_label: null,
+        hot: false,
+        status: null,
+        match_status: null,
+        anchors: [],
+      };
+
+      if (!existing.anchors.some((item: any) => item.page_url === pageUrl)) {
+        existing.anchors.push({
+          uid: href,
+          nick_name: channelLabel(visible),
+          icon: null,
+          room_num: href,
+          page_url: pageUrl,
+        });
+      }
+
+      grouped.set(key, existing);
+    }
+  }
+
   const matches = [...grouped.values()].sort((a, b) =>
     String(a.home_team).localeCompare(String(b.home_team))
   );
@@ -326,41 +405,21 @@ async function fawaStreams(body: any) {
     return json({ error: "Invalid Fawa match page." }, 400);
   }
 
-  const html = await fetchText(pageUrl);
-  const urls = new Set<string>();
-
-  const videosMatch = html.match(/var\s+videos\s*=\s*\[([\s\S]*?)\]/i);
-  if (videosMatch) {
-    const quoteRegex = /["'](https?:\/\/[^"'\s]+)["']/gi;
-    let hit: RegExpExecArray | null;
-    while ((hit = quoteRegex.exec(videosMatch[1])) !== null) {
-      urls.add(decodeHtml(hit[1]));
-    }
-  }
-
-  for (const regex of [
-    /\bsource\s*:\s*["'](https?:\/\/[^"']+)["']/gi,
-    /<source[^>]+src=["'](https?:\/\/[^"']+)["']/gi,
-    /\bfile\s*:\s*["'](https?:\/\/[^"']+)["']/gi,
-  ]) {
-    let hit: RegExpExecArray | null;
-    while ((hit = regex.exec(html)) !== null) {
-      urls.add(decodeHtml(hit[1]));
-    }
-  }
-
+  const html = await fetchFawaText(pageUrl);
   const origin = new URL(pageUrl).origin;
+  const urls = extractMediaUrls(html, pageUrl);
+
   const lines = [...urls]
-    .filter((value) => /^https?:\/\//i.test(value))
     .map((value, index) => ({
-      label: `Fawa Server ${index + 1}`,
+      label: `Fawa Server ${index + 1} · ${detectType(value).toUpperCase()}`,
       stream_type: detectType(value),
       resolution: qualityFromUrl(value),
       url: value,
       referer: pageUrl,
       origin,
       expires_at: streamExpiry(value),
-    }));
+    }))
+    .filter((line) => line.stream_type !== "auto");
 
   const checkedLines = await probeLines(lines);
 
@@ -372,6 +431,215 @@ async function fawaStreams(body: any) {
     source: "fawa",
     generated_at: new Date().toISOString(),
   });
+}
+
+function collectMatchRows(value: any, depth = 0, output: any[] = []) {
+  if (depth > 6 || value == null) return output;
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectMatchRows(item, depth + 1, output);
+    return output;
+  }
+
+  if (typeof value !== "object") return output;
+
+  const row = value as Record<string, any>;
+  const looksLikeMatch =
+    row.hostName != null ||
+    row.guestName != null ||
+    row.homeName != null ||
+    row.awayName != null ||
+    row.home_team != null ||
+    row.away_team != null;
+
+  if (looksLikeMatch) output.push(row);
+
+  for (const child of Object.values(row)) {
+    if (child && typeof child === "object") {
+      collectMatchRows(child, depth + 1, output);
+    }
+  }
+
+  return output;
+}
+
+function isFootballRow(row: any) {
+  const categoryId = Number(row?.categoryId ?? row?.category_id);
+  if (Number.isFinite(categoryId) && categoryId === 1) return true;
+
+  const category = [
+    row?.categoryName,
+    row?.subCateName,
+    row?.leagueName,
+    row?.sportName,
+  ].map((value) => String(value ?? "").toLowerCase()).join(" ");
+
+  if (/football|soccer|足球/.test(category)) return true;
+
+  return !Number.isFinite(categoryId) &&
+    (row?.hostName != null || row?.homeName != null) &&
+    (row?.guestName != null || row?.awayName != null);
+}
+
+function sourceText(source: "soco" | "yyzb", value: unknown) {
+  return source === "yyzb" ? friendlyText(value) : String(value ?? "").trim();
+}
+
+function normalizeMatchTime(value: unknown) {
+  if (value == null || value === "") return null;
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    const millis = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+    const date = new Date(millis);
+    if (Number.isFinite(date.getTime())) return date.toISOString();
+  }
+
+  const parsed = new Date(String(value));
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function roomNumber(anchor: any) {
+  return String(
+    anchor?.anchor?.roomNum ??
+      anchor?.anchor?.room_num ??
+      anchor?.room?.roomNum ??
+      anchor?.roomNum ??
+      anchor?.room_num ??
+      anchor?.roomId ??
+      "",
+  ).trim();
+}
+
+function extractStreamLines(value: any, referer: string) {
+  const found = new Map<string, any>();
+
+  const known = [
+    ["HD (1080p) · M3U8", "hls", value?.hdM3u8 ?? value?.hd_m3u8, "1080p"],
+    ["SD (720p) · M3U8", "hls", value?.m3u8 ?? value?.sdM3u8 ?? value?.sd_m3u8, "720p"],
+    ["HD (1080p) · FLV", "flv", value?.hdFlv ?? value?.hd_flv, "1080p"],
+    ["SD (720p) · FLV", "flv", value?.flv ?? value?.sdFlv ?? value?.sd_flv, "720p"],
+    ["DASH · MPD", "dash", value?.mpd ?? value?.dash ?? value?.dashUrl, "Auto"],
+  ];
+
+  for (const [label, type, raw, resolution] of known) {
+    const line = roomLine(
+      String(label),
+      String(type),
+      raw,
+      String(resolution),
+      referer,
+    );
+    if (line.url) found.set(line.url, line);
+  }
+
+  const walk = (node: any, path: string[] = [], depth = 0) => {
+    if (depth > 7 || node == null) return;
+
+    if (typeof node === "string") {
+      const url = normalizeMediaUrl(node, referer);
+      if (!url || !looksLikeMediaUrl(url)) return;
+      const loweredPath = path.join(".").toLowerCase();
+      if (/license|drm|clearkey|keyid|key_data|keydata/.test(loweredPath)) {
+        return;
+      }
+
+      const type = detectType(url);
+      const resolution = qualityFromUrl(url);
+      const pathLabel = path
+        .filter(Boolean)
+        .slice(-2)
+        .join(" · ")
+        .replace(/[_-]+/g, " ")
+        .trim();
+      const label =
+        (pathLabel ? pathLabel : "Stream") +
+        ` · ${type.toUpperCase()}`;
+
+      if (!found.has(url)) {
+        found.set(url, roomLine(label, type, url, resolution, referer));
+      }
+      return;
+    }
+
+    if (Array.isArray(node)) {
+      node.forEach((item, index) => walk(item, [...path, String(index)], depth + 1));
+      return;
+    }
+
+    if (typeof node === "object") {
+      for (const [key, child] of Object.entries(node)) {
+        walk(child, [...path, key], depth + 1);
+      }
+    }
+  };
+
+  walk(value);
+
+  return [...found.values()].sort((a, b) => {
+    const rank = (line: any) => {
+      const type = String(line.stream_type ?? "");
+      if (type === "hls") return 0;
+      if (type === "dash") return 1;
+      if (type === "mp4") return 2;
+      if (type === "flv") return 3;
+      return 4;
+    };
+    return rank(a) - rank(b);
+  });
+}
+
+function extractMediaUrls(html: string, baseUrl: string) {
+  const normalized = decodeHtml(
+    html
+      .replace(/\\u002[fF]/g, "/")
+      .replace(/\\\//g, "/"),
+  );
+  const urls = new Set<string>();
+
+  const add = (raw: string) => {
+    const url = normalizeMediaUrl(raw, baseUrl);
+    if (url && looksLikeMediaUrl(url)) urls.add(url);
+  };
+
+  for (const regex of [
+    /(?:source|file|url|src|hls|dash|mpd|m3u8)\s*[:=]\s*["']([^"']+)["']/gi,
+    /<(?:source|video|iframe)[^>]+(?:src|data-src)=["']([^"']+)["']/gi,
+    /["']((?:https?:)?\/\/[^"'<>\s]+)["']/gi,
+  ]) {
+    let hit: RegExpExecArray | null;
+    while ((hit = regex.exec(normalized)) !== null) add(hit[1]);
+  }
+
+  return urls;
+}
+
+function normalizeMediaUrl(value: unknown, baseUrl: string) {
+  let raw = String(value ?? "").trim();
+  if (!raw) return "";
+
+  raw = decodeHtml(raw)
+    .replace(/\\u002[fF]/g, "/")
+    .replace(/\\\//g, "/");
+
+  try {
+    const url = new URL(raw, baseUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+    return url.toString();
+  } catch (_) {
+    return "";
+  }
+}
+
+function looksLikeMediaUrl(value: string) {
+  const lower = value.toLowerCase();
+  return (
+    lower.includes(".m3u8") ||
+    lower.includes(".mpd") ||
+    lower.includes(".flv") ||
+    lower.includes(".mp4") ||
+    /(?:manifest|playlist|master|index)\.(?:m3u8|mpd)(?:[?#]|$)/.test(lower)
+  );
 }
 
 function roomLine(
@@ -451,7 +719,7 @@ async function probeLine(line: any) {
       ...line,
       health_status: looksPlayable
         ? "healthy"
-        : [401, 403, 404, 410].includes(status)
+        : [404, 410].includes(status)
           ? "dead"
           : "unknown",
       health_http: status,
@@ -608,37 +876,97 @@ function decodeHtml(value: string) {
     .replace(/&gt;/gi, ">");
 }
 
-async function fetchText(url: string) {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/javascript,application/json,text/html,text/plain,*/*",
-      "User-Agent": "Mozilla/5.0 NCA-Admin/9.8",
-      "Cache-Control": "no-cache",
-    },
-    redirect: "follow",
-  });
+async function fetchFawaText(url: string) {
+  const candidates = [url];
 
-  if (!response.ok) {
-    throw new Error(`Source returned HTTP ${response.status}.`);
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.hostname === "www.fawanews.sc" ||
+      parsed.hostname === "fawanews.sc"
+    ) {
+      const alt = new URL(parsed.toString());
+      alt.protocol = parsed.protocol === "https:" ? "http:" : "https:";
+      candidates.push(alt.toString());
+
+      const hostAlt = new URL(parsed.toString());
+      hostAlt.hostname =
+        parsed.hostname === "www.fawanews.sc"
+          ? "fawanews.sc"
+          : "www.fawanews.sc";
+      candidates.push(hostAlt.toString());
+    }
+  } catch (_) {}
+
+  let lastError: unknown = null;
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      return await fetchText(candidate);
+    } catch (error) {
+      lastError = error;
+    }
   }
 
-  return await response.text();
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Fawa source is unreachable.");
+}
+
+async function fetchText(url: string) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/javascript,application/json,text/html,text/plain,*/*",
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36 NCA-Admin/9.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+      redirect: "follow",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Source returned HTTP ${response.status}.`);
+    }
+
+    return await response.text();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function parseJsonp(text: string): any {
-  const trimmed = text.trim();
+  const trimmed = text.replace(/^\uFEFF/, "").trim().replace(/;\s*$/, "");
 
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    return JSON.parse(trimmed);
+  const candidates = [trimmed];
+
+  const firstParen = trimmed.indexOf("(");
+  const lastParen = trimmed.lastIndexOf(")");
+  if (firstParen >= 0 && lastParen > firstParen) {
+    candidates.push(trimmed.slice(firstParen + 1, lastParen).trim());
   }
 
-  const first = trimmed.indexOf("(");
-  const last = trimmed.lastIndexOf(")");
-  if (first < 0 || last <= first) {
-    throw new Error("Source returned an invalid payload.");
+  const assignment = trimmed.match(/^[\w.$]+\s*=\s*([\s\S]+)$/);
+  if (assignment?.[1]) candidates.push(assignment[1].trim());
+
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidates.push(trimmed.slice(firstBrace, lastBrace + 1));
   }
 
-  return JSON.parse(trimmed.slice(first + 1, last));
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate.replace(/;\s*$/, ""));
+    } catch (_) {}
+  }
+
+  throw new Error("Source returned an invalid JSON/JSONP payload.");
 }
 
 function json(data: unknown, status = 200) {
