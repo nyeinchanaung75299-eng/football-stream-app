@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'analytics_service.dart';
 import 'app_update_installer.dart';
 
 class AppUpdateService {
@@ -29,6 +30,11 @@ class AppUpdateService {
     }
     if (_checked && !force) return;
     _checked = true;
+
+    await AnalyticsService.capture(
+      'update check',
+      properties: {'manual': force},
+    );
 
     try {
       final info = await PackageInfo.fromPlatform();
@@ -61,6 +67,10 @@ class AppUpdateService {
       }
 
       if (data == null) {
+        await AnalyticsService.capture(
+          'update check failed',
+          properties: {'manual': force, 'reason': 'manifest_unavailable'},
+        );
         if (force && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -74,6 +84,14 @@ class AppUpdateService {
       final latestBuild =
           int.tryParse(data['build_number']?.toString() ?? '') ?? 0;
       if (latestBuild <= currentBuild) {
+        await AnalyticsService.capture(
+          'update current',
+          properties: {
+            'manual': force,
+            'current_build': currentBuild,
+            'latest_build': latestBuild,
+          },
+        );
         if (force && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -92,6 +110,17 @@ class AppUpdateService {
       final notes = data['notes']?.toString().trim() ?? '';
       final mandatory = data['mandatory'] == true;
       if (apkUrl.isEmpty || !context.mounted) return;
+
+      await AnalyticsService.capture(
+        'update available',
+        properties: {
+          'manual': force,
+          'current_build': currentBuild,
+          'latest_build': latestBuild,
+          'version': version,
+          'mandatory': mandatory,
+        },
+      );
 
       await showDialog<void>(
         context: context,
@@ -112,6 +141,13 @@ class AppUpdateService {
               ),
             FilledButton.icon(
               onPressed: () {
+                AnalyticsService.capture(
+                  'update accepted',
+                  properties: {
+                    'latest_build': latestBuild,
+                    'version': version,
+                  },
+                );
                 Navigator.pop(dialogContext);
                 _download(context, apkUrl);
               },
@@ -138,6 +174,8 @@ class AppUpdateService {
     String apkUrl,
   ) async {
     final progress = ValueNotifier<double>(0);
+
+    await AnalyticsService.capture('update download started');
 
     if (context.mounted) {
       showDialog<void>(
@@ -171,10 +209,12 @@ class AppUpdateService {
         apkUrl,
         onProgress: (value) => progress.value = value,
       );
+      await AnalyticsService.capture('update download completed');
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).maybePop();
       }
     } catch (_) {
+      await AnalyticsService.capture('update download failed');
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).maybePop();
         ScaffoldMessenger.of(context).showSnackBar(
