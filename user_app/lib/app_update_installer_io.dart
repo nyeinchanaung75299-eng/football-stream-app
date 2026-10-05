@@ -1,11 +1,13 @@
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 
 Future<void> downloadAndInstallApk(
   String url, {
+  required String expectedSha256,
   void Function(double value)? onProgress,
 }) async {
   final client = http.Client();
@@ -41,6 +43,26 @@ Future<void> downloadAndInstallApk(
     await sink.flush();
     await sink.close();
     onProgress?.call(1);
+
+    final expected = expectedSha256.trim().toLowerCase();
+    if (!RegExp(r'^[0-9a-f]{64}
+      file.path,
+      type: 'application/vnd.android.package-archive',
+    );
+  } finally {
+    client.close();
+  }
+}
+).hasMatch(expected)) {
+      if (await file.exists()) await file.delete();
+      throw const FormatException('Update manifest is missing a valid SHA-256.');
+    }
+
+    final digest = await sha256.bind(file.openRead()).first;
+    if (digest.toString().toLowerCase() != expected) {
+      if (await file.exists()) await file.delete();
+      throw StateError('Downloaded APK failed SHA-256 verification.');
+    }
 
     await OpenFilex.open(
       file.path,
