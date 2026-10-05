@@ -44,9 +44,9 @@ jobs:
           s=re.sub(r'android:label="[^"]+"','android:label="NCA Admin"',s,count=1)
           s=s.replace('@mipmap/ic_launcher','@drawable/nca_icon')
           p.write_text(s)
-          icon=Path('android/app/src/main/res/drawable/nca_icon.png')
+          icon=Path('android/app/src/main/res/drawable/nca_icon.webp')
           icon.parent.mkdir(parents=True, exist_ok=True)
-          shutil.copy2('../user_app/assets/nca_icon.png', icon)
+          shutil.copy2('../user_app/assets/nca_icon.webp', icon)
           PY2
 
       - name: Get Admin dependencies
@@ -85,9 +85,9 @@ jobs:
           s=re.sub(r'android:label="[^"]+"','android:label="NCA"',s,count=1)
           s=s.replace('@mipmap/ic_launcher','@drawable/nca_icon')
           m.write_text(s)
-          icon=Path('android/app/src/main/res/drawable/nca_icon.png')
+          icon=Path('android/app/src/main/res/drawable/nca_icon.webp')
           icon.parent.mkdir(parents=True, exist_ok=True)
-          shutil.copy2('assets/nca_icon.png', icon)
+          shutil.copy2('assets/nca_icon.webp', icon)
 
           gk=Path('android/app/build.gradle.kts')
           if gk.exists():
