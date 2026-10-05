@@ -66,7 +66,7 @@ export default {
     }
 
     const adminFunctionRoute = url.pathname.match(
-      /^\/admin\/functions\/(football-fixtures|football-score-sync|stream-health)$/,
+      /^\/admin\/functions\/(football-fixtures|football-score-sync|stream-health|soco-links)$/,
     );
 
     if (adminFunctionRoute && request.method === "POST") {
