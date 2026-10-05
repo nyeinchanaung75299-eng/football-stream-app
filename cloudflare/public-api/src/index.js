@@ -394,16 +394,15 @@ async function handleStreams(request, matchId, env, publicOrigin) {
 
     const rawStreams = await streamResponse.json();
     const streams = await protectedClientLinks(rawStreams, env, publicOrigin);
-    const blockedStreams = blockedClientLinks(rawStreams);
 
     return json({
       ok: true,
       match_id: matchId,
       streams,
-      blocked_streams: blockedStreams,
-      stream_count: streams.length + blockedStreams.length,
+      blocked_streams: [],
+      stream_count: streams.length,
       playable_stream_count: streams.length,
-      blocked_stream_count: blockedStreams.length,
+      blocked_stream_count: 0,
       protected_playback: true,
       generated_at: new Date().toISOString(),
     }, 200, { "Cache-Control": "no-store, max-age=0" });
@@ -504,45 +503,6 @@ function advertisedLinkCount(raw) {
   }).length;
 }
 
-function blockedClientLinks(raw) {
-  const links = Array.isArray(raw) ? raw : [];
-  const now = Date.now();
-  return links
-    .filter((link) => {
-      if (link.is_active !== true || link.use_webview === true) return false;
-      const availableFrom = Date.parse(String(link.available_from || ""));
-      if (Number.isFinite(availableFrom) && now < availableFrom) return false;
-      const expiresAt = Date.parse(String(link.expires_at || ""));
-      if (Number.isFinite(expiresAt) && now >= expiresAt) return false;
-      return Boolean(
-        String(link.key_id || "").trim() ||
-        String(link.key_data || "").trim()
-      );
-    })
-    .map((link) => ({
-      id: link.id,
-      label: link.label,
-      resolution: link.resolution,
-      stream_type: link.stream_type,
-      stream_url: null,
-      referer: null,
-      origin: null,
-      key_id: null,
-      key_data: null,
-      use_webview: false,
-      webview_url: null,
-      is_active: true,
-      priority: link.priority,
-      available_from: link.available_from,
-      expires_at: link.expires_at,
-      health_status: link.health_status,
-      blocked_reason: "keyed_dash_not_exposed",
-      viewer_message:
-        "Keyed/ClearKey DASH is stored but is not exposed by the public Viewer. Add a non-DRM DASH or HLS/FairPlay-compatible backup.",
-    }))
-    .sort(compareLinks);
-}
-
 async function protectedClientLinks(raw, env, publicOrigin) {
   if (!env.PLAYBACK_TOKENS) return [];
   const links = Array.isArray(raw) ? raw : [];
@@ -561,9 +521,12 @@ async function protectedClientLinks(raw, env, publicOrigin) {
 
     const upstreamUrl = String(link.stream_url || "").trim();
     if (!upstreamUrl) continue;
-    if (String(link.key_id || "").trim() || String(link.key_data || "").trim()) {
-      continue;
-    }
+
+    const keyId = String(link.key_id || "").trim();
+    const keyData = String(link.key_data || "").trim();
+    // A ClearKey source is playable only when Admin supplied the complete
+    // Key ID + Key Data pair. Incomplete key configuration is skipped.
+    if ((keyId && !keyData) || (!keyId && keyData)) continue;
 
     const declaredType = String(link.stream_type || "auto").toLowerCase();
     const streamType =
@@ -604,8 +567,11 @@ async function protectedClientLinks(raw, env, publicOrigin) {
       stream_url: publicOrigin.replace(/\/+$/, "") + "/p/" + sessionToken,
       referer: null,
       origin: null,
-      key_id: null,
-      key_data: null,
+      // The upstream URL stays behind the short-lived Worker session. The
+      // Viewer receives only the ClearKey pair that Admin explicitly saved so
+      // the native DASH player can decrypt authorized ClearKey content.
+      key_id: keyId || null,
+      key_data: keyData || null,
       use_webview: false,
       webview_url: null,
       is_active: true,

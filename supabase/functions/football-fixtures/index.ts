@@ -98,10 +98,16 @@ Deno.serve(async (req) => {
           date,
           deletedFixtureIds,
         );
-        return json({
-          ...result,
+        if (result.fixtures.length > 0) {
+          return json({
+            ...result,
+            provider: "api_football",
+            fallback_used: false,
+          });
+        }
+        failures.push({
           provider: "api_football",
-          fallback_used: false,
+          error: "provider returned 0 fixtures",
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -118,18 +124,53 @@ Deno.serve(async (req) => {
           date,
           deletedFixtureIds,
         );
-        return json({
-          ...result,
+        if (result.fixtures.length > 0) {
+          return json({
+            ...result,
+            provider: "football_data_org",
+            fallback_used: failures.length > 0,
+            compatibility_key_used: !footballDataKey && Boolean(apiFootballKey),
+            primary_failure: failures[0]?.error ?? null,
+          });
+        }
+        failures.push({
           provider: "football_data_org",
-          fallback_used: failures.length > 0,
-          compatibility_key_used: !footballDataKey && Boolean(apiFootballKey),
-          primary_failure: failures[0]?.error ?? null,
+          error: "provider returned 0 fixtures",
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         failures.push({ provider: "football_data_org", error: message });
         console.error("football-data.org fixture load failed:", message);
       }
+    }
+
+    try {
+      const sourceResult = await loadSourceFallbackFixtures({
+        supabaseUrl,
+        anonKey,
+        authHeader,
+        mode,
+        date,
+        deletedFixtureIds,
+      });
+
+      if (sourceResult.fixtures.length > 0) {
+        return json({
+          ...sourceResult,
+          provider: "source_fallback",
+          fallback_used: true,
+          primary_failures: failures,
+        });
+      }
+
+      failures.push({
+        provider: "source_fallback",
+        error: "Soco/YYZB returned 0 fixtures for the selected date.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push({ provider: "source_fallback", error: message });
+      console.error("Soco/YYZB fixture fallback failed:", message);
     }
 
     return json(
@@ -151,6 +192,172 @@ Deno.serve(async (req) => {
     );
   }
 });
+
+async function loadSourceFallbackFixtures(args: {
+  supabaseUrl: string;
+  anonKey: string;
+  authHeader: string;
+  mode: "live" | "date";
+  date: string;
+  deletedFixtureIds: Set<number>;
+}) {
+  const fixtures: any[] = [];
+  const failures: string[] = [];
+
+  for (const source of ["soco", "yyzb"] as const) {
+    try {
+      const response = await fetch(
+        args.supabaseUrl.replace(/\/+$/, "") + "/functions/v1/source-match-list",
+        {
+          method: "POST",
+          headers: {
+            apikey: args.anonKey,
+            Authorization: args.authHeader,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ source }),
+        },
+      );
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          String(payload?.error ?? `source returned HTTP ${response.status}`),
+        );
+      }
+
+      const rows = Array.isArray(payload?.matches) ? payload.matches : [];
+      for (const row of rows) {
+        const kickoff = normalizeSourceKickoff(row?.match_time);
+        if (!kickoff) continue;
+
+        const statusShort = sourceStatus(row);
+        const isLive =
+          ["LIVE", "1H", "HT", "2H", "ET", "INT", "SUSP"].includes(
+            statusShort,
+          ) ||
+          isLikelyLiveKickoff(kickoff);
+
+        if (args.mode === "date") {
+          if (yangonDate(kickoff) !== args.date) continue;
+        } else if (!isLive) {
+          continue;
+        }
+
+        const sourceKey = String(
+          row?.source_id ??
+            row?.schedule_id ??
+            `${row?.home_team ?? ""}|${row?.away_team ?? ""}|${kickoff}`,
+        );
+        const fixtureId = sourceFixtureId(source, sourceKey);
+        if (args.deletedFixtureIds.has(fixtureId)) continue;
+
+        fixtures.push({
+          provider: source,
+          fixture_id: fixtureId,
+          provider_fixture_id: sourceKey,
+          kickoff_at: kickoff,
+          status_short: statusShort,
+          status_long: row?.match_status ?? row?.status ?? null,
+          status_elapsed: null,
+          is_live: isLive,
+          is_finished: ["FT", "AET", "PEN"].includes(statusShort),
+          league_name: row?.league ?? "Football",
+          league_logo: null,
+          home_name: row?.home_team ?? "Home",
+          away_name: row?.away_team ?? "Away",
+          home_logo: row?.home_logo ?? row?.home_logo_url ?? null,
+          away_logo: row?.away_logo ?? row?.away_logo_url ?? null,
+          home_score: null,
+          away_score: null,
+        });
+      }
+    } catch (error) {
+      failures.push(
+        `${source}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  const deduped = new Map<string, any>();
+  for (const fixture of fixtures) {
+    const key = [
+      yangonDate(fixture.kickoff_at),
+      String(fixture.home_name ?? "").trim().toLowerCase(),
+      String(fixture.away_name ?? "").trim().toLowerCase(),
+    ].join("|");
+    if (!deduped.has(key)) deduped.set(key, fixture);
+  }
+
+  const result = [...deduped.values()];
+  sortFixtures(result);
+
+  if (result.length === 0 && failures.length === 2) {
+    throw new Error(failures.join(" | "));
+  }
+
+  return {
+    fixtures: result,
+    results: result.length,
+    hidden_deleted: args.deletedFixtureIds.size,
+    fallback_sources: ["soco", "yyzb"],
+    source_failures: failures,
+    remaining: null,
+  };
+}
+
+function normalizeSourceKickoff(value: unknown) {
+  if (value == null || value === "") return null;
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    const millis = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+    const date = new Date(millis);
+    if (Number.isFinite(date.getTime())) return date.toISOString();
+  }
+
+  const parsed = new Date(String(value));
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function yangonDate(value: string) {
+  const millis = new Date(value).getTime();
+  if (!Number.isFinite(millis)) return "";
+  return new Date(millis + 390 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function sourceStatus(row: any) {
+  const raw = String(
+    row?.status_short ??
+      row?.match_status ??
+      row?.status ??
+      "",
+  ).trim().toUpperCase();
+
+  if (["FT", "AET", "PEN"].includes(raw)) return raw;
+  if (/LIVE|PLAY|1H|2H|HT|ET|INT|SUSP/.test(raw)) return "LIVE";
+  return "NS";
+}
+
+function isLikelyLiveKickoff(kickoff: string) {
+  const time = new Date(kickoff).getTime();
+  if (!Number.isFinite(time)) return false;
+  const now = Date.now();
+  return time >= now - 3 * 60 * 60 * 1000 &&
+    time <= now + 30 * 60 * 1000;
+}
+
+function sourceFixtureId(source: "soco" | "yyzb", key: string) {
+  let hash = 2166136261;
+  for (const char of `${source}:${key}`) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  const unsigned = hash >>> 0;
+  const base = source === "soco" ? 6_000_000_000_000 : 7_000_000_000_000;
+  return -(base + unsigned);
+}
 
 async function loadApiFootballFixtures(
   key: string,

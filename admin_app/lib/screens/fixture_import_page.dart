@@ -303,9 +303,16 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   }
 
   String _providerLabel(dynamic value) {
-    return value?.toString() == 'football_data_org'
-        ? 'football-data.org'
-        : 'API-Football';
+    switch (value?.toString()) {
+      case 'football_data_org':
+        return 'football-data.org';
+      case 'source_fallback':
+      case 'soco':
+      case 'yyzb':
+        return 'Soco / YYZB fallback';
+      default:
+        return 'API-Football';
+    }
   }
 
   Widget modeButton({
