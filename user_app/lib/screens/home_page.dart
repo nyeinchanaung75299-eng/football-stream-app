@@ -20,6 +20,7 @@ class _HomePageState extends State<HomePage> {
   late Future<List<Map<String, dynamic>>> _future;
   RealtimeChannel? _channel;
   Timer? _debounce;
+  Timer? _scoreRefresh;
   String? _fallbackLabel;
 
   static const _publicApiBase = String.fromEnvironment(
@@ -50,6 +51,13 @@ class _HomePageState extends State<HomePage> {
           },
         )
         .subscribe();
+
+    // Keep scores moving even on networks where Supabase Realtime is blocked.
+    // The public Cloudflare feed is cached briefly, so a 60s silent refresh
+    // gives the UI fresh server-side scores without user interaction.
+    _scoreRefresh = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (mounted) refresh(silent: true);
+    });
   }
 
   List<Map<String, dynamic>> _sortMatchesChronologically(
@@ -736,7 +744,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                         SizedBox(height: 2),
                         Text(
-                          'V9.7 • Clean premium viewer',
+                          'V9.8 • Auto live scores',
                           style: TextStyle(fontSize: 12.5),
                         ),
                       ],
@@ -783,6 +791,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _scoreRefresh?.cancel();
     final c = _channel;
     if (c != null) Supabase.instance.client.removeChannel(c);
     super.dispose();
