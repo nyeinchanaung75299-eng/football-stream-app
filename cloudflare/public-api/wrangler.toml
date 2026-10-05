@@ -1,0 +1,7 @@
+name = "football-public-api"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[vars]
+SUPABASE_URL = "https://woggzixprvyjnfjzsglz.supabase.co"
+SUPABASE_PUBLISHABLE_KEY = "sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O"
