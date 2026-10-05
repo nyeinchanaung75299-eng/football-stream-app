@@ -22,9 +22,7 @@ class AnalyticsService {
       config.errorTrackingConfig.capturePlatformDispatcherErrors = true;
       await Posthog().setup(config);
       _ready = true;
-      await capture('app opened', properties: {
-        'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
-      });
+      await capture('app opened');
     } catch (_) {
       // Analytics must never block app startup.
     }
@@ -38,7 +36,11 @@ class AnalyticsService {
     try {
       await Posthog().capture(
         eventName: eventName,
-        properties: properties,
+        properties: <String, Object>{
+          'app': 'nca_viewer',
+          'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
+          ...?properties,
+        },
       );
     } catch (_) {
       // Analytics is best-effort only.
