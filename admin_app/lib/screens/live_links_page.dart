@@ -69,22 +69,32 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     final data = await Supabase.instance.client
         .from('matches')
         .select(
-          'id,home_team,away_team,league,kickoff_at,sort_order,is_active,'
+          'id,home_team,away_team,league,kickoff_at,sort_order,is_live,is_active,'
           'is_finished,is_featured,publish_state,deleted_at',
         )
         .order('kickoff_at', ascending: true)
         .order('sort_order', ascending: true)
         .order('home_team', ascending: true);
 
+    final now = DateTime.now();
+    const staleKickoffGrace = Duration(hours: 5);
+
     return List<Map<String, dynamic>>.from(data)
-        .where(
-          (row) =>
-              row['deleted_at'] == null &&
+        .where((row) {
+          final kickoff = DateTime.tryParse(
+            row['kickoff_at']?.toString() ?? '',
+          )?.toLocal();
+          final stale = row['is_live'] != true &&
+              kickoff != null &&
+              now.difference(kickoff) > staleKickoffGrace;
+
+          return row['deleted_at'] == null &&
               row['is_active'] == true &&
               row['is_finished'] != true &&
               row['is_featured'] != false &&
-              (row['publish_state'] ?? 'published') == 'published',
-        )
+              (row['publish_state'] ?? 'published') == 'published' &&
+              !stale;
+        })
         .toList();
   }
 

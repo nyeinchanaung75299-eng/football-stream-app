@@ -69,12 +69,16 @@ Deno.serve(async (req) => {
         };
 
     const finishedCleanup = await hideFinishedMatchesAfterGrace(client, now);
+    const staleCleanup = await hideStaleMatches(client, now);
+    const expiredStreamCleanup = await disableExpiredStreams(client, now);
     const healthSummary = await syncStreamHealth(client, now, force);
 
     return json({
       ok: true,
       ...scoreSummary,
       finished_cleanup: finishedCleanup,
+      stale_cleanup: staleCleanup,
+      expired_stream_cleanup: expiredStreamCleanup,
       stream_health: healthSummary,
       forced: force,
       checked_at: now.toISOString(),
@@ -111,7 +115,8 @@ async function syncScores(
         is_active,
         publish_state,
         is_featured,
-        is_finished
+        is_finished,
+        is_live
       `,
     )
     .eq("is_active", true)
@@ -158,6 +163,12 @@ async function syncScores(
 
   const candidateIds = new Set(
     candidates.map((item: any) => String(item.external_fixture_id)),
+  );
+  const candidateByFixture = new Map(
+    candidates.map((item: any) => [
+      String(item.external_fixture_id),
+      item,
+    ]),
   );
 
   const dates = [
@@ -230,6 +241,12 @@ async function syncScores(
       ].includes(statusShort);
 
       const isFinished = ["FT", "AET", "PEN"].includes(statusShort);
+      const existing = candidateByFixture.get(String(fixtureId));
+      // Admin LIVE=true is an explicit override and must not be cleared by an
+      // upstream NS/delayed status. A finished provider status still closes it.
+      const nextLive = isFinished
+        ? false
+        : isLive || existing?.is_live === true;
 
       const { error: updateError } = await client
         .from("matches")
@@ -239,7 +256,7 @@ async function syncScores(
           away_score: row?.goals?.away ?? 0,
           status_short: statusShort,
           status_elapsed: row?.fixture?.status?.elapsed ?? null,
-          is_live: isLive,
+          is_live: nextLive,
           is_finished: isFinished,
           // Keep FT visible briefly so users can see the final score.
           // A separate cleanup below removes it from Live after 8 minutes.
@@ -321,6 +338,70 @@ async function hideFinishedMatchesAfterGrace(
   }
 
   return { hidden: ids.length, grace_minutes: 8 };
+}
+
+async function hideStaleMatches(
+  client: any,
+  now: Date,
+) {
+  const cutoff = new Date(now.getTime() - 5 * 60 * 60 * 1000).toISOString();
+  const { data: rows, error } = await client
+    .from("matches")
+    .select("id")
+    .eq("is_active", true)
+    .eq("publish_state", "published")
+    .eq("is_featured", true)
+    .eq("is_live", false)
+    .eq("is_finished", false)
+    .lt("kickoff_at", cutoff);
+
+  if (error) {
+    console.error("Stale-match cleanup query failed:", error);
+    return { hidden: 0, grace_hours: 5 };
+  }
+
+  const ids = (rows ?? []).map((row: any) => row.id).filter(Boolean);
+  if (ids.length === 0) {
+    return { hidden: 0, grace_hours: 5 };
+  }
+
+  const { error: updateError } = await client
+    .from("matches")
+    .update({
+      is_featured: false,
+      is_live: false,
+    })
+    .in("id", ids);
+
+  if (updateError) {
+    console.error("Stale-match cleanup update failed:", updateError);
+    return { hidden: 0, grace_hours: 5 };
+  }
+
+  return { hidden: ids.length, grace_hours: 5 };
+}
+
+async function disableExpiredStreams(
+  client: any,
+  now: Date,
+) {
+  const { data: rows, error } = await client
+    .from("stream_links")
+    .update({
+      is_active: false,
+      health_status: "failed",
+    })
+    .eq("is_active", true)
+    .not("expires_at", "is", null)
+    .lt("expires_at", now.toISOString())
+    .select("id");
+
+  if (error) {
+    console.error("Expired-stream cleanup failed:", error);
+    return { disabled: 0 };
+  }
+
+  return { disabled: (rows ?? []).length };
 }
 
 async function syncStreamHealth(
