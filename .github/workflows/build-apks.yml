@@ -91,6 +91,8 @@ jobs:
           if 'NativePlayerActivity' not in s: s=s.replace('    </application>', activity+'    </application>')
           import re
           s=re.sub(r'android:label="[^"]+"','android:label="NCA"',s,count=1)
+          if 'android:usesCleartextTraffic=' not in s:
+              s=s.replace('<application', '<application android:usesCleartextTraffic="true"', 1)
           s=s.replace('@mipmap/ic_launcher','@drawable/nca_icon')
           m.write_text(s)
           icon=Path('android/app/src/main/res/drawable/nca_icon.webp')
