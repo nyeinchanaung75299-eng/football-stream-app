@@ -62,8 +62,8 @@ class _HomePageState extends State<HomePage> {
   static const _mirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/matches.json';
-  // On GitHub Pages, use the metadata JSON deployed beside the Flutter app.
-  // Playback URLs are intentionally never published to GitHub.
+  // On GitHub Pages, use the mirrored match JSON deployed beside the app.
+  // It may include safe non-keyed direct backup lines for restricted networks.
   Uri _mirrorMatchesUri() =>
       kIsWeb ? Uri.base.resolve('matches.json') : Uri.parse(_mirrorBase);
 
