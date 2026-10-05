@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 class SocoPage extends StatefulWidget {
@@ -14,10 +15,19 @@ class _SocoPageState extends State<SocoPage> {
   late final WebViewController _controller;
   int _progress = 0;
   String? _error;
+  bool _forcedLandscape = false;
 
   @override
   void initState() {
     super.initState();
+
+    // Allow normal sensor rotation while Soco is open.
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFFF7F9F8))
@@ -37,6 +47,37 @@ class _SocoPageState extends State<SocoPage> {
         ),
       )
       ..loadRequest(_source);
+  }
+
+  Future<void> _toggleOrientation() async {
+    if (_forcedLandscape) {
+      await SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+      if (mounted) setState(() => _forcedLandscape = false);
+      return;
+    }
+
+    await SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    if (mounted) setState(() => _forcedLandscape = true);
+  }
+
+  @override
+  void dispose() {
+    // Return the main Viewer to normal sensor behavior.
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    super.dispose();
   }
 
   @override
@@ -93,6 +134,45 @@ class _SocoPageState extends State<SocoPage> {
                   LinearProgressIndicator(
                     value: _progress <= 0 ? null : _progress / 100,
                   ),
+                Positioned(
+                  right: 10,
+                  top: 10,
+                  child: Material(
+                    color: Colors.black.withValues(alpha: .68),
+                    borderRadius: BorderRadius.circular(14),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: _toggleOrientation,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 9,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _forcedLandscape
+                                  ? Icons.screen_lock_rotation_rounded
+                                  : Icons.screen_rotation_alt_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _forcedLandscape ? 'AUTO ROTATE' : 'LANDSCAPE',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
