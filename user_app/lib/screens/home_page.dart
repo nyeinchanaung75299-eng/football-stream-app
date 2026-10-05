@@ -22,6 +22,7 @@ class _HomePageState extends State<HomePage> {
   Timer? _debounce;
   Timer? _scoreRefresh;
   String? _fallbackLabel;
+  final Map<String, int> _lastGoodStreamCounts = <String, int>{};
 
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
@@ -31,7 +32,9 @@ class _HomePageState extends State<HomePage> {
       'https://football-public-api.nyeinchanaung75299-eng.workers.dev';
 
   List<String> get _publicApiBases => <String>{
-        _publicApiBase.trim().replaceAll(RegExp(r'/+
+        _publicApiBase.trim().replaceAll(RegExp(r'/+$'), ''),
+        _publicApiBackup,
+      }.where((base) => base.isNotEmpty).toList();
 
   static const _mirrorBase =
       'https://nyeinchanaung75299-eng.github.io/'
@@ -93,6 +96,50 @@ class _HomePageState extends State<HomePage> {
     return rows;
   }
 
+  List<Map<String, dynamic>> _stabilizeAvailability(
+    List<Map<String, dynamic>> rows,
+  ) {
+    for (final row in rows) {
+      final id = row['id']?.toString() ?? '';
+      if (id.isEmpty) continue;
+
+      final count = (row['stream_count'] as num?)?.toInt() ?? 0;
+      final previous = _lastGoodStreamCounts[id] ?? 0;
+
+      if (count > 0) {
+        _lastGoodStreamCounts[id] = count;
+      } else if (previous > 0) {
+        // A short-lived stale mirror/edge response must not make the button
+        // jump from WATCH LIVE to NOT READY during refresh.
+        row['stream_count'] = previous;
+      }
+    }
+    return rows;
+  }
+
+  List<Map<String, dynamic>> _mergeAvailability(
+    List<Map<String, dynamic>> primary,
+    List<Map<String, dynamic>> secondary,
+  ) {
+    final secondaryById = <String, Map<String, dynamic>>{
+      for (final row in secondary)
+        if ((row['id']?.toString() ?? '').isNotEmpty)
+          row['id'].toString(): row,
+    };
+
+    for (final row in primary) {
+      final id = row['id']?.toString() ?? '';
+      final other = secondaryById[id];
+      if (other == null) continue;
+
+      final a = (row['stream_count'] as num?)?.toInt() ?? 0;
+      final b = (other['stream_count'] as num?)?.toInt() ?? 0;
+      if (b > a) row['stream_count'] = b;
+    }
+
+    return _stabilizeAvailability(primary);
+  }
+
   List<Map<String, dynamic>> _decodeMatches(String body) {
     final decoded = jsonDecode(body);
     final raw = decoded is Map<String, dynamic>
@@ -103,10 +150,12 @@ class _HomePageState extends State<HomePage> {
       throw const FormatException('Match feed is invalid.');
     }
 
-    return _sortMatchesChronologically(
-      raw
-          .map((row) => Map<String, dynamic>.from(row as Map))
-          .toList(),
+    return _stabilizeAvailability(
+      _sortMatchesChronologically(
+        raw
+            .map((row) => Map<String, dynamic>.from(row as Map))
+            .toList(),
+      ),
     );
   }
 
@@ -266,24 +315,30 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<List<Map<String, dynamic>>> loadMatches() async {
-    // VPN-off first: always prefer the Cloudflare edge feed. Do not race the
-    // direct Supabase request because a partial/blocked Supabase response can
-    // arrive first without stream_links and incorrectly show NOT READY.
+    // The edge feed is canonical for VPN-on and VPN-off. The GitHub mirror is
+    // metadata-only and is used to keep WATCH availability stable if one edge
+    // POP briefly serves stale data.
     try {
-      final rows = await _loadPublicApi();
-      _fallbackLabel = 'Fast public API';
-      return rows;
+      final edgeRows = await _loadPublicApi();
+      try {
+        final mirrorRows = await _loadMirror();
+        _fallbackLabel = 'Fast public API';
+        return _mergeAvailability(edgeRows, mirrorRows);
+      } catch (_) {
+        _fallbackLabel = 'Fast public API';
+        return _stabilizeAvailability(edgeRows);
+      }
     } catch (_) {}
 
     try {
       final rows = await _loadMirror();
       _fallbackLabel = 'Backup feed';
-      return rows;
+      return _stabilizeAvailability(rows);
     } catch (_) {}
 
     final rows = await _loadSupabaseMatches();
     _fallbackLabel = null;
-    return rows;
+    return _stabilizeAvailability(rows);
   }
 
   Future<void> refresh({bool silent = false}) async {
