@@ -25,16 +25,8 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
       'https://raw.githubusercontent.com/'
       'nyeinchanaung75299-eng/football-stream-app/'
       'feed/public/matches.json';
-  static const _mirrorStreamsUrl =
-      'https://raw.githubusercontent.com/'
-      'nyeinchanaung75299-eng/football-stream-app/'
-      'feed/public/streams.json';
-
   Uri _mirrorMatchesUri() =>
       kIsWeb ? Uri.base.resolve('matches.json') : Uri.parse(_mirrorUrl);
-
-  Uri _mirrorStreamsUri() =>
-      kIsWeb ? Uri.base.resolve('streams.json') : Uri.parse(_mirrorStreamsUrl);
 
   bool _running = false;
   final List<_DiagResult> _results = [];
@@ -236,124 +228,122 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
   }
 
   Future<void> _checkStreams() async {
-    final samples = <Map<String, dynamic>>[];
-    Object? supabaseError;
+    String? matchId;
 
+    // Use the metadata-only GitHub mirror to discover a current match id.
+    final client = http.Client();
     try {
-      final matches = await Supabase.instance.client
-          .from('matches')
-          .select(
-            'id,home_team,away_team,stream_links('
-            'label,stream_type,stream_url,referer,origin,is_active,health_status'
-            ')',
+      final response = await client
+          .get(
+            _mirrorMatchesUri().replace(
+              queryParameters: {
+                't': DateTime.now().millisecondsSinceEpoch.toString(),
+              },
+            ),
+            headers: const {
+              'Accept': 'application/json',
+              'Cache-Control': 'no-cache',
+            },
           )
-          .eq('is_active', true)
-          .eq('publish_state', 'published')
-          .eq('is_featured', true)
-          .limit(3)
           .timeout(const Duration(seconds: 6));
 
-      for (final rawMatch in matches) {
-        final match = Map<String, dynamic>.from(rawMatch as Map);
-        final links = List<Map<String, dynamic>>.from(
-          match['stream_links'] ?? const [],
-        ).where((x) => x['is_active'] == true).toList()
-          ..sort((a, b) => _formatRank(a).compareTo(_formatRank(b)));
-
-        for (final link in links) {
-          final url = (link['stream_url'] ?? '').toString().trim();
-          if (url.isEmpty) continue;
-          samples.add({
-            ...link,
-            'match': '${match['home_team']} vs ${match['away_team']}',
-          });
-          if (samples.length >= 5) break;
-        }
-        if (samples.length >= 5) break;
-      }
-    } catch (e) {
-      supabaseError = e;
-    }
-
-    if (samples.isEmpty) {
-      final client = http.Client();
-      try {
-        final stamp = DateTime.now().millisecondsSinceEpoch;
-        final response = await client
-            .get(
-              _mirrorStreamsUri().replace(
-                queryParameters: {'t': stamp.toString()},
-              ),
-              headers: const {
-                'Accept': 'application/json',
-                'Cache-Control': 'no-cache',
-              },
-            )
-            .timeout(const Duration(seconds: 8));
-
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          final decoded = jsonDecode(response.body);
-          if (decoded is Map) {
-            for (final entry in decoded.entries) {
-              final rawLinks = entry.value;
-              if (rawLinks is! List) continue;
-              final links = rawLinks
-                  .map((raw) => Map<String, dynamic>.from(raw as Map))
-                  .where((x) => x['is_active'] == true)
-                  .toList()
-                ..sort((a, b) => _formatRank(a).compareTo(_formatRank(b)));
-
-              for (final link in links) {
-                final url = (link['stream_url'] ?? '').toString().trim();
-                if (url.isEmpty) continue;
-                samples.add({
-                  ...link,
-                  'match': 'GitHub fallback',
-                });
-                if (samples.length >= 5) break;
-              }
-              if (samples.length >= 5) break;
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final decoded = jsonDecode(response.body);
+        final rows = decoded is List
+            ? decoded
+            : (decoded is Map ? decoded['matches'] : null);
+        if (rows is List) {
+          for (final raw in rows) {
+            if (raw is! Map) continue;
+            final count = (raw['stream_count'] as num?)?.toInt() ?? 0;
+            final id = raw['id']?.toString().trim() ?? '';
+            if (count > 0 && id.isNotEmpty) {
+              matchId = id;
+              break;
             }
           }
         }
-
-        if (samples.isNotEmpty) {
-          _add(
-            _DiagResult(
-              title: 'Stream list fallback',
-              detail:
-                  'Supabase stream list unavailable; GitHub fallback loaded • '
-                  'HTTP ${response.statusCode}',
-              status: _DiagStatus.ok,
-            ),
-          );
-        }
-      } catch (_) {
-        // Report the combined failure below.
-      } finally {
-        client.close();
       }
+    } catch (_) {
+      // Protected API test below will report the useful failure.
+    } finally {
+      client.close();
     }
 
-    if (samples.isEmpty) {
+    if (matchId == null) {
       _add(
-        _DiagResult(
-          title: 'Stream tests',
-          detail: supabaseError == null
-              ? 'No active stream URL is available to test.'
-              : 'Could not load stream samples from Supabase or GitHub fallback: '
-                  '${_shortError(supabaseError)}',
-          status: supabaseError == null
-              ? _DiagStatus.warning
-              : _DiagStatus.fail,
+        const _DiagResult(
+          title: 'Protected stream API',
+          detail: 'No active match with a configured stream is available to test.',
+          status: _DiagStatus.warning,
         ),
       );
       return;
     }
 
-    for (final sample in samples) {
-      await _probeStream(sample);
+    Object? lastError;
+    for (final base in _publicApiUrls) {
+      final api = http.Client();
+      try {
+        final response = await api
+            .get(
+              Uri.parse('$base/matches/$matchId/streams').replace(
+                queryParameters: {
+                  't': DateTime.now().millisecondsSinceEpoch.toString(),
+                },
+              ),
+              headers: const {'Accept': 'application/json'},
+            )
+            .timeout(const Duration(seconds: 6));
+
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          lastError = Exception('HTTP ${response.statusCode}');
+          continue;
+        }
+
+        final decoded = jsonDecode(response.body);
+        final raw = decoded is Map ? decoded['streams'] : null;
+        if (raw is! List || raw.isEmpty) {
+          lastError = const FormatException('No protected stream lines returned.');
+          continue;
+        }
+
+        final samples = raw
+            .map((row) => Map<String, dynamic>.from(row as Map))
+            .where((row) =>
+                (row['stream_url'] ?? '').toString().trim().isNotEmpty)
+            .take(3)
+            .toList();
+
+        _add(
+          _DiagResult(
+            title: 'Protected stream API',
+            detail:
+                'Protected playback URLs loaded • ${Uri.parse(base).host} • '
+                'HTTP ${response.statusCode}',
+            status: _DiagStatus.ok,
+          ),
+        );
+
+        for (final sample in samples) {
+          await _probeStream(sample);
+        }
+        return;
+      } catch (e) {
+        lastError = e;
+      } finally {
+        api.close();
+      }
     }
+
+    _add(
+      _DiagResult(
+        title: 'Protected stream API',
+        detail: 'Could not load protected playback URLs: '
+            '${_shortError(lastError ?? 'unavailable')}',
+        status: _DiagStatus.fail,
+      ),
+    );
   }
 
   Future<void> _probeStream(Map<String, dynamic> sample) async {
