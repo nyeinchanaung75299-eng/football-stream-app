@@ -405,14 +405,16 @@ class _HomePageState extends State<HomePage> {
       return edgeRows;
     } catch (_) {}
 
+    // Supabase is fresher than the static mirror. Try it before falling back
+    // so reachable live state is never replaced by an older snapshot.
     try {
-      final rows = await _loadMirror();
-      _fallbackLabel = 'Backup feed';
+      final rows = await _loadSupabaseMatches();
+      _fallbackLabel = null;
       return rows;
     } catch (_) {}
 
-    final rows = await _loadSupabaseMatches();
-    _fallbackLabel = null;
+    final rows = await _loadMirror();
+    _fallbackLabel = 'Backup feed';
     return rows;
   }
 
