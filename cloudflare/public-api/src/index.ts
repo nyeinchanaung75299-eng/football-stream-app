@@ -76,6 +76,18 @@ export default {
       });
     }
 
+    const adminFunctionRoute = url.pathname.match(
+      /^\/admin\/functions\/(football-fixtures|football-score-sync|stream-health)$/,
+    );
+
+    if (adminFunctionRoute && request.method === "POST") {
+      return handleAdminFunction(
+        request,
+        adminFunctionRoute[1],
+        env,
+      );
+    }
+
     if (request.method !== "GET") {
       return json({ error: "Method not allowed." }, 405);
     }
@@ -87,6 +99,7 @@ export default {
         supabase_configured:
           Boolean(env.SUPABASE_URL?.trim()) &&
           Boolean(env.SUPABASE_PUBLISHABLE_KEY?.trim()),
+        admin_function_proxy: true,
         now: new Date().toISOString(),
       });
     }
@@ -110,6 +123,61 @@ export default {
     return json({ error: "Not found." }, 404);
   },
 };
+
+async function handleAdminFunction(
+  request: Request,
+  functionName: string,
+  env: Env,
+) {
+  const base = env.SUPABASE_URL?.trim() ?? "";
+  const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
+  const authorization = request.headers.get("Authorization")?.trim() ?? "";
+
+  if (!base || !key) {
+    return json({ error: "Backend gateway is not configured." }, 503);
+  }
+
+  if (!authorization.startsWith("Bearer ")) {
+    return json({ error: "Authentication required." }, 401, {
+      "Cache-Control": "no-store",
+    });
+  }
+
+  const upstream = new URL(
+    base.replace(/\/+$/, "") + "/functions/v1/" + functionName,
+  );
+
+  let upstreamResponse: Response;
+  try {
+    upstreamResponse = await fetch(upstream, {
+      method: "POST",
+      headers: {
+        apikey: key,
+        Authorization: authorization,
+        "Content-Type": request.headers.get("Content-Type") || "application/json",
+        Accept: "application/json",
+      },
+      body: await request.text(),
+    });
+  } catch (_) {
+    return json(
+      { error: "Backend function is temporarily unreachable." },
+      502,
+      { "Cache-Control": "no-store" },
+    );
+  }
+
+  const headers = new Headers(upstreamResponse.headers);
+  for (const [keyName, value] of Object.entries(corsHeaders())) {
+    headers.set(keyName, value);
+  }
+  headers.set("Cache-Control", "no-store");
+
+  return new Response(upstreamResponse.body, {
+    status: upstreamResponse.status,
+    headers,
+  });
+}
 
 async function handleMatches(
   requestUrl: URL,
@@ -363,10 +431,9 @@ function sanitizeMatchMetadata(
     result[field] = source[field];
   }
 
-  result.stream_count =
-    typeof source.stream_count === "number"
-      ? source.stream_count
-      : safeLinks(links).length;
+  // Only advertise streams that this public edge endpoint can actually
+  // return. Protected/header/DRM-dependent lines stay on the direct backend.
+  result.stream_count = safeLinks(links).length;
 
   return result;
 }
@@ -572,7 +639,7 @@ function corsHeaders() {
     "Access-Control-Allow-Methods":
       "GET,OPTIONS",
     "Access-Control-Allow-Headers":
-      "Content-Type",
+      "Authorization, Content-Type, apikey",
   };
 }
 
