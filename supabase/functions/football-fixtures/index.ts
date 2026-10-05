@@ -20,22 +20,25 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const footballKey =
+    const apiFootballKey =
       Deno.env.get("API_FOOTBALL_KEY") ??
       Deno.env.get("APISPORTS_KEY") ??
       Deno.env.get("API_SPORTS_KEY");
+    const footballDataKey =
+      Deno.env.get("FOOTBALL_DATA_ORG_KEY") ??
+      Deno.env.get("FOOTBALL_DATA_KEY");
 
-    if (!footballKey) {
+    if (!apiFootballKey && !footballDataKey) {
       return json(
         {
-          error: "Football API key is missing. Add API_FOOTBALL_KEY in Edge Functions > Secrets.",
-          code: "FOOTBALL_API_KEY_MISSING",
+          error:
+            "No football fixture provider is configured. Add API_FOOTBALL_KEY and/or FOOTBALL_DATA_ORG_KEY in Edge Functions > Secrets.",
+          code: "FOOTBALL_PROVIDERS_MISSING",
         },
         500,
       );
     }
 
-    // Verify the caller and require admin role.
     const userClient = createClient(supabaseUrl, anonKey, {
       global: {
         headers: {
@@ -70,50 +73,6 @@ Deno.serve(async (req) => {
         ? body.date
         : new Date().toISOString().slice(0, 10);
 
-    const url = new URL("https://v3.football.api-sports.io/fixtures");
-
-    if (mode === "live") {
-      url.searchParams.set("live", "all");
-    } else {
-      url.searchParams.set("date", date);
-    }
-
-    const apiResponse = await fetch(url, {
-      headers: {
-        "x-apisports-key": footballKey,
-        "Accept": "application/json",
-      },
-    });
-
-    if (!apiResponse.ok) {
-      return json(
-        {
-          error: `Football API request failed (${apiResponse.status}).`,
-        },
-        502,
-      );
-    }
-
-    const payload = await apiResponse.json();
-
-    if (payload.errors && Object.keys(payload.errors).length > 0) {
-      const providerError = JSON.stringify(payload.errors);
-      const suspended = providerError.toLowerCase().includes("suspended");
-      return json(
-        {
-          error: suspended
-            ? "API-Football account is suspended. Reactivate it or replace API_FOOTBALL_KEY."
-            : providerError,
-          code: suspended
-            ? "FOOTBALL_API_ACCOUNT_SUSPENDED"
-            : "FOOTBALL_PROVIDER_ERROR",
-        },
-        502,
-      );
-    }
-
-    const rows = Array.isArray(payload.response) ? payload.response : [];
-
     const { data: deletedRows } = await userClient
       .from("matches")
       .select("external_fixture_id")
@@ -125,13 +84,113 @@ Deno.serve(async (req) => {
         .filter((id: number) => Number.isFinite(id)),
     );
 
-    const fixtures = rows
-      .filter(
-        (row: any) =>
-          !deletedFixtureIds.has(Number(row.fixture?.id)),
-      )
-      .map((row: any) => ({
-      fixture_id: row.fixture?.id,
+    const failures: Array<{ provider: string; error: string }> = [];
+
+    if (apiFootballKey) {
+      try {
+        const result = await loadApiFootballFixtures(
+          apiFootballKey,
+          mode,
+          date,
+          deletedFixtureIds,
+        );
+        return json({
+          ...result,
+          provider: "api_football",
+          fallback_used: false,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push({ provider: "api_football", error: message });
+        console.error("API-Football fixture load failed:", message);
+      }
+    }
+
+    if (footballDataKey) {
+      try {
+        const result = await loadFootballDataFixtures(
+          footballDataKey,
+          mode,
+          date,
+          deletedFixtureIds,
+        );
+        return json({
+          ...result,
+          provider: "football_data_org",
+          fallback_used: failures.length > 0,
+          primary_failure: failures[0]?.error ?? null,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push({ provider: "football_data_org", error: message });
+        console.error("football-data.org fixture load failed:", message);
+      }
+    }
+
+    return json(
+      {
+        error: failures
+          .map((item) => `${item.provider}: ${item.error}`)
+          .join(" | "),
+        code: "FOOTBALL_PROVIDERS_FAILED",
+        providers: failures,
+      },
+      502,
+    );
+  } catch (error) {
+    return json(
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+      500,
+    );
+  }
+});
+
+async function loadApiFootballFixtures(
+  key: string,
+  mode: "live" | "date",
+  date: string,
+  deletedFixtureIds: Set<number>,
+) {
+  const url = new URL("https://v3.football.api-sports.io/fixtures");
+  if (mode === "live") {
+    url.searchParams.set("live", "all");
+  } else {
+    url.searchParams.set("date", date);
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      "x-apisports-key": key,
+      "Accept": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`request failed (HTTP ${response.status})`);
+  }
+
+  const payload = await response.json();
+
+  if (payload?.errors && Object.keys(payload.errors).length > 0) {
+    const providerError = JSON.stringify(payload.errors);
+    if (providerError.toLowerCase().includes("suspended")) {
+      throw new Error("account is suspended");
+    }
+    throw new Error(providerError);
+  }
+
+  const rows = Array.isArray(payload?.response) ? payload.response : [];
+  const fixtures = rows
+    .filter((row: any) => {
+      const id = Number(row?.fixture?.id);
+      return Number.isFinite(id) && !deletedFixtureIds.has(id);
+    })
+    .map((row: any) => ({
+      provider: "api_football",
+      fixture_id: Number(row.fixture.id),
+      provider_fixture_id: Number(row.fixture.id),
       kickoff_at: row.fixture?.date,
       status_short: row.fixture?.status?.short ?? "NS",
       status_long: row.fixture?.status?.long ?? null,
@@ -158,31 +217,153 @@ Deno.serve(async (req) => {
       away_score: row.goals?.away ?? null,
     }));
 
-    fixtures.sort((a: any, b: any) => {
-      const at = new Date(a.kickoff_at ?? 0).getTime();
-      const bt = new Date(b.kickoff_at ?? 0).getTime();
-      if (at !== bt) return at - bt;
-      return String(a.home_name ?? "").localeCompare(
-        String(b.home_name ?? ""),
-      );
-    });
+  sortFixtures(fixtures);
 
-    return json({
-      fixtures,
-      results: fixtures.length,
-      hidden_deleted: deletedFixtureIds.size,
-      remaining:
-        apiResponse.headers.get("x-ratelimit-requests-remaining") ?? null,
-    });
-  } catch (error) {
-    return json(
-      {
-        error: error instanceof Error ? error.message : String(error),
-      },
-      500,
-    );
+  return {
+    fixtures,
+    results: fixtures.length,
+    hidden_deleted: deletedFixtureIds.size,
+    remaining: response.headers.get("x-ratelimit-requests-remaining") ?? null,
+  };
+}
+
+async function loadFootballDataFixtures(
+  key: string,
+  mode: "live" | "date",
+  date: string,
+  deletedFixtureIds: Set<number>,
+) {
+  const url = new URL("https://api.football-data.org/v4/matches");
+
+  if (mode === "live") {
+    const now = new Date();
+    url.searchParams.set("dateFrom", dateOffset(now, -1));
+    url.searchParams.set("dateTo", dateOffset(now, 1));
+  } else {
+    url.searchParams.set("dateFrom", date);
+    url.searchParams.set("dateTo", date);
   }
-});
+
+  const response = await fetch(url, {
+    headers: {
+      "X-Auth-Token": key,
+      "Accept": "application/json",
+    },
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const detail =
+      payload?.message ??
+      payload?.error ??
+      `request failed (HTTP ${response.status})`;
+    throw new Error(String(detail));
+  }
+
+  const rows = Array.isArray(payload?.matches) ? payload.matches : [];
+  const fixtures = rows
+    .map((row: any) => mapFootballDataFixture(row))
+    .filter((row: any) => row != null)
+    .filter((row: any) => !deletedFixtureIds.has(Number(row.fixture_id)))
+    .filter((row: any) => mode !== "live" || row.is_live === true);
+
+  sortFixtures(fixtures);
+
+  return {
+    fixtures,
+    results: fixtures.length,
+    hidden_deleted: deletedFixtureIds.size,
+    remaining:
+      response.headers.get("x-requests-available-minute") ??
+      response.headers.get("x-requestcounter-reset") ??
+      null,
+  };
+}
+
+function mapFootballDataFixture(row: any) {
+  const rawId = Number(row?.id);
+  if (!Number.isFinite(rawId) || rawId <= 0) return null;
+
+  // Keep provider IDs in separate numeric namespaces without a schema change.
+  // API-Football uses positive IDs; football-data.org uses the negative form.
+  const fixtureId = -Math.abs(rawId);
+  const statusShort = footballDataStatus(row?.status);
+  const isLive = ["LIVE", "1H", "HT", "2H", "ET", "INT", "SUSP"].includes(
+    statusShort,
+  );
+  const isFinished = statusShort === "FT";
+
+  return {
+    provider: "football_data_org",
+    fixture_id: fixtureId,
+    provider_fixture_id: rawId,
+    kickoff_at: row?.utcDate ?? null,
+    status_short: statusShort,
+    status_long: row?.status ?? null,
+    status_elapsed: Number.isFinite(Number(row?.minute))
+      ? Number(row.minute)
+      : null,
+    is_live: isLive,
+    is_finished: isFinished,
+    league_name: row?.competition?.name ?? "Football",
+    league_logo: row?.competition?.emblem ?? null,
+    home_name: row?.homeTeam?.name ?? row?.homeTeam?.shortName ?? "Home",
+    away_name: row?.awayTeam?.name ?? row?.awayTeam?.shortName ?? "Away",
+    home_logo: row?.homeTeam?.crest ?? null,
+    away_logo: row?.awayTeam?.crest ?? null,
+    home_score:
+      row?.score?.fullTime?.home ??
+      row?.score?.halfTime?.home ??
+      null,
+    away_score:
+      row?.score?.fullTime?.away ??
+      row?.score?.halfTime?.away ??
+      null,
+  };
+}
+
+function footballDataStatus(value: unknown) {
+  const status = String(value ?? "").trim().toUpperCase();
+  switch (status) {
+    case "FINISHED":
+      return "FT";
+    case "LIVE":
+    case "IN_PLAY":
+      return "LIVE";
+    case "PAUSED":
+      return "HT";
+    case "POSTPONED":
+      return "PST";
+    case "SUSPENDED":
+      return "SUSP";
+    case "CANCELLED":
+      return "CANC";
+    case "AWARDED":
+      return "AWD";
+    case "SCHEDULED":
+    case "TIMED":
+    default:
+      return "NS";
+  }
+}
+
+function sortFixtures(fixtures: any[]) {
+  fixtures.sort((a: any, b: any) => {
+    const at = new Date(a.kickoff_at ?? 0).getTime();
+    const bt = new Date(b.kickoff_at ?? 0).getTime();
+    if (at !== bt) return at - bt;
+    return String(a.home_name ?? "").localeCompare(
+      String(b.home_name ?? ""),
+    );
+  });
+}
+
+function dateOffset(date: Date, days: number) {
+  const copy = new Date(date.getTime());
+  copy.setUTCDate(copy.getUTCDate() + days);
+  return copy.toISOString().slice(0, 10);
+}
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -190,6 +371,7 @@ function json(data: unknown, status = 200) {
     headers: {
       ...corsHeaders,
       "Content-Type": "application/json",
+      "Cache-Control": "no-store",
     },
   });
 }
