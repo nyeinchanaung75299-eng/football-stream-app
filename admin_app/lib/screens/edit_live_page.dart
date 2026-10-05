@@ -12,6 +12,19 @@ class EditLivePage extends StatefulWidget {
 
 class _EditLivePageState extends State<EditLivePage> {
   bool syncing = false;
+  String view = 'upcoming';
+
+  String sectionLabel(DateTime value) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(value.year, value.month, value.day);
+    final diff = day.difference(today).inDays;
+
+    if (diff == 0) return 'TODAY';
+    if (diff == 1) return 'TOMORROW';
+    if (diff == -1) return 'YESTERDAY';
+    return DateFormat('EEE, dd MMM yyyy').format(value).toUpperCase();
+  }
 
   Future<List<Map<String, dynamic>>> load() async {
     final data = await Supabase.instance.client
@@ -441,13 +454,75 @@ class _EditLivePageState extends State<EditLivePage> {
           final rows = snapshot.data!;
           if (rows.isEmpty) return const Center(child: Text('No matches yet.'));
 
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-            itemCount: rows.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final m = rows[index];
-              final kickoff = DateTime.parse(m['kickoff_at']).toLocal();
+          final now = DateTime.now();
+          final visibleRows = rows.where((m) {
+            if (view == 'live') return m['is_live'] == true;
+            if (view == 'upcoming') {
+              final kickoff =
+                  DateTime.tryParse(m['kickoff_at']?.toString() ?? '')
+                      ?.toLocal();
+              return m['is_live'] == true ||
+                  (kickoff != null && !kickoff.isBefore(now));
+            }
+            return true;
+          }).toList();
+
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(
+                        value: 'upcoming',
+                        icon: Icon(Icons.upcoming_rounded),
+                        label: Text('Upcoming'),
+                      ),
+                      ButtonSegment(
+                        value: 'live',
+                        icon: Icon(Icons.podcasts_rounded),
+                        label: Text('Live'),
+                      ),
+                      ButtonSegment(
+                        value: 'all',
+                        icon: Icon(Icons.list_alt_rounded),
+                        label: Text('All'),
+                      ),
+                    ],
+                    selected: {view},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (value) {
+                      setState(() => view = value.first);
+                    },
+                  ),
+                ),
+              ),
+              Expanded(
+                child: visibleRows.isEmpty
+                    ? const Center(
+                        child: Text('No matches in this section.'),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 28),
+                        itemCount: visibleRows.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final m = visibleRows[index];
+                          final kickoff =
+                              DateTime.parse(m['kickoff_at']).toLocal();
+                          final previousKickoff = index == 0
+                              ? null
+                              : DateTime.parse(
+                                  visibleRows[index - 1]['kickoff_at']
+                                      .toString(),
+                                ).toLocal();
+                          final showDateHeader = previousKickoff == null ||
+                              previousKickoff.year != kickoff.year ||
+                              previousKickoff.month != kickoff.month ||
+                              previousKickoff.day != kickoff.day;
               final live = m['is_live'] == true;
               final featured = m['is_featured'] != false;
               final published = (m['publish_state'] ?? 'published') == 'published';
@@ -455,7 +530,29 @@ class _EditLivePageState extends State<EditLivePage> {
               final as = m['away_score'];
               final status = (m['status_short'] ?? 'NS').toString();
 
-              return Card(
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (showDateHeader) ...[
+                                Padding(
+                                  padding: EdgeInsets.fromLTRB(
+                                    4,
+                                    index == 0 ? 2 : 8,
+                                    4,
+                                    8,
+                                  ),
+                                  child: Text(
+                                    sectionLabel(kickoff),
+                                    style: TextStyle(
+                                      color: colors.onSurfaceVariant,
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: .8,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              Card(
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(22),
                   side: BorderSide(color: colors.outlineVariant.withValues(alpha: .5)),
@@ -567,8 +664,13 @@ class _EditLivePageState extends State<EditLivePage> {
                     ],
                   ),
                 ),
-              );
-            },
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+              ),
+            ],
           );
         },
       ),
