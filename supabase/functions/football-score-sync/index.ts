@@ -14,6 +14,7 @@ Deno.serve(async (req) => {
     const footballDataKey =
       Deno.env.get("FOOTBALL_DATA_ORG_KEY") ??
       Deno.env.get("FOOTBALL_DATA_KEY");
+    const footballDataFallbackKey = footballDataKey ?? footballKey;
     const cronSecret = Deno.env.get("CRON_SECRET");
 
     if (!supabaseUrl || !serviceRole) {
@@ -61,8 +62,14 @@ Deno.serve(async (req) => {
     const client = createClient(supabaseUrl, serviceRole);
     const now = new Date();
 
-    const scoreSummary = footballKey || footballDataKey
-      ? await syncScores(client, footballKey, footballDataKey, now, force)
+    const scoreSummary = footballKey || footballDataFallbackKey
+      ? await syncScores(
+          client,
+          footballKey,
+          footballDataFallbackKey,
+          now,
+          force,
+        )
       : {
           synced: 0,
           candidates: 0,
