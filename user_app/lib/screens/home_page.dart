@@ -212,12 +212,26 @@ class _HomePageState extends State<HomePage> {
     const finishedStatuses = {'FT', 'AET', 'PEN'};
     const grace = Duration(minutes: 8);
     final now = DateTime.now();
+    const staleKickoffGrace = Duration(hours: 5);
 
     return rows.where((row) {
       final status =
           (row['status_short'] ?? '').toString().trim().toUpperCase();
       final finished =
           row['is_finished'] == true || finishedStatuses.contains(status);
+
+      // When the score provider is unavailable, an old NS row can otherwise
+      // stay visible forever in a fallback feed. Keep explicitly-live rows,
+      // but hide non-live matches five hours after their scheduled kickoff.
+      final kickoff = DateTime.tryParse(
+        row['kickoff_at']?.toString() ?? '',
+      )?.toLocal();
+      if (row['is_live'] != true &&
+          kickoff != null &&
+          now.difference(kickoff) > staleKickoffGrace) {
+        return false;
+      }
+
       if (!finished) return true;
 
       final detectedText =
@@ -273,6 +287,14 @@ class _HomePageState extends State<HomePage> {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('Public API returned HTTP ${response.statusCode}');
     }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is Map && decoded['source']?.toString() == 'github') {
+      // Do not let the Worker's emergency GitHub mirror beat a fresher direct
+      // database response. The mirror is still used explicitly as last resort.
+      throw const FormatException('Public API is using the backup mirror.');
+    }
+
     return _decodeMatches(response.body);
   }
 
@@ -443,19 +465,18 @@ class _HomePageState extends State<HomePage> {
   Future<List<Map<String, dynamic>>> loadMatches() async {
     final started = DateTime.now();
 
-    final attempts = <Future<_MatchLoadResult> Function()>[
+    // Cloudflare and direct Supabase are authoritative. Race those first.
+    // Only fall back to GitHub after both fail, otherwise an older mirror can
+    // win the race and resurrect deleted matches or stale LIVE state.
+    final authoritative = <Future<_MatchLoadResult> Function()>[
       () async => _MatchLoadResult(
             await _loadPublicApi(),
             'Fast public API',
           ),
-      () async => _MatchLoadResult(
-            await _loadMirror(),
-            'Backup feed',
-          ),
     ];
 
     if (_supabaseClientOrNull() != null) {
-      attempts.add(
+      authoritative.add(
         () async => _MatchLoadResult(
               await _loadSupabaseMatches(),
               'Direct database',
@@ -463,10 +484,18 @@ class _HomePageState extends State<HomePage> {
       );
     }
 
-    final result = await _hedged(
-      attempts,
-      delay: const Duration(milliseconds: 650),
-    );
+    _MatchLoadResult result;
+    try {
+      result = await _hedged(
+        authoritative,
+        delay: const Duration(milliseconds: 500),
+      );
+    } catch (_) {
+      result = _MatchLoadResult(
+        await _loadMirror(),
+        'Backup feed',
+      );
+    }
 
     unawaited(
       AnalyticsService.capture(
