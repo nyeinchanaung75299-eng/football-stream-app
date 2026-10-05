@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../analytics_service.dart';
 
 class LiveUploadPage extends StatefulWidget {
   const LiveUploadPage({super.key});
@@ -89,12 +90,24 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
         'status_short': isLive ? 'LIVE' : 'NS',
       });
 
+      await AnalyticsService.capture(
+        'manual match created',
+        properties: {
+          'is_live': isLive,
+          'has_home_logo': homeLogo.text.trim().isNotEmpty,
+          'has_away_logo': awayLogo.text.trim().isNotEmpty,
+        },
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Live match uploaded.')),
       );
       Navigator.pop(context);
     } catch (e) {
+      await AnalyticsService.capture(
+        'manual match create failed',
+        properties: {'is_live': isLive},
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.toString())));
