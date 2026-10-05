@@ -62,6 +62,19 @@ class FunctionGateway {
       return decoded;
     }
 
+    // A newly added admin Edge Function can briefly be newer than the
+    // Cloudflare allow-list. Fall back to Supabase directly for gateway
+    // routing/upstream failures instead of breaking the Admin workflow.
+    if (response.statusCode == 404 ||
+        response.statusCode == 502 ||
+        response.statusCode == 503) {
+      final direct = await Supabase.instance.client.functions.invoke(
+        functionName,
+        body: body,
+      );
+      return direct.data;
+    }
+
     final detail = decoded is Map && decoded['error'] != null
         ? decoded['error'].toString()
         : 'HTTP ${response.statusCode}';
