@@ -1,0 +1,7 @@
+project_id = "woggzixprvyjnfjzsglz"
+
+[functions.stream-health]
+verify_jwt = false
+
+[functions.football-score-sync]
+verify_jwt = false
