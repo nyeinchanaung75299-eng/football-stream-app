@@ -11,6 +11,9 @@ Deno.serve(async (req) => {
     const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const footballKey = Deno.env.get("API_FOOTBALL_KEY");
+    const footballDataKey =
+      Deno.env.get("FOOTBALL_DATA_ORG_KEY") ??
+      Deno.env.get("FOOTBALL_DATA_KEY");
     const cronSecret = Deno.env.get("CRON_SECRET");
 
     if (!supabaseUrl || !serviceRole) {
@@ -58,14 +61,15 @@ Deno.serve(async (req) => {
     const client = createClient(supabaseUrl, serviceRole);
     const now = new Date();
 
-    const scoreSummary = footballKey
-      ? await syncScores(client, footballKey, now, force)
+    const scoreSummary = footballKey || footballDataKey
+      ? await syncScores(client, footballKey, footballDataKey, now, force)
       : {
           synced: 0,
           candidates: 0,
           failed_updates: 0,
           api_calls: 0,
-          score_sync_skipped: "API_FOOTBALL_KEY is not configured.",
+          score_sync_skipped:
+            "Neither API_FOOTBALL_KEY nor FOOTBALL_DATA_ORG_KEY is configured.",
         };
 
     const finishedCleanup = await hideFinishedMatchesAfterGrace(client, now);
@@ -97,7 +101,8 @@ Deno.serve(async (req) => {
 
 async function syncScores(
   client: any,
-  footballKey: string,
+  footballKey: string | undefined,
+  footballDataKey: string | undefined,
   now: Date,
   force: boolean,
 ) {
@@ -109,6 +114,7 @@ async function syncScores(
     .select(
       `
         id,
+        source,
         external_fixture_id,
         kickoff_at,
         last_score_sync_at,
@@ -135,7 +141,6 @@ async function syncScores(
     if (!match.kickoff_at) return false;
 
     const kickoff = new Date(match.kickoff_at);
-
     if (
       kickoff.getTime() < windowStart.getTime() ||
       kickoff.getTime() > windowEnd.getTime()
@@ -146,7 +151,6 @@ async function syncScores(
     if (!force && match.last_score_sync_at) {
       const previousSync = new Date(match.last_score_sync_at);
       const elapsed = now.getTime() - previousSync.getTime();
-
       if (elapsed < Math.max(30, minIntervalSeconds) * 1000) {
         return false;
       }
@@ -155,12 +159,71 @@ async function syncScores(
     return true;
   });
 
-  let synced = 0;
-  let apiCalls = 0;
-  let failedUpdates = 0;
-  let receivedFixtures = 0;
-  const providerErrors: unknown[] = [];
+  const apiCandidates = candidates.filter((item: any) =>
+    item.source !== "football_data_org" &&
+    Number(item.external_fixture_id) > 0
+  );
+  const dataCandidates = candidates.filter((item: any) =>
+    item.source === "football_data_org" ||
+    Number(item.external_fixture_id) < 0
+  );
 
+  const totals = {
+    synced: 0,
+    candidates: candidates.length,
+    received_fixtures: 0,
+    failed_updates: 0,
+    api_calls: 0,
+    provider_errors: [] as unknown[],
+  };
+
+  if (apiCandidates.length > 0) {
+    if (footballKey) {
+      const summary = await syncApiFootballScores(
+        client,
+        footballKey,
+        apiCandidates,
+        now,
+      );
+      mergeScoreSummary(totals, summary);
+    } else {
+      totals.provider_errors.push({
+        provider: "api_football",
+        error: "API_FOOTBALL_KEY is not configured.",
+      });
+    }
+  }
+
+  if (dataCandidates.length > 0) {
+    if (footballDataKey) {
+      const summary = await syncFootballDataScores(
+        client,
+        footballDataKey,
+        dataCandidates,
+        now,
+      );
+      mergeScoreSummary(totals, summary);
+    } else {
+      totals.provider_errors.push({
+        provider: "football_data_org",
+        error: "FOOTBALL_DATA_ORG_KEY is not configured.",
+      });
+    }
+  }
+
+  return {
+    ...totals,
+    provider_errors: totals.provider_errors.slice(0, 8),
+  };
+}
+
+async function syncApiFootballScores(
+  client: any,
+  key: string,
+  candidates: any[],
+  now: Date,
+) {
+  const summary = emptyScoreSummary();
   const candidateIds = new Set(
     candidates.map((item: any) => String(item.external_fixture_id)),
   );
@@ -171,63 +234,52 @@ async function syncScores(
     ]),
   );
 
-  const dates = [
-    ...new Set(
-      candidates.map((item: any) =>
-        new Date(item.kickoff_at).toISOString().slice(0, 10)
-      ),
-    ),
-  ];
-
-  const headers = {
-    "x-apisports-key": footballKey,
-    "Accept": "application/json",
-  };
-
-  for (const date of dates) {
+  for (const date of candidateDates(candidates)) {
     const url = new URL("https://v3.football.api-sports.io/fixtures");
-    // The Free API-Football plan rejects the multi-ID parameter. A date query
-    // is available on the Free plan and lets us refresh every selected fixture
-    // for that day with one request.
     url.searchParams.set("date", date);
 
-    const apiResponse = await fetch(url, {
+    const response = await fetch(url, {
       method: "GET",
-      headers,
+      headers: {
+        "x-apisports-key": key,
+        "Accept": "application/json",
+      },
     });
 
-    apiCalls += 1;
+    summary.api_calls += 1;
 
-    if (!apiResponse.ok) {
-      providerErrors.push({ date, status: apiResponse.status });
-      console.error("API-Football request failed:", apiResponse.status);
+    if (!response.ok) {
+      summary.provider_errors.push({
+        provider: "api_football",
+        date,
+        status: response.status,
+      });
       continue;
     }
 
-    const payload = await apiResponse.json();
-
+    const payload = await response.json();
     if (payload?.errors && Object.keys(payload.errors).length > 0) {
-      providerErrors.push({ date, errors: payload.errors });
+      summary.provider_errors.push({
+        provider: "api_football",
+        date,
+        errors: payload.errors,
+      });
       console.error("API-Football returned errors:", payload.errors);
       continue;
     }
 
-    const allFixtures = Array.isArray(payload?.response)
-      ? payload.response
-      : [];
+    const fixtures = (Array.isArray(payload?.response) ? payload.response : [])
+      .filter((row: any) =>
+        candidateIds.has(String(row?.fixture?.id ?? ""))
+      );
 
-    const fixtures = allFixtures.filter((row: any) =>
-      candidateIds.has(String(row?.fixture?.id ?? ""))
-    );
-
-    receivedFixtures += fixtures.length;
+    summary.received_fixtures += fixtures.length;
 
     for (const row of fixtures) {
-      const fixtureId = row?.fixture?.id;
-      if (!fixtureId) continue;
+      const fixtureId = Number(row?.fixture?.id);
+      if (!Number.isFinite(fixtureId)) continue;
 
       const statusShort = row?.fixture?.status?.short ?? "NS";
-
       const isLive = [
         "1H",
         "HT",
@@ -239,11 +291,8 @@ async function syncScores(
         "INT",
         "SUSP",
       ].includes(statusShort);
-
       const isFinished = ["FT", "AET", "PEN"].includes(statusShort);
       const existing = candidateByFixture.get(String(fixtureId));
-      // Admin LIVE=true is an explicit override and must not be cleared by an
-      // upstream NS/delayed status. A finished provider status still closes it.
       const nextLive = isFinished
         ? false
         : isLive || existing?.is_live === true;
@@ -258,32 +307,168 @@ async function syncScores(
           status_elapsed: row?.fixture?.status?.elapsed ?? null,
           is_live: nextLive,
           is_finished: isFinished,
-          // Keep FT visible briefly so users can see the final score.
-          // A separate cleanup below removes it from Live after 8 minutes.
           last_score_sync_at: now.toISOString(),
         })
         .eq("external_fixture_id", fixtureId);
 
       if (updateError) {
-        failedUpdates += 1;
-        console.error(
-          `Failed updating fixture ${fixtureId}:`,
-          updateError,
-        );
+        summary.failed_updates += 1;
       } else {
-        synced += 1;
+        summary.synced += 1;
       }
     }
   }
 
+  return summary;
+}
+
+async function syncFootballDataScores(
+  client: any,
+  key: string,
+  candidates: any[],
+  now: Date,
+) {
+  const summary = emptyScoreSummary();
+  const candidateIds = new Set(
+    candidates.map((item: any) => String(item.external_fixture_id)),
+  );
+  const candidateByFixture = new Map(
+    candidates.map((item: any) => [
+      String(item.external_fixture_id),
+      item,
+    ]),
+  );
+
+  for (const date of candidateDates(candidates)) {
+    const url = new URL("https://api.football-data.org/v4/matches");
+    url.searchParams.set("dateFrom", date);
+    url.searchParams.set("dateTo", date);
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "X-Auth-Token": key,
+        "Accept": "application/json",
+      },
+    });
+
+    summary.api_calls += 1;
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      summary.provider_errors.push({
+        provider: "football_data_org",
+        date,
+        status: response.status,
+        error: payload?.message ?? payload?.error ?? null,
+      });
+      continue;
+    }
+
+    const fixtures = (Array.isArray(payload?.matches) ? payload.matches : [])
+      .filter((row: any) => {
+        const rawId = Number(row?.id);
+        if (!Number.isFinite(rawId)) return false;
+        return candidateIds.has(String(-Math.abs(rawId)));
+      });
+
+    summary.received_fixtures += fixtures.length;
+
+    for (const row of fixtures) {
+      const rawId = Number(row?.id);
+      if (!Number.isFinite(rawId)) continue;
+      const fixtureId = -Math.abs(rawId);
+      const statusShort = footballDataStatus(row?.status);
+      const isLive = ["LIVE", "HT", "SUSP"].includes(statusShort);
+      const isFinished = statusShort === "FT";
+      const existing = candidateByFixture.get(String(fixtureId));
+      const nextLive = isFinished
+        ? false
+        : isLive || existing?.is_live === true;
+
+      const { error: updateError } = await client
+        .from("matches")
+        .update({
+          kickoff_at: row?.utcDate ?? null,
+          home_score:
+            row?.score?.fullTime?.home ??
+            row?.score?.halfTime?.home ??
+            0,
+          away_score:
+            row?.score?.fullTime?.away ??
+            row?.score?.halfTime?.away ??
+            0,
+          status_short: statusShort,
+          status_elapsed: Number.isFinite(Number(row?.minute))
+            ? Number(row.minute)
+            : null,
+          is_live: nextLive,
+          is_finished: isFinished,
+          last_score_sync_at: now.toISOString(),
+        })
+        .eq("source", "football_data_org")
+        .eq("external_fixture_id", fixtureId);
+
+      if (updateError) {
+        summary.failed_updates += 1;
+      } else {
+        summary.synced += 1;
+      }
+    }
+  }
+
+  return summary;
+}
+
+function footballDataStatus(value: unknown) {
+  const status = String(value ?? "").trim().toUpperCase();
+  switch (status) {
+    case "FINISHED":
+      return "FT";
+    case "LIVE":
+    case "IN_PLAY":
+      return "LIVE";
+    case "PAUSED":
+      return "HT";
+    case "POSTPONED":
+      return "PST";
+    case "SUSPENDED":
+      return "SUSP";
+    case "CANCELLED":
+      return "CANC";
+    case "AWARDED":
+      return "AWD";
+    default:
+      return "NS";
+  }
+}
+
+function candidateDates(candidates: any[]) {
+  return [
+    ...new Set(
+      candidates.map((item: any) =>
+        new Date(item.kickoff_at).toISOString().slice(0, 10)
+      ),
+    ),
+  ];
+}
+
+function emptyScoreSummary() {
   return {
-    synced,
-    candidates: candidates.length,
-    received_fixtures: receivedFixtures,
-    failed_updates: failedUpdates,
-    api_calls: apiCalls,
-    provider_errors: providerErrors.slice(0, 5),
+    synced: 0,
+    received_fixtures: 0,
+    failed_updates: 0,
+    api_calls: 0,
+    provider_errors: [] as unknown[],
   };
+}
+
+function mergeScoreSummary(target: any, source: any) {
+  target.synced += source.synced ?? 0;
+  target.received_fixtures += source.received_fixtures ?? 0;
+  target.failed_updates += source.failed_updates ?? 0;
+  target.api_calls += source.api_calls ?? 0;
+  target.provider_errors.push(...(source.provider_errors ?? []));
 }
 
 async function hideFinishedMatchesAfterGrace(
