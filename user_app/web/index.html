@@ -44,7 +44,7 @@
       #football-player-menu{top:102px;left:8px;right:8px;width:auto;max-height:62vh}
     }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/shaka-player@4/dist/shaka-player.compiled.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/shaka-player@5.2.12/dist/shaka-player.compiled.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.js"></script>
 </head>
 <body>
@@ -62,7 +62,7 @@
       <div id="football-player-menu-items"></div>
     </div>
     <div id="football-player-video-wrap">
-      <video id="football-player-video" controls playsinline></video>
+      <video id="football-player-video" controls playsinline webkit-playsinline preload="metadata"></video>
       <div id="football-player-message"></div>
     </div>
   </div>
@@ -104,12 +104,36 @@
         (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
     }
 
+    function hasWebKitStreamingEngine(){
+      return !!(window.ManagedMediaSource || window.MediaSource);
+    }
+
     function sourceSupport(source){
       const type=sourceType(source);
+      const keyId=String(source.keyId||source.key_id||'').trim();
+      const keyData=String(source.keyData||source.key_data||'').trim();
 
-      // Do not blacklist a line only because of iOS/Safari.
-      // Browser capabilities change over time and some iOS/WebKit builds can
-      // play sources that older builds could not. We attempt playback first.
+      if(isIOS() && type==='dash'){
+        if(!hasWebKitStreamingEngine()){
+          return {
+            ok:false,
+            reason:'DASH needs modern iOS WebKit (iOS 17.1+) or an HLS backup'
+          };
+        }
+        if(keyId&&keyData && !(window.crypto&&window.crypto.subtle)){
+          return {
+            ok:false,
+            reason:'Encrypted DASH needs WebCrypto on this iPhone/iPad'
+          };
+        }
+        return {
+          ok:true,
+          reason:keyId&&keyData
+            ? 'DASH • iOS ClearKey via Shaka/WebCrypto'
+            : 'DASH • Shaka iOS'
+        };
+      }
+
       if(type==='flv' && window.mpegts && typeof mpegts.isSupported==='function'){
         if(!mpegts.isSupported()){
           return {ok:true, reason:'Browser support may be limited'};
@@ -123,12 +147,25 @@
       if(token!==playbackToken) return;
       autoFallbackTried.add(failedIndex);
 
-      for(let i=0;i<sources.length;i++){
-        if(!autoFallbackTried.has(i)){
-          showMessage((message||'Line unavailable')+' • trying backup line…');
-          setTimeout(()=>loadSource(i,false),450);
-          return;
-        }
+      const candidates=[...sources.keys()].filter(i=>!autoFallbackTried.has(i));
+      if(isIOS()){
+        const rank=(i)=>{
+          const type=sourceType(sources[i]);
+          if(type==='hls')return 0;
+          if(type==='dash')return 1;
+          if(type==='mp4')return 2;
+          if(type==='auto')return 3;
+          if(type==='flv')return 9;
+          return 5;
+        };
+        candidates.sort((a,b)=>rank(a)-rank(b));
+      }
+
+      if(candidates.length){
+        const nextIndex=candidates[0];
+        showMessage((message||'Line unavailable')+' • trying backup line…');
+        setTimeout(()=>loadSource(nextIndex,false),450);
+        return;
       }
 
       showMessage((message||'No working line')+' • Tap Line to choose again.');
@@ -296,6 +333,10 @@
       const token=++playbackToken;
       await destroyPlayback();
       if(!url){showMessage('This line has no stream URL.');return}
+      if(!support.ok){
+        await fallbackToNextLine(index,support.reason,token);
+        return;
+      }
       const warning=browserHeaderWarning(source);
       try{
         if(type==='flv'){
@@ -319,7 +360,7 @@
         if(type==='hls'||type==='dash'||url.includes('.m3u8')||url.includes('.mpd')){
           if(!window.shaka)throw new Error('Web streaming engine did not load.');
           shaka.polyfill.installAll();
-          if(!shaka.Player.isBrowserSupported())throw new Error('This browser does not support the web player.');
+          if(!shaka.Player.isBrowserSupported())throw new Error('This browser does not support DASH/HLS through the web player.');
           shakaPlayer=new shaka.Player();
           await shakaPlayer.attach(video);
           const keyId=String(source.keyId||source.key_id||'').trim();
@@ -391,9 +432,12 @@
       autoFallbackTried.clear();
       titleEl.textContent=String(title||'Football Live');
       let startIndex=Math.max(0,Math.min(Number(selectedIndex)||0,sources.length-1));
-      if(isIOS() && sources[startIndex] && sourceType(sources[startIndex])==='flv'){
-        const hlsIndex=sources.findIndex(source=>sourceType(source)==='hls');
-        if(hlsIndex>=0) startIndex=hlsIndex;
+      if(isIOS() && sources[startIndex]){
+        const selectedSupport=sourceSupport(sources[startIndex]);
+        if(sourceType(sources[startIndex])==='flv' || !selectedSupport.ok){
+          const hlsIndex=sources.findIndex(source=>sourceType(source)==='hls');
+          if(hlsIndex>=0) startIndex=hlsIndex;
+        }
       }
       currentSourceIndex=startIndex;
       updateServerButton(startIndex);
