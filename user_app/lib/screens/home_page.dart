@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../native_player.dart';
+import 'soco_page.dart';
 import '../widgets/theme_mode_button.dart';
 
 class HomePage extends StatefulWidget {
@@ -16,6 +17,7 @@ class _HomePageState extends State<HomePage> {
   late Future<List<Map<String, dynamic>>> _future;
   RealtimeChannel? _channel;
   Timer? _debounce;
+  int _sourceTab = 0;
 
   @override
   void initState() {
@@ -239,53 +241,87 @@ class _HomePageState extends State<HomePage> {
         ),
         actions: const [ThemeModeButton(), SizedBox(width: 6)],
       ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done && !snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError && !snapshot.hasData) {
-            return _StateMessage(
-              icon: Icons.wifi_off_rounded,
-              title: 'Couldn’t load matches',
-              subtitle: 'Check the connection and try again.',
-              onPressed: refresh,
-            );
-          }
-          final matches = snapshot.data ?? const [];
-          if (matches.isEmpty) {
-            return _StateMessage(
-              icon: Icons.sports_soccer_outlined,
-              title: 'No matches now',
-              subtitle: 'Selected big matches will appear here.',
-              onPressed: refresh,
-            );
-          }
-          return RefreshIndicator(
-            onRefresh: refresh,
-            child: ListView.separated(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 28),
-              itemCount: matches.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final m = matches[index];
-                final links = playableLinks(m['stream_links']);
-                final nativeLinkCount = links.where((x) {
-                  if (x['use_webview'] == true) return false;
-                  return (x['stream_url']?.toString() ?? '').trim().isNotEmpty;
-                }).length;
-                return _MatchCard(
-                  match: m,
-                  canWatch: nativeLinkCount > 0,
-                  linkCount: nativeLinkCount,
-                  onWatch: () => openPlayer(m),
-                );
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
+            child: SegmentedButton<int>(
+              segments: const [
+                ButtonSegment<int>(
+                  value: 0,
+                  icon: Icon(Icons.live_tv_rounded),
+                  label: Text('Main Live'),
+                ),
+                ButtonSegment<int>(
+                  value: 1,
+                  icon: Icon(Icons.public_rounded),
+                  label: Text('Soco'),
+                ),
+              ],
+              selected: {_sourceTab},
+              showSelectedIcon: false,
+              onSelectionChanged: (value) {
+                setState(() => _sourceTab = value.first);
               },
             ),
-          );
-        },
+          ),
+          Expanded(
+            child: _sourceTab == 0
+                ? FutureBuilder<List<Map<String, dynamic>>>(
+                    future: _future,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState != ConnectionState.done &&
+                          !snapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (snapshot.hasError && !snapshot.hasData) {
+                        return _StateMessage(
+                          icon: Icons.wifi_off_rounded,
+                          title: 'Couldn’t load matches',
+                          subtitle: 'Check the connection and try again.',
+                          onPressed: refresh,
+                        );
+                      }
+                      final matches = snapshot.data ?? const [];
+                      if (matches.isEmpty) {
+                        return _StateMessage(
+                          icon: Icons.sports_soccer_outlined,
+                          title: 'No matches now',
+                          subtitle: 'Selected big matches will appear here.',
+                          onPressed: refresh,
+                        );
+                      }
+                      return RefreshIndicator(
+                        onRefresh: refresh,
+                        child: ListView.separated(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(14, 10, 14, 28),
+                          itemCount: matches.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final m = matches[index];
+                            final links = playableLinks(m['stream_links']);
+                            final nativeLinkCount = links.where((x) {
+                              if (x['use_webview'] == true) return false;
+                              return (x['stream_url']?.toString() ?? '')
+                                  .trim()
+                                  .isNotEmpty;
+                            }).length;
+                            return _MatchCard(
+                              match: m,
+                              canWatch: nativeLinkCount > 0,
+                              linkCount: nativeLinkCount,
+                              onWatch: () => openPlayer(m),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  )
+                : const SocoPage(),
+          ),
+        ],
       ),
     );
   }
