@@ -5,6 +5,7 @@ import 'edit_live_page.dart';
 import 'fixture_import_page.dart';
 import 'live_links_page.dart';
 import 'live_upload_page.dart';
+import 'soco_import_page.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
@@ -18,7 +19,7 @@ class DashboardPage extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Football Admin Pro'),
+        title: const Text('NCA Admin'),
         actions: [
           const ThemeModeButton(),
           IconButton(
@@ -75,6 +76,14 @@ class DashboardPage extends StatelessWidget {
             subtitle: 'Add primary/backup links and edit or disable them.',
             iconColor: const Color(0xFF7C3AED),
             onTap: () => open(context, const LiveLinksPage()),
+          ),
+          const SizedBox(height: 10),
+          _ActionCard(
+            icon: Icons.podcasts_rounded,
+            title: 'Soco Source Picker',
+            subtitle: 'Choose a Soco match, streamer and HLS/FLV quality, then add it to an NCA match.',
+            iconColor: const Color(0xFFDC2626),
+            onTap: () => open(context, const SocoImportPage()),
           ),
         ],
       ),
