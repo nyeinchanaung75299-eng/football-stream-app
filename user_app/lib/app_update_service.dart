@@ -21,6 +21,62 @@ class AppUpdateService {
         'feed/public/releases/latest.json',
   ];
 
+  static Future<String> versionSummary() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final currentVersion = info.version.trim().isEmpty
+          ? '9.8.0'
+          : info.version.trim();
+      final currentBuild = info.buildNumber.trim();
+      final installed = currentBuild.isEmpty
+          ? 'V$currentVersion'
+          : 'V$currentVersion ($currentBuild)';
+
+      if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+        return 'Installed $installed';
+      }
+
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      for (final base in _manifestUrls) {
+        try {
+          final response = await http
+              .get(
+                Uri.parse('$base?t=$stamp'),
+                headers: const {
+                  'Accept': 'application/json',
+                  'Cache-Control': 'no-cache',
+                },
+              )
+              .timeout(const Duration(seconds: 5));
+
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            continue;
+          }
+
+          final decoded = jsonDecode(response.body);
+          if (decoded is! Map) continue;
+
+          final latestVersion =
+              decoded['version_name']?.toString().trim() ?? '';
+          final latestBuild =
+              decoded['build_number']?.toString().trim() ?? '';
+          if (latestVersion.isEmpty && latestBuild.isEmpty) {
+            return 'Installed $installed';
+          }
+
+          final latest = latestBuild.isEmpty
+              ? 'V$latestVersion'
+              : 'V$latestVersion ($latestBuild)';
+          return 'Installed $installed • Latest $latest';
+        } catch (_) {}
+      }
+
+      return 'Installed $installed • Latest unavailable';
+    } catch (_) {
+      return 'Version unavailable';
+    }
+  }
+
   static Future<void> check(
     BuildContext context, {
     bool force = false,
@@ -94,8 +150,10 @@ class AppUpdateService {
         );
         if (force && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('NCA is already up to date.'),
+            SnackBar(
+              content: Text(
+                'NCA ${info.version} (build ${info.buildNumber}) is already up to date. Latest build: $latestBuild.',
+              ),
             ),
           );
         }

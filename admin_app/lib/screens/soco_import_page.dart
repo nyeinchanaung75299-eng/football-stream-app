@@ -167,8 +167,19 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   Future<String?> _chooseDestination() async {
-    final targets = await _loadTargetMatches();
-    if (!mounted || targets.isEmpty) return null;
+    final loaded = await _loadTargetMatches();
+    if (!mounted || loaded.isEmpty) return null;
+
+    final targets = List<Map<String, dynamic>>.from(loaded);
+    final suggestedId = targetMatchId;
+    if (suggestedId != null) {
+      targets.sort((a, b) {
+        final aSuggested = a['id']?.toString() == suggestedId;
+        final bSuggested = b['id']?.toString() == suggestedId;
+        if (aSuggested == bSuggested) return 0;
+        return aSuggested ? -1 : 1;
+      });
+    }
 
     return showModalBottomSheet<String>(
       context: context,
@@ -222,6 +233,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     subtitle: Text(when),
+                    trailing: m['id']?.toString() == suggestedId
+                        ? const Text(
+                            'CURRENT',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          )
+                        : null,
                     onTap: () => Navigator.pop(
                       sheetContext,
                       m['id']?.toString(),
@@ -525,28 +545,18 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   ),
                 );
               }),
-              if (targetMatchId == null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    'Each ADD will ask which NCA match to use.',
-                    style: TextStyle(
-                      color: colors.onSurfaceVariant,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                )
-              else
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    'Destination is locked to the match selected above.',
-                    style: TextStyle(
-                      color: colors.onSurfaceVariant,
-                      fontWeight: FontWeight.w700,
-                    ),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  targetMatchId == null
+                      ? 'Each ADD will ask which NCA match to use.'
+                      : 'Each ADD will still ask for the NCA match. The selected destination is shown first.',
+                  style: TextStyle(
+                    color: colors.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
+              ),
             ],
           ),
         );
@@ -558,12 +568,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
     required Map<String, dynamic> line,
     required String anchorName,
   }) async {
-    // Only reuse a destination when the admin explicitly selected one from
-    // the destination dropdown (or this page was opened for a fixed match).
-    // A match picked from the ADD dialog is intentionally one-shot so every
-    // later ADD asks again instead of silently reusing the previous match.
+    // Always require an explicit destination confirmation. The dropdown and
+    // initial match only suggest which match should appear first.
     final presetTarget = targetMatchId;
-    final target = presetTarget ?? await _chooseDestination();
+    final target = await _chooseDestination();
     if (target == null) return false;
 
     final url = (line['url'] ?? '').toString().trim();
@@ -737,7 +745,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       value: targetMatchId,
                       isExpanded: true,
                       decoration: const InputDecoration(
-                        labelText: 'Destination match (optional)',
+                        labelText: 'Suggested destination (ADD confirms)',
                         prefixIcon: Icon(Icons.sports_soccer_rounded),
                       ),
                       items: targets.map((m) {
