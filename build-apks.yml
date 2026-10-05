@@ -1,4 +1,4 @@
-name: Build Android V9.0 Pro APKs
+name: Build Android V9.1 Pro APKs
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
       - name: Upload Admin APKs
         uses: actions/upload-artifact@v7
         with:
-          name: Football-Admin-V9.0-Pro-Release-APKs
+          name: Football-Admin-V9.1-Pro-Release-APKs
           path: admin_app/build/app/outputs/flutter-apk/*-release.apk
 
       - name: Create Android platform for Viewer
@@ -102,10 +102,12 @@ jobs:
 
       - name: Build Viewer release APKs
         working-directory: user_app
-        run: flutter build apk --release --split-per-abi
+        run: |
+          flutter build apk --release --split-per-abi \
+            --dart-define=PUBLIC_API_BASE="${{ vars.PUBLIC_API_BASE }}"
 
       - name: Upload Viewer APKs
         uses: actions/upload-artifact@v7
         with:
-          name: Football-Viewer-V9.0-Pro-Release-APKs
+          name: Football-Viewer-V9.1-Pro-Release-APKs
           path: user_app/build/app/outputs/flutter-apk/*-release.apk
