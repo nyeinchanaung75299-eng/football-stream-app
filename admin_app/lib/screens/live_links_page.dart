@@ -590,7 +590,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                                   if (mounted) setState(() {});
                                 },
                           icon: const Icon(Icons.podcasts_rounded),
-                          label: const Text('PICK FROM SOCO'),
+                          label: const Text('PICK STREAM SOURCE'),
                         ),
                       ),
                       const SizedBox(height: 12),
