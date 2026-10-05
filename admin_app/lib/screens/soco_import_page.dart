@@ -17,6 +17,7 @@ class SocoImportPage extends StatefulWidget {
 class _SocoImportPageState extends State<SocoImportPage> {
   String? targetMatchId;
   bool loading = false;
+  String source = 'soco';
   String dayFilter = 'today';
   String? errorText;
   List<Map<String, dynamic>> sourceMatches = const [];
@@ -67,12 +68,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
     try {
       final data = await FunctionGateway.invoke(
         'soco-links',
-        body: const {'action': 'matches'},
+        body: {
+          'action': 'matches',
+          'source': source,
+        },
       );
 
       final rows = data is Map ? data['matches'] : null;
       if (rows is! List) {
-        throw const FormatException('Soco match list is invalid.');
+        throw const FormatException('Source match list is invalid.');
       }
 
       final parsed = rows
@@ -102,7 +106,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (!mounted) return;
       setState(() {
         sourceMatches = const [];
-        errorText = 'Could not load Soco sources. Pull to retry.';
+        errorText = 'Could not load ${_sourceLabel(source)} sources. Pull to retry.';
       });
     } finally {
       if (mounted) setState(() => loading = false);
@@ -113,7 +117,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       a.year == b.year && a.month == b.month && a.day == b.day;
 
   List<Map<String, dynamic>> get _visibleSourceMatches {
-    if (dayFilter == 'all') return sourceMatches;
+    if (source == 'fawa' || dayFilter == 'all') return sourceMatches;
 
     final now = DateTime.now();
     final wanted = dayFilter == 'tomorrow'
@@ -148,7 +152,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
         'soco-links',
         body: {
           'action': 'streams',
+          'source': source,
           'room_num': room,
+          'schedule_id': match['schedule_id'],
+          'page_url': match['page_url'],
         },
       );
 
@@ -158,7 +165,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
       final rows = data is Map ? data['lines'] : null;
       if (rows is! List) {
-        throw const FormatException('No Soco quality list returned.');
+        throw const FormatException('No stream quality list returned.');
       }
 
       final lines = rows
@@ -181,7 +188,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
         Navigator.of(context, rootNavigator: true).pop();
       }
-      message('Could not load Soco quality links.');
+      message('Could not load ${_sourceLabel(source)} stream links.');
     }
   }
 
@@ -223,6 +230,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 final type =
                     (line['stream_type'] ?? 'auto').toString().toUpperCase();
                 final url = (line['url'] ?? '').toString();
+                final referer = (line['referer'] ?? '').toString().trim();
+                final origin = (line['origin'] ?? '').toString().trim();
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -257,6 +266,30 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                   color: colors.onSurfaceVariant,
                                 ),
                               ),
+                              if (referer.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Referer: $referer',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                              if (origin.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Origin: $origin',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -266,7 +299,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                             await Clipboard.setData(
                               ClipboardData(text: url),
                             );
-                            message('Soco link copied.');
+                            message('${_sourceLabel(source)} link copied.');
                           },
                           icon: const Icon(Icons.copy_rounded),
                         ),
@@ -328,22 +361,23 @@ class _SocoImportPageState extends State<SocoImportPage> {
         .maybeSingle();
 
     if (existing != null) {
-      message('This Soco line is already added.');
+      message('This source line is already added.');
       return;
     }
 
-    final label = (line['label'] ?? 'Soco').toString();
+    final sourceName = _sourceLabel(source);
+    final label = (line['label'] ?? sourceName).toString();
     final type = (line['stream_type'] ?? 'auto').toString();
     final resolution = (line['resolution'] ?? label).toString();
 
     await Supabase.instance.client.from('stream_links').insert({
       'match_id': target,
-      'label': 'Soco • $anchorName • $label',
+      'label': '$sourceName • $anchorName • $label',
       'resolution': resolution,
       'stream_type': type,
       'stream_url': url,
-      'referer': null,
-      'origin': null,
+      'referer': nullable(line['referer']?.toString()),
+      'origin': nullable(line['origin']?.toString()),
       'use_webview': false,
       'webview_url': null,
       'send_notification': false,
@@ -351,7 +385,48 @@ class _SocoImportPageState extends State<SocoImportPage> {
       'expires_at': line['expires_at'],
     });
 
-    message('Soco $label added to the selected match.');
+    message('$sourceName $label added to the selected match.');
+  }
+
+  String? nullable(String? value) {
+    final text = value?.trim() ?? '';
+    return text.isEmpty ? null : text;
+  }
+
+  String _sourceLabel(String value) {
+    switch (value) {
+      case 'yyzb':
+        return 'YYZB';
+      case 'fawa':
+        return 'Fawa';
+      default:
+        return 'Soco';
+    }
+  }
+
+  Widget _sourceButton(String value, String label) {
+    final selected = source == value;
+    final onPressed = loading
+        ? null
+        : () {
+            setState(() {
+              source = value;
+              dayFilter = value == 'fawa' ? 'all' : 'today';
+              sourceMatches = const [];
+              errorText = null;
+            });
+            _loadSoco();
+          };
+
+    return selected
+        ? FilledButton.tonal(
+            onPressed: onPressed,
+            child: Text(label),
+          )
+        : OutlinedButton(
+            onPressed: onPressed,
+            child: Text(label),
+          );
   }
 
   Widget _dayButton(String value, String label) {
@@ -374,10 +449,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Soco Source Picker'),
+        title: const Text('Stream Source Picker'),
         actions: [
           IconButton(
-            tooltip: 'Refresh Soco',
+            tooltip: 'Refresh source',
             onPressed: loading ? null : _loadSoco,
             icon: const Icon(Icons.refresh_rounded),
           ),
@@ -406,7 +481,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       value: targetMatchId,
                       isExpanded: true,
                       decoration: const InputDecoration(
-                        labelText: 'Add selected Soco line to',
+                        labelText: 'Add selected source line to',
                         prefixIcon: Icon(Icons.sports_soccer_rounded),
                       ),
                       items: targets.map((m) {
@@ -430,22 +505,50 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    _dayButton('today', 'Today'),
+                    _sourceButton('soco', 'Soco'),
+                    _sourceButton('yyzb', 'YYZB'),
+                    _sourceButton('fawa', 'Fawa'),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Source: ${_sourceLabel(source)}',
+                  style: TextStyle(
+                    color: colors.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (source != 'fawa')
+                  Row(
+                    children: [
+                      _dayButton('today', 'Today'),
                     const SizedBox(width: 4),
                     _dayButton('tomorrow', 'Tomorrow'),
                     const SizedBox(width: 4),
                     _dayButton('all', 'All'),
                     const Spacer(),
-                    if (loading)
-                      const SizedBox(
-                        width: 19,
-                        height: 19,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                  ],
-                ),
+                      if (loading)
+                        const SizedBox(
+                          width: 19,
+                          height: 19,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                    ],
+                  )
+                else if (loading)
+                  const Align(
+                    alignment: Alignment.centerRight,
+                    child: SizedBox(
+                      width: 19,
+                      height: 19,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
                 const SizedBox(height: 8),
                 if (errorText != null)
                   Card(
@@ -461,7 +564,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   const Card(
                     child: Padding(
                       padding: EdgeInsets.all(18),
-                      child: Text('No Soco football matches in this section.'),
+                      child: Text('No football matches in this source section.'),
                     ),
                   ),
                 ...visible.map((match) {
