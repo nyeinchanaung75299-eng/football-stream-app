@@ -108,6 +108,43 @@ const segmentTarget = await resolveProtectedTarget(
 );
 assert.equal(segmentTarget, 'https://media.example/live/chunk-v1-00001.m4s');
 
+const nestedOnlyMpd = `<MPD>
+  <Period>
+    <AdaptationSet>
+      <BaseURL>video/</BaseURL>
+      <Representation>
+        <SegmentTemplate media="v-$Number$.m4s" />
+      </Representation>
+    </AdaptationSet>
+    <AdaptationSet>
+      <Representation>
+        <SegmentTemplate media="a-$Number$.m4s" />
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>`;
+
+const nestedRewritten = await rewriteDashManifest(
+  nestedOnlyMpd,
+  'https://media.example/live/manifest.mpd',
+  sessionToken,
+  session.k,
+  'https://football-api.example',
+);
+const rootBases = [...nestedRewritten.matchAll(
+  /<MPD[^>]*><BaseURL>https:\/\/football-api\.example\/p\/[^/]+\/b\/([^/]+)\/<\/BaseURL>/g,
+)];
+assert.equal(
+  rootBases.length,
+  1,
+  'nested-only BaseURL manifests must still receive one protected MPD-level base',
+);
+assert.ok(
+  !nestedRewritten.includes('media.example') &&
+    !nestedRewritten.includes('https://cdn.example'),
+  'nested-only BaseURL rewrite must not expose upstream hosts',
+);
+
 const absoluteMpd = `<MPD>
   <BaseURL>https://cdn.example/sports/game/</BaseURL>
   <Period>
@@ -173,7 +210,8 @@ assert.match(hls, /https:\/\/football-api\.example\/p\//);
 console.log('PASS protected non-DRM DASH is advertised');
 console.log('PASS keyed DASH remains private');
 console.log('PASS relative DASH SegmentTemplate uses protected base routing');
+console.log('PASS nested-only BaseURL manifests receive a protected root base');
 console.log('PASS absolute DASH templates preserve substitution tokens');
 console.log('PASS protected DASH base cannot escape its upstream path');
 console.log('PASS existing HLS rewrite remains protected');
-console.log('6 protected playback regression checks passed.');
+console.log('7 protected playback regression checks passed.');
