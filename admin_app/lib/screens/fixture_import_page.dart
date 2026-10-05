@@ -114,7 +114,20 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     try {
       final savedIds = <String>[];
 
+      var skippedDeleted = 0;
       for (final f in chosen) {
+        final fixtureId = f['fixture_id'];
+        final existing = await Supabase.instance.client
+            .from('matches')
+            .select('id,deleted_at')
+            .eq('external_fixture_id', fixtureId)
+            .maybeSingle();
+
+        if (existing != null && existing['deleted_at'] != null) {
+          skippedDeleted += 1;
+          continue;
+        }
+
         final saved = await Supabase.instance.client
             .from('matches')
             .upsert(
@@ -136,7 +149,6 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                 'is_active': true,
                 'is_featured': true,
                 'publish_state': 'published',
-                'deleted_at': null,
               },
               onConflict: 'external_fixture_id',
             )
@@ -149,6 +161,16 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       if (!mounted) return;
 
       setState(() => selectedIds.clear());
+
+      if (skippedDeleted > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$skippedDeleted deleted match(es) were skipped and not restored.',
+            ),
+          ),
+        );
+      }
 
       if (chosen.length == 1 && savedIds.isNotEmpty) {
         final addStreams = await showModalBottomSheet<bool>(
