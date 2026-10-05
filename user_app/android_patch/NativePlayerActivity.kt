@@ -50,6 +50,8 @@ class NativePlayerActivity : Activity() {
     private var qualityOptions = mutableListOf<QualityOption>()
     private var forcedQualityLabel: String? = null
     private var autoFallbackTried = mutableSetOf<Int>()
+    private var playbackStartedServers = mutableSetOf<Int>()
+    private var bufferingReportedServers = mutableSetOf<Int>()
 
     private data class QualityOption(
         val label: String,
@@ -77,6 +79,22 @@ class NativePlayerActivity : Activity() {
             }
             showFatalError(detail)
         }
+    }
+
+    private fun emitPlaybackEvent(
+        event: String,
+        extra: Map<String, Any?> = emptyMap()
+    ) {
+        val source = sources.optJSONObject(selectedServerIndex)
+        val base = mutableMapOf<String, Any?>(
+            "selected_index" to selectedServerIndex,
+            "line_count" to sources.length(),
+            "stream_type" to (source?.optString("streamType", "auto") ?: "auto"),
+            "resolution" to (source?.optString("resolution", "") ?: ""),
+            "health_status" to (source?.optString("healthStatus", "unknown") ?: "unknown")
+        )
+        base.putAll(extra)
+        MainActivity.emitPlayerEvent(event, base)
     }
 
     private fun createPlayerScreen() {
@@ -148,7 +166,10 @@ class NativePlayerActivity : Activity() {
         val back = overlayButton("←").apply {
             textSize = 28f
             contentDescription = "Back"
-            setOnClickListener { finish() }
+            setOnClickListener {
+                emitPlaybackEvent("playback closed")
+                finish()
+            }
         }
 
         serverButton = overlayButton("Server").apply {
@@ -329,13 +350,30 @@ class NativePlayerActivity : Activity() {
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     when (playbackState) {
-                        Player.STATE_READY -> hideStatus()
-                        Player.STATE_BUFFERING -> showStatus("Buffering…")
-                        Player.STATE_ENDED -> showStatus("Stream ended")
+                        Player.STATE_READY -> {
+                            hideStatus()
+                            if (playbackStartedServers.add(selectedServerIndex)) {
+                                emitPlaybackEvent("playback started")
+                            }
+                        }
+                        Player.STATE_BUFFERING -> {
+                            showStatus("Buffering…")
+                            if (bufferingReportedServers.add(selectedServerIndex)) {
+                                emitPlaybackEvent("playback buffering")
+                            }
+                        }
+                        Player.STATE_ENDED -> {
+                            showStatus("Stream ended")
+                            emitPlaybackEvent("playback ended")
+                        }
                     }
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    emitPlaybackEvent(
+                        "playback line failed",
+                        mapOf("error_code" to error.errorCodeName)
+                    )
                     tryNextServer("Server unavailable")
                 }
             })
@@ -345,7 +383,11 @@ class NativePlayerActivity : Activity() {
             exo.setMediaItem(itemBuilder.build())
             exo.prepare()
             exo.playWhenReady = true
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            emitPlaybackEvent(
+                "playback line failed",
+                mapOf("error_code" to t.javaClass.simpleName)
+            )
             tryNextServer("Server unavailable")
         }
     }
@@ -354,6 +396,14 @@ class NativePlayerActivity : Activity() {
         autoFallbackTried.add(selectedServerIndex)
         for (i in 0 until sources.length()) {
             if (!autoFallbackTried.contains(i)) {
+                val from = selectedServerIndex
+                emitPlaybackEvent(
+                    "playback auto fallback",
+                    mapOf(
+                        "from_index" to from,
+                        "to_index" to i
+                    )
+                )
                 showStatus("$message • trying backup…")
                 playerView.postDelayed({ playServer(i) }, 550)
                 return
@@ -374,6 +424,13 @@ class NativePlayerActivity : Activity() {
             val i = item.itemId - 12000
             if (i in 0 until sources.length()) {
                 autoFallbackTried.clear()
+                MainActivity.emitPlayerEvent(
+                    "playback line selected",
+                    mapOf(
+                        "selected_index" to i,
+                        "line_count" to sources.length()
+                    )
+                )
                 playServer(i)
                 true
             } else false
@@ -415,6 +472,10 @@ class NativePlayerActivity : Activity() {
                 selector.parameters = selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_VIDEO).build()
                 forcedQualityLabel = null
                 qualityButton.text = "Auto"
+                emitPlaybackEvent(
+                    "playback quality selected",
+                    mapOf("quality" to "auto")
+                )
                 true
             } else {
                 val option = qualityOptions.getOrNull(item.itemId - 9100) ?: return@setOnMenuItemClickListener false
@@ -422,6 +483,10 @@ class NativePlayerActivity : Activity() {
                 selector.parameters = selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_VIDEO).setOverrideForType(override).build()
                 forcedQualityLabel = option.label
                 qualityButton.text = option.label
+                emitPlaybackEvent(
+                    "playback quality selected",
+                    mapOf("quality" to option.label)
+                )
                 true
             }
         }
@@ -458,6 +523,10 @@ class NativePlayerActivity : Activity() {
     }
 
     private fun showFatalError(text: String) {
+        MainActivity.emitPlayerEvent(
+            "playback fatal error",
+            mapOf("reason" to text.lineSequence().firstOrNull().orEmpty().take(80))
+        )
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         val message = TextView(this).apply {
             setTextColor(Color.WHITE)
