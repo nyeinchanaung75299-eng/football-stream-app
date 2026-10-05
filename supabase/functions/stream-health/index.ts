@@ -120,6 +120,7 @@ Deno.serve(async (req) => {
       healthy: results.filter((x) => x.health_status === "healthy").length,
       slow: results.filter((x) => x.health_status === "slow").length,
       failed: results.filter((x) => x.health_status === "failed").length,
+      unknown: results.filter((x) => x.health_status === "unknown").length,
     };
 
     if (linkId && results.length === 1) {
@@ -187,9 +188,18 @@ async function checkLink(
         response.status === 206 ||
         (response.status >= 300 && response.status < 400);
 
-      health = reachable
-        ? (latency > 3000 ? "slow" : "healthy")
-        : "failed";
+      if (reachable) {
+        health = latency > 3000 ? "slow" : "healthy";
+      } else if (
+        response.status === 401 ||
+        response.status === 403 ||
+        response.status === 405 ||
+        response.status === 429
+      ) {
+        health = "unknown";
+      } else {
+        health = "failed";
+      }
 
       detail = reachable ? "reachable" : `HTTP ${response.status}`;
 
