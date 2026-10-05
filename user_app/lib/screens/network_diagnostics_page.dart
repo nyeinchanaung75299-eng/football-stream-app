@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../app_update_service.dart';
+
 class NetworkDiagnosticsPage extends StatefulWidget {
   const NetworkDiagnosticsPage({super.key});
 
@@ -458,6 +460,21 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
           ],
           const SizedBox(height: 10),
           ..._results.map((result) => _ResultTile(result: result)),
+          const SizedBox(height: 14),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.system_update_alt_rounded),
+              title: const Text(
+                'App updates',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: const Text(
+                'NCA can check, download and open the latest APK installer directly.',
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => AppUpdateService.check(context, force: true),
+            ),
+          ),
           const SizedBox(height: 14),
           const Text(
             'HLS-first policy',
