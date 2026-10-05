@@ -59,19 +59,26 @@ class NativePlayerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         try {
             createPlayerScreen()
         } catch (t: Throwable) {
-            showFatalError("Player failed to start")
+            val detail = buildString {
+                append("Player UI failed")
+                append("\n")
+                append(t.javaClass.simpleName)
+                val message = t.message?.trim().orEmpty()
+                if (message.isNotEmpty()) {
+                    append(": ")
+                    append(message.take(180))
+                }
+            }
+            showFatalError(detail)
         }
     }
 
     private fun createPlayerScreen() {
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.statusBarColor = Color.BLACK
-        window.navigationBarColor = Color.BLACK
-        hideSystemBars()
-
+        // Parse the payload before doing any ExoPlayer work.
         val json = intent.getStringExtra("sourcesJson").orEmpty()
         if (json.isBlank()) {
             showFatalError("No stream source")
@@ -80,7 +87,7 @@ class NativePlayerActivity : Activity() {
 
         sources = try {
             JSONArray(json)
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
             showFatalError("Invalid stream source")
             return
         }
@@ -93,7 +100,21 @@ class NativePlayerActivity : Activity() {
         selectedServerIndex = intent.getIntExtra("selectedIndex", 0)
             .coerceIn(0, sources.length() - 1)
 
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        // Put a content view on screen first. Some Android 12 / OEM builds can
+        // be fragile if immersive-window calls happen before a decor view exists.
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+        }
+        setContentView(root)
+
+        try {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window.statusBarColor = Color.BLACK
+            window.navigationBarColor = Color.BLACK
+        } catch (_: Throwable) {
+            // Window cosmetics must never stop playback from starting.
+        }
+
         playerView = PlayerView(this).apply {
             setBackgroundColor(Color.BLACK)
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -101,7 +122,13 @@ class NativePlayerActivity : Activity() {
             controllerAutoShow = true
             controllerShowTimeoutMs = 3000
         }
-        root.addView(playerView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(
+            playerView,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
 
         val topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -109,25 +136,46 @@ class NativePlayerActivity : Activity() {
             setPadding(dp(12), dp(10), dp(12), dp(6))
             setBackgroundColor(Color.argb(115, 0, 0, 0))
         }
+
         val back = overlayButton("←").apply {
             textSize = 28f
             contentDescription = "Back"
             setOnClickListener { finish() }
         }
+
         serverButton = overlayButton("Server").apply {
             textSize = 14f
             setPadding(dp(12), 0, dp(12), 0)
             setOnClickListener { showServerMenu() }
         }
+
         qualityButton = overlayButton("Auto").apply {
             textSize = 14f
             setPadding(dp(12), 0, dp(12), 0)
             setOnClickListener { showQualityMenu() }
         }
+
         topBar.addView(back, LinearLayout.LayoutParams(dp(48), dp(42)))
-        topBar.addView(serverButton, LinearLayout.LayoutParams(0, dp(42), 1f))
-        topBar.addView(qualityButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)))
-        root.addView(topBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
+        topBar.addView(
+            serverButton,
+            LinearLayout.LayoutParams(0, dp(42), 1f)
+        )
+        topBar.addView(
+            qualityButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                dp(42)
+            )
+        )
+
+        root.addView(
+            topBar,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP
+            )
+        )
 
         statusText = TextView(this).apply {
             setTextColor(Color.WHITE)
@@ -137,15 +185,26 @@ class NativePlayerActivity : Activity() {
             setBackgroundColor(Color.argb(165, 0, 0, 0))
             visibility = View.GONE
         }
-        root.addView(statusText, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
 
-        setContentView(root)
-        playServer(selectedServerIndex)
+        root.addView(
+            statusText,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
+        )
+
+        // Run immersive-mode and playback only after the view hierarchy exists.
+        root.post {
+            safeHideSystemBars()
+            playServer(selectedServerIndex)
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemBars()
+        if (hasFocus) safeHideSystemBars()
     }
 
     private fun playServer(index: Int) {
@@ -356,19 +415,30 @@ class NativePlayerActivity : Activity() {
         }
     }
 
-    private fun hideSystemBars() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-            window.insetsController?.let { c ->
-                c.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    private fun safeHideSystemBars() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.setDecorFitsSystemWindows(false)
+                window.insetsController?.let { c ->
+                    c.hide(
+                        WindowInsets.Type.statusBars() or
+                            WindowInsets.Type.navigationBars()
+                    )
+                    c.systemBarsBehavior =
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility =
+                    View.SYSTEM_UI_FLAG_FULLSCREEN or
+                        View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                        View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                        View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                        View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                        View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility =
-                View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        } catch (_: Throwable) {
+            // Fullscreen behavior is optional; playback should still continue.
         }
     }
 

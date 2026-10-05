@@ -1,4 +1,4 @@
-name: Build Android V7 Pro APKs
+name: Build Android V7.1 Pro APKs
 
 on:
   workflow_dispatch:
@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Java 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
@@ -52,9 +52,9 @@ jobs:
         run: flutter build apk --release --split-per-abi
 
       - name: Upload Admin APKs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: Football-Admin-V7-Pro-Release-APKs
+          name: Football-Admin-V7.1-Pro-Release-APKs
           path: admin_app/build/app/outputs/flutter-apk/*-release.apk
 
       - name: Create Android platform for Viewer
@@ -105,7 +105,7 @@ jobs:
         run: flutter build apk --release --split-per-abi
 
       - name: Upload Viewer APKs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: Football-Viewer-V7-Pro-Release-APKs
+          name: Football-Viewer-V7.1-Pro-Release-APKs
           path: user_app/build/app/outputs/flutter-apk/*-release.apk
