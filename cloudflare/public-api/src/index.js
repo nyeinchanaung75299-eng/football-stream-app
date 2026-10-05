@@ -157,7 +157,8 @@ async function handleStreams(request, matchId, env, publicOrigin) {
 
   const base = env.SUPABASE_URL?.trim() || "";
   const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() || "";
-  if (!base || !key || !env.PLAYBACK_TOKENS) {
+  const backendSecret = env.PLAYBACK_BACKEND_SECRET?.trim() || "";
+  if (!base || !key || !backendSecret || !env.PLAYBACK_TOKENS) {
     return json({ error: "Protected playback is not configured." }, 503, {
       "Cache-Control": "no-store, max-age=0",
     });
@@ -198,13 +199,22 @@ async function handleStreams(request, matchId, env, publicOrigin) {
       });
     }
 
-    const streamUrl = new URL(base.replace(/\/+$/, "") + "/rest/v1/stream_links");
-    streamUrl.searchParams.set("select", LINK_FIELDS.join(","));
-    streamUrl.searchParams.set("match_id", "eq." + matchId);
-    streamUrl.searchParams.set("is_active", "eq.true");
-    streamUrl.searchParams.set("order", "priority.asc,sort_order.asc");
+    const streamUrl = new URL(
+      base.replace(/\/+$/, "") +
+        "/rest/v1/rpc/get_stream_links_for_gateway",
+    );
 
-    const streamResponse = await fetch(streamUrl, { headers: commonHeaders });
+    const streamResponse = await fetch(streamUrl, {
+      method: "POST",
+      headers: {
+        ...commonHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        p_match_id: matchId,
+        p_secret: backendSecret,
+      }),
+    });
     if (!streamResponse.ok) {
       return json({
         error: "Stream configuration upstream unavailable.",
@@ -248,33 +258,31 @@ async function loadMatchRows(env) {
       if (matchesResponse.ok) {
         const matches = await matchesResponse.json();
 
-        const linksUrl = new URL(base.replace(/\/+$/, "") + "/rest/v1/stream_links");
-        linksUrl.searchParams.set(
-          "select",
-          ["match_id", ...LINK_FIELDS, "sort_order"].join(","),
+        const countsUrl = new URL(
+          base.replace(/\/+$/, "") + "/rest/v1/match_stream_counts",
         );
-        linksUrl.searchParams.set("is_active", "eq.true");
-        linksUrl.searchParams.set("order", "priority.asc,sort_order.asc");
+        countsUrl.searchParams.set("select", "match_id,stream_count");
 
-        const linksResponse = await fetch(linksUrl, { headers });
-        const links = linksResponse.ok ? await linksResponse.json() : [];
+        const countsResponse = await fetch(countsUrl, { headers });
+        const counts = countsResponse.ok ? await countsResponse.json() : [];
 
         if (Array.isArray(matches)) {
-          const grouped = new Map();
-          if (Array.isArray(links)) {
-            for (const raw of links) {
+          const byMatch = new Map();
+          if (Array.isArray(counts)) {
+            for (const raw of counts) {
               const matchId = String(raw.match_id || "");
               if (!matchId) continue;
-              const list = grouped.get(matchId) || [];
-              list.push(raw);
-              grouped.set(matchId, list);
+              byMatch.set(
+                matchId,
+                Math.max(0, Number(raw.stream_count || 0)),
+              );
             }
           }
           return {
             source: "supabase",
             rows: matches.map((raw) => ({
               ...raw,
-              stream_links: grouped.get(String(raw.id || "")) || [],
+              stream_count: byMatch.get(String(raw.id || "")) || 0,
             })),
           };
         }
