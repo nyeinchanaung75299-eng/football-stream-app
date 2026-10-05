@@ -476,7 +476,18 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    'Tap ADD, then choose the NCA match.',
+                    'Each ADD will ask which NCA match to use.',
+                    style: TextStyle(
+                      color: colors.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Destination is locked to the match selected above.',
                     style: TextStyle(
                       color: colors.onSurfaceVariant,
                       fontWeight: FontWeight.w700,
@@ -494,13 +505,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
     required Map<String, dynamic> line,
     required String anchorName,
   }) async {
-    var target = targetMatchId;
-    target ??= await _chooseDestination();
+    // Only reuse a destination when the admin explicitly selected one from
+    // the destination dropdown (or this page was opened for a fixed match).
+    // A match picked from the ADD dialog is intentionally one-shot so every
+    // later ADD asks again instead of silently reusing the previous match.
+    final presetTarget = targetMatchId;
+    final target = presetTarget ?? await _chooseDestination();
     if (target == null) return false;
-
-    if (mounted && targetMatchId != target) {
-      setState(() => targetMatchId = target);
-    }
 
     final url = (line['url'] ?? '').toString().trim();
     if (url.isEmpty) return false;
