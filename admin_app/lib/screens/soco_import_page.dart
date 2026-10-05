@@ -568,10 +568,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
     required Map<String, dynamic> line,
     required String anchorName,
   }) async {
-    // Only reuse a destination when the admin explicitly selected one from
-    // the destination dropdown (or this page was opened for a fixed match).
-    // A match picked from the ADD dialog is intentionally one-shot so every
-    // later ADD asks again instead of silently reusing the previous match.
+    // Always require an explicit destination confirmation. The dropdown and
+    // initial match only suggest which match should appear first.
     final presetTarget = targetMatchId;
     final target = await _chooseDestination();
     if (target == null) return false;
@@ -747,7 +745,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       value: targetMatchId,
                       isExpanded: true,
                       decoration: const InputDecoration(
-                        labelText: 'Destination match (optional)',
+                        labelText: 'Suggested destination (ADD confirms)',
                         prefixIcon: Icon(Icons.sports_soccer_rounded),
                       ),
                       items: targets.map((m) {
