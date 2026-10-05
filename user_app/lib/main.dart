@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'analytics_service.dart';
 import 'app_theme.dart';
 import 'screens/home_page.dart';
 import 'theme_controller.dart';
@@ -18,6 +19,7 @@ Future<void> main() async {
   try {
     await AppThemeController.instance.load();
   } catch (_) {}
+  await AnalyticsService.initialize();
 
   runApp(FootballViewerApp(startupError: startupError));
 }
