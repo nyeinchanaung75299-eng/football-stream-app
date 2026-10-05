@@ -470,9 +470,9 @@ function advertisedLinkCount(raw: unknown) {
       return false;
     }
 
-    if (link.use_webview === true) {
-      return String(link.webview_url ?? "").trim().length > 0;
-    }
+    // Home WATCH currently opens the native stream picker. WebView-only
+    // entries are managed separately and should not inflate its line count.
+    if (link.use_webview === true) return false;
 
     return String(link.stream_url ?? "").trim().length > 0;
   }).length;
