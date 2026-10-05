@@ -24,13 +24,6 @@ type StreamRow = {
   key_data: string | null;
 };
 
-const FAWA_ALIASES: Record<string, string> = {
-  "193.47.62.41": "fawa41-origin.nyeinchanaung.us.ci",
-  "193.47.62.44": "fawa44-origin.nyeinchanaung.us.ci",
-  "193.47.62.55": "fawa55-origin.nyeinchanaung.us.ci",
-  "193.47.62.59": "fawa59-origin.nyeinchanaung.us.ci",
-};
-
 Deno.serve(async (req) => {
   try {
     if (req.method !== "GET" && req.method !== "POST") {
@@ -98,7 +91,7 @@ Deno.serve(async (req) => {
         label: row.label,
         resolution: row.resolution,
         stream_type: normalizeType(row.stream_type, row.stream_url),
-        stream_url: normalizeBackupUrl(row.stream_url!),
+        stream_url: row.stream_url!,
         referer: row.referer,
         origin: row.origin,
         use_webview: false,
@@ -127,17 +120,6 @@ Deno.serve(async (req) => {
     );
   }
 });
-
-function normalizeBackupUrl(value: string) {
-  try {
-    const url = new URL(value);
-    const alias = FAWA_ALIASES[url.hostname];
-    if (alias) url.hostname = alias;
-    return url.toString();
-  } catch (_) {
-    return value;
-  }
-}
 
 function normalizeType(type: string | null, url: string | null) {
   const declared = (type ?? "auto").trim().toLowerCase();
