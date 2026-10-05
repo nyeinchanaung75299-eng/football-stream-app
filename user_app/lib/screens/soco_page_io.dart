@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../analytics_service.dart';
+
 class SocoPage extends StatefulWidget {
   const SocoPage({super.key});
 
@@ -20,6 +22,7 @@ class _SocoPageState extends State<SocoPage> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.capture('soco opened');
 
     SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.portraitUp,
@@ -39,9 +42,33 @@ class _SocoPageState extends State<SocoPage> {
           onPageStarted: (_) {
             if (mounted) setState(() => _error = null);
           },
+          onNavigationRequest: (request) {
+            if (!request.isMainFrame) {
+              return NavigationDecision.navigate;
+            }
+            final uri = Uri.tryParse(request.url);
+            final host = uri?.host.toLowerCase() ?? '';
+            final allowed =
+                host == 'm.sutbongtv.com' ||
+                host == 'sutbongtv.com' ||
+                host.endsWith('.sutbongtv.com');
+            if (allowed) return NavigationDecision.navigate;
+
+            AnalyticsService.capture(
+              'soco navigation blocked',
+              properties: {'host': host.isEmpty ? 'invalid' : host},
+            );
+            return NavigationDecision.prevent;
+          },
           onWebResourceError: (error) {
-            if (error.isForMainFrame == true && mounted) {
-              setState(() => _error = error.description);
+            if (error.isForMainFrame == true) {
+              AnalyticsService.capture(
+                'soco load failed',
+                properties: {'error_code': error.errorCode},
+              );
+              if (mounted) {
+                setState(() => _error = error.description);
+              }
             }
           },
         ),
