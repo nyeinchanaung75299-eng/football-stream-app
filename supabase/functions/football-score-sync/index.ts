@@ -120,7 +120,7 @@ async function syncScores(
   if (error) throw error;
 
   const minIntervalSeconds = Number(
-    Deno.env.get("SCORE_SYNC_INTERVAL_SECONDS") ?? "600",
+    Deno.env.get("SCORE_SYNC_INTERVAL_SECONDS") ?? "120",
   );
 
   const candidates = (rows ?? []).filter((match: any) => {
