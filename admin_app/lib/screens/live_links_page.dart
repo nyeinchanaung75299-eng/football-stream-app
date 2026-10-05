@@ -68,7 +68,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     final data = await Supabase.instance.client
         .from('matches')
         .select(
-          'id,home_team,away_team,league,kickoff_at,sort_order,is_active,deleted_at',
+          'id,home_team,away_team,league,kickoff_at,sort_order,is_active,'
+          'is_finished,is_featured,publish_state,deleted_at',
         )
         .order('kickoff_at', ascending: true)
         .order('sort_order', ascending: true)
@@ -78,7 +79,10 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         .where(
           (row) =>
               row['deleted_at'] == null &&
-              row['is_active'] == true,
+              row['is_active'] == true &&
+              row['is_finished'] != true &&
+              row['is_featured'] != false &&
+              (row['publish_state'] ?? 'published') == 'published',
         )
         .toList();
   }
