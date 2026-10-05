@@ -48,11 +48,14 @@ class _HomePageState extends State<HomePage> {
     'PUBLIC_API_BASE',
     defaultValue: 'https://football-api.nyeinchanaung.us.ci',
   );
+  static const _publicApiFallback =
+      'https://football-api.nyeinchanaung.ccwu.cc';
   static const _publicApiBackup =
       'https://football-public-api.nyeinchanaung75299-eng.workers.dev';
 
   List<String> get _publicApiBases => <String>{
         _publicApiBase.trim().replaceAll(RegExp(r'/+$'), ''),
+        _publicApiFallback,
         _publicApiBackup,
       }.where((base) => base.isNotEmpty).toList();
 
