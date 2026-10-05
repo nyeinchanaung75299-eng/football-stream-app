@@ -2,6 +2,7 @@ export interface Env {
   SUPABASE_URL?: string;
   SUPABASE_PUBLISHABLE_KEY?: string;
   GITHUB_MIRROR_URL?: string;
+  PLAYBACK_TOKENS?: KVNamespace;
 }
 
 const DEFAULT_MIRROR =
@@ -77,6 +78,22 @@ export default {
       );
     }
 
+    const protectedPlaybackRoute = url.pathname.match(
+      /^\/p\/([A-Za-z0-9_-]+)(?:\/([A-Za-z0-9_-]+))?$/,
+    );
+
+    if (
+      protectedPlaybackRoute &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) {
+      return handleProtectedPlayback(
+        request,
+        protectedPlaybackRoute[1],
+        protectedPlaybackRoute[2] ?? null,
+        env,
+      );
+    }
+
     if (request.method !== "GET") {
       return json({ error: "Method not allowed." }, 405);
     }
@@ -106,6 +123,7 @@ export default {
         decodeURIComponent(streamRoute[1]),
         env,
         ctx,
+        url.origin,
       );
     }
 
@@ -215,6 +233,7 @@ async function handleStreams(
   matchId: string,
   env: Env,
   ctx: ExecutionContext,
+  publicOrigin: string,
 ) {
   if (!/^[0-9a-fA-F-]{16,64}$/.test(matchId)) {
     return json({ error: "Invalid match id." }, 400);
@@ -223,9 +242,9 @@ async function handleStreams(
   const base = env.SUPABASE_URL?.trim() ?? "";
   const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
 
-  if (!base || !key) {
+  if (!base || !key || !env.PLAYBACK_TOKENS) {
     return json(
-      { error: "Fresh stream configuration is not available." },
+      { error: "Protected playback is not configured." },
       503,
       { "Cache-Control": "no-store, max-age=0" },
     );
@@ -236,7 +255,6 @@ async function handleStreams(
     Accept: "application/json",
   };
 
-  // First validate that the match itself is publicly visible.
   const matchUrl = new URL(
     base.replace(/\/+$/, "") + "/rest/v1/matches",
   );
@@ -269,9 +287,6 @@ async function handleStreams(
       );
     }
 
-    // Query stream_links directly instead of relying on an embedded PostgREST
-    // relation. The direct query is more reliable across anonymous edge
-    // requests and prevents WATCH from showing a count while returning 0 lines.
     const streamUrl = new URL(
       base.replace(/\/+$/, "") + "/rest/v1/stream_links",
     );
@@ -296,7 +311,11 @@ async function handleStreams(
     }
 
     const rawStreams = await streamResponse.json<unknown>();
-    const streams = clientLinks(rawStreams);
+    const streams = await protectedClientLinks(
+      rawStreams,
+      env,
+      publicOrigin,
+    );
 
     return json(
       {
@@ -304,6 +323,7 @@ async function handleStreams(
         match_id: matchId,
         streams,
         stream_count: streams.length,
+        protected_playback: true,
         generated_at: new Date().toISOString(),
       },
       200,
@@ -446,7 +466,7 @@ function sanitizeMatchMetadata(
   result.stream_count = advertisedLinkCount(
     links.length > 0 ? links : source.stream_count,
   );
-  result.public_stream_count = clientLinks(links).length;
+  result.public_stream_count = 0;
 
   return result;
 }
@@ -485,49 +505,400 @@ function advertisedLinkCount(raw: unknown) {
   }).length;
 }
 
-function clientLinks(raw: unknown) {
+async function protectedClientLinks(
+  raw: unknown,
+  env: Env,
+  publicOrigin: string,
+) {
+  if (!env.PLAYBACK_TOKENS) return [];
+
   const links = Array.isArray(raw) ? raw : [];
   const now = Date.now();
+  const ttlSeconds = 4 * 60 * 60;
+  const output: Record<string, unknown>[] = [];
 
-  return links
-    .filter((item) => {
-      const link = item as Record<string, unknown>;
-      if (link.is_active !== true) return false;
+  for (const item of links) {
+    const link = item as Record<string, unknown>;
+    if (link.is_active !== true) continue;
 
-      const availableFrom = Date.parse(String(link.available_from ?? ""));
-      if (Number.isFinite(availableFrom) && now < availableFrom) return false;
+    const availableFrom = Date.parse(String(link.available_from ?? ""));
+    if (Number.isFinite(availableFrom) && now < availableFrom) continue;
 
-      const expiresAt = Date.parse(String(link.expires_at ?? ""));
-      if (Number.isFinite(expiresAt) && now >= expiresAt) return false;
+    const expiresAt = Date.parse(String(link.expires_at ?? ""));
+    if (Number.isFinite(expiresAt) && now >= expiresAt) continue;
 
-      // The main WATCH picker opens native/Shaka sources. WebView-only entries
-      // remain separate so they do not appear as unusable native lines.
-      if (link.use_webview === true) return false;
+    if (link.use_webview === true) continue;
 
-      return String(link.stream_url ?? "").trim().length > 0;
-    })
-    .map((item) => {
-      const link = item as Record<string, unknown>;
-      return {
-        id: link.id,
-        label: link.label,
-        resolution: link.resolution,
-        stream_type: link.stream_type,
-        stream_url: link.stream_url,
-        referer: link.referer,
-        origin: link.origin,
-        key_id: link.key_id,
-        key_data: link.key_data,
-        use_webview: false,
-        webview_url: null,
-        is_active: true,
-        priority: link.priority,
-        available_from: link.available_from,
-        expires_at: link.expires_at,
-        health_status: link.health_status,
-      };
-    })
-    .sort(compareLinks);
+    const upstreamUrl = String(link.stream_url ?? "").trim();
+    if (!upstreamUrl) continue;
+
+    // ClearKey material must never be sent to a public client. Encrypted DASH
+    // needs a dedicated license flow, so skip those entries here.
+    if (
+      String(link.key_id ?? "").trim() ||
+      String(link.key_data ?? "").trim()
+    ) {
+      continue;
+    }
+
+    const sourceExpirySeconds = Number.isFinite(expiresAt)
+      ? Math.max(60, Math.floor((expiresAt - now) / 1000))
+      : ttlSeconds;
+    const sessionTtl = Math.max(
+      60,
+      Math.min(ttlSeconds, sourceExpirySeconds),
+    );
+
+    const token = randomToken();
+    const secretBytes = crypto.getRandomValues(new Uint8Array(32));
+    const session = {
+      u: upstreamUrl,
+      r: String(link.referer ?? "").trim(),
+      o: String(link.origin ?? "").trim(),
+      k: bytesToBase64Url(secretBytes),
+      e: Math.floor(Date.now() / 1000) + sessionTtl,
+    };
+
+    await env.PLAYBACK_TOKENS.put(
+      "s:" + token,
+      JSON.stringify(session),
+      { expirationTtl: sessionTtl },
+    );
+
+    output.push({
+      id: link.id,
+      label: link.label,
+      resolution: link.resolution,
+      stream_type: link.stream_type,
+      stream_url:
+        publicOrigin.replace(/\/+$/, "") + "/p/" + token,
+      referer: null,
+      origin: null,
+      key_id: null,
+      key_data: null,
+      use_webview: false,
+      webview_url: null,
+      is_active: true,
+      priority: link.priority,
+      available_from: link.available_from,
+      expires_at: new Date(session.e * 1000).toISOString(),
+      health_status: link.health_status,
+      protected_proxy: true,
+    });
+  }
+
+  return output.sort(compareLinks);
+}
+
+async function handleProtectedPlayback(
+  request: Request,
+  sessionToken: string,
+  encryptedTarget: string | null,
+  env: Env,
+) {
+  if (!env.PLAYBACK_TOKENS) {
+    return json({ error: "Protected playback is unavailable." }, 503);
+  }
+
+  const raw = await env.PLAYBACK_TOKENS.get("s:" + sessionToken);
+  if (!raw) {
+    return json(
+      { error: "Playback session expired." },
+      410,
+      { "Cache-Control": "no-store" },
+    );
+  }
+
+  let session: {
+    u: string;
+    r?: string;
+    o?: string;
+    k: string;
+    e: number;
+  };
+
+  try {
+    session = JSON.parse(raw);
+  } catch (_) {
+    return json({ error: "Invalid playback session." }, 410);
+  }
+
+  if (
+    !session.u ||
+    !session.k ||
+    !Number.isFinite(session.e) ||
+    session.e <= Math.floor(Date.now() / 1000)
+  ) {
+    return json(
+      { error: "Playback session expired." },
+      410,
+      { "Cache-Control": "no-store" },
+    );
+  }
+
+  let upstreamUrl = session.u;
+  if (encryptedTarget) {
+    try {
+      upstreamUrl = await decryptTarget(
+        encryptedTarget,
+        session.k,
+      );
+    } catch (_) {
+      return json({ error: "Invalid protected media URL." }, 400);
+    }
+  }
+
+  let upstream: URL;
+  try {
+    upstream = new URL(upstreamUrl);
+  } catch (_) {
+    return json({ error: "Invalid upstream URL." }, 400);
+  }
+
+  if (upstream.protocol !== "http:" && upstream.protocol !== "https:") {
+    return json({ error: "Unsupported upstream protocol." }, 400);
+  }
+
+  const headers = new Headers();
+  headers.set("Accept", request.headers.get("Accept") || "*/*");
+  headers.set(
+    "User-Agent",
+    request.headers.get("User-Agent") ||
+      "Mozilla/5.0 NCA-Protected-Playback",
+  );
+
+  const range = request.headers.get("Range");
+  if (range) headers.set("Range", range);
+  if (session.r) headers.set("Referer", session.r);
+  if (session.o) headers.set("Origin", session.o);
+
+  let response: Response;
+  try {
+    response = await fetch(upstream, {
+      method: request.method,
+      headers,
+      redirect: "follow",
+    });
+  } catch (_) {
+    return json(
+      { error: "Playback upstream unavailable." },
+      502,
+      { "Cache-Control": "no-store" },
+    );
+  }
+
+  const contentType =
+    response.headers.get("Content-Type")?.toLowerCase() ?? "";
+  const finalUrl = response.url || upstream.toString();
+  const path = new URL(finalUrl).pathname.toLowerCase();
+  const isHls =
+    contentType.includes("mpegurl") ||
+    path.endsWith(".m3u8");
+
+  if (
+    request.method === "GET" &&
+    response.ok &&
+    isHls
+  ) {
+    const playlist = await response.text();
+    const protectedPlaylist = await rewriteHlsPlaylist(
+      playlist,
+      finalUrl,
+      sessionToken,
+      session.k,
+      new URL(request.url).origin,
+    );
+
+    return new Response(protectedPlaylist, {
+      status: response.status,
+      headers: {
+        ...corsHeaders(),
+        "Content-Type": "application/vnd.apple.mpegurl",
+        "Cache-Control": "no-store, max-age=0",
+      },
+    });
+  }
+
+  const outHeaders = new Headers(corsHeaders());
+  outHeaders.set("Cache-Control", "no-store, max-age=0");
+  for (const name of [
+    "Content-Type",
+    "Content-Length",
+    "Content-Range",
+    "Accept-Ranges",
+    "ETag",
+    "Last-Modified",
+  ]) {
+    const value = response.headers.get(name);
+    if (value) outHeaders.set(name, value);
+  }
+
+  return new Response(
+    request.method === "HEAD" ? null : response.body,
+    {
+      status: response.status,
+      headers: outHeaders,
+    },
+  );
+}
+
+async function rewriteHlsPlaylist(
+  text: string,
+  baseUrl: string,
+  sessionToken: string,
+  sessionKey: string,
+  publicOrigin: string,
+) {
+  const lines = text.split(/\r?\n/);
+  const output: string[] = [];
+
+  for (const original of lines) {
+    const line = original.trim();
+
+    if (!line) {
+      output.push(original);
+      continue;
+    }
+
+    if (line.startsWith("#")) {
+      output.push(
+        await rewriteHlsTagUris(
+          original,
+          baseUrl,
+          sessionToken,
+          sessionKey,
+          publicOrigin,
+        ),
+      );
+      continue;
+    }
+
+    const absolute = new URL(line, baseUrl).toString();
+    const sealed = await encryptTarget(absolute, sessionKey);
+    output.push(
+      publicOrigin.replace(/\/+$/, "") +
+        "/p/" +
+        sessionToken +
+        "/" +
+        sealed,
+    );
+  }
+
+  return output.join("\n");
+}
+
+async function rewriteHlsTagUris(
+  line: string,
+  baseUrl: string,
+  sessionToken: string,
+  sessionKey: string,
+  publicOrigin: string,
+) {
+  const regex = /URI="([^"]+)"/g;
+  let match: RegExpExecArray | null;
+  let cursor = 0;
+  let result = "";
+
+  while ((match = regex.exec(line)) !== null) {
+    result += line.slice(cursor, match.index);
+    const absolute = new URL(match[1], baseUrl).toString();
+    const sealed = await encryptTarget(absolute, sessionKey);
+    result +=
+      'URI="' +
+      publicOrigin.replace(/\/+$/, "") +
+      "/p/" +
+      sessionToken +
+      "/" +
+      sealed +
+      '"';
+    cursor = match.index + match[0].length;
+  }
+
+  return result + line.slice(cursor);
+}
+
+async function encryptTarget(
+  targetUrl: string,
+  sessionKey: string,
+) {
+  const rawKey = base64UrlToBytes(sessionKey);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    rawKey,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt"],
+  );
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(targetUrl);
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      encoded,
+    ),
+  );
+  const combined = new Uint8Array(iv.length + ciphertext.length);
+  combined.set(iv, 0);
+  combined.set(ciphertext, iv.length);
+  return bytesToBase64Url(combined);
+}
+
+async function decryptTarget(
+  token: string,
+  sessionKey: string,
+) {
+  const combined = base64UrlToBytes(token);
+  if (combined.length <= 12) throw new Error("Invalid token.");
+
+  const iv = combined.slice(0, 12);
+  const ciphertext = combined.slice(12);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    base64UrlToBytes(sessionKey),
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"],
+  );
+
+  const plain = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    key,
+    ciphertext,
+  );
+  return new TextDecoder().decode(plain);
+}
+
+function randomToken() {
+  return bytesToBase64Url(
+    crypto.getRandomValues(new Uint8Array(24)),
+  );
+}
+
+function bytesToBase64Url(bytes: Uint8Array) {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function base64UrlToBytes(value: string) {
+  const normalized =
+    value.replace(/-/g, "+").replace(/_/g, "/");
+  const padding =
+    normalized.length % 4 === 0
+      ? ""
+      : "=".repeat(4 - (normalized.length % 4));
+  const binary = atob(normalized + padding);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
 
 function compareMatches(
@@ -644,7 +1015,9 @@ function corsHeaders() {
     "Access-Control-Allow-Methods":
       "GET,OPTIONS",
     "Access-Control-Allow-Headers":
-      "Authorization, Content-Type, apikey",
+      "Authorization, Content-Type, apikey, Range",
+    "Access-Control-Expose-Headers":
+      "Content-Length, Content-Range, Accept-Ranges",
   };
 }
 
