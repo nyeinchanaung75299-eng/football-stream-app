@@ -20,6 +20,13 @@ class _MatchLoadResult {
   final String? label;
 }
 
+class _StreamCacheEntry {
+  const _StreamCacheEntry(this.rows, this.fetchedAt);
+
+  final List<Map<String, dynamic>> rows;
+  final DateTime fetchedAt;
+}
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -34,6 +41,8 @@ class _HomePageState extends State<HomePage> {
   Timer? _scoreRefresh;
   late Future<String> _versionLabel;
   late Future<String> _updateVersionLabel;
+  final Map<String, _StreamCacheEntry> _streamLinkCache = {};
+  final Map<String, Future<List<Map<String, dynamic>>>> _streamLinkInflight = {};
 
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
@@ -347,7 +356,7 @@ class _HomePageState extends State<HomePage> {
             'Cache-Control': 'no-cache',
           },
         )
-        .timeout(const Duration(seconds: 6));
+        .timeout(const Duration(seconds: 4));
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(
@@ -381,7 +390,7 @@ class _HomePageState extends State<HomePage> {
             (base) => () => _loadPublicApiStreamsFrom(base, matchId),
           )
           .toList(),
-      delay: const Duration(milliseconds: 500),
+      delay: const Duration(milliseconds: 120),
     );
   }
 
@@ -391,14 +400,58 @@ class _HomePageState extends State<HomePage> {
     final matchId = match['id']?.toString().trim() ?? '';
     if (matchId.isEmpty) return const [];
 
-    // Playback must come from the protected public API. The API returns only
-    // short-lived proxy URLs; raw upstream stream addresses never reach the
-    // app, browser, GitHub mirror, or diagnostics.
-    try {
-      return playableLinks(await _loadPublicApiStreams(matchId));
-    } catch (_) {
-      return const [];
+    final cached = _streamLinkCache[matchId];
+    if (cached != null &&
+        DateTime.now().difference(cached.fetchedAt) <
+            const Duration(seconds: 25) &&
+        cached.rows.isNotEmpty) {
+      return cached.rows;
     }
+
+    final existing = _streamLinkInflight[matchId];
+    if (existing != null) return existing;
+
+    final request = () async {
+      try {
+        final rows = playableLinks(await _loadPublicApiStreams(matchId));
+        if (rows.isNotEmpty) {
+          _streamLinkCache[matchId] = _StreamCacheEntry(
+            rows,
+            DateTime.now(),
+          );
+        } else {
+          _streamLinkCache.remove(matchId);
+        }
+        return rows;
+      } catch (_) {
+        _streamLinkCache.remove(matchId);
+        return const <Map<String, dynamic>>[];
+      } finally {
+        _streamLinkInflight.remove(matchId);
+      }
+    }();
+
+    _streamLinkInflight[matchId] = request;
+    return request;
+  }
+
+  Future<void> _warmStreamLinks(
+    List<Map<String, dynamic>> matches,
+  ) async {
+    final candidates = matches
+        .where(
+          (match) =>
+              ((match['stream_count'] as num?)?.toInt() ?? 0) > 0 &&
+              (match['id']?.toString().trim().isNotEmpty ?? false),
+        )
+        .take(6)
+        .toList();
+
+    if (candidates.isEmpty) return;
+    await Future.wait(
+      candidates.map(_resolveLinks),
+      eagerError: false,
+    );
   }
 
   Future<List<Map<String, dynamic>>> _loadMirror() async {
@@ -526,6 +579,7 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
+    unawaited(_warmStreamLinks(result.rows));
     return result.rows;
   }
 
@@ -603,7 +657,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> openPlayer(Map<String, dynamic> match) async {
     final matchId = match['id']?.toString() ?? '';
-    await AnalyticsService.capture(
+    unawaited(AnalyticsService.capture(
       'watch tapped',
       properties: {
         'match_id': matchId,
@@ -611,7 +665,7 @@ class _HomePageState extends State<HomePage> {
         'is_live': match['is_live'] == true,
         'advertised_lines': (match['stream_count'] as num?)?.toInt() ?? 0,
       },
-    );
+    ));
 
     final links = await _resolveLinks(match);
     if (links.isEmpty) {
@@ -938,7 +992,7 @@ class _HomePageState extends State<HomePage> {
     }
 
     final selectedSource = nativeSources[selectedIndex];
-    await AnalyticsService.capture(
+    unawaited(AnalyticsService.capture(
       'stream selected',
       properties: {
         'match_id': matchId,
@@ -949,7 +1003,7 @@ class _HomePageState extends State<HomePage> {
         'health_status':
             (selectedSource['healthStatus'] ?? 'unknown').toString(),
       },
-    );
+    ));
 
     try {
       if (!mounted) return;
