@@ -44,6 +44,8 @@ class FunctionGateway {
 
     dynamic lastDecoded;
     int? lastStatus;
+    var accessToken = token;
+    var refreshedSession = false;
 
     for (var index = 0; index < _gatewayBases.length; index += 1) {
       final base = _gatewayBases[index];
@@ -51,13 +53,12 @@ class FunctionGateway {
         '$base/admin/functions/${Uri.encodeComponent(functionName)}',
       );
 
-      http.Response response;
-      try {
-        response = await http
+      Future<http.Response> send(String bearer) {
+        return http
             .post(
               uri,
               headers: {
-                'Authorization': 'Bearer $token',
+                'Authorization': 'Bearer $bearer',
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
                 'Cache-Control': 'no-store',
@@ -65,6 +66,24 @@ class FunctionGateway {
               body: jsonEncode(body ?? const <String, dynamic>{}),
             )
             .timeout(const Duration(seconds: 9));
+      }
+
+      http.Response response;
+      try {
+        response = await send(accessToken);
+
+        // Source tools were occasionally returning 401 with an expired access
+        // token even though the Admin still had a valid refresh session.
+        if (response.statusCode == 401 && !refreshedSession) {
+          refreshedSession = true;
+          final refreshed =
+              await Supabase.instance.client.auth.refreshSession();
+          final nextToken = refreshed.session?.accessToken;
+          if (nextToken != null && nextToken.isNotEmpty) {
+            accessToken = nextToken;
+            response = await send(accessToken);
+          }
+        }
       } catch (_) {
         await AnalyticsService.capture(
           'admin function fallback used',
