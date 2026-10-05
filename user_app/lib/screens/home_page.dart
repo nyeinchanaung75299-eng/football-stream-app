@@ -855,6 +855,7 @@ class _HomePageState extends State<HomePage> {
         sources: nativeSources,
         selectedIndex: selectedIndex,
         title: '${match['home_team']} vs ${match['away_team']}',
+        matchId: matchId,
       );
       await AnalyticsService.capture(
         'player opened',
