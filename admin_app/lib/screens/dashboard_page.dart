@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../analytics_service.dart';
 import '../widgets/theme_mode_button.dart';
 import 'edit_live_page.dart';
 import 'fixture_import_page.dart';
@@ -10,8 +11,21 @@ import 'soco_import_page.dart';
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
-  void open(BuildContext context, Widget page) {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+  void open(
+    BuildContext context,
+    Widget page,
+    String section,
+  ) {
+    AnalyticsService.capture(
+      'admin section opened',
+      properties: {'section': section},
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        settings: RouteSettings(name: '/admin/$section'),
+        builder: (_) => page,
+      ),
+    );
   }
 
   @override
@@ -24,7 +38,10 @@ class DashboardPage extends StatelessWidget {
           const ThemeModeButton(),
           IconButton(
             tooltip: 'Logout',
-            onPressed: () => Supabase.instance.client.auth.signOut(),
+            onPressed: () async {
+              await AnalyticsService.capture('admin logout');
+              await Supabase.instance.client.auth.signOut();
+            },
             icon: const Icon(Icons.logout_rounded),
           ),
           const SizedBox(width: 6),
@@ -51,7 +68,11 @@ class DashboardPage extends StatelessWidget {
             title: 'Pick Big Matches',
             subtitle: 'Choose fixtures from the API and publish only selected games.',
             iconColor: const Color(0xFFF59E0B),
-            onTap: () => open(context, const FixtureImportPage()),
+            onTap: () => open(
+              context,
+              const FixtureImportPage(),
+              'pick-big-matches',
+            ),
           ),
           const SizedBox(height: 10),
           _ActionCard(
@@ -59,7 +80,11 @@ class DashboardPage extends StatelessWidget {
             title: 'Manual Match',
             subtitle: 'Create your own match and use your own logo URLs.',
             iconColor: const Color(0xFF0EA5E9),
-            onTap: () => open(context, const LiveUploadPage()),
+            onTap: () => open(
+              context,
+              const LiveUploadPage(),
+              'manual-match',
+            ),
           ),
           const SizedBox(height: 10),
           _ActionCard(
@@ -67,7 +92,11 @@ class DashboardPage extends StatelessWidget {
             title: 'Matches & Scores',
             subtitle: 'Edit score, teams, logos, kickoff, publish state or delete.',
             iconColor: colors.primary,
-            onTap: () => open(context, const EditLivePage()),
+            onTap: () => open(
+              context,
+              const EditLivePage(),
+              'matches-scores',
+            ),
           ),
           const SizedBox(height: 10),
           _ActionCard(
@@ -75,7 +104,11 @@ class DashboardPage extends StatelessWidget {
             title: 'Stream Servers',
             subtitle: 'Add primary/backup links and edit or disable them.',
             iconColor: const Color(0xFF7C3AED),
-            onTap: () => open(context, const LiveLinksPage()),
+            onTap: () => open(
+              context,
+              const LiveLinksPage(),
+              'stream-servers',
+            ),
           ),
           const SizedBox(height: 10),
           _ActionCard(
@@ -83,7 +116,11 @@ class DashboardPage extends StatelessWidget {
             title: 'Stream Source Picker',
             subtitle: 'Pick from Soco, YYZB or Fawa. Referer/Origin are captured automatically when available.',
             iconColor: const Color(0xFFDC2626),
-            onTap: () => open(context, const SocoImportPage()),
+            onTap: () => open(
+              context,
+              const SocoImportPage(),
+              'stream-source-picker',
+            ),
           ),
         ],
       ),
