@@ -62,8 +62,8 @@ class _HomePageState extends State<HomePage> {
   static const _mirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/matches.json';
-  // On GitHub Pages, use the metadata JSON deployed beside the Flutter app.
-  // Playback URLs are intentionally never published to GitHub.
+  // On GitHub Pages, use the mirrored match JSON deployed beside the app.
+  // It may include safe non-keyed direct backup lines for restricted networks.
   Uri _mirrorMatchesUri() =>
       kIsWeb ? Uri.base.resolve('matches.json') : Uri.parse(_mirrorBase);
 
@@ -429,8 +429,83 @@ class _HomePageState extends State<HomePage> {
     if (existing != null) return existing;
 
     final request = () async {
+      List<Map<String, dynamic>> mirrorRows = playableLinks(
+        match['stream_links'],
+      ).where((row) {
+        final url = (row['stream_url'] ?? '').toString().trim();
+        if (url.isEmpty) return false;
+        // HTTPS web pages cannot directly play HTTP fallback media.
+        if (kIsWeb && url.toLowerCase().startsWith('http://')) {
+          return false;
+        }
+        return true;
+      }).toList();
+
+      Future<List<Map<String, dynamic>>> loadProtected() async {
+        try {
+          return playableLinks(await _loadPublicApiStreams(matchId));
+        } catch (_) {
+          return const <Map<String, dynamic>>[];
+        }
+      }
+
+      List<Map<String, dynamic>> mergeRows(
+        List<Map<String, dynamic>> primary,
+        List<Map<String, dynamic>> backup,
+      ) {
+        final seen = <String>{};
+        final merged = <Map<String, dynamic>>[];
+
+        String keyOf(Map<String, dynamic> row) {
+          final id = row['id']?.toString().trim() ?? '';
+          if (id.isNotEmpty) return 'id:$id';
+          final url = row['stream_url']?.toString().trim() ?? '';
+          return 'url:$url';
+        }
+
+        for (final row in [...primary, ...backup]) {
+          final key = keyOf(row);
+          if (key == 'url:' || !seen.add(key)) continue;
+          merged.add(row);
+        }
+        return merged;
+      }
+
+      List<Map<String, dynamic>> rows;
+      if (mirrorRows.isNotEmpty) {
+        final protectedFuture = loadProtected();
+        final first = await Future.any<List<Map<String, dynamic>>>([
+          protectedFuture,
+          Future<List<Map<String, dynamic>>>.delayed(
+            const Duration(milliseconds: 350),
+            () => const <Map<String, dynamic>>[],
+          ),
+        ]);
+
+        if (first.isNotEmpty) {
+          rows = mergeRows(first, mirrorRows);
+        } else {
+          rows = mirrorRows;
+
+          // Do not keep the user waiting for a blocked endpoint. If the
+          // protected API eventually responds, cache the richer protected
+          // list for the next tap.
+          unawaited(
+            protectedFuture.then((protected) {
+              if (protected.isEmpty) return;
+              final merged = mergeRows(protected, mirrorRows);
+              _streamLinkCache[matchId] = _StreamCacheEntry(
+                merged,
+                DateTime.now(),
+              );
+            }),
+          );
+        }
+      } else {
+        rows = await loadProtected();
+      }
+
       try {
-        final rows = playableLinks(await _loadPublicApiStreams(matchId));
         if (rows.isNotEmpty) {
           _streamLinkCache[matchId] = _StreamCacheEntry(
             rows,
@@ -440,9 +515,6 @@ class _HomePageState extends State<HomePage> {
           _streamLinkCache.remove(matchId);
         }
         return rows;
-      } catch (_) {
-        _streamLinkCache.remove(matchId);
-        return const <Map<String, dynamic>>[];
       } finally {
         _streamLinkInflight.remove(matchId);
       }
@@ -495,12 +567,9 @@ class _HomePageState extends State<HomePage> {
     }
 
     final rows = _decodeMatches(response.body);
-    // The mirror contains metadata and a safe line count only. Keep that count
-    // so WATCH remains available on restricted networks; actual playback URLs
-    // are still resolved exclusively through the protected Cloudflare API.
-    for (final row in rows) {
-      row['stream_links'] = const <Map<String, dynamic>>[];
-    }
+    // The mirror may contain safe non-keyed direct backup lines. Protected
+    // Cloudflare playback remains first choice; these are used only when that
+    // API is unreachable on restricted networks.
     return rows;
   }
 
