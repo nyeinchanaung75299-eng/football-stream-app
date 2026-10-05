@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'live_links_page.dart';
+import '../analytics_service.dart';
 import '../services/function_gateway.dart';
 
 class EditLivePage extends StatefulWidget {
@@ -76,6 +77,15 @@ class _EditLivePageState extends State<EditLivePage> {
         'football-score-sync',
         body: const {'force': true},
       );
+      await AnalyticsService.capture(
+        'score sync completed',
+        properties: {
+          'synced_count':
+              data is Map && data['synced'] is num
+                  ? (data['synced'] as num).toInt()
+                  : 0,
+        },
+      );
       if (!mounted) return;
       if (data is Map && data['synced'] != null) {
         message('Score sync: ${data['synced']} match(es) updated.');
@@ -84,6 +94,7 @@ class _EditLivePageState extends State<EditLivePage> {
       }
       setState(() {});
     } catch (e) {
+      await AnalyticsService.capture('score sync failed');
       if (mounted) message('Score sync failed: $e');
     } finally {
       if (mounted) setState(() => syncing = false);
@@ -105,22 +116,35 @@ class _EditLivePageState extends State<EditLivePage> {
       ),
     );
     if (ok != true) return;
-    await Supabase.instance.client.from('matches').update({
-      'is_active': false,
-      'is_featured': false,
-      'is_live': false,
-      'publish_state': 'draft',
-      'deleted_at': DateTime.now().toUtc().toIso8601String(),
-    }).eq('id', id);
+    try {
+      await Supabase.instance.client.from('matches').update({
+        'is_active': false,
+        'is_featured': false,
+        'is_live': false,
+        'publish_state': 'draft',
+        'deleted_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', id);
 
-    await Supabase.instance.client
-        .from('stream_links')
-        .delete()
-        .eq('match_id', id);
+      await Supabase.instance.client
+          .from('stream_links')
+          .delete()
+          .eq('match_id', id);
 
-    if (mounted) {
-      message('Match deleted. It will not be re-imported automatically.');
-      setState(() {});
+      await AnalyticsService.capture(
+        'match deleted',
+        properties: {'match_id': id},
+      );
+
+      if (mounted) {
+        message('Match deleted. It will not be re-imported automatically.');
+        setState(() {});
+      }
+    } catch (e) {
+      await AnalyticsService.capture(
+        'match delete failed',
+        properties: {'match_id': id},
+      );
+      if (mounted) message('Delete failed: $e');
     }
   }
 
@@ -416,25 +440,49 @@ class _EditLivePageState extends State<EditLivePage> {
       return;
     }
 
-    await Supabase.instance.client.from('matches').update({
-      'league': league.text.trim(),
-      'home_team': home.text.trim(),
-      'away_team': away.text.trim(),
-      'home_logo_url': homeLogo.text.trim().isEmpty ? null : homeLogo.text.trim(),
-      'away_logo_url': awayLogo.text.trim().isEmpty ? null : awayLogo.text.trim(),
-      'kickoff_at': kickoff.toUtc().toIso8601String(),
-      'sort_order': int.tryParse(order.text) ?? 0,
-      'home_score': int.tryParse(homeScore.text),
-      'away_score': int.tryParse(awayScore.text),
-      'is_featured': featured,
-      'publish_state': published ? 'published' : 'draft',
-      'is_live': live,
-      'is_active': active,
-    }).eq('id', m['id']);
+    try {
+      await Supabase.instance.client.from('matches').update({
+        'league': league.text.trim(),
+        'home_team': home.text.trim(),
+        'away_team': away.text.trim(),
+        'home_logo_url':
+            homeLogo.text.trim().isEmpty ? null : homeLogo.text.trim(),
+        'away_logo_url':
+            awayLogo.text.trim().isEmpty ? null : awayLogo.text.trim(),
+        'kickoff_at': kickoff.toUtc().toIso8601String(),
+        'sort_order': int.tryParse(order.text) ?? 0,
+        'home_score': int.tryParse(homeScore.text),
+        'away_score': int.tryParse(awayScore.text),
+        'is_featured': featured,
+        'publish_state': published ? 'published' : 'draft',
+        'is_live': live,
+        'is_active': active,
+      }).eq('id', m['id']);
 
-    if (mounted) {
-      message('Match updated.');
-      setState(() {});
+      await AnalyticsService.capture(
+        'match updated',
+        properties: {
+          'match_id': m['id'].toString(),
+          'featured': featured,
+          'published': published,
+          'is_live': live,
+          'is_active': active,
+          'has_score':
+              homeScore.text.trim().isNotEmpty &&
+              awayScore.text.trim().isNotEmpty,
+        },
+      );
+
+      if (mounted) {
+        message('Match updated.');
+        setState(() {});
+      }
+    } catch (e) {
+      await AnalyticsService.capture(
+        'match update failed',
+        properties: {'match_id': m['id'].toString()},
+      );
+      if (mounted) message('Match update failed: $e');
     }
   }
 
@@ -600,7 +648,24 @@ class _EditLivePageState extends State<EditLivePage> {
                             onSelected: (value) {
                               if (value == 'edit') editMatch(m);
                               if (value == 'links') {
-                                Navigator.push(context, MaterialPageRoute(builder: (_) => LiveLinksPage(initialMatchId: m['id'] as String)));
+                                AnalyticsService.capture(
+                                  'admin section opened',
+                                  properties: {
+                                    'section': 'stream-servers',
+                                    'from': 'match-menu',
+                                  },
+                                );
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                    settings: const RouteSettings(
+                                      name: '/admin/stream-servers',
+                                    ),
+                                    builder: (_) => LiveLinksPage(
+                                      initialMatchId: m['id'] as String,
+                                    ),
+                                  ),
+                                );
                               }
                               if (value == 'delete') deleteMatch(m['id'] as String);
                             },
