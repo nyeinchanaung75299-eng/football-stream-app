@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
 import '../native_player.dart';
@@ -31,6 +32,7 @@ class _HomePageState extends State<HomePage> {
   RealtimeChannel? _channel;
   Timer? _debounce;
   Timer? _scoreRefresh;
+  late Future<String> _versionLabel;
 
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
@@ -125,6 +127,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _future = loadMatches();
+    _versionLabel = _loadVersionLabel();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) AppUpdateService.check(context);
     });
@@ -152,6 +155,19 @@ class _HomePageState extends State<HomePage> {
     _scoreRefresh = Timer.periodic(const Duration(seconds: 60), (_) {
       if (mounted) refresh(silent: true);
     });
+  }
+
+  Future<String> _loadVersionLabel() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final version = info.version.trim().isEmpty ? '9.8.0' : info.version.trim();
+      final build = info.buildNumber.trim();
+      return build.isEmpty
+          ? 'V$version • Auto live scores'
+          : 'V$version • build $build • Auto live scores';
+    } catch (_) {
+      return 'V9.8 • Auto live scores';
+    }
   }
 
   List<Map<String, dynamic>> _sortMatchesChronologically(
@@ -657,7 +673,7 @@ class _HomePageState extends State<HomePage> {
 
     var selectedIndex = 0;
 
-    if (nativeSources.length > 1) {
+    {
       final picked = await showModalBottomSheet<int>(
         context: context,
         useSafeArea: true,
@@ -992,21 +1008,24 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'NCA',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
-                        SizedBox(height: 2),
-                        Text(
-                          'V9.8 • Auto live scores',
-                          style: TextStyle(fontSize: 12.5),
+                        const SizedBox(height: 2),
+                        FutureBuilder<String>(
+                          future: _versionLabel,
+                          builder: (context, snapshot) => Text(
+                            snapshot.data ?? 'V9.8 • Auto live scores',
+                            style: const TextStyle(fontSize: 12.5),
+                          ),
                         ),
                       ],
                     ),
@@ -1048,8 +1067,13 @@ class _HomePageState extends State<HomePage> {
                   'Check for updates',
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
-                subtitle: const Text(
-                  'Check and install the latest NCA APK',
+                subtitle: FutureBuilder<String>(
+                  future: _versionLabel,
+                  builder: (context, snapshot) => Text(
+                    snapshot.data == null
+                        ? 'Check and install the latest NCA APK'
+                        : 'Installed: ${snapshot.data!.split(' • ').take(2).join(' • ')} • tap to check latest',
+                  ),
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () {
