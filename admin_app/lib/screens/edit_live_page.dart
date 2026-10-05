@@ -33,17 +33,15 @@ class _EditLivePageState extends State<EditLivePage> {
         .select(
           'id,league,home_team,away_team,home_logo_url,away_logo_url,'
           'kickoff_at,sort_order,is_live,is_active,is_featured,publish_state,'
-          'home_score,away_score,status_short,status_elapsed,external_fixture_id',
+          'home_score,away_score,status_short,status_elapsed,external_fixture_id,'
+          'deleted_at',
         );
 
-    final rows = List<Map<String, dynamic>>.from(data);
-    final now = DateTime.now();
+    final rows = List<Map<String, dynamic>>.from(data)
+        .where((row) => row['deleted_at'] == null)
+        .toList();
 
     rows.sort((a, b) {
-      final aLive = a['is_live'] == true;
-      final bLive = b['is_live'] == true;
-      if (aLive != bLive) return aLive ? -1 : 1;
-
       final aTime = DateTime.tryParse(a['kickoff_at']?.toString() ?? '')
               ?.toLocal() ??
           DateTime(9999);
@@ -51,22 +49,17 @@ class _EditLivePageState extends State<EditLivePage> {
               ?.toLocal() ??
           DateTime(9999);
 
-      final aFuture = !aTime.isBefore(now);
-      final bFuture = !bTime.isBefore(now);
-
-      if (aFuture != bFuture) return aFuture ? -1 : 1;
-
-      if (aFuture) {
-        final byTime = aTime.compareTo(bTime);
-        if (byTime != 0) return byTime;
-      } else {
-        final byTime = bTime.compareTo(aTime);
-        if (byTime != 0) return byTime;
-      }
+      final byTime = aTime.compareTo(bTime);
+      if (byTime != 0) return byTime;
 
       final aOrder = (a['sort_order'] as num?)?.toInt() ?? 0;
       final bOrder = (b['sort_order'] as num?)?.toInt() ?? 0;
-      return aOrder.compareTo(bOrder);
+      final byOrder = aOrder.compareTo(bOrder);
+      if (byOrder != 0) return byOrder;
+
+      final aName = (a['home_team'] ?? '').toString().toLowerCase();
+      final bName = (b['home_team'] ?? '').toString().toLowerCase();
+      return aName.compareTo(bName);
     });
 
     return rows;
@@ -102,7 +95,9 @@ class _EditLivePageState extends State<EditLivePage> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Delete match?'),
-        content: const Text('The match and all of its stream links will be deleted.'),
+        content: const Text(
+          'The match will be hidden permanently from imports and all of its stream links will be deleted.',
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
@@ -110,9 +105,21 @@ class _EditLivePageState extends State<EditLivePage> {
       ),
     );
     if (ok != true) return;
-    await Supabase.instance.client.from('matches').delete().eq('id', id);
+    await Supabase.instance.client.from('matches').update({
+      'is_active': false,
+      'is_featured': false,
+      'is_live': false,
+      'publish_state': 'draft',
+      'deleted_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id', id);
+
+    await Supabase.instance.client
+        .from('stream_links')
+        .delete()
+        .eq('match_id', id);
+
     if (mounted) {
-      message('Match deleted.');
+      message('Match deleted. It will not be re-imported automatically.');
       setState(() {});
     }
   }
