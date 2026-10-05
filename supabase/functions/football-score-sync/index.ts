@@ -68,11 +68,13 @@ Deno.serve(async (req) => {
           score_sync_skipped: "API_FOOTBALL_KEY is not configured.",
         };
 
+    const finishedCleanup = await hideFinishedMatchesAfterGrace(client, now);
     const healthSummary = await syncStreamHealth(client, now, force);
 
     return json({
       ok: true,
       ...scoreSummary,
+      finished_cleanup: finishedCleanup,
       stream_health: healthSummary,
       forced: force,
       checked_at: now.toISOString(),
@@ -239,9 +241,8 @@ async function syncScores(
           status_elapsed: row?.fixture?.status?.elapsed ?? null,
           is_live: isLive,
           is_finished: isFinished,
-          // A finished match stays in the database for history/admin use,
-          // but is automatically removed from the public Live list.
-          ...(isFinished ? { is_featured: false } : {}),
+          // Keep FT visible briefly so users can see the final score.
+          // A separate cleanup below removes it from Live after 10 minutes.
           last_score_sync_at: now.toISOString(),
         })
         .eq("external_fixture_id", fixtureId);
@@ -266,6 +267,60 @@ async function syncScores(
     api_calls: apiCalls,
     provider_errors: providerErrors.slice(0, 5),
   };
+}
+
+async function hideFinishedMatchesAfterGrace(
+  client: any,
+  now: Date,
+) {
+  const graceMs = 10 * 60 * 1000;
+  const { data: rows, error } = await client
+    .from("matches")
+    .select("id,is_finished,status_short,last_score_sync_at,updated_at")
+    .eq("is_active", true)
+    .eq("publish_state", "published")
+    .eq("is_featured", true);
+
+  if (error) {
+    console.error("Finished-match cleanup query failed:", error);
+    return { hidden: 0, grace_minutes: 10 };
+  }
+
+  const finishedStatuses = new Set(["FT", "AET", "PEN"]);
+  const ids = (rows ?? [])
+    .filter((row: any) => {
+      const finished =
+        row.is_finished === true ||
+        finishedStatuses.has(String(row.status_short ?? "").toUpperCase());
+      if (!finished) return false;
+
+      const detectedAt = row.last_score_sync_at ?? row.updated_at;
+      if (!detectedAt) return false;
+      const timestamp = new Date(detectedAt).getTime();
+      return Number.isFinite(timestamp) && now.getTime() - timestamp >= graceMs;
+    })
+    .map((row: any) => row.id)
+    .filter(Boolean);
+
+  if (ids.length === 0) {
+    return { hidden: 0, grace_minutes: 10 };
+  }
+
+  const { error: updateError } = await client
+    .from("matches")
+    .update({
+      is_live: false,
+      is_finished: true,
+      is_featured: false,
+    })
+    .in("id", ids);
+
+  if (updateError) {
+    console.error("Finished-match cleanup update failed:", updateError);
+    return { hidden: 0, grace_minutes: 10 };
+  }
+
+  return { hidden: ids.length, grace_minutes: 10 };
 }
 
 async function syncStreamHealth(
