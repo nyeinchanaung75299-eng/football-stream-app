@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Base64
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
@@ -181,18 +182,37 @@ class NativePlayerActivity : Activity() {
             )
         )
 
-        // Mirror our custom top bar to Media3's controller visibility.
-        // Tap video -> controller + Server/Quality appear.
-        // Timeout -> both disappear again.
+        // Keep Server / Quality / Back completely hidden until the USER taps.
+        // Media3 can briefly report its controller as visible during startup on
+        // some Android/OEM builds, so controller visibility alone is not enough.
+        var userRequestedControls = false
+
+        playerView.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_UP) {
+                userRequestedControls = true
+            }
+            false
+        }
+
         playerView.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->
-                topBar.visibility = if (visibility == View.VISIBLE) {
-                    View.VISIBLE
+                if (visibility == View.VISIBLE && userRequestedControls) {
+                    topBar.visibility = View.VISIBLE
                 } else {
-                    View.GONE
+                    topBar.visibility = View.GONE
+                }
+
+                if (visibility != View.VISIBLE) {
+                    userRequestedControls = false
                 }
             }
         )
+
+        // Force a clean video surface on entry. Controls appear on the first tap.
+        playerView.post {
+            playerView.hideController()
+            topBar.visibility = View.GONE
+        }
 
         statusText = TextView(this).apply {
             setTextColor(Color.WHITE)
