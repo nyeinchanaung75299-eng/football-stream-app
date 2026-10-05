@@ -8,6 +8,7 @@ import '../native_player.dart';
 import 'soco_page.dart';
 import 'network_diagnostics_page.dart';
 import '../widgets/theme_mode_button.dart';
+import '../app_update_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -47,6 +48,9 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _future = loadMatches();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) AppUpdateService.check(context);
+    });
     _channel = Supabase.instance.client
         .channel('v7-pro-featured')
         .onPostgresChanges(
