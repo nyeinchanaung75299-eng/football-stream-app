@@ -325,51 +325,70 @@ async function loadMatchRows(
   source: "supabase" | "github";
 }> {
   const base = env.SUPABASE_URL?.trim() ?? "";
-  const key =
-    env.SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
+  const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
 
   if (base && key) {
     try {
-      const select = [
-        ...MATCH_FIELDS,
-        "stream_links(" + LINK_FIELDS.join(",") + ")",
-      ].join(",");
+      const headers = {
+        apikey: key,
+        Accept: "application/json",
+      };
 
-      const upstream = new URL(
-        base.replace(/\/+$/, "") +
-          "/rest/v1/matches",
+      const matchesUrl = new URL(
+        base.replace(/\/+$/, "") + "/rest/v1/matches",
       );
+      matchesUrl.searchParams.set("select", MATCH_FIELDS.join(","));
+      matchesUrl.searchParams.set("is_active", "eq.true");
+      matchesUrl.searchParams.set("publish_state", "eq.published");
+      matchesUrl.searchParams.set("is_featured", "eq.true");
+      matchesUrl.searchParams.set("order", "kickoff_at.asc,sort_order.asc");
 
-      upstream.searchParams.set("select", select);
-      upstream.searchParams.set("is_active", "eq.true");
-      upstream.searchParams.set(
-        "publish_state",
-        "eq.published",
-      );
-      upstream.searchParams.set("is_featured", "eq.true");
-      upstream.searchParams.set(
-        "order",
-        "kickoff_at.asc,sort_order.asc",
-      );
+      const matchesResponse = await fetch(matchesUrl, { headers });
+      if (matchesResponse.ok) {
+        const matches = await matchesResponse.json<unknown>();
 
-      const response = await fetch(upstream, {
-        headers: {
-          apikey: key,
-          Accept: "application/json",
-        },
-      });
+        const linksUrl = new URL(
+          base.replace(/\/+$/, "") + "/rest/v1/stream_links",
+        );
+        linksUrl.searchParams.set(
+          "select",
+          ["match_id", ...LINK_FIELDS, "sort_order"].join(","),
+        );
+        linksUrl.searchParams.set("is_active", "eq.true");
+        linksUrl.searchParams.set("order", "priority.asc,sort_order.asc");
 
-      if (response.ok) {
-        const rows = await response.json<unknown>();
-        if (Array.isArray(rows)) {
+        const linksResponse = await fetch(linksUrl, { headers });
+        const links = linksResponse.ok
+          ? await linksResponse.json<unknown>()
+          : [];
+
+        if (Array.isArray(matches)) {
+          const grouped = new Map<string, unknown[]>();
+          if (Array.isArray(links)) {
+            for (const raw of links) {
+              const link = raw as Record<string, unknown>;
+              const matchId = String(link.match_id ?? "");
+              if (!matchId) continue;
+              const list = grouped.get(matchId) ?? [];
+              list.push(link);
+              grouped.set(matchId, list);
+            }
+          }
+
           return {
-            rows,
             source: "supabase",
+            rows: matches.map((raw) => {
+              const match = raw as Record<string, unknown>;
+              return {
+                ...match,
+                stream_links: grouped.get(String(match.id ?? "")) ?? [],
+              };
+            }),
           };
         }
       }
     } catch (_) {
-      // Use metadata-only mirror below.
+      // Use GitHub fallback below.
     }
   }
 
