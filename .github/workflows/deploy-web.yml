@@ -40,6 +40,8 @@ jobs:
       - name: Verify Viewer source
         working-directory: user_app
         run: |
+          python3 ../scripts/generate_embedded_player.py --check
+          node ../scripts/test_web_player.mjs
           flutter analyze --no-fatal-infos
           if find test -type f -name '*_test.dart' -print -quit 2>/dev/null | grep -q .; then
             flutter test

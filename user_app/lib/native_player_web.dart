@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:js_interop';
 
+import 'package:flutter/widgets.dart';
+
 @JS('openFootballPlayer')
 external void _openFootballPlayer(
   JSString sourcesJson,
@@ -11,6 +13,7 @@ external void _openFootballPlayer(
 
 class NativePlayer {
   static Future<void> open({
+    BuildContext? context,
     required List<Map<String, dynamic>> sources,
     required int selectedIndex,
     String? title,

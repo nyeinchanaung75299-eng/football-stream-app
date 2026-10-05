@@ -65,6 +65,29 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     );
   }
 
+  Widget _dashCompatibilityNotice(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.info_outline_rounded, size: 18, color: colors.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            'The protected Viewer currently excludes DASH and ClearKey lines. '
+            'For iPhone playback, add a compatible HLS backup to this same match. '
+            'HTTP health checks report reachability only.',
+            style: TextStyle(
+              color: colors.onSurfaceVariant,
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<List<Map<String, dynamic>>> loadMatches() async {
     final data = await Supabase.instance.client
         .from('matches')
@@ -481,6 +504,10 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                         helperText: 'm3u8 / mpd / flv / mp4 is detected automatically.',
                       ),
                     ),
+                    if (!web && type == 'dash') ...[
+                      const SizedBox(height: 12),
+                      _dashCompatibilityNotice(context),
+                    ],
                     const SizedBox(height: 8),
                     ExpansionTile(
                       tilePadding: EdgeInsets.zero,
@@ -750,6 +777,10 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                           prefixIcon: Icon(Icons.link_rounded),
                         ),
                       ),
+                      if (!useWebView && streamType == 'dash') ...[
+                        const SizedBox(height: 12),
+                        _dashCompatibilityNotice(context),
+                      ],
                       const SizedBox(height: 6),
                       ExpansionTile(
                         tilePadding: EdgeInsets.zero,

@@ -934,7 +934,9 @@ class _HomePageState extends State<HomePage> {
     );
 
     try {
+      if (!mounted) return;
       await NativePlayer.open(
+        context: context,
         sources: nativeSources,
         selectedIndex: selectedIndex,
         title: '${match['home_team']} vs ${match['away_team']}',

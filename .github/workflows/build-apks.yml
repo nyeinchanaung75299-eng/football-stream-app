@@ -14,6 +14,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  verify-ios:
+    name: Verify iOS Viewer simulator build
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create iOS platform and compile Viewer
+        working-directory: user_app
+        run: |
+          HAD_WIDGET_TEST=false
+          if [ -e test/widget_test.dart ]; then HAD_WIDGET_TEST=true; fi
+          flutter create --platforms=ios .
+          if [ "$HAD_WIDGET_TEST" = false ]; then rm -f test/widget_test.dart; fi
+          python3 ../scripts/generate_embedded_player.py --check
+          node ../scripts/test_web_player.mjs
+          flutter pub get
+          flutter build ios --simulator --debug --no-codesign
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -225,6 +250,8 @@ jobs:
       - name: Verify Viewer source
         working-directory: user_app
         run: |
+          python3 ../scripts/generate_embedded_player.py --check
+          node ../scripts/test_web_player.mjs
           flutter analyze --no-fatal-infos
           if find test -type f -name '*_test.dart' -print -quit 2>/dev/null | grep -q .; then
             flutter test

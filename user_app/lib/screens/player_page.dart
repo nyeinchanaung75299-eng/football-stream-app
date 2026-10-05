@@ -93,7 +93,9 @@ class _PlayerPageState extends State<PlayerPage> {
         throw Exception('No playable native stream.');
       }
 
+      if (!mounted) return;
       await NativePlayer.open(
+        context: context,
         sources: nativeSources,
         selectedIndex: nativeIndex,
         title: widget.title,
