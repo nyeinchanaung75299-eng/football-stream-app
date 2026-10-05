@@ -42,12 +42,14 @@ class NativePlayer {
     required List<Map<String, dynamic>> sources,
     required int selectedIndex,
     String? title,
+    String? matchId,
   }) async {
     _ensureEventHandler();
     await _channel.invokeMethod<void>('openPlayer', {
       'sourcesJson': jsonEncode(sources),
       'selectedIndex': selectedIndex,
       'title': title ?? 'Football Live',
+      'matchId': matchId ?? '',
     });
   }
 }
