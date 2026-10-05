@@ -1,0 +1,49 @@
+import 'package:flutter/foundation.dart';
+import 'package:posthog_flutter/posthog_flutter.dart';
+
+class AnalyticsService {
+  AnalyticsService._();
+
+  static const _projectToken =
+      'phc_quTeE4uCQa8G5MtSoVg6tgYjWULipCWMo8R38RsnijL6';
+  static const _host = 'https://us.i.posthog.com';
+
+  static bool _ready = false;
+
+  static Future<void> initialize() async {
+    try {
+      final config = PostHogConfig(_projectToken);
+      config.host = _host;
+      config.debug = kDebugMode;
+      config.captureApplicationLifecycleEvents = true;
+      config.surveys = false;
+      config.sessionReplay = false;
+      config.errorTrackingConfig.captureFlutterErrors = true;
+      config.errorTrackingConfig.capturePlatformDispatcherErrors = true;
+      await Posthog().setup(config);
+      _ready = true;
+      await capture('admin app opened');
+    } catch (_) {
+      // Analytics must never block Admin startup.
+    }
+  }
+
+  static Future<void> capture(
+    String eventName, {
+    Map<String, Object>? properties,
+  }) async {
+    if (!_ready) return;
+    try {
+      await Posthog().capture(
+        eventName: eventName,
+        properties: <String, Object>{
+          'app': 'nca_admin',
+          'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
+          ...?properties,
+        },
+      );
+    } catch (_) {
+      // Admin workflows must never depend on analytics delivery.
+    }
+  }
+}
