@@ -171,22 +171,17 @@ async function handleMatches(
   env: Env,
   ctx: ExecutionContext,
 ) {
-  const cache = caches.default;
-  const cacheKey = new Request(
-    requestUrl.origin + "/matches",
-  );
-
-  const cached = await cache.match(cacheKey);
-  if (cached) return withCors(cached);
-
   try {
+    // Do not edge-cache match metadata. Separate custom-domain/workers.dev
+    // cache keys can otherwise disagree briefly and make WATCH flicker between
+    // available and NOT READY when the user refreshes or toggles VPN.
     const loaded = await loadMatchRows(env);
 
     const matches = loaded.rows
       .map((raw) => sanitizeMatchMetadata(raw))
       .sort(compareMatches);
 
-    const result = json(
+    return json(
       {
         ok: true,
         source: loaded.source,
@@ -195,12 +190,9 @@ async function handleMatches(
       },
       200,
       {
-        "Cache-Control": "public, max-age=20, s-maxage=45",
+        "Cache-Control": "no-store, max-age=0",
       },
     );
-
-    ctx.waitUntil(cache.put(cacheKey, result.clone()));
-    return result;
   } catch (error) {
     return json(
       {
@@ -210,6 +202,9 @@ async function handleMatches(
             : String(error),
       },
       502,
+      {
+        "Cache-Control": "no-store, max-age=0",
+      },
     );
   }
 }
