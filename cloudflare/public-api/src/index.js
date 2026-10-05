@@ -231,7 +231,8 @@ async function handleStreams(request, matchId, env, publicOrigin) {
       match_id: matchId,
       streams,
       blocked_streams: blockedStreams,
-      stream_count: streams.length,
+      stream_count: streams.length + blockedStreams.length,
+      playable_stream_count: streams.length,
       blocked_stream_count: blockedStreams.length,
       protected_playback: true,
       generated_at: new Date().toISOString(),
@@ -328,12 +329,6 @@ function advertisedLinkCount(raw) {
     const expiresAt = Date.parse(String(link.expires_at || ""));
     if (Number.isFinite(expiresAt) && now >= expiresAt) return false;
     if (link.use_webview === true) return false;
-    if (
-      String(link.key_id || "").trim() ||
-      String(link.key_data || "").trim()
-    ) {
-      return false;
-    }
     const streamUrl = String(link.stream_url || "").trim();
     return streamUrl.length > 0;
   }).length;
