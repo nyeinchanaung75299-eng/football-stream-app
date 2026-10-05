@@ -40,9 +40,15 @@ jobs:
       - name: Build Viewer Web
         working-directory: user_app
         run: |
-          flutter build web --release --base-href "/football-stream-app/" \
-            --dart-define=PUBLIC_API_BASE="${{ vars.PUBLIC_API_BASE }}"
+          flutter build web --release --base-href "/football-stream-app/"
           cp build/web/index.html build/web/404.html
+
+      - name: Add same-origin VPN-off match backup
+        working-directory: user_app
+        run: |
+          git fetch origin feed:refs/remotes/origin/feed
+          git show origin/feed:public/matches.json > build/web/matches.json
+          git show origin/feed:public/status.json > build/web/status.json || true
 
       - name: Upload Web build artifact
         uses: actions/upload-artifact@v7
