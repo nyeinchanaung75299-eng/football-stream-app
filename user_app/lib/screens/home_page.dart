@@ -21,7 +21,12 @@ class _HomePageState extends State<HomePage> {
   RealtimeChannel? _channel;
   Timer? _debounce;
   int _sourceTab = 0;
-  bool _usingMirror = false;
+  String? _fallbackLabel;
+
+  static const _publicApiBase = String.fromEnvironment(
+    'PUBLIC_API_BASE',
+    defaultValue: '',
+  );
 
   static const _mirrorBase =
       'https://raw.githubusercontent.com/'
@@ -77,6 +82,72 @@ class _HomePageState extends State<HomePage> {
     return rows;
   }
 
+  List<Map<String, dynamic>> _decodeMatches(String body) {
+    final decoded = jsonDecode(body);
+    final raw = decoded is Map<String, dynamic>
+        ? decoded['matches']
+        : decoded;
+
+    if (raw is! List) {
+      throw const FormatException('Match feed is invalid.');
+    }
+
+    return _sortMatchesChronologically(
+      raw
+          .map((row) => Map<String, dynamic>.from(row as Map))
+          .toList(),
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _loadPublicApi() async {
+    final base = _publicApiBase.trim();
+    if (base.isEmpty) {
+      throw const FormatException('Public API is not configured.');
+    }
+
+    final uri = Uri.parse(
+      '${base.replaceAll(RegExp(r"/+$"), "")}/matches',
+    );
+
+    final response = await http
+        .get(
+          uri,
+          headers: const {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+          },
+        )
+        .timeout(const Duration(seconds: 7));
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Public API returned HTTP ${response.statusCode}');
+    }
+
+    return _decodeMatches(response.body);
+  }
+
+  Future<List<Map<String, dynamic>>> _loadMirror() async {
+    final bucket =
+        DateTime.now().millisecondsSinceEpoch ~/ (5 * 60 * 1000);
+    final uri = Uri.parse('$_mirrorBase?v=$bucket');
+
+    final response = await http
+        .get(
+          uri,
+          headers: const {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+          },
+        )
+        .timeout(const Duration(seconds: 8));
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Mirror returned HTTP ${response.statusCode}');
+    }
+
+    return _decodeMatches(response.body);
+  }
+
   Future<List<Map<String, dynamic>>> loadMatches() async {
     try {
       final data = await Supabase.instance.client
@@ -98,41 +169,23 @@ class _HomePageState extends State<HomePage> {
           .order('sort_order')
           .timeout(const Duration(seconds: 6));
 
-      _usingMirror = false;
+      _fallbackLabel = null;
       return _sortMatchesChronologically(
         List<Map<String, dynamic>>.from(data),
       );
     } catch (_) {
-      final bucket =
-          DateTime.now().millisecondsSinceEpoch ~/ (5 * 60 * 1000);
-      final uri = Uri.parse('$_mirrorBase?v=$bucket');
-      final response = await http
-          .get(
-            uri,
-            headers: const {
-              'Accept': 'application/json',
-              'Cache-Control': 'no-cache',
-            },
-          )
-          .timeout(const Duration(seconds: 8));
-
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw Exception(
-          'Mirror returned HTTP ${response.statusCode}',
-        );
+      if (_publicApiBase.trim().isNotEmpty) {
+        try {
+          final data = await _loadPublicApi();
+          _fallbackLabel = 'Direct Supabase unavailable • using public API';
+          return data;
+        } catch (_) {}
       }
 
-      final decoded = jsonDecode(response.body);
-      if (decoded is! List) {
-        throw const FormatException('Mirror feed is invalid.');
-      }
-
-      _usingMirror = true;
-      return _sortMatchesChronologically(
-        decoded
-            .map((row) => Map<String, dynamic>.from(row as Map))
-            .toList(),
-      );
+      final data = await _loadMirror();
+      _fallbackLabel =
+          'Direct Supabase unavailable • using safe GitHub backup';
+      return data;
     }
   }
 
@@ -450,7 +503,7 @@ class _HomePageState extends State<HomePage> {
               },
             ),
           ),
-          if (_sourceTab == 0 && _usingMirror)
+          if (_sourceTab == 0 && _fallbackLabel != null)
             Container(
               width: double.infinity,
               margin: const EdgeInsets.fromLTRB(14, 0, 14, 6),
@@ -465,14 +518,14 @@ class _HomePageState extends State<HomePage> {
                     .withValues(alpha: .65),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  Icon(Icons.cloud_done_rounded, size: 18),
-                  SizedBox(width: 8),
+                  const Icon(Icons.cloud_done_rounded, size: 18),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Direct Supabase unavailable • using mirror feed',
-                      style: TextStyle(
+                      _fallbackLabel!,
+                      style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
                       ),
