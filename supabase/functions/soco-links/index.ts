@@ -163,12 +163,29 @@ function line(
   url: unknown,
   resolution: string,
 ) {
+  const cleaned = typeof url === "string" ? url.trim() : "";
   return {
     label,
     stream_type: streamType,
     resolution,
-    url: typeof url === "string" ? url.trim() : "",
+    url: cleaned,
+    expires_at: streamExpiry(cleaned),
   };
+}
+
+function streamExpiry(value: string) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const raw = url.searchParams.get("txTime");
+    if (!raw) return null;
+
+    const seconds = Number.parseInt(raw, 16);
+    if (!Number.isFinite(seconds) || seconds <= 0) return null;
+    return new Date(seconds * 1000).toISOString();
+  } catch (_) {
+    return null;
+  }
 }
 
 async function fetchText(url: string) {
