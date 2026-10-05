@@ -36,12 +36,14 @@ class _HomePageState extends State<HomePage> {
         _publicApiBackup,
       }.where((base) => base.isNotEmpty).toList();
 
+  // Read the continuously updated feed branch directly. The GitHub Pages
+  // copies only change on web deploy and can otherwise resurrect old state.
   static const _mirrorBase =
-      'https://nyeinchanaung75299-eng.github.io/'
-      'football-stream-app/matches.json';
+      'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
+      'football-stream-app/feed/public/matches.json';
   static const _mirrorStreamsBase =
-      'https://nyeinchanaung75299-eng.github.io/'
-      'football-stream-app/streams.json';
+      'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
+      'football-stream-app/feed/public/streams.json';
 
   @override
   void initState() {
