@@ -225,45 +225,78 @@ class _HomePageState extends State<HomePage> {
     return _decodeMatches(response.body);
   }
 
+  Future<List<Map<String, dynamic>>> _loadSupabaseMatches() async {
+    final data = await Supabase.instance.client
+        .from('matches')
+        .select('''
+          id,league,home_team,away_team,home_logo_url,away_logo_url,
+          kickoff_at,is_live,sort_order,home_score,away_score,status_short,
+          status_elapsed,is_finished,is_featured,publish_state,
+          stream_links(
+            id,label,resolution,stream_type,stream_url,referer,origin,
+            key_id,key_data,use_webview,webview_url,is_active,priority,
+            available_from,expires_at,health_status
+          )
+        ''')
+        .eq('is_active', true)
+        .eq('publish_state', 'published')
+        .eq('is_featured', true)
+        .order('kickoff_at')
+        .order('sort_order')
+        .timeout(const Duration(seconds: 5));
+
+    return _sortMatchesChronologically(
+      List<Map<String, dynamic>>.from(data),
+    );
+  }
+
   Future<List<Map<String, dynamic>>> loadMatches() async {
-    try {
-      final data = await Supabase.instance.client
-          .from('matches')
-          .select('''
-            id,league,home_team,away_team,home_logo_url,away_logo_url,
-            kickoff_at,is_live,sort_order,home_score,away_score,status_short,
-            status_elapsed,is_finished,is_featured,publish_state,
-            stream_links(
-              id,label,resolution,stream_type,stream_url,referer,origin,
-              key_id,key_data,use_webview,webview_url,is_active,priority,
-              available_from,expires_at,health_status
-            )
-          ''')
-          .eq('is_active', true)
-          .eq('publish_state', 'published')
-          .eq('is_featured', true)
-          .order('kickoff_at')
-          .order('sort_order')
-          .timeout(const Duration(seconds: 6));
+    final winner = Completer<List<Map<String, dynamic>>>();
+    var failed = 0;
 
-      _fallbackLabel = null;
-      return _sortMatchesChronologically(
-        List<Map<String, dynamic>>.from(data),
-      );
-    } catch (_) {
-      if (_publicApiBase.trim().isNotEmpty) {
-        try {
-          final data = await _loadPublicApi();
-          _fallbackLabel = 'Direct Supabase unavailable • using public API';
-          return data;
-        } catch (_) {}
-      }
-
-      final data = await _loadMirror();
-      _fallbackLabel =
-          'Direct Supabase unavailable • using safe GitHub backup';
-      return data;
+    void succeed(
+      List<Map<String, dynamic>> rows,
+      String? sourceLabel,
+    ) {
+      if (winner.isCompleted) return;
+      _fallbackLabel = sourceLabel;
+      winner.complete(rows);
     }
+
+    Future<void> attempt(
+      Future<List<Map<String, dynamic>>> future,
+      String? sourceLabel,
+    ) async {
+      try {
+        final rows = await future;
+        succeed(rows, sourceLabel);
+      } catch (_) {
+        failed += 1;
+        if (failed >= 2 && !winner.isCompleted) {
+          try {
+            final rows = await _loadMirror();
+            succeed(rows, 'Backup feed');
+          } catch (error) {
+            if (!winner.isCompleted) winner.completeError(error);
+          }
+        }
+      }
+    }
+
+    unawaited(
+      attempt(
+        _loadSupabaseMatches(),
+        null,
+      ),
+    );
+    unawaited(
+      attempt(
+        _loadPublicApi(),
+        'Fast public API',
+      ),
+    );
+
+    return winner.future;
   }
 
   Future<void> refresh({bool silent = false}) async {
@@ -520,6 +553,107 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _openAppMenu() async {
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final colors = Theme.of(sheetContext).colorScheme;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: colors.primary.withValues(alpha: .12),
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: Icon(
+                      Icons.sports_soccer_rounded,
+                      color: colors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Football Live Pro',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'V9.3 • Premium viewer',
+                          style: TextStyle(fontSize: 12.5),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.palette_outlined),
+                title: const Text(
+                  'Appearance',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: const Text('System, light or dark mode'),
+                trailing: const ThemeModeButton(),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.monitor_heart_outlined),
+                title: const Text(
+                  'Connection diagnostics',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: const Text('Check API and fallback connectivity'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const NetworkDiagnosticsPage(),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.public_rounded),
+                title: const Text(
+                  'Soco',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: const Text('Open the secondary live source'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const SocoPage(),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     _debounce?.cancel();
@@ -532,28 +666,59 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
-          mainAxisSize: MainAxisSize.min,
+        titleSpacing: 16,
+        title: Row(
           children: [
-            Icon(Icons.sports_soccer_rounded, size: 24),
-            SizedBox(width: 8),
-            Text('Football'),
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: .12),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(
+                Icons.sports_soccer_rounded,
+                size: 20,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text('Football Live'),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 7,
+                vertical: 3,
+              ),
+              decoration: BoxDecoration(
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: .10),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                'PRO',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: .8,
+                ),
+              ),
+            ),
           ],
         ),
         actions: [
           IconButton(
-            tooltip: 'Network diagnostics',
-            icon: const Icon(Icons.network_check_rounded),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const NetworkDiagnosticsPage(),
-                ),
-              );
-            },
+            tooltip: 'Menu',
+            onPressed: _openAppMenu,
+            icon: const Icon(Icons.more_horiz_rounded),
           ),
-          const ThemeModeButton(),
-          const SizedBox(width: 6),
+          const SizedBox(width: 8),
         ],
       ),
       body: Column(
@@ -592,37 +757,6 @@ class _HomePageState extends State<HomePage> {
               },
             ),
           ),
-          if (_sourceTab == 0 && _fallbackLabel != null)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(14, 0, 14, 6),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 8,
-              ),
-              decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .secondaryContainer
-                    .withValues(alpha: .65),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.cloud_done_rounded, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _fallbackLabel!,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(
                     future: _future,
