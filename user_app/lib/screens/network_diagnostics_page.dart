@@ -17,8 +17,10 @@ class NetworkDiagnosticsPage extends StatefulWidget {
 
 class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
   static const _socoUrl = 'https://m.sutbongtv.com/match.html';
-  static const _publicApiUrl =
-      'https://football-api.nyeinchanaung.us.ci';
+  static const _publicApiUrls = <String>[
+    'https://football-api.nyeinchanaung.us.ci',
+    'https://football-public-api.nyeinchanaung75299-eng.workers.dev',
+  ];
   static const _mirrorUrl =
       'https://raw.githubusercontent.com/'
       'nyeinchanaung75299-eng/football-stream-app/'
@@ -27,6 +29,12 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
       'https://raw.githubusercontent.com/'
       'nyeinchanaung75299-eng/football-stream-app/'
       'feed/public/streams.json';
+
+  Uri _mirrorMatchesUri() =>
+      kIsWeb ? Uri.base.resolve('matches.json') : Uri.parse(_mirrorUrl);
+
+  Uri _mirrorStreamsUri() =>
+      kIsWeb ? Uri.base.resolve('streams.json') : Uri.parse(_mirrorStreamsUrl);
 
   bool _running = false;
   final List<_DiagResult> _results = [];
@@ -94,45 +102,45 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
   }
 
   Future<void> _checkPublicApi() async {
-    final started = DateTime.now();
-    final client = http.Client();
-    try {
-      final response = await client
-          .get(
-            Uri.parse('$_publicApiUrl/health'),
-            headers: const {'Accept': 'application/json'},
-          )
-          .timeout(const Duration(seconds: 8));
+    Object? lastError;
+    for (final base in _publicApiUrls) {
+      final started = DateTime.now();
+      final client = http.Client();
+      try {
+        final response = await client
+            .get(
+              Uri.parse('$base/health'),
+              headers: const {'Accept': 'application/json'},
+            )
+            .timeout(const Duration(seconds: 5));
 
-      final ok = response.statusCode >= 200 && response.statusCode < 300;
-      _add(
-        _DiagResult(
-          title: 'Cloudflare public API',
-          detail: ok
-              ? 'VPN-free fallback OK • HTTP ${response.statusCode} • ${_ms(started)} ms'
-              : 'Fallback API returned HTTP ${response.statusCode}',
-          status: ok ? _DiagStatus.ok : _DiagStatus.fail,
-        ),
-      );
-    } on TimeoutException {
-      _add(
-        const _DiagResult(
-          title: 'Cloudflare public API',
-          detail: 'Timed out on this network.',
-          status: _DiagStatus.fail,
-        ),
-      );
-    } catch (e) {
-      _add(
-        _DiagResult(
-          title: 'Cloudflare public API',
-          detail: 'Connection failed: ${_shortError(e)}',
-          status: _DiagStatus.fail,
-        ),
-      );
-    } finally {
-      client.close();
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          _add(
+            _DiagResult(
+              title: 'Cloudflare public API',
+              detail:
+                  'VPN-free fallback OK • ${Uri.parse(base).host} • '
+                  'HTTP ${response.statusCode} • ${_ms(started)} ms',
+              status: _DiagStatus.ok,
+            ),
+          );
+          return;
+        }
+        lastError = Exception('HTTP ${response.statusCode}');
+      } catch (e) {
+        lastError = e;
+      } finally {
+        client.close();
+      }
     }
+
+    _add(
+      _DiagResult(
+        title: 'Cloudflare public API',
+        detail: 'Both API endpoints failed: ${_shortError(lastError ?? 'unavailable')}',
+        status: _DiagStatus.fail,
+      ),
+    );
   }
 
   Future<void> _checkMirror() async {
@@ -141,7 +149,7 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
     try {
       final response = await client
           .get(
-            Uri.parse(_mirrorUrl),
+            _mirrorMatchesUri(),
             headers: const {
               'Accept': 'application/json',
               'Cache-Control': 'no-cache',
@@ -273,7 +281,9 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
         final stamp = DateTime.now().millisecondsSinceEpoch;
         final response = await client
             .get(
-              Uri.parse('$_mirrorStreamsUrl?t=$stamp'),
+              _mirrorStreamsUri().replace(
+                queryParameters: {'t': stamp.toString()},
+              ),
               headers: const {
                 'Accept': 'application/json',
                 'Cache-Control': 'no-cache',
@@ -521,21 +531,23 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
           const SizedBox(height: 10),
           ..._results.map((result) => _ResultTile(result: result)),
           const SizedBox(height: 14),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.system_update_alt_rounded),
-              title: const Text(
-                'App updates',
-                style: TextStyle(fontWeight: FontWeight.w900),
+          if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) ...[
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.system_update_alt_rounded),
+                title: const Text(
+                  'App updates',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+                subtitle: const Text(
+                  'NCA can check, download and open the latest APK installer directly.',
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => AppUpdateService.check(context, force: true),
               ),
-              subtitle: const Text(
-                'NCA can check, download and open the latest APK installer directly.',
-              ),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => AppUpdateService.check(context, force: true),
             ),
-          ),
-          const SizedBox(height: 14),
+            const SizedBox(height: 14),
+          ],
           const Text(
             'HLS-first policy',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
