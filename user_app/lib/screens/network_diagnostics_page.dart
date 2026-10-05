@@ -16,7 +16,8 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
   static const _socoUrl = 'https://m.sutbongtv.com/match.html';
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
-    defaultValue: '',
+    defaultValue:
+        'https://football-public-api.nyeinchanaung75299-eng.workers.dev',
   );
   static const _mirrorUrl =
       'https://raw.githubusercontent.com/'
@@ -89,24 +90,12 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
   }
 
   Future<void> _checkPublicApi() async {
-    final base = _publicApiBase.trim();
-
-    if (base.isEmpty) {
-      _add(
-        const _DiagResult(
-          title: 'Public fallback API',
-          detail: 'Not configured in this build.',
-          status: _DiagStatus.warning,
-        ),
-      );
-      return;
-    }
-
     final started = DateTime.now();
     final client = http.Client();
-
     try {
-      final cleanBase = base.replaceAll(RegExp(r'/+    final started = DateTime.now();
+      final cleanBase =
+          _publicApiBase.trim().replaceAll(RegExp(r'/+
+    final started = DateTime.now();
     final client = http.Client();
     try {
       final response = await client
@@ -503,14 +492,13 @@ class _ResultTile extends StatelessWidget {
           .timeout(const Duration(seconds: 8));
 
       final ok =
-          response.statusCode >= 200 &&
-          response.statusCode < 300;
+          response.statusCode >= 200 && response.statusCode < 300;
 
       _add(
         _DiagResult(
-          title: 'Public fallback API',
+          title: 'Cloudflare public API',
           detail: ok
-              ? 'Reachable on this network • ${_ms(started)} ms'
+              ? 'Reachable without direct Supabase • ${_ms(started)} ms'
               : 'Fallback API returned HTTP ${response.statusCode}',
           status: ok ? _DiagStatus.ok : _DiagStatus.fail,
         ),
@@ -518,15 +506,15 @@ class _ResultTile extends StatelessWidget {
     } on TimeoutException {
       _add(
         const _DiagResult(
-          title: 'Public fallback API',
-          detail: 'Configured, but timed out on this network.',
+          title: 'Cloudflare public API',
+          detail: 'Timed out on this network.',
           status: _DiagStatus.fail,
         ),
       );
     } catch (e) {
       _add(
         _DiagResult(
-          title: 'Public fallback API',
+          title: 'Cloudflare public API',
           detail: 'Connection failed: ${_shortError(e)}',
           status: _DiagStatus.fail,
         ),
