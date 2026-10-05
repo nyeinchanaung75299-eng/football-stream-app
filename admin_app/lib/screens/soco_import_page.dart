@@ -39,7 +39,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final data = await Supabase.instance.client
         .from('matches')
         .select(
-          'id,home_team,away_team,kickoff_at,sort_order,is_active,deleted_at',
+          'id,home_team,away_team,kickoff_at,sort_order,is_active,'
+          'is_finished,is_featured,publish_state,deleted_at',
         )
         .eq('is_active', true)
         .order('kickoff_at', ascending: true)
@@ -47,7 +48,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
         .order('home_team', ascending: true);
 
     return List<Map<String, dynamic>>.from(data)
-        .where((row) => row['deleted_at'] == null)
+        .where(
+          (row) =>
+              row['deleted_at'] == null &&
+              row['is_finished'] != true &&
+              row['is_featured'] != false &&
+              (row['publish_state'] ?? 'published') == 'published',
+        )
         .toList();
   }
 
@@ -341,6 +348,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       'webview_url': null,
       'send_notification': false,
       'is_active': true,
+      'expires_at': line['expires_at'],
     });
 
     message('Soco $label added to the selected match.');
