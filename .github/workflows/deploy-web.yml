@@ -40,7 +40,7 @@ jobs:
       - name: Build Viewer Web
         working-directory: user_app
         run: |
-          flutter build web --release --base-href "/football-stream-app/"
+          flutter build web --release --base-href "/football-stream-app/" --pwa-strategy=none
           # GitHub Pages controls response cache headers, so stamp the
           # bootstrap URL on every deploy. This prevents an old Flutter shell
           # from surviving a new release while still allowing heavy assets to
@@ -58,6 +58,8 @@ jobs:
           )
           p.write_text(s, encoding="utf-8")
           PY
+          # Disable Flutter's service-worker cache. Live match data must not
+          # be pinned to an older web release after a VPN/network change.
           cp build/web/index.html build/web/404.html
 
       - name: Add same-origin VPN-off match backup
