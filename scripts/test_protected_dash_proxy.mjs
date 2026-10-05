@@ -6,7 +6,7 @@ const workerPath = fileURLToPath(
   new URL('../cloudflare/public-api/src/index.js', import.meta.url),
 );
 const source = readFileSync(workerPath, 'utf8') +
-  '\nexport { advertisedLinkCount, protectedClientLinks, blockedClientLinks, rewriteDashManifest, rewriteHlsPlaylist, resolveProtectedTarget, workerFetchUrl, isFawaSession };\n';
+  '\nexport { advertisedLinkCount, protectedClientLinks, rewriteDashManifest, rewriteHlsPlaylist, resolveProtectedTarget, workerFetchUrl, isFawaSession };\n';
 const mod = await import(
   'data:text/javascript;base64,' + Buffer.from(source).toString('base64')
 );
@@ -14,7 +14,6 @@ const mod = await import(
 const {
   advertisedLinkCount,
   protectedClientLinks,
-  blockedClientLinks,
   rewriteDashManifest,
   rewriteHlsPlaylist,
   resolveProtectedTarget,
@@ -68,12 +67,18 @@ assert.equal(
   1,
   'keyed DASH must remain visible in public line-count metadata',
 );
-const blockedRows = blockedClientLinks([keyedDashRow]);
-assert.equal(blockedRows.length, 1);
-assert.equal(blockedRows[0].blocked_reason, 'keyed_dash_not_exposed');
-assert.equal(blockedRows[0].stream_url, null);
-assert.equal(blockedRows[0].key_id, null);
-assert.equal(blockedRows[0].key_data, null);
+const keyedProtectedRows = await protectedClientLinks(
+  [keyedDashRow],
+  env,
+  'https://football-api.example',
+);
+assert.equal(keyedProtectedRows.length, 1);
+assert.match(
+  keyedProtectedRows[0].stream_url,
+  /^https:\/\/football-api\.example\/p\//,
+);
+assert.equal(keyedProtectedRows[0].key_id, 'secret-id');
+assert.equal(keyedProtectedRows[0].key_data, 'secret-key');
 
 const protectedRows = await protectedClientLinks(
   [dashRow],
@@ -245,7 +250,7 @@ assert.equal(
 );
 
 console.log('PASS protected non-DRM DASH is advertised');
-console.log('PASS keyed DASH is counted and shown as safe blocked metadata');
+console.log('PASS configured ClearKey DASH is returned as a protected playable line');
 console.log('PASS relative DASH SegmentTemplate uses protected base routing');
 console.log('PASS nested-only BaseURL manifests receive a protected root base');
 console.log('PASS absolute DASH templates preserve substitution tokens');
