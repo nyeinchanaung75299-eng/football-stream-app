@@ -68,9 +68,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     try {
       final data = await FunctionGateway.invoke(
-        'soco-links',
+        'source-match-list',
         body: {
-          'action': 'matches',
           'source': source,
         },
       );
@@ -235,7 +234,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'source': source,
           'room_num': room,
           'schedule_id': match['schedule_id'],
-          'page_url': match['page_url'],
+          'page_url': anchor['page_url'] ?? match['page_url'],
         },
       );
 
