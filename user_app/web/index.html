@@ -375,7 +375,7 @@
           if(!window.mpegts||!mpegts.isSupported())throw new Error('FLV is not supported by this browser.');
           mpegtsPlayer=mpegts.createPlayer({type:'flv',isLive:true,url});
           mpegtsPlayer.attachMediaElement(video);mpegtsPlayer.load();await video.play().catch(()=>{});
-          if(warning)showMessage(warning);return;
+          showMessage('');return;
         }
         if((type==='hls'||url.includes('.m3u8')) &&
             video.canPlayType('application/vnd.apple.mpegurl')){
@@ -386,7 +386,7 @@
           );
           video.src=url;
           await video.play().catch(()=>{});
-          if(warning)showMessage(warning);
+          showMessage('');
           return;
         }
         if(type==='hls'||type==='dash'||url.includes('.m3u8')||url.includes('.mpd')){
@@ -409,12 +409,12 @@
           await shakaPlayer.load(url);
           currentTracks=shakaPlayer.getVariantTracks(); fillQualityOptions();
           await video.play().catch(()=>{});
-          if(warning)showMessage(warning); return;
+          showMessage(''); return;
         }
         video.src=url;
         video.addEventListener('error',()=>showMessage('This line could not be played in the browser. Try another line or the Android app.'),{once:true});
         await video.play().catch(()=>{});
-        if(warning)showMessage(warning);
+        showMessage('');
       }catch(error){
         console.error(error);
         await fallbackToNextLine(
