@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'analytics_service.dart';
 import 'app_theme.dart';
 import 'screens/auth_gate.dart';
 import 'theme_controller.dart';
@@ -14,6 +16,7 @@ Future<void> main() async {
     Supabase.initialize(url: url, anonKey: anonKey),
     AppThemeController.instance.load(),
   ]);
+  await AnalyticsService.initialize();
 
   runApp(const FootballAdminApp());
 }
@@ -32,6 +35,7 @@ class FootballAdminApp extends StatelessWidget {
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: AppThemeController.instance.mode,
+          navigatorObservers: [PosthogObserver()],
           home: const AuthGate(),
         );
       },
