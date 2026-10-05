@@ -331,7 +331,16 @@ function advertisedLinkCount(raw) {
     ) {
       return false;
     }
-    return String(link.stream_url || "").trim().length > 0;
+    const type = String(link.stream_type || "auto").toLowerCase();
+    const streamUrl = String(link.stream_url || "").trim();
+    if (
+      type === "dash" ||
+      type === "mpd" ||
+      streamUrl.toLowerCase().includes(".mpd")
+    ) {
+      return false;
+    }
+    return streamUrl.length > 0;
   }).length;
 }
 
@@ -354,6 +363,18 @@ async function protectedClientLinks(raw, env, publicOrigin) {
     const upstreamUrl = String(link.stream_url || "").trim();
     if (!upstreamUrl) continue;
     if (String(link.key_id || "").trim() || String(link.key_data || "").trim()) {
+      continue;
+    }
+
+    const streamType = String(link.stream_type || "auto").toLowerCase();
+    if (
+      streamType === "dash" ||
+      streamType === "mpd" ||
+      upstreamUrl.toLowerCase().includes(".mpd")
+    ) {
+      // HLS playlists are rewritten through the proxy. DASH manifests can
+      // contain BaseURL/SegmentTemplate references that would otherwise leak
+      // or bypass the protected gateway, so do not advertise them yet.
       continue;
     }
 
