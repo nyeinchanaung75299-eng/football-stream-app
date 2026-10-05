@@ -4,6 +4,7 @@ import '../analytics_service.dart';
 import '../widgets/theme_mode_button.dart';
 import 'edit_live_page.dart';
 import 'fixture_import_page.dart';
+import 'highlights_page.dart';
 import 'live_links_page.dart';
 import 'live_upload_page.dart';
 import 'soco_import_page.dart';
@@ -120,6 +121,18 @@ class DashboardPage extends StatelessWidget {
               context,
               const SocoImportPage(),
               'stream-source-picker',
+            ),
+          ),
+          const SizedBox(height: 10),
+          _ActionCard(
+            icon: Icons.video_library_rounded,
+            title: 'Highlights Management',
+            subtitle: 'Upload highlight title, thumbnail and video URL.',
+            iconColor: const Color(0xFFF97316),
+            onTap: () => open(
+              context,
+              const HighlightsPage(),
+              'highlights',
             ),
           ),
         ],
