@@ -90,7 +90,20 @@
     let controlsTimer=null;
     let autoFallbackTried=new Set();
     let playbackToken=0;
+    let playbackStartedToken=-1;
     const scriptLoads=new Map();
+
+    function capturePlayerEvent(name,properties={}){
+      try{
+        if(window.posthog && typeof window.posthog.capture==='function'){
+          window.posthog.capture(name,{
+            app:'nca_viewer',
+            platform:'web',
+            ...properties
+          });
+        }
+      }catch(_){}
+    }
 
     function loadScriptOnce(src,key){
       if(window[key]) return Promise.resolve();
@@ -110,7 +123,7 @@
     async function ensurePlayerEngine(type,url){
       if(type==='flv'){
         await loadScriptOnce(
-          'https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.js',
+          'https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.js',
           'mpegts'
         );
         return;
@@ -184,6 +197,13 @@
     async function fallbackToNextLine(failedIndex,message,token){
       if(token!==playbackToken) return;
       autoFallbackTried.add(failedIndex);
+      const failed=sources[failedIndex]||{};
+      capturePlayerEvent('playback line failed',{
+        selected_index:failedIndex,
+        line_count:sources.length,
+        stream_type:sourceType(failed),
+        reason:String(message||'line unavailable').slice(0,80)
+      });
 
       const candidates=[...sources.keys()].filter(i=>!autoFallbackTried.has(i));
       if(isIOS()){
@@ -201,6 +221,11 @@
 
       if(candidates.length){
         const nextIndex=candidates[0];
+        capturePlayerEvent('playback auto fallback',{
+          from_index:failedIndex,
+          to_index:nextIndex,
+          line_count:sources.length
+        });
         showMessage((message||'Line unavailable')+' • trying backup line…');
         setTimeout(()=>loadSource(nextIndex,false),450);
         return;
@@ -239,6 +264,11 @@
         item.addEventListener('click',()=>{
           closePlayerMenu();
           autoFallbackTried.clear();
+          capturePlayerEvent('playback line selected',{
+            selected_index:index,
+            line_count:sources.length,
+            stream_type:sourceType(source)
+          });
           loadSource(index,true);
         });
         menuItems.appendChild(item);
@@ -259,6 +289,7 @@
         if(shakaPlayer) shakaPlayer.configure({abr:{enabled:true}});
         qualityButton.textContent='Auto';
         qualityButton.dataset.mode='auto';
+        capturePlayerEvent('playback quality selected',{quality:'auto'});
         closePlayerMenu();
       });
       menuItems.appendChild(auto);
@@ -277,6 +308,7 @@
           qualityButton.textContent=label;
           qualityButton.dataset.mode='manual';
           qualityButton.dataset.trackId=String(track.id);
+          capturePlayerEvent('playback quality selected',{quality:label});
           closePlayerMenu();
         });
         menuItems.appendChild(item);
@@ -370,6 +402,18 @@
       closePlayerMenu();
       const token=++playbackToken;
       await destroyPlayback();
+      const onPlaying=()=>{
+        if(token!==playbackToken || playbackStartedToken===token)return;
+        playbackStartedToken=token;
+        capturePlayerEvent('playback started',{
+          selected_index:index,
+          line_count:sources.length,
+          stream_type:type,
+          resolution:String(source.resolution||''),
+          health_status:String(source.healthStatus||source.health_status||'unknown')
+        });
+      };
+      video.addEventListener('playing',onPlaying,{once:true});
       if(!url){showMessage('This line has no stream URL.');return}
       if(!support.ok){
         await fallbackToNextLine(index,support.reason,token);
@@ -419,7 +463,11 @@
           showMessage(''); return;
         }
         video.src=url;
-        video.addEventListener('error',()=>showMessage('This line could not be played in the browser. Try another line or the Android app.'),{once:true});
+        video.addEventListener(
+          'error',
+          ()=>fallbackToNextLine(index,'Browser video playback failed',token),
+          {once:true}
+        );
         await video.play().catch(()=>{});
         showMessage('');
       }catch(error){
@@ -442,7 +490,15 @@
       if(menuPanel.classList.contains('hidden')) openQualityMenu();
       else closePlayerMenu();
     });
-    closeButton.addEventListener('click',async()=>{await destroyPlayback();overlay.classList.remove('open');overlay.setAttribute('aria-hidden','true')});
+    closeButton.addEventListener('click',async()=>{
+      capturePlayerEvent('playback closed',{
+        selected_index:currentSourceIndex,
+        line_count:sources.length
+      });
+      await destroyPlayback();
+      overlay.classList.remove('open');
+      overlay.setAttribute('aria-hidden','true');
+    });
     overlay.addEventListener('pointermove',()=>{if(overlay.classList.contains('open'))revealControls()});
     overlay.addEventListener('pointerup',event=>{
       if(event.target===video||event.target===document.getElementById('football-player-video-wrap')){
@@ -465,6 +521,18 @@
       }catch(_){}
     });
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&overlay.classList.contains('open')&&!document.fullscreenElement)closeButton.click()});
+    video.addEventListener('waiting',()=>{
+      capturePlayerEvent('playback buffering',{
+        selected_index:currentSourceIndex,
+        line_count:sources.length
+      });
+    });
+    video.addEventListener('ended',()=>{
+      capturePlayerEvent('playback ended',{
+        selected_index:currentSourceIndex,
+        line_count:sources.length
+      });
+    });
 
     window.openFootballPlayer=async(sourcesJson,selectedIndex,title)=>{
       try{const parsed=JSON.parse(String(sourcesJson||'[]'));sources=Array.isArray(parsed)?parsed.filter(x=>x&&x.url):[]}catch(_){sources=[]}
