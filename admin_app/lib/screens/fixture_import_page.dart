@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'live_links_page.dart';
+import '../services/function_gateway.dart';
 
 class FixtureImportPage extends StatefulWidget {
   const FixtureImportPage({super.key});
@@ -46,15 +47,13 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     });
 
     try {
-      final response = await Supabase.instance.client.functions.invoke(
+      final data = await FunctionGateway.invoke(
         'football-fixtures',
         body: {
           'mode': mode,
           'date': DateFormat('yyyy-MM-dd').format(selectedDate),
         },
       );
-
-      final data = response.data;
       if (data is! Map) {
         throw Exception('Unexpected API response.');
       }
