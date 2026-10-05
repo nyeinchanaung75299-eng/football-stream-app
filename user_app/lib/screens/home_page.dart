@@ -333,10 +333,12 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadMirror() async {
+    // GitHub Pages is the reliable transport on restricted networks. Use a
+    // short cache bucket so a VPN toggle/refresh cannot keep an old snapshot
+    // around for a full browser cache lifetime.
+    final bucket = DateTime.now().millisecondsSinceEpoch ~/ 15000;
     final uri = Uri.parse('$_mirrorBase').replace(
-      queryParameters: {
-        't': DateTime.now().millisecondsSinceEpoch.toString(),
-      },
+      queryParameters: {'v': bucket.toString()},
     );
 
     final response = await http
