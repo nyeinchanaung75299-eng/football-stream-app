@@ -48,6 +48,9 @@ jobs:
           missing=[x for x in perms if x not in s]
           if missing:
               s=s.replace(marker, marker+'\n    '+'\n    '.join(missing))
+          posthog_meta='        <meta-data android:name="com.posthog.posthog.AUTO_INIT" android:value="false" />\n'
+          if 'com.posthog.posthog.AUTO_INIT' not in s:
+              s=s.replace('    </application>', posthog_meta+'    </application>')
           import re, shutil
           s=re.sub(r'android:label="[^"]+"','android:label="NCA Admin"',s,count=1)
           s=s.replace('@mipmap/ic_launcher','@drawable/nca_icon')
