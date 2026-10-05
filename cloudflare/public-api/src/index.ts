@@ -47,19 +47,6 @@ const LINK_FIELDS = [
   "health_status",
 ];
 
-const SENSITIVE_QUERY_PARTS = [
-  "token",
-  "auth",
-  "signature",
-  "sig",
-  "key",
-  "expires",
-  "expire",
-  "policy",
-  "jwt",
-  "hdnts",
-  "hdnea",
-];
 
 export default {
   async fetch(
@@ -250,16 +237,6 @@ async function handleStreams(
     );
   }
 
-  const cache = caches.default;
-  const cacheKey = new Request(
-    "https://cache.local/matches/" +
-      encodeURIComponent(matchId) +
-      "/streams",
-  );
-
-  const cached = await cache.match(cacheKey);
-  if (cached) return withCors(cached);
-
   const select = [
     ...MATCH_FIELDS,
     "stream_links(" + LINK_FIELDS.join(",") + ")",
@@ -313,9 +290,13 @@ async function handleStreams(
   const match =
     rows[0] as Record<string, unknown>;
 
-  const streams = safeLinks(match.stream_links);
+  // Return the same active native playback configuration that the anonymous
+  // viewer is allowed to read from Supabase, but through Cloudflare. This makes
+  // the line picker work on networks where the Supabase hostname is blocked.
+  // Do not edge-cache signed URLs/keys because they can rotate or expire.
+  const streams = clientLinks(match.stream_links);
 
-  const result = json(
+  return json(
     {
       ok: true,
       match_id: matchId,
@@ -324,12 +305,9 @@ async function handleStreams(
     },
     200,
     {
-      "Cache-Control": "public, max-age=8, s-maxage=15",
+      "Cache-Control": "no-store, max-age=0",
     },
   );
-
-  ctx.waitUntil(cache.put(cacheKey, result.clone()));
-  return result;
 }
 
 async function loadMatchRows(
@@ -439,7 +417,7 @@ function sanitizeMatchMetadata(
   result.stream_count = advertisedLinkCount(
     links.length > 0 ? links : source.stream_count,
   );
-  result.public_stream_count = safeLinks(links).length;
+  result.public_stream_count = clientLinks(links).length;
 
   return result;
 }
@@ -478,29 +456,39 @@ function advertisedLinkCount(raw: unknown) {
   }).length;
 }
 
-function safeLinks(raw: unknown) {
+function clientLinks(raw: unknown) {
   const links = Array.isArray(raw) ? raw : [];
+  const now = Date.now();
 
   return links
-    .filter((item) =>
-      isSafePublicLink(
-        item as Record<string, unknown>,
-      ),
-    )
-    .map((item) => {
-      const link =
-        item as Record<string, unknown>;
+    .filter((item) => {
+      const link = item as Record<string, unknown>;
+      if (link.is_active !== true) return false;
 
+      const availableFrom = Date.parse(String(link.available_from ?? ""));
+      if (Number.isFinite(availableFrom) && now < availableFrom) return false;
+
+      const expiresAt = Date.parse(String(link.expires_at ?? ""));
+      if (Number.isFinite(expiresAt) && now >= expiresAt) return false;
+
+      // The main WATCH picker opens native/Shaka sources. WebView-only entries
+      // remain separate so they do not appear as unusable native lines.
+      if (link.use_webview === true) return false;
+
+      return String(link.stream_url ?? "").trim().length > 0;
+    })
+    .map((item) => {
+      const link = item as Record<string, unknown>;
       return {
         id: link.id,
         label: link.label,
         resolution: link.resolution,
         stream_type: link.stream_type,
         stream_url: link.stream_url,
-        referer: null,
-        origin: null,
-        key_id: null,
-        key_data: null,
+        referer: link.referer,
+        origin: link.origin,
+        key_id: link.key_id,
+        key_data: link.key_data,
         use_webview: false,
         webview_url: null,
         is_active: true,
@@ -511,58 +499,6 @@ function safeLinks(raw: unknown) {
       };
     })
     .sort(compareLinks);
-}
-
-function isSafePublicLink(
-  link: Record<string, unknown>,
-) {
-  if (link.is_active !== true) return false;
-  if (link.use_webview === true) return false;
-
-  for (const field of [
-    "referer",
-    "origin",
-    "key_id",
-    "key_data",
-  ]) {
-    if (
-      String(link[field] ?? "")
-        .trim()
-        .length > 0
-    ) {
-      return false;
-    }
-  }
-
-  const streamUrl =
-    String(link.stream_url ?? "").trim();
-
-  if (!streamUrl) return false;
-
-  try {
-    const url = new URL(streamUrl);
-
-    for (
-      const queryKey of
-      url.searchParams.keys()
-    ) {
-      const lower =
-        queryKey.toLowerCase();
-
-      if (
-        SENSITIVE_QUERY_PARTS.some(
-          (part) =>
-            lower.includes(part),
-        )
-      ) {
-        return false;
-      }
-    }
-  } catch (_) {
-    return false;
-  }
-
-  return true;
 }
 
 function compareMatches(
