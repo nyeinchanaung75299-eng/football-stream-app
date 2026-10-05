@@ -152,51 +152,125 @@ class _HomePageState extends State<HomePage> {
       final picked = await showModalBottomSheet<int>(
         context: context,
         useSafeArea: true,
+        isScrollControlled: true,
         showDragHandle: true,
         builder: (sheetContext) {
           final colors = Theme.of(sheetContext).colorScheme;
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Choose line',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${match['home_team']} vs ${match['away_team']}',
-                  style: TextStyle(color: colors.onSurfaceVariant),
-                ),
-                const SizedBox(height: 12),
-                ...List.generate(nativeSources.length, (index) {
-                  final source = nativeSources[index];
-                  final label = (source['label'] ?? 'Server ${index + 1}').toString();
-                  final type = (source['streamType'] ?? 'auto').toString().toUpperCase();
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        side: BorderSide(
-                          color: colors.outlineVariant.withValues(alpha: .5),
+
+          return DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: nativeSources.length <= 4 ? .52 : .72,
+            minChildSize: .38,
+            maxChildSize: .90,
+            builder: (context, scrollController) {
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Choose line',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                '${match['home_team']} vs ${match['away_team']}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: colors.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      leading: const Icon(Icons.dns_rounded),
-                      title: Text(
-                        label,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      subtitle: Text(type == 'AUTO' ? 'Auto / Direct' : type),
-                      trailing: const Icon(Icons.play_arrow_rounded),
-                      onTap: () => Navigator.pop(sheetContext, index),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: colors.primaryContainer,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '${nativeSources.length} lines',
+                            style: TextStyle(
+                              color: colors.onPrimaryContainer,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  );
-                }),
-              ],
-            ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: ListView.separated(
+                      controller: scrollController,
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 22),
+                      itemCount: nativeSources.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final source = nativeSources[index];
+                        final label =
+                            (source['label'] ?? 'Server ${index + 1}')
+                                .toString();
+                        final type =
+                            (source['streamType'] ?? 'auto')
+                                .toString()
+                                .toUpperCase();
+
+                        return ListTile(
+                          minTileHeight: 66,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            side: BorderSide(
+                              color: colors.outlineVariant
+                                  .withValues(alpha: .55),
+                            ),
+                          ),
+                          leading: CircleAvatar(
+                            backgroundColor:
+                                colors.primaryContainer.withValues(alpha: .7),
+                            foregroundColor: colors.onPrimaryContainer,
+                            child: Text(
+                              '${index + 1}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          title: Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          subtitle: Text(
+                            type == 'AUTO' ? 'Auto / Direct' : type,
+                          ),
+                          trailing: const Icon(Icons.play_arrow_rounded),
+                          onTap: () =>
+                              Navigator.pop(sheetContext, index),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              );
+            },
           );
         },
       );
