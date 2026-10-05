@@ -74,8 +74,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         const SizedBox(width: 8),
         Expanded(
           child: Text(
-            'The protected Viewer currently excludes DASH and ClearKey lines. '
-            'For iPhone playback, add a compatible HLS backup to this same match. '
+            'The protected Viewer now proxies non-DRM DASH/MPD as well as HLS. '
+            'ClearKey/keyed DASH is still kept private; add an authorized HLS/FairPlay-compatible backup for iPhone when needed. '
             'HTTP health checks report reachability only.',
             style: TextStyle(
               color: colors.onSurfaceVariant,

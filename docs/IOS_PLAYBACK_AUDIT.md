@@ -1,5 +1,11 @@
 # NCA iPhone / MPD investigation — before implementation
 
+> Update (6 October 2026): the Cloudflare gateway now has a protected
+> non-DRM DASH/MPD rewrite path for manifest BaseURL/SegmentTemplate media.
+> The original findings below describe the earlier state at commit
+> `f809294`. Keyed/ClearKey DASH remains intentionally excluded from the
+> public Viewer unless a separately authorized compatible delivery path exists.
+
 Audited repository `nyeinchanaung75299-eng/football-stream-app` at `f8092942036af709796222a672e0a05c79292629` on 5 October 2026. This report was written before editing the iOS/player code. Git history, current player/backend source, deployed Worker version and read-only Supabase metadata were inspected. Raw upstream URLs, request headers, keys and playback tokens were not exported.
 
 ## Confirmed causes and limits of the evidence
