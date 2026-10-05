@@ -262,6 +262,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         match: match,
         anchor: anchor,
         lines: lines,
+        sourceLiveStatus: data is Map ? data['live_status'] : null,
       );
     } catch (_) {
       if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
@@ -275,6 +276,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     required Map<String, dynamic> match,
     required Map<String, dynamic> anchor,
     required List<Map<String, dynamic>> lines,
+    dynamic sourceLiveStatus,
   }) async {
     final anchorName =
         (anchor['nick_name'] ?? 'Streamer').toString().trim();
@@ -303,6 +305,38 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 '${match['home_team']} vs ${match['away_team']} • $anchorName',
                 style: TextStyle(color: colors.onSurfaceVariant),
               ),
+              if (sourceLiveStatus != null) ...[
+                const SizedBox(height: 8),
+                Builder(
+                  builder: (context) {
+                    final live = sourceLiveStatus == true ||
+                        sourceLiveStatus == 1 ||
+                        sourceLiveStatus.toString() == '1';
+                    return Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: (live ? Colors.green : Colors.orange)
+                              .withValues(alpha: .12),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          live ? 'SOURCE LIVE' : 'SOURCE NOT LIVE',
+                          style: TextStyle(
+                            color: live ? Colors.green : Colors.orange,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
               const SizedBox(height: 12),
               ...lines.map((line) {
                 final label = (line['label'] ?? 'Stream').toString();
@@ -311,6 +345,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 final url = (line['url'] ?? '').toString();
                 final referer = (line['referer'] ?? '').toString().trim();
                 final origin = (line['origin'] ?? '').toString().trim();
+                final health =
+                    (line['health_status'] ?? '').toString().toLowerCase();
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -329,11 +365,48 @@ class _SocoImportPageState extends State<SocoImportPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                label,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                ),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      label,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                  if (health.isNotEmpty)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 7,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: (health == 'healthy'
+                                                ? Colors.green
+                                                : health == 'failed' ||
+                                                        health == 'dead'
+                                                    ? Colors.red
+                                                    : Colors.orange)
+                                            .withValues(alpha: .12),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                      ),
+                                      child: Text(
+                                        health.toUpperCase(),
+                                        style: TextStyle(
+                                          color: health == 'healthy'
+                                              ? Colors.green
+                                              : health == 'failed' ||
+                                                      health == 'dead'
+                                                  ? Colors.red
+                                                  : Colors.orange,
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
                               const SizedBox(height: 2),
                               Text(
