@@ -41,6 +41,8 @@ class _SocoPageState extends State<SocoPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     if (_error != null) {
       return Center(
         child: Padding(
@@ -55,10 +57,7 @@ class _SocoPageState extends State<SocoPage> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 6),
-              Text(
-                _error!,
-                textAlign: TextAlign.center,
-              ),
+              Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: 16),
               FilledButton.icon(
                 onPressed: () {
@@ -74,12 +73,31 @@ class _SocoPageState extends State<SocoPage> {
       );
     }
 
-    return Stack(
-      children: [
-        WebViewWidget(controller: _controller),
-        if (_progress < 100)
-          LinearProgressIndicator(value: _progress <= 0 ? null : _progress / 100),
-      ],
+    return ColoredBox(
+      color: colors.surfaceContainerLowest,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: colors.surface,
+              border: Border.all(
+                color: colors.outlineVariant.withValues(alpha: .5),
+              ),
+            ),
+            child: Stack(
+              children: [
+                WebViewWidget(controller: _controller),
+                if (_progress < 100)
+                  LinearProgressIndicator(
+                    value: _progress <= 0 ? null : _progress / 100,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

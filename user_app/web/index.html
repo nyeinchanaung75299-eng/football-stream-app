@@ -57,6 +57,18 @@
     const fitButton=document.getElementById('football-player-fit');
     const fullscreenButton=document.getElementById('football-player-fullscreen');
     let sources=[], shakaPlayer=null, mpegtsPlayer=null, currentTracks=[];
+    let controlsTimer=null;
+
+    function hideControls(){
+      document.getElementById('football-player-topbar').classList.add('controls-hidden');
+    }
+
+    function revealControls(){
+      const bar=document.getElementById('football-player-topbar');
+      bar.classList.remove('controls-hidden');
+      if(controlsTimer)clearTimeout(controlsTimer);
+      controlsTimer=setTimeout(hideControls,3000);
+    }
 
     function showMessage(text){messageEl.textContent=text||'';messageEl.style.display=text?'block':'none'}
 
@@ -133,6 +145,14 @@
           mpegtsPlayer.attachMediaElement(video);mpegtsPlayer.load();await video.play().catch(()=>{});
           if(warning)showMessage(warning);return;
         }
+        if((type==='hls'||url.includes('.m3u8')) &&
+            video.canPlayType('application/vnd.apple.mpegurl')){
+          video.src=url;
+          video.addEventListener('error',()=>showMessage('This HLS line could not be played in the browser. Try another line or the Android app.'),{once:true});
+          await video.play().catch(()=>{});
+          if(warning)showMessage(warning);
+          return;
+        }
         if(type==='hls'||type==='dash'||url.includes('.m3u8')||url.includes('.mpd')){
           if(!window.shaka)throw new Error('Web streaming engine did not load.');
           shaka.polyfill.installAll();
@@ -151,7 +171,10 @@
           await video.play().catch(()=>{});
           if(warning)showMessage(warning); return;
         }
-        video.src=url; await video.play().catch(()=>{}); if(warning)showMessage(warning);
+        video.src=url;
+        video.addEventListener('error',()=>showMessage('This line could not be played in the browser. Try another line or the Android app.'),{once:true});
+        await video.play().catch(()=>{});
+        if(warning)showMessage(warning);
       }catch(error){
         console.error(error);
         showMessage((error&&error.message?error.message:'Playback failed.')+' Try another line.');
