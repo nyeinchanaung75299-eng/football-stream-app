@@ -17,6 +17,7 @@ class SocoImportPage extends StatefulWidget {
 class _SocoImportPageState extends State<SocoImportPage> {
   String? targetMatchId;
   bool loading = false;
+  bool availableOnly = true;
   String source = 'soco';
   String dayFilter = 'today';
   String? errorText;
@@ -117,19 +118,98 @@ class _SocoImportPageState extends State<SocoImportPage> {
       a.year == b.year && a.month == b.month && a.day == b.day;
 
   List<Map<String, dynamic>> get _visibleSourceMatches {
-    if (source == 'fawa' || dayFilter == 'all') return sourceMatches;
+    Iterable<Map<String, dynamic>> rows = sourceMatches;
+
+    if (availableOnly) {
+      rows = rows.where((row) {
+        final anchors = row['anchors'];
+        return anchors is List && anchors.isNotEmpty;
+      });
+    }
+
+    if (source == 'fawa' || dayFilter == 'all') return rows.toList();
 
     final now = DateTime.now();
     final wanted = dayFilter == 'tomorrow'
         ? DateTime(now.year, now.month, now.day + 1)
         : DateTime(now.year, now.month, now.day);
 
-    return sourceMatches.where((row) {
+    return rows.where((row) {
       final time = DateTime.tryParse(
         row['match_time']?.toString() ?? '',
       )?.toLocal();
       return time != null && _sameDate(time, wanted);
     }).toList();
+  }
+
+  Future<String?> _chooseDestination() async {
+    final targets = await _loadTargetMatches();
+    if (!mounted || targets.isEmpty) return null;
+
+    return showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: .72,
+        maxChildSize: .9,
+        minChildSize: .45,
+        builder: (context, controller) => Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 2, 16, 10),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Choose NCA match',
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: ListView.separated(
+                controller: controller,
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
+                itemCount: targets.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 4),
+                itemBuilder: (context, index) {
+                  final m = targets[index];
+                  final kickoff = DateTime.tryParse(
+                    m['kickoff_at']?.toString() ?? '',
+                  )?.toLocal();
+                  final when = kickoff == null
+                      ? '--:--'
+                      : DateFormat('dd MMM • HH:mm').format(kickoff);
+
+                  return ListTile(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    tileColor:
+                        Theme.of(context).colorScheme.surfaceContainerLow,
+                    leading: const Icon(Icons.sports_soccer_rounded),
+                    title: Text(
+                      '${m['home_team']} vs ${m['away_team']}',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    subtitle: Text(when),
+                    onTap: () => Navigator.pop(
+                      sheetContext,
+                      m['id']?.toString(),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _openAnchor(
@@ -304,17 +384,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
                           icon: const Icon(Icons.copy_rounded),
                         ),
                         FilledButton(
-                          onPressed: targetMatchId == null
-                              ? null
-                              : () async {
-                                  await _addLine(
-                                    line: line,
-                                    anchorName: anchorName,
-                                  );
-                                  if (sheetContext.mounted) {
-                                    Navigator.pop(sheetContext);
-                                  }
-                                },
+                          onPressed: () async {
+                            final added = await _addLine(
+                              line: line,
+                              anchorName: anchorName,
+                            );
+                            if (added && sheetContext.mounted) {
+                              Navigator.pop(sheetContext);
+                            }
+                          },
                           child: const Text('ADD'),
                         ),
                       ],
@@ -326,9 +404,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    'Choose a destination match at the top before adding a line.',
+                    'Tap ADD, then choose the NCA match.',
                     style: TextStyle(
-                      color: colors.error,
+                      color: colors.onSurfaceVariant,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -340,18 +418,20 @@ class _SocoImportPageState extends State<SocoImportPage> {
     );
   }
 
-  Future<void> _addLine({
+  Future<bool> _addLine({
     required Map<String, dynamic> line,
     required String anchorName,
   }) async {
-    final target = targetMatchId;
-    if (target == null) {
-      message('Select a destination match first.');
-      return;
+    var target = targetMatchId;
+    target ??= await _chooseDestination();
+    if (target == null) return false;
+
+    if (mounted && targetMatchId != target) {
+      setState(() => targetMatchId = target);
     }
 
     final url = (line['url'] ?? '').toString().trim();
-    if (url.isEmpty) return;
+    if (url.isEmpty) return false;
 
     final existing = await Supabase.instance.client
         .from('stream_links')
@@ -362,7 +442,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     if (existing != null) {
       message('This source line is already added.');
-      return;
+      return false;
     }
 
     final sourceName = _sourceLabel(source);
@@ -386,6 +466,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     });
 
     message('$sourceName $label added to the selected match.');
+    return true;
   }
 
   String? nullable(String? value) {
@@ -481,7 +562,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       value: targetMatchId,
                       isExpanded: true,
                       decoration: const InputDecoration(
-                        labelText: 'Add selected source line to',
+                        labelText: 'Destination match (optional)',
                         prefixIcon: Icon(Icons.sports_soccer_rounded),
                       ),
                       items: targets.map((m) {
@@ -522,7 +603,21 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 8),
+                SwitchListTile.adaptive(
+                  value: availableOnly,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text(
+                    'Available only',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: const Text(
+                    'Hide matches that have no source yet.',
+                  ),
+                  onChanged: (value) =>
+                      setState(() => availableOnly = value),
+                ),
+                const SizedBox(height: 4),
                 if (source != 'fawa')
                   Row(
                     children: [
