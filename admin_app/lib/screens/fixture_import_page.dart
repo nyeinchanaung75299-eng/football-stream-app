@@ -92,14 +92,14 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         fixtures = [];
         final raw = e.toString();
         final lower = raw.toLowerCase();
-        if (lower.contains('account is suspended') ||
-            lower.contains('football_api_account_suspended')) {
+        if (lower.contains('football_providers_missing') ||
+            lower.contains('no football fixture provider is configured')) {
           errorText =
-              'API-Football is currently suspended, so new fixtures and automatic scores cannot be loaded. Existing matches, manual matches and stream tools still work.';
-        } else if (raw.contains('API_FOOTBALL_KEY') ||
-            raw.contains('FOOTBALL_API_KEY_MISSING')) {
+              'No fixture API is configured. Add API_FOOTBALL_KEY and/or FOOTBALL_DATA_ORG_KEY in Supabase Edge Functions > Secrets.';
+        } else if (lower.contains('account is suspended') &&
+            !lower.contains('football_data_org')) {
           errorText =
-              'Football API is not connected. Check API_FOOTBALL_KEY in Supabase Edge Functions > Secrets.';
+              'API-Football is suspended. Add FOOTBALL_DATA_ORG_KEY to use football-data.org as the automatic backup.';
         } else {
           errorText =
               'Could not load fixtures: ${raw.replaceFirst('Exception: ', '')}';
@@ -156,7 +156,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
             .upsert(
               {
                 'external_fixture_id': f['fixture_id'],
-                'source': 'api_football',
+                'source': (f['provider'] ?? 'api_football').toString(),
                 'league': f['league_name'],
                 'home_team': f['home_name'],
                 'away_team': f['away_name'],
@@ -302,6 +302,12 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     }
   }
 
+  String _providerLabel(dynamic value) {
+    return value?.toString() == 'football_data_org'
+        ? 'football-data.org'
+        : 'API-Football';
+  }
+
   Widget modeButton({
     required String value,
     required String label,
@@ -436,11 +442,13 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
             const SizedBox(height: 6),
             Row(
               children: [
-                Text(
-                  '${fixtures.length} fixtures',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 17,
+                Expanded(
+                  child: Text(
+                    '${fixtures.length} fixtures • ${_providerLabel(fixtures.first['provider'])}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 17,
+                    ),
                   ),
                 ),
                 const Spacer(),
