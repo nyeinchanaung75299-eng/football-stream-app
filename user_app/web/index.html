@@ -15,7 +15,8 @@
     body{overflow:hidden}
     #football-player-overlay{display:none;position:fixed;inset:0;z-index:2147483647;background:#000;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
     #football-player-overlay.open{display:flex;flex-direction:column}
-    #football-player-topbar{min-height:56px;display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(0,0,0,.76);box-sizing:border-box;flex-wrap:wrap}
+    #football-player-topbar{position:absolute;top:0;left:0;right:0;z-index:3;min-height:56px;display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(0,0,0,.76);box-sizing:border-box;flex-wrap:wrap;transition:opacity .18s ease}
+    #football-player-topbar.controls-hidden{opacity:0;pointer-events:none}
     #football-player-title{font-weight:800;flex:1 1 220px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
     #football-player-video-wrap{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#000}
     #football-player-video{width:100%;height:100%;object-fit:contain;background:#000}
@@ -164,8 +165,12 @@
       const track=currentTracks.find(x=>String(x.id)===value); if(!track)return;
       shakaPlayer.configure({abr:{enabled:false}}); shakaPlayer.selectVariantTrack(track,true);
     });
-    serverSelect.addEventListener('change',()=>loadSource(Number(serverSelect.value)));
+    serverSelect.addEventListener('change',()=>{revealControls();loadSource(Number(serverSelect.value))});
     closeButton.addEventListener('click',async()=>{await destroyPlayback();overlay.classList.remove('open');overlay.setAttribute('aria-hidden','true')});
+    overlay.addEventListener('pointermove',()=>{if(overlay.classList.contains('open'))revealControls()});
+    overlay.addEventListener('pointerup',event=>{
+      if(event.target===video||event.target===document.getElementById('football-player-video-wrap'))revealControls();
+    });
     fitButton.addEventListener('click',()=>{const fill=video.classList.toggle('fill');fitButton.textContent=fill?'Fit':'Fill'});
     fullscreenButton.addEventListener('click',async()=>{try{if(!document.fullscreenElement)await overlay.requestFullscreen();else await document.exitFullscreen()}catch(_){}});
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&overlay.classList.contains('open')&&!document.fullscreenElement)closeButton.click()});
@@ -175,6 +180,7 @@
       titleEl.textContent=String(title||'Football Live');
       fillServerOptions(Number(selectedIndex)||0);
       overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');
+      hideControls();
       await loadSource(Number(selectedIndex)||0);
     };
   })();
