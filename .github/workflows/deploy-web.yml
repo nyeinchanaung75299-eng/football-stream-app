@@ -51,6 +51,10 @@ jobs:
           git show origin/feed:public/streams.json > build/web/streams.json
           git show origin/feed:public/status.json > build/web/status.json || true
 
+          mkdir -p build/web/releases
+          git show origin/feed:public/releases/latest.json > build/web/releases/latest.json || true
+          git show origin/feed:public/releases/NCA-latest.apk > build/web/releases/NCA-latest.apk || true
+
       - name: Upload Web build artifact
         uses: actions/upload-artifact@v7
         with:
