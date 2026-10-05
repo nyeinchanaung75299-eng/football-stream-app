@@ -74,6 +74,7 @@ export default {
     );
     if (streamRoute) {
       return handleStreams(
+        request,
         decodeURIComponent(streamRoute[1]),
         env,
         url.origin,
@@ -149,7 +150,7 @@ async function handleMatches(env) {
   }
 }
 
-async function handleStreams(matchId, env, publicOrigin) {
+async function handleStreams(request, matchId, env, publicOrigin) {
   if (!/^[0-9a-fA-F-]{16,64}$/.test(matchId)) {
     return json({ error: "Invalid match id." }, 400);
   }
@@ -160,6 +161,17 @@ async function handleStreams(matchId, env, publicOrigin) {
     return json({ error: "Protected playback is not configured." }, 503, {
       "Cache-Control": "no-store, max-age=0",
     });
+  }
+
+  if (!(await allowRequest(request, env, "stream-list", 30))) {
+    return json(
+      { error: "Too many stream requests. Please try again shortly." },
+      429,
+      {
+        "Cache-Control": "no-store, max-age=0",
+        "Retry-After": "60",
+      },
+    );
   }
 
   const commonHeaders = { apikey: key, Accept: "application/json" };
@@ -305,6 +317,12 @@ function advertisedLinkCount(raw) {
     const expiresAt = Date.parse(String(link.expires_at || ""));
     if (Number.isFinite(expiresAt) && now >= expiresAt) return false;
     if (link.use_webview === true) return false;
+    if (
+      String(link.key_id || "").trim() ||
+      String(link.key_data || "").trim()
+    ) {
+      return false;
+    }
     return String(link.stream_url || "").trim().length > 0;
   }).length;
 }
@@ -313,7 +331,9 @@ async function protectedClientLinks(raw, env, publicOrigin) {
   if (!env.PLAYBACK_TOKENS) return [];
   const links = Array.isArray(raw) ? raw : [];
   const now = Date.now();
-  const maxTtl = 4 * 60 * 60;
+  const nowSeconds = Math.floor(now / 1000);
+  const idleTtl = 30 * 60;
+  const maxLifetime = 3 * 60 * 60;
   const output = [];
 
   for (const link of links) {
@@ -331,8 +351,9 @@ async function protectedClientLinks(raw, env, publicOrigin) {
 
     const sourceTtl = Number.isFinite(expiresAt)
       ? Math.max(60, Math.floor((expiresAt - now) / 1000))
-      : maxTtl;
-    const ttl = Math.max(60, Math.min(maxTtl, sourceTtl));
+      : maxLifetime;
+    const maxTtl = Math.max(60, Math.min(maxLifetime, sourceTtl));
+    const ttl = Math.max(60, Math.min(idleTtl, maxTtl));
     const sessionToken = randomToken();
     const sessionKey = crypto.getRandomValues(new Uint8Array(32));
     const session = {
@@ -340,7 +361,8 @@ async function protectedClientLinks(raw, env, publicOrigin) {
       r: String(link.referer || "").trim(),
       o: String(link.origin || "").trim(),
       k: bytesToBase64Url(sessionKey),
-      e: Math.floor(Date.now() / 1000) + ttl,
+      e: nowSeconds + ttl,
+      x: nowSeconds + maxTtl,
     };
 
     await env.PLAYBACK_TOKENS.put(
@@ -392,13 +414,31 @@ async function handleProtectedPlayback(request, sessionToken, encryptedTarget, e
     return json({ error: "Invalid playback session." }, 410);
   }
 
+  const nowSeconds = Math.floor(Date.now() / 1000);
   if (
     !session.u || !session.k || !Number.isFinite(session.e) ||
-    session.e <= Math.floor(Date.now() / 1000)
+    session.e <= nowSeconds ||
+    (Number.isFinite(session.x) && session.x <= nowSeconds)
   ) {
     return json({ error: "Playback session expired." }, 410, {
       "Cache-Control": "no-store",
     });
+  }
+
+  if (
+    Number.isFinite(session.x) &&
+    session.e - nowSeconds < 10 * 60
+  ) {
+    const nextTtl = Math.max(
+      60,
+      Math.min(30 * 60, session.x - nowSeconds),
+    );
+    session.e = nowSeconds + nextTtl;
+    await env.PLAYBACK_TOKENS.put(
+      "s:" + sessionToken,
+      JSON.stringify(session),
+      { expirationTtl: nextTtl },
+    );
   }
 
   let upstreamUrl = session.u;
@@ -572,6 +612,33 @@ function base64UrlToBytes(value) {
   return bytes;
 }
 
+async function allowRequest(request, env, scope, limit) {
+  if (!env.PLAYBACK_TOKENS) return true;
+
+  const address =
+    request.headers.get("CF-Connecting-IP") ||
+    request.headers.get("X-Forwarded-For") ||
+    "unknown";
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(address),
+  );
+  const id = bytesToBase64Url(new Uint8Array(digest)).slice(0, 22);
+  const bucket = Math.floor(Date.now() / 60000);
+  const key = "rl:" + scope + ":" + id + ":" + bucket;
+
+  const raw = await env.PLAYBACK_TOKENS.get(key);
+  const count = Number.parseInt(raw || "0", 10) || 0;
+  if (count >= limit) return false;
+
+  await env.PLAYBACK_TOKENS.put(
+    key,
+    String(count + 1),
+    { expirationTtl: 120 },
+  );
+  return true;
+}
+
 function compareMatches(a, b) {
   const aTime = Date.parse(String(a.kickoff_at || ""));
   const bTime = Date.parse(String(b.kickoff_at || ""));
@@ -615,6 +682,8 @@ function corsHeaders() {
     "Access-Control-Allow-Methods": "GET,HEAD,OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type, apikey, Range",
     "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
   };
 }
 
