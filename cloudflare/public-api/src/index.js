@@ -22,6 +22,10 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    if (url.hostname.startsWith("supabase-api.")) {
+      return handleSupabaseRelay(request, env);
+    }
+
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
@@ -84,6 +88,149 @@ export default {
     return json({ error: "Not found." }, 404);
   },
 };
+
+async function handleSupabaseRelay(request, env) {
+  const base = env.SUPABASE_URL?.trim() || "";
+  const publishableKey = env.SUPABASE_PUBLISHABLE_KEY?.trim() || "";
+  const incoming = new URL(request.url);
+
+  if (!base) {
+    return json({ error: "Supabase relay is not configured." }, 503, {
+      "Cache-Control": "no-store",
+    });
+  }
+
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: supabaseCorsHeaders(request),
+    });
+  }
+
+  if (incoming.pathname === "/health") {
+    if (!publishableKey) {
+      return json({ error: "Supabase publishable key is not configured." }, 503, {
+        "Cache-Control": "no-store",
+      });
+    }
+
+    try {
+      const upstream = new URL(base.replace(/\/+$/, "") + "/rest/v1/");
+      const response = await fetch(upstream, {
+        method: "GET",
+        headers: {
+          apikey: publishableKey,
+          Accept: "application/json",
+        },
+        redirect: "follow",
+      });
+      return json({
+        ok: response.status >= 200 && response.status < 500,
+        service: "supabase-relay",
+        upstream_status: response.status,
+        now: new Date().toISOString(),
+      }, response.status >= 200 && response.status < 500 ? 200 : 502, {
+        "Cache-Control": "no-store",
+      });
+    } catch (error) {
+      return json({
+        ok: false,
+        service: "supabase-relay",
+        error: error instanceof Error ? error.message : String(error),
+      }, 502, { "Cache-Control": "no-store" });
+    }
+  }
+
+  const allowed =
+    incoming.pathname.startsWith("/auth/v1/") ||
+    incoming.pathname === "/auth/v1" ||
+    incoming.pathname.startsWith("/rest/v1/") ||
+    incoming.pathname === "/rest/v1" ||
+    incoming.pathname.startsWith("/functions/v1/") ||
+    incoming.pathname === "/functions/v1" ||
+    incoming.pathname.startsWith("/realtime/v1/") ||
+    incoming.pathname === "/realtime/v1" ||
+    incoming.pathname.startsWith("/storage/v1/") ||
+    incoming.pathname === "/storage/v1";
+
+  if (!allowed) {
+    return json({ error: "Supabase relay route not found." }, 404, {
+      "Cache-Control": "no-store",
+    });
+  }
+
+  const upstream = new URL(
+    base.replace(/\/+$/, "") + incoming.pathname + incoming.search,
+  );
+
+  const headers = new Headers(request.headers);
+  headers.delete("host");
+  headers.delete("cf-connecting-ip");
+  headers.delete("cf-ipcountry");
+  headers.delete("cf-ray");
+  headers.delete("x-forwarded-proto");
+  headers.set("X-Forwarded-Host", incoming.host);
+  headers.set("X-Forwarded-Proto", "https");
+
+  let upstreamResponse;
+  try {
+    const init = {
+      method: request.method,
+      headers,
+      redirect: "manual",
+    };
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      init.body = request.body;
+    }
+    upstreamResponse = await fetch(new Request(upstream.toString(), init));
+  } catch (error) {
+    return json({
+      error: "Supabase relay upstream is unreachable.",
+      detail: error instanceof Error ? error.message : String(error),
+    }, 502, { "Cache-Control": "no-store" });
+  }
+
+  // WebSocket upgrade responses must pass through untouched.
+  if (upstreamResponse.status === 101) {
+    return upstreamResponse;
+  }
+
+  const outHeaders = new Headers(upstreamResponse.headers);
+  for (const [name, value] of Object.entries(
+    supabaseCorsHeaders(request),
+  )) {
+    outHeaders.set(name, value);
+  }
+  outHeaders.set("Cache-Control", "no-store");
+
+  return new Response(
+    request.method === "HEAD" ? null : upstreamResponse.body,
+    {
+      status: upstreamResponse.status,
+      statusText: upstreamResponse.statusText,
+      headers: outHeaders,
+    },
+  );
+}
+
+function supabaseCorsHeaders(request) {
+  const origin = request.headers.get("Origin") || "*";
+  const requestedHeaders =
+    request.headers.get("Access-Control-Request-Headers") ||
+    "Authorization, Content-Type, apikey, x-client-info, x-supabase-api-version, Prefer, Range, Content-Profile, Accept-Profile";
+  return {
+    "Access-Control-Allow-Origin": origin === "null" ? "*" : origin,
+    "Access-Control-Allow-Methods":
+      "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": requestedHeaders,
+    "Access-Control-Expose-Headers":
+      "Content-Length, Content-Range, Accept-Ranges, Location, Preference-Applied, X-Supabase-Api-Version",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+  };
+}
 
 async function handleAdminFunction(request, functionName, env) {
   const base = env.SUPABASE_URL?.trim() || "";
