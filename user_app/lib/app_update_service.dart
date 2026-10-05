@@ -60,11 +60,29 @@ class AppUpdateService {
         } catch (_) {}
       }
 
-      if (data == null) return;
+      if (data == null) {
+        if (force && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not check for updates right now.'),
+            ),
+          );
+        }
+        return;
+      }
 
       final latestBuild =
           int.tryParse(data['build_number']?.toString() ?? '') ?? 0;
-      if (latestBuild <= currentBuild) return;
+      if (latestBuild <= currentBuild) {
+        if (force && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('NCA is already up to date.'),
+            ),
+          );
+        }
+        return;
+      }
 
       final version =
           data['version_name']?.toString().trim().isNotEmpty == true
@@ -105,6 +123,13 @@ class AppUpdateService {
       );
     } catch (_) {
       // Update checking must never block the app.
+      if (force && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not check for updates right now.'),
+          ),
+        );
+      }
     }
   }
 
