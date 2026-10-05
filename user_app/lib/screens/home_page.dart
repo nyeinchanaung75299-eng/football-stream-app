@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../native_player.dart';
 import 'soco_page.dart';
+import 'network_diagnostics_page.dart';
 import '../widgets/theme_mode_button.dart';
 
 class HomePage extends StatefulWidget {
@@ -103,9 +104,28 @@ class _HomePageState extends State<HomePage> {
       }
     }
 
+    int formatRank(Map<String, dynamic> row) {
+      if (row['use_webview'] == true) return 9;
+      final type = (row['stream_type'] ?? 'auto').toString().toLowerCase();
+      final url = (row['stream_url'] ?? '').toString().toLowerCase();
+
+      if (type == 'hls' || type == 'm3u8' || url.contains('.m3u8')) return 0;
+      if (type == 'dash' || type == 'mpd' || url.contains('.mpd')) return 1;
+      if (type == 'mp4' || url.contains('.mp4')) return 2;
+      if (type == 'auto') return 3;
+      if (type == 'flv' || url.contains('.flv')) return 4;
+      return 5;
+    }
+
     filtered.sort((a, b) {
       final h = healthRank(a).compareTo(healthRank(b));
       if (h != 0) return h;
+
+      // HLS first gives Android, iPhone and browser clients the most portable
+      // source before falling back to DASH/direct/FLV.
+      final f = formatRank(a).compareTo(formatRank(b));
+      if (f != 0) return f;
+
       final ap = (a['priority'] as num?)?.toInt() ?? 100;
       final bp = (b['priority'] as num?)?.toInt() ?? 100;
       return ap.compareTo(bp);
@@ -259,7 +279,9 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ),
                           subtitle: Text(
-                            type == 'AUTO' ? 'Auto / Direct' : type,
+                            type == 'HLS' || type == 'M3U8'
+                                ? 'HLS • Preferred'
+                                : (type == 'AUTO' ? 'Auto / Direct' : type),
                           ),
                           trailing: const Icon(Icons.play_arrow_rounded),
                           onTap: () =>
@@ -313,7 +335,21 @@ class _HomePageState extends State<HomePage> {
             Text('Football'),
           ],
         ),
-        actions: const [ThemeModeButton(), SizedBox(width: 6)],
+        actions: [
+          IconButton(
+            tooltip: 'Network diagnostics',
+            icon: const Icon(Icons.network_check_rounded),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const NetworkDiagnosticsPage(),
+                ),
+              );
+            },
+          ),
+          const ThemeModeButton(),
+          const SizedBox(width: 6),
+        ],
       ),
       body: Column(
         children: [

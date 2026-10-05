@@ -83,6 +83,8 @@
     let sources=[], shakaPlayer=null, mpegtsPlayer=null, currentTracks=[];
     let currentSourceIndex=0;
     let controlsTimer=null;
+    let autoFallbackTried=new Set();
+    let playbackToken=0;
 
     function hideControls(){
       document.getElementById('football-player-topbar').classList.add('controls-hidden');
@@ -117,6 +119,22 @@
       return {ok:true, reason:''};
     }
 
+    async function fallbackToNextLine(failedIndex,message,token){
+      if(token!==playbackToken) return;
+      autoFallbackTried.add(failedIndex);
+
+      for(let i=0;i<sources.length;i++){
+        if(!autoFallbackTried.has(i)){
+          showMessage((message||'Line unavailable')+' • trying backup line…');
+          setTimeout(()=>loadSource(i,false),450);
+          return;
+        }
+      }
+
+      showMessage((message||'No working line')+' • Tap Line to choose again.');
+      autoFallbackTried.clear();
+    }
+
     function closePlayerMenu(){
       menuPanel.classList.add('hidden');
       menuItems.innerHTML='';
@@ -145,7 +163,8 @@
           (index===currentSourceIndex?'<span class="football-menu-item-badge">PLAYING</span>':'');
         item.addEventListener('click',()=>{
           closePlayerMenu();
-          loadSource(index);
+          autoFallbackTried.clear();
+          loadSource(index,true);
         });
         menuItems.appendChild(item);
       });
@@ -213,6 +232,7 @@
       qualityButton.dataset.mode='auto';
       qualityButton.dataset.trackId='';
       try{video.pause()}catch(_){}
+      video.onerror=null;
       try{video.removeAttribute('src');video.load()}catch(_){}
       if(mpegtsPlayer){
         try{mpegtsPlayer.pause()}catch(_){}
@@ -264,7 +284,7 @@
       qualityButton.dataset.trackId='';
     }
 
-    async function loadSource(index){
+    async function loadSource(index,userSelected=false){
       if(!sources.length){showMessage('No stream source.');return}
       index=Math.max(0,Math.min(Number(index)||0,sources.length-1));
       const source=sources[index], url=String(source.url||'').trim(), type=sourceType(source);
@@ -273,6 +293,7 @@
       currentSourceIndex=index;
       updateServerButton(index);
       closePlayerMenu();
+      const token=++playbackToken;
       await destroyPlayback();
       if(!url){showMessage('This line has no stream URL.');return}
       const warning=browserHeaderWarning(source);
@@ -285,8 +306,12 @@
         }
         if((type==='hls'||url.includes('.m3u8')) &&
             video.canPlayType('application/vnd.apple.mpegurl')){
+          video.onerror=()=>fallbackToNextLine(
+            index,
+            'HLS line failed in this browser',
+            token
+          );
           video.src=url;
-          video.addEventListener('error',()=>showMessage('This HLS line could not be played in the browser. Try another line or the Android app.'),{once:true});
           await video.play().catch(()=>{});
           if(warning)showMessage(warning);
           return;
@@ -302,7 +327,11 @@
           if(keyId&&keyData){const clearKeys={};clearKeys[keyId]=keyData;shakaPlayer.configure({drm:{clearKeys}})}
           shakaPlayer.addEventListener('error',event=>{
             const detail=event&&event.detail?event.detail:{};
-            showMessage('Playback error'+(detail.code?' ('+detail.code+')':'')+'. This line failed in this browser. Try another line.');
+            fallbackToNextLine(
+              index,
+              'Playback error'+(detail.code?' ('+detail.code+')':''),
+              token
+            );
           });
           await shakaPlayer.load(url);
           currentTracks=shakaPlayer.getVariantTracks(); fillQualityOptions();
@@ -315,7 +344,11 @@
         if(warning)showMessage(warning);
       }catch(error){
         console.error(error);
-        showMessage((error&&error.message?error.message:'Playback failed.')+' This line failed in this browser. Try another line.');
+        await fallbackToNextLine(
+          index,
+          error&&error.message?error.message:'Playback failed',
+          token
+        );
       }
     }
 
@@ -355,6 +388,7 @@
 
     window.openFootballPlayer=async(sourcesJson,selectedIndex,title)=>{
       try{const parsed=JSON.parse(String(sourcesJson||'[]'));sources=Array.isArray(parsed)?parsed.filter(x=>x&&x.url):[]}catch(_){sources=[]}
+      autoFallbackTried.clear();
       titleEl.textContent=String(title||'Football Live');
       let startIndex=Math.max(0,Math.min(Number(selectedIndex)||0,sources.length-1));
       if(isIOS() && sources[startIndex] && sourceType(sources[startIndex])==='flv'){
