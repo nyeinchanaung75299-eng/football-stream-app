@@ -84,6 +84,7 @@ class _HomePageState extends State<HomePage> {
 
       run().then((value) {
         if (!completer.isCompleted) {
+          timer?.cancel();
           completer.complete(value);
         }
       }).catchError((Object error, StackTrace stackTrace) {
@@ -97,6 +98,7 @@ class _HomePageState extends State<HomePage> {
             !completer.isCompleted &&
             nextIndex >= attempts.length &&
             running == 0) {
+          timer?.cancel();
           completer.completeError(
             lastError ?? StateError('All fallback sources failed.'),
             lastStack ?? StackTrace.current,
@@ -117,7 +119,6 @@ class _HomePageState extends State<HomePage> {
       });
     }
 
-    completer.future.whenComplete(() => timer?.cancel());
     return completer.future;
   }
 
