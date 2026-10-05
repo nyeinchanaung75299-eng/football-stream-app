@@ -892,6 +892,22 @@ class _HomePageState extends State<HomePage> {
                   );
                 },
               ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.system_update_alt_rounded),
+                title: const Text(
+                  'Check for updates',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: const Text(
+                  'Check and install the latest NCA APK',
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  AppUpdateService.check(context, force: true);
+                },
+              ),
 
             ],
           ),
