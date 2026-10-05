@@ -154,82 +154,59 @@ async function syncScores(
   let receivedFixtures = 0;
   const providerErrors: unknown[] = [];
 
-  for (let offset = 0; offset < candidates.length; offset += 20) {
-    const batch = candidates.slice(offset, offset + 20);
+  const candidateIds = new Set(
+    candidates.map((item: any) => String(item.external_fixture_id)),
+  );
 
-    const ids = batch
-      .map((item: any) => item.external_fixture_id)
-      .filter(Boolean)
-      .join("-");
+  const dates = [
+    ...new Set(
+      candidates.map((item: any) =>
+        new Date(item.kickoff_at).toISOString().slice(0, 10)
+      ),
+    ),
+  ];
 
-    if (!ids) continue;
+  const headers = {
+    "x-apisports-key": footballKey,
+    "Accept": "application/json",
+  };
 
-    const headers = {
-      "x-apisports-key": footballKey,
-      "Accept": "application/json",
-    };
+  for (const date of dates) {
+    const url = new URL("https://v3.football.api-sports.io/fixtures");
+    // The Free API-Football plan rejects the multi-ID parameter. A date query
+    // is available on the Free plan and lets us refresh every selected fixture
+    // for that day with one request.
+    url.searchParams.set("date", date);
 
-    async function loadFixtures() {
-      const url = new URL("https://v3.football.api-sports.io/fixtures");
-      if (batch.length === 1) {
-        url.searchParams.set("id", String(batch[0].external_fixture_id));
-      } else {
-        url.searchParams.set("ids", ids);
-      }
+    const apiResponse = await fetch(url, {
+      method: "GET",
+      headers,
+    });
 
-      const response = await fetch(url, { method: "GET", headers });
-      apiCalls += 1;
+    apiCalls += 1;
 
-      if (!response.ok) {
-        providerErrors.push({ status: response.status });
-        console.error("API-Football request failed:", response.status);
-        return [];
-      }
-
-      const payload = await response.json();
-
-      if (payload?.errors && Object.keys(payload.errors).length > 0) {
-        providerErrors.push(payload.errors);
-        console.error("API-Football returned errors:", payload.errors);
-        return [];
-      }
-
-      const rows = Array.isArray(payload?.response) ? payload.response : [];
-      if (rows.length > 0 || batch.length <= 1) return rows;
-
-      // Some provider plans/endpoints are more reliable with one fixture ID
-      // per request. Fall back only when the batch lookup returns nothing.
-      const individual: any[] = [];
-      for (const item of batch) {
-        const one = new URL("https://v3.football.api-sports.io/fixtures");
-        one.searchParams.set("id", String(item.external_fixture_id));
-
-        const oneResponse = await fetch(one, { method: "GET", headers });
-        apiCalls += 1;
-        if (!oneResponse.ok) {
-          providerErrors.push({ fixture: item.external_fixture_id, status: oneResponse.status });
-          continue;
-        }
-
-        const onePayload = await oneResponse.json();
-        if (onePayload?.errors && Object.keys(onePayload.errors).length > 0) {
-          providerErrors.push({
-            fixture: item.external_fixture_id,
-            errors: onePayload.errors,
-          });
-          continue;
-        }
-
-        const oneRows = Array.isArray(onePayload?.response)
-          ? onePayload.response
-          : [];
-        individual.push(...oneRows);
-      }
-
-      return individual;
+    if (!apiResponse.ok) {
+      providerErrors.push({ date, status: apiResponse.status });
+      console.error("API-Football request failed:", apiResponse.status);
+      continue;
     }
 
-    const fixtures = await loadFixtures();
+    const payload = await apiResponse.json();
+
+    if (payload?.errors && Object.keys(payload.errors).length > 0) {
+      providerErrors.push({ date, errors: payload.errors });
+      console.error("API-Football returned errors:", payload.errors);
+      continue;
+    }
+
+    const allFixtures = Array.isArray(payload?.response)
+      ? payload.response
+      : [];
+
+    const fixtures = allFixtures.filter((row: any) =>
+      candidateIds.has(String(row?.fixture?.id ?? ""))
+    );
+
     receivedFixtures += fixtures.length;
 
     for (const row of fixtures) {
