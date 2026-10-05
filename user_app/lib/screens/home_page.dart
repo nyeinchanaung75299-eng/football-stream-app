@@ -351,7 +351,15 @@ class _HomePageState extends State<HomePage> {
       throw Exception('Mirror returned HTTP ${response.statusCode}');
     }
 
-    return _decodeMatches(response.body);
+    final rows = _decodeMatches(response.body);
+    // A mirror snapshot may be older than the live stream configuration.
+    // Keep match metadata available on restricted networks, but never advertise
+    // WATCH from a stale stream_count. The player resolves fresh links on tap.
+    for (final row in rows) {
+      row['stream_count'] = 0;
+      row['stream_links'] = const <Map<String, dynamic>>[];
+    }
+    return rows;
   }
 
   Future<List<Map<String, dynamic>>> _loadSupabaseMatches() async {
@@ -388,14 +396,11 @@ class _HomePageState extends State<HomePage> {
     // POP briefly serves stale data.
     try {
       final edgeRows = await _loadPublicApi();
-      try {
-        final mirrorRows = await _loadMirror();
-        _fallbackLabel = 'Fast public API';
-        return _mergeAvailability(edgeRows, mirrorRows);
-      } catch (_) {
-        _fallbackLabel = 'Fast public API';
-        return edgeRows;
-      }
+      // The edge response is authoritative. Do not merge WATCH availability
+      // from the static GitHub mirror: that snapshot can lag behind stream
+      // changes and was the reason VPN-off clients could show old line counts.
+      _fallbackLabel = 'Fast public API';
+      return edgeRows;
     } catch (_) {}
 
     try {
