@@ -23,7 +23,6 @@ class _HomePageState extends State<HomePage> {
   Timer? _debounce;
   Timer? _scoreRefresh;
   String? _fallbackLabel;
-  final Map<String, int> _lastGoodStreamCounts = <String, int>{};
 
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
@@ -103,27 +102,6 @@ class _HomePageState extends State<HomePage> {
     return rows;
   }
 
-  List<Map<String, dynamic>> _stabilizeAvailability(
-    List<Map<String, dynamic>> rows,
-  ) {
-    for (final row in rows) {
-      final id = row['id']?.toString() ?? '';
-      if (id.isEmpty) continue;
-
-      final count = (row['stream_count'] as num?)?.toInt() ?? 0;
-      final previous = _lastGoodStreamCounts[id] ?? 0;
-
-      if (count > 0) {
-        _lastGoodStreamCounts[id] = count;
-      } else if (previous > 0) {
-        // A short-lived stale mirror/edge response must not make the button
-        // jump from WATCH LIVE to NOT READY during refresh.
-        row['stream_count'] = previous;
-      }
-    }
-    return rows;
-  }
-
   List<Map<String, dynamic>> _mergeAvailability(
     List<Map<String, dynamic>> primary,
     List<Map<String, dynamic>> secondary,
@@ -144,7 +122,7 @@ class _HomePageState extends State<HomePage> {
       if (b > a) row['stream_count'] = b;
     }
 
-    return _stabilizeAvailability(primary);
+    return primary;
   }
 
   List<Map<String, dynamic>> _visibleMatches(
@@ -185,15 +163,13 @@ class _HomePageState extends State<HomePage> {
       throw const FormatException('Match feed is invalid.');
     }
 
-    return _stabilizeAvailability(
-      _sortMatchesChronologically(
+    return _sortMatchesChronologically(
         _visibleMatches(
           raw
               .map((row) => Map<String, dynamic>.from(row as Map))
               .toList(),
         ),
-      ),
-    );
+      );
   }
 
   Future<List<Map<String, dynamic>>> _loadPublicApi() async {
@@ -202,7 +178,11 @@ class _HomePageState extends State<HomePage> {
       try {
         final response = await http
             .get(
-              Uri.parse('$base/matches'),
+              Uri.parse('$base/matches').replace(
+                queryParameters: {
+                  't': DateTime.now().millisecondsSinceEpoch.toString(),
+                },
+              ),
               headers: const {
                 'Accept': 'application/json',
                 'Cache-Control': 'no-cache',
@@ -351,9 +331,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadMirror() async {
-    final bucket =
-        DateTime.now().millisecondsSinceEpoch ~/ (5 * 60 * 1000);
-    final uri = Uri.parse('$_mirrorBase?v=$bucket');
+    final uri = Uri.parse('$_mirrorBase').replace(
+      queryParameters: {
+        't': DateTime.now().millisecondsSinceEpoch.toString(),
+      },
+    );
 
     final response = await http
         .get(
@@ -412,19 +394,19 @@ class _HomePageState extends State<HomePage> {
         return _mergeAvailability(edgeRows, mirrorRows);
       } catch (_) {
         _fallbackLabel = 'Fast public API';
-        return _stabilizeAvailability(edgeRows);
+        return edgeRows;
       }
     } catch (_) {}
 
     try {
       final rows = await _loadMirror();
       _fallbackLabel = 'Backup feed';
-      return _stabilizeAvailability(rows);
+      return rows;
     } catch (_) {}
 
     final rows = await _loadSupabaseMatches();
     _fallbackLabel = null;
-    return _stabilizeAvailability(rows);
+    return rows;
   }
 
   Future<void> refresh({bool silent = false}) async {
