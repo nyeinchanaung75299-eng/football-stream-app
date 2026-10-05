@@ -33,6 +33,7 @@ params = {
     "is_featured": "eq.true",
     "order": "kickoff_at.asc,sort_order.asc",
 }
+
 url = SUPABASE_URL.rstrip("/") + "/rest/v1/matches?" + urllib.parse.urlencode(params)
 
 request = urllib.request.Request(
@@ -40,7 +41,7 @@ request = urllib.request.Request(
     headers={
         "apikey": PUBLISHABLE_KEY,
         "Accept": "application/json",
-        "User-Agent": "football-stream-public-feed/1.0",
+        "User-Agent": "football-stream-public-feed/2.0",
     },
 )
 
@@ -50,6 +51,43 @@ with urllib.request.urlopen(request, timeout=20) as response:
 
 if not isinstance(data, list):
     raise SystemExit("Supabase feed did not return a list")
+
+for match in data:
+    safe_links = []
+    for link in match.get("stream_links") or []:
+        if link.get("is_active") is not True:
+            continue
+
+        protected = any(
+            bool((link.get(field) or "").strip())
+            for field in ("referer", "origin", "key_id", "key_data")
+        )
+
+        if protected or link.get("use_webview") is True:
+            continue
+
+        stream_url = (link.get("stream_url") or "").strip()
+        if not stream_url:
+            continue
+
+        safe_links.append(
+            {
+                "id": link.get("id"),
+                "label": link.get("label"),
+                "resolution": link.get("resolution"),
+                "stream_type": link.get("stream_type"),
+                "stream_url": stream_url,
+                "use_webview": False,
+                "webview_url": None,
+                "is_active": True,
+                "priority": link.get("priority"),
+                "available_from": link.get("available_from"),
+                "expires_at": link.get("expires_at"),
+                "health_status": link.get("health_status"),
+            }
+        )
+
+    match["stream_links"] = safe_links
 
 out = sys.argv[1] if len(sys.argv) > 1 else "matches.json"
 with open(out, "w", encoding="utf-8") as fh:
@@ -62,6 +100,7 @@ print(
             "matches": len(data),
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "output": out,
+            "public_feed": "sanitized",
         }
     )
 )
