@@ -40,17 +40,10 @@ class _HomePageState extends State<HomePage> {
   static const _mirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/matches.json';
-  static const _mirrorStreamsBase =
-      'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
-      'football-stream-app/feed/public/streams.json';
-
-  // On GitHub Pages, use the JSON files deployed beside the Flutter app.
-  // This avoids browser CORS/network blocks against raw.githubusercontent.com.
+  // On GitHub Pages, use the metadata JSON deployed beside the Flutter app.
+  // Playback URLs are intentionally never published to GitHub.
   Uri _mirrorMatchesUri() =>
       kIsWeb ? Uri.base.resolve('matches.json') : Uri.parse(_mirrorBase);
-
-  Uri _mirrorStreamsUri() =>
-      kIsWeb ? Uri.base.resolve('streams.json') : Uri.parse(_mirrorStreamsBase);
 
   @override
   void initState() {
@@ -263,82 +256,20 @@ class _HomePageState extends State<HomePage> {
     throw lastError ?? const FormatException('Stream API is unavailable.');
   }
 
-  Future<List<Map<String, dynamic>>> _loadMirrorStreams(
-    String matchId,
-  ) async {
-    final bucket =
-        DateTime.now().millisecondsSinceEpoch ~/ (60 * 1000);
-    final response = await http
-        .get(
-          _mirrorStreamsUri().replace(
-            queryParameters: {'v': bucket.toString()},
-          ),
-          headers: const {
-            'Accept': 'application/json',
-            'Cache-Control': 'no-cache',
-          },
-        )
-        .timeout(const Duration(seconds: 8));
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        'Mirror streams returned HTTP ${response.statusCode}',
-      );
-    }
-
-    final decoded = jsonDecode(response.body);
-    if (decoded is! Map) {
-      throw const FormatException('Mirror stream feed is invalid.');
-    }
-
-    final raw = decoded[matchId];
-    if (raw is! List) return const [];
-
-    return raw
-        .map((row) => Map<String, dynamic>.from(row as Map))
-        .toList();
-  }
-
   Future<List<Map<String, dynamic>>> _resolveLinks(
     Map<String, dynamic> match,
   ) async {
-    var links = playableLinks(match['stream_links']);
-    if (links.isNotEmpty) return links;
-
     final matchId = match['id']?.toString().trim() ?? '';
     if (matchId.isEmpty) return const [];
 
+    // Playback must come from the protected public API. The API returns only
+    // short-lived proxy URLs; raw upstream stream addresses never reach the
+    // app, browser, GitHub mirror, or diagnostics.
     try {
-      links = playableLinks(await _loadPublicApiStreams(matchId));
-      if (links.isNotEmpty) return links;
-    } catch (_) {}
-
-    // Last-resort VPN-free path: GitHub Pages is already reachable whenever
-    // the web viewer itself is loaded, so use its mirrored stream config when
-    // local networks block Cloudflare Workers and Supabase.
-    try {
-      links = playableLinks(await _loadMirrorStreams(matchId));
-      if (links.isNotEmpty) return links;
-    } catch (_) {}
-
-    try {
-      final data = await Supabase.instance.client
-          .from('stream_links')
-          .select(
-            'id,label,resolution,stream_type,stream_url,referer,origin,'
-            'key_id,key_data,use_webview,webview_url,is_active,priority,'
-            'available_from,expires_at,health_status',
-          )
-          .eq('match_id', matchId)
-          .eq('is_active', true)
-          .order('priority')
-          .timeout(const Duration(seconds: 6));
-
-      links = playableLinks(data);
-      if (links.isNotEmpty) return links;
-    } catch (_) {}
-
-    return const [];
+      return playableLinks(await _loadPublicApiStreams(matchId));
+    } catch (_) {
+      return const [];
+    }
   }
 
   Future<List<Map<String, dynamic>>> _loadMirror() async {
@@ -382,12 +313,7 @@ class _HomePageState extends State<HomePage> {
           id,league,home_team,away_team,home_logo_url,away_logo_url,
           kickoff_at,is_live,sort_order,home_score,away_score,status_short,
           status_elapsed,is_finished,is_featured,publish_state,
-          last_score_sync_at,updated_at,
-          stream_links(
-            id,label,resolution,stream_type,stream_url,referer,origin,
-            key_id,key_data,use_webview,webview_url,is_active,priority,
-            available_from,expires_at,health_status
-          )
+          last_score_sync_at,updated_at
         ''')
         .eq('is_active', true)
         .eq('publish_state', 'published')
@@ -396,10 +322,13 @@ class _HomePageState extends State<HomePage> {
         .order('sort_order')
         .timeout(const Duration(seconds: 5));
 
+    final rows = List<Map<String, dynamic>>.from(data);
+    for (final row in rows) {
+      row['stream_count'] = 0;
+      row['stream_links'] = const <Map<String, dynamic>>[];
+    }
     return _sortMatchesChronologically(
-      _visibleMatches(
-        List<Map<String, dynamic>>.from(data),
-      ),
+      _visibleMatches(rows),
     );
   }
 
