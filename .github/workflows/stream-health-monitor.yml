@@ -1,0 +1,33 @@
+name: Stream Health Monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      CRON_SECRET: ${{ secrets.SUPABASE_CRON_SECRET }}
+
+    steps:
+      - name: Health monitor not configured
+        if: env.CRON_SECRET == ''
+        run: |
+          echo "SUPABASE_CRON_SECRET repository secret is not configured."
+          echo "Skipping automatic stream health monitoring."
+
+      - name: Check active stream lines
+        if: env.CRON_SECRET != ''
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --max-time 90 \
+            -X POST \
+            "https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/stream-health" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: $CRON_SECRET" \
+            --data '{"all":true}'
