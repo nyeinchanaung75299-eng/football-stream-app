@@ -2,16 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'analytics_service.dart';
+import 'backend_endpoint.dart';
 import 'app_theme.dart';
 import 'screens/home_page.dart';
 import 'theme_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  const url = 'https://woggzixprvyjnfjzsglz.supabase.co';
+  const directUrl = 'https://woggzixprvyjnfjzsglz.supabase.co';
   const anonKey = 'sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O';
 
   try {
+    final url = await resolveSupabaseUrl(
+      directUrl: directUrl,
+      publishableKey: anonKey,
+    );
     await Supabase.initialize(url: url, anonKey: anonKey);
   } catch (_) {
     // Supabase is optional for Viewer startup. Cloudflare/GitHub fallbacks
