@@ -13,15 +13,16 @@ if not SUPABASE_URL or not PUBLISHABLE_KEY:
     raise SystemExit("SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are required")
 
 # The GitHub fallback is intentionally metadata-only. Link data is queried
-# here only so we can expose a safe stream_count; stream URLs and playback
-# credentials are never written to the public feed branch.
+# only to expose availability counts. Stream URLs and playback credentials are
+# never written to the public feed branch, so WATCH visibility can remain
+# stable even when a device cannot reach Supabase directly.
 SELECT = """
 id,league,home_team,away_team,home_logo_url,away_logo_url,
 kickoff_at,is_live,sort_order,home_score,away_score,status_short,
 status_elapsed,is_finished,is_featured,publish_state,
 stream_links(
 id,stream_type,stream_url,referer,origin,key_id,key_data,
-use_webview,is_active,health_status
+use_webview,webview_url,is_active,health_status,available_from,expires_at
 )
 """.replace("\n", "").replace(" ", "")
 
@@ -107,7 +108,36 @@ for row in data:
 
     clean = dict(row)
     links = clean.pop("stream_links", None) or []
-    clean["stream_count"] = sum(
+    now = datetime.now(timezone.utc)
+
+    def advertised(link):
+        if not isinstance(link, dict) or link.get("is_active") is not True:
+            return False
+
+        for field, relation in (
+            ("available_from", "from"),
+            ("expires_at", "until"),
+        ):
+            value = str(link.get(field) or "").strip()
+            if not value:
+                continue
+            try:
+                moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if moment.tzinfo is None:
+                    moment = moment.replace(tzinfo=timezone.utc)
+                if relation == "from" and now < moment:
+                    return False
+                if relation == "until" and now >= moment:
+                    return False
+            except Exception:
+                pass
+
+        if link.get("use_webview") is True:
+            return bool(str(link.get("webview_url") or "").strip())
+        return bool(str(link.get("stream_url") or "").strip())
+
+    clean["stream_count"] = sum(1 for link in links if advertised(link))
+    clean["public_stream_count"] = sum(
         1 for link in links if is_safe_public_link(link)
     )
     safe_data.append(clean)
