@@ -431,11 +431,51 @@ function sanitizeMatchMetadata(
     result[field] = source[field];
   }
 
-  // Only advertise streams that this public edge endpoint can actually
-  // return. Protected/header/DRM-dependent lines stay on the direct backend.
-  result.stream_count = safeLinks(links).length;
+  // WATCH availability must not depend on whether the viewer can reach
+  // Supabase directly. Advertise the number of active configured lines using
+  // metadata only; the /streams endpoint still returns only safe public URLs.
+  // This keeps the WATCH button stable on VPN-off/restricted networks without
+  // exposing protected playback credentials.
+  result.stream_count = advertisedLinkCount(
+    links.length > 0 ? links : source.stream_count,
+  );
+  result.public_stream_count = safeLinks(links).length;
 
   return result;
+}
+
+function advertisedLinkCount(raw: unknown) {
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.max(0, Math.floor(raw));
+  }
+
+  const links = Array.isArray(raw) ? raw : [];
+  const now = Date.now();
+
+  return links.filter((item) => {
+    const link = item as Record<string, unknown>;
+    if (link.is_active !== true) return false;
+
+    const availableFrom = Date.parse(
+      String(link.available_from ?? ""),
+    );
+    if (Number.isFinite(availableFrom) && now < availableFrom) {
+      return false;
+    }
+
+    const expiresAt = Date.parse(
+      String(link.expires_at ?? ""),
+    );
+    if (Number.isFinite(expiresAt) && now >= expiresAt) {
+      return false;
+    }
+
+    if (link.use_webview === true) {
+      return String(link.webview_url ?? "").trim().length > 0;
+    }
+
+    return String(link.stream_url ?? "").trim().length > 0;
+  }).length;
 }
 
 function safeLinks(raw: unknown) {
