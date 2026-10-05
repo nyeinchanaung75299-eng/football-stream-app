@@ -1,4 +1,4 @@
-name: Build Android V9.8 Premium APKs
+name: Build Android V9.8 APKs
 
 on:
   workflow_dispatch:
@@ -64,6 +64,16 @@ jobs:
         working-directory: admin_app
         run: flutter pub get
 
+      - name: Verify Admin source
+        working-directory: admin_app
+        run: |
+          flutter analyze --no-fatal-infos
+          if find test -type f -name '*_test.dart' -print -quit 2>/dev/null | grep -q .; then
+            flutter test
+          else
+            echo "No Admin tests found; analyze gate passed."
+          fi
+
       - name: Build Admin release APKs
         working-directory: admin_app
         run: flutter build apk --release --split-per-abi
@@ -98,7 +108,7 @@ jobs:
           import re
           s=re.sub(r'android:label="[^"]+"','android:label="NCA"',s,count=1)
           if 'android:usesCleartextTraffic=' not in s:
-              s=s.replace('<application', '<application android:usesCleartextTraffic="true"', 1)
+              s=s.replace('<application', '<application android:usesCleartextTraffic="false"', 1)
           s=s.replace('@mipmap/ic_launcher','@drawable/nca_icon')
           m.write_text(s)
           icon=Path('android/app/src/main/res/drawable/nca_icon.webp')
@@ -193,6 +203,16 @@ jobs:
         working-directory: user_app
         run: flutter pub get
 
+      - name: Verify Viewer source
+        working-directory: user_app
+        run: |
+          flutter analyze --no-fatal-infos
+          if find test -type f -name '*_test.dart' -print -quit 2>/dev/null | grep -q .; then
+            flutter test
+          else
+            echo "No Viewer tests found; analyze gate passed."
+          fi
+
       - name: Build Viewer release APKs
         working-directory: user_app
         run: |
@@ -204,7 +224,11 @@ jobs:
             --build-name 9.8.0 \
             --build-number "$BUILD_NUMBER"
           cp build/app/outputs/flutter-apk/app-release.apk /tmp/NCA-latest.apk
+          APK_SHA256="$(sha256sum /tmp/NCA-latest.apk | awk '{print $1}')"
+          APK_SIZE="$(stat -c%s /tmp/NCA-latest.apk)"
           echo "NCA_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "NCA_APK_SHA256=$APK_SHA256" >> "$GITHUB_ENV"
+          echo "NCA_APK_SIZE=$APK_SIZE" >> "$GITHUB_ENV"
 
       - name: Upload Viewer APKs
         uses: actions/upload-artifact@v7
@@ -234,6 +258,8 @@ jobs:
               "version_name": "9.8.0",
               "build_number": int(os.environ["NCA_BUILD_NUMBER"]),
               "apk_url": "https://nyeinchanaung75299-eng.github.io/football-stream-app/releases/NCA-latest.apk",
+              "sha256": os.environ["NCA_APK_SHA256"],
+              "size_bytes": int(os.environ["NCA_APK_SIZE"]),
               "mandatory": False,
               "notes": "NCA update is ready. Includes live-score, stream, VPN-free fallback and stability improvements."
           }
