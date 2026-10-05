@@ -174,15 +174,24 @@ async function handleSupabaseRelay(request, env) {
 
   let upstreamResponse;
   try {
-    const init = {
-      method: request.method,
-      headers,
-      redirect: "manual",
-    };
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      init.body = request.body;
+    const isWebSocket =
+      request.headers.get("Upgrade")?.toLowerCase() === "websocket";
+
+    if (isWebSocket) {
+      upstreamResponse = await fetch(
+        new Request(upstream.toString(), request),
+      );
+    } else {
+      const init = {
+        method: request.method,
+        headers,
+        redirect: "manual",
+      };
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        init.body = request.body;
+      }
+      upstreamResponse = await fetch(new Request(upstream.toString(), init));
     }
-    upstreamResponse = await fetch(new Request(upstream.toString(), init));
   } catch (error) {
     return json({
       error: "Supabase relay upstream is unreachable.",
@@ -201,6 +210,20 @@ async function handleSupabaseRelay(request, env) {
   )) {
     outHeaders.set(name, value);
   }
+
+  const location = outHeaders.get("Location");
+  if (location) {
+    try {
+      const parsed = new URL(location);
+      const upstreamOrigin = new URL(base).origin;
+      if (parsed.origin === upstreamOrigin) {
+        parsed.protocol = incoming.protocol;
+        parsed.host = incoming.host;
+        outHeaders.set("Location", parsed.toString());
+      }
+    } catch (_) {}
+  }
+
   outHeaders.set("Cache-Control", "no-store");
 
   return new Response(
