@@ -80,8 +80,8 @@ class DashboardPage extends StatelessWidget {
           const SizedBox(height: 10),
           _ActionCard(
             icon: Icons.podcasts_rounded,
-            title: 'Soco Source Picker',
-            subtitle: 'Choose a Soco match, streamer and HLS/FLV quality, then add it to an NCA match.',
+            title: 'Stream Source Picker',
+            subtitle: 'Pick from Soco, YYZB or Fawa. Referer/Origin are captured automatically when available.',
             iconColor: const Color(0xFFDC2626),
             onTap: () => open(context, const SocoImportPage()),
           ),
