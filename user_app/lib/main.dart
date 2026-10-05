@@ -11,23 +11,22 @@ Future<void> main() async {
   const url = 'https://woggzixprvyjnfjzsglz.supabase.co';
   const anonKey = 'sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O';
 
-  Object? startupError;
   try {
     await Supabase.initialize(url: url, anonKey: anonKey);
-  } catch (e) {
-    startupError = e;
+  } catch (_) {
+    // Supabase is optional for Viewer startup. Cloudflare/GitHub fallbacks
+    // keep the public match list usable on restricted networks.
   }
   try {
     await AppThemeController.instance.load();
   } catch (_) {}
   await AnalyticsService.initialize();
 
-  runApp(FootballViewerApp(startupError: startupError));
+  runApp(const FootballViewerApp());
 }
 
 class FootballViewerApp extends StatelessWidget {
-  const FootballViewerApp({super.key, this.startupError});
-  final Object? startupError;
+  const FootballViewerApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -41,35 +40,9 @@ class FootballViewerApp extends StatelessWidget {
           darkTheme: AppTheme.dark(),
           themeMode: AppThemeController.instance.mode,
           navigatorObservers: [PosthogObserver()],
-          home: startupError == null ? const HomePage() : const _StartupErrorPage(),
+          home: const HomePage(),
         );
       },
-    );
-  }
-}
-
-class _StartupErrorPage extends StatelessWidget {
-  const _StartupErrorPage();
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: EdgeInsets.all(28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.cloud_off_rounded, size: 60),
-                SizedBox(height: 14),
-                Text('Server connection unavailable', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-                SizedBox(height: 8),
-                Text('Check your internet connection or try another network, then reopen the app.', textAlign: TextAlign.center),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
