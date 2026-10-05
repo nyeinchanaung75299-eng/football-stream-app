@@ -54,7 +54,7 @@
       <div id="football-player-title">Football Live</div>
       <button id="football-player-server" class="football-control" type="button" aria-label="Choose line">Line</button>
       <button id="football-player-quality" class="football-control" type="button" aria-label="Choose quality">Auto</button>
-      <button id="football-player-fit" class="football-control" type="button">Fit</button>
+      <button id="football-player-fit" class="football-control" type="button">Fill</button>
       <button id="football-player-fullscreen" class="football-control" type="button">Fullscreen</button>
     </div>
     <div id="football-player-menu" class="hidden" role="dialog" aria-modal="false">
@@ -62,7 +62,7 @@
       <div id="football-player-menu-items"></div>
     </div>
     <div id="football-player-video-wrap">
-      <video id="football-player-video" class="fill" controls playsinline></video>
+      <video id="football-player-video" controls playsinline></video>
       <div id="football-player-message"></div>
     </div>
   </div>
@@ -397,8 +397,8 @@
       }
       currentSourceIndex=startIndex;
       updateServerButton(startIndex);
-      video.classList.add('fill');
-      fitButton.textContent='Fit';
+      video.classList.remove('fill');
+      fitButton.textContent='Fill';
       overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');
       hideControls();
       await loadSource(startIndex);
