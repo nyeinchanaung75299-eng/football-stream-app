@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../analytics_service.dart';
 import '../native_player.dart';
 import 'soco_page.dart';
 import 'network_diagnostics_page.dart';
@@ -431,8 +432,27 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> openPlayer(Map<String, dynamic> match) async {
+    final matchId = match['id']?.toString() ?? '';
+    await AnalyticsService.capture(
+      'watch tapped',
+      properties: {
+        'match_id': matchId,
+        'league': (match['league'] ?? '').toString(),
+        'is_live': match['is_live'] == true,
+        'advertised_lines': (match['stream_count'] as num?)?.toInt() ?? 0,
+      },
+    );
+
     final links = await _resolveLinks(match);
     if (links.isEmpty) {
+      await AnalyticsService.capture(
+        'stream unavailable',
+        properties: {
+          'match_id': matchId,
+          'reason': 'protected_api_returned_no_lines',
+          'advertised_lines': (match['stream_count'] as num?)?.toInt() ?? 0,
+        },
+      );
       if (!mounted) return;
       final advertised =
           (match['stream_count'] as num?)?.toInt() ?? 0;
@@ -468,6 +488,14 @@ class _HomePageState extends State<HomePage> {
         .toList();
 
     if (nativeSources.isEmpty) {
+      await AnalyticsService.capture(
+        'stream unavailable',
+        properties: {
+          'match_id': matchId,
+          'reason': 'no_native_sources',
+          'resolved_lines': links.length,
+        },
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('This match currently has no native stream.')),
@@ -739,13 +767,41 @@ class _HomePageState extends State<HomePage> {
       selectedIndex = picked;
     }
 
+    final selectedSource = nativeSources[selectedIndex];
+    await AnalyticsService.capture(
+      'stream selected',
+      properties: {
+        'match_id': matchId,
+        'line_count': nativeSources.length,
+        'selected_index': selectedIndex,
+        'stream_type': (selectedSource['streamType'] ?? 'auto').toString(),
+        'resolution': (selectedSource['resolution'] ?? '').toString(),
+        'health_status':
+            (selectedSource['healthStatus'] ?? 'unknown').toString(),
+      },
+    );
+
     try {
       await NativePlayer.open(
         sources: nativeSources,
         selectedIndex: selectedIndex,
         title: '${match['home_team']} vs ${match['away_team']}',
       );
+      await AnalyticsService.capture(
+        'player opened',
+        properties: {
+          'match_id': matchId,
+          'stream_type': (selectedSource['streamType'] ?? 'auto').toString(),
+        },
+      );
     } catch (_) {
+      await AnalyticsService.capture(
+        'player open failed',
+        properties: {
+          'match_id': matchId,
+          'stream_type': (selectedSource['streamType'] ?? 'auto').toString(),
+        },
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Player could not be opened.')),
