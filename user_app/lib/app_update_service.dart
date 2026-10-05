@@ -12,10 +12,13 @@ class AppUpdateService {
 
   static bool _checked = false;
 
-  static const _manifestBase =
-      'https://raw.githubusercontent.com/'
-      'nyeinchanaung75299-eng/football-stream-app/'
-      'feed/public/releases/latest.json';
+  static const _manifestUrls = <String>[
+    'https://nyeinchanaung75299-eng.github.io/'
+        'football-stream-app/releases/latest.json',
+    'https://raw.githubusercontent.com/'
+        'nyeinchanaung75299-eng/football-stream-app/'
+        'feed/public/releases/latest.json',
+  ];
 
   static Future<void> check(
     BuildContext context, {
@@ -31,24 +34,33 @@ class AppUpdateService {
       final info = await PackageInfo.fromPlatform();
       final currentBuild = int.tryParse(info.buildNumber) ?? 0;
       final stamp = DateTime.now().millisecondsSinceEpoch;
-      final uri = Uri.parse('$_manifestBase?t=$stamp');
+      Map<dynamic, dynamic>? data;
 
-      final response = await http
-          .get(
-            uri,
-            headers: const {
-              'Accept': 'application/json',
-              'Cache-Control': 'no-cache',
-            },
-          )
-          .timeout(const Duration(seconds: 8));
+      for (final base in _manifestUrls) {
+        try {
+          final response = await http
+              .get(
+                Uri.parse('$base?t=$stamp'),
+                headers: const {
+                  'Accept': 'application/json',
+                  'Cache-Control': 'no-cache',
+                },
+              )
+              .timeout(const Duration(seconds: 8));
 
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        return;
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            continue;
+          }
+
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map) {
+            data = decoded;
+            break;
+          }
+        } catch (_) {}
       }
 
-      final data = jsonDecode(response.body);
-      if (data is! Map) return;
+      if (data == null) return;
 
       final latestBuild =
           int.tryParse(data['build_number']?.toString() ?? '') ?? 0;
