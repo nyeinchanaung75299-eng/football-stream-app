@@ -671,7 +671,7 @@ async function rewriteDashManifest(
 ) {
   const origin = publicOrigin.replace(/\/+$/, "");
   let rewritten = text;
-  let baseUrlCount = 0;
+  const hadRootBaseUrl = hasRootDashBaseUrl(text);
 
   rewritten = await replaceAsync(
     rewritten,
@@ -681,7 +681,6 @@ async function rewriteDashManifest(
       if (!value || value.startsWith("#") || /^urn:/i.test(value)) {
         return match;
       }
-      baseUrlCount += 1;
       const protectedValue = await protectDashBaseReference(
         value,
         manifestUrl,
@@ -694,7 +693,11 @@ async function rewriteDashManifest(
     },
   );
 
-  if (baseUrlCount === 0) {
+  // A manifest can have BaseURL only inside one Representation/AdaptationSet.
+  // Other siblings would then resolve relative media directly against the
+  // protected manifest URL and miss the session route. Inject a protected
+  // MPD-level base whenever the original manifest had no root-level BaseURL.
+  if (!hadRootBaseUrl) {
     const manifestDirectory = new URL(".", manifestUrl).toString();
     const protectedBase = await protectDashBaseReference(
       manifestDirectory,
@@ -800,6 +803,21 @@ function splitDashTemplateBase(absolute) {
     base: absolute.slice(0, slash + 1),
     tail: absolute.slice(slash + 1),
   };
+}
+
+function hasRootDashBaseUrl(text) {
+  const source = String(text || "");
+  const root = /<MPD\b[^>]*>/i.exec(source);
+  if (!root) return false;
+
+  const start = (root.index || 0) + root[0].length;
+  const remainder = source.slice(start);
+  const firstPeriod = /<Period\b/i.exec(remainder);
+  const rootChildren = firstPeriod
+    ? remainder.slice(0, firstPeriod.index)
+    : remainder;
+
+  return /<BaseURL\b/i.test(rootChildren);
 }
 
 function isAbsoluteHttpReference(value) {
