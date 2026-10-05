@@ -403,6 +403,7 @@ async function handleStreams(request, matchId, env, publicOrigin) {
       stream_count: streams.length,
       playable_stream_count: streams.length,
       blocked_stream_count: 0,
+      // ClearKey lines configured by Admin are playable through the protected proxy.
       protected_playback: true,
       generated_at: new Date().toISOString(),
     }, 200, { "Cache-Control": "no-store, max-age=0" });
