@@ -429,24 +429,80 @@ class _HomePageState extends State<HomePage> {
     if (existing != null) return existing;
 
     final request = () async {
-      List<Map<String, dynamic>> rows = const [];
-      try {
-        rows = playableLinks(await _loadPublicApiStreams(matchId));
-      } catch (_) {
-        rows = const [];
+      List<Map<String, dynamic>> mirrorRows = playableLinks(
+        match['stream_links'],
+      ).where((row) {
+        final url = (row['stream_url'] ?? '').toString().trim();
+        if (url.isEmpty) return false;
+        // HTTPS web pages cannot directly play HTTP fallback media.
+        if (kIsWeb && url.toLowerCase().startsWith('http://')) {
+          return false;
+        }
+        return true;
+      }).toList();
+
+      Future<List<Map<String, dynamic>>> loadProtected() async {
+        try {
+          return playableLinks(await _loadPublicApiStreams(matchId));
+        } catch (_) {
+          return const <Map<String, dynamic>>[];
+        }
       }
 
-      if (rows.isEmpty) {
-        final mirrorRows = playableLinks(match['stream_links']);
-        rows = mirrorRows.where((row) {
-          final url = (row['stream_url'] ?? '').toString().trim();
-          if (url.isEmpty) return false;
-          // HTTPS web pages cannot directly play HTTP fallback media.
-          if (kIsWeb && url.toLowerCase().startsWith('http://')) {
-            return false;
-          }
-          return true;
-        }).toList();
+      List<Map<String, dynamic>> mergeRows(
+        List<Map<String, dynamic>> primary,
+        List<Map<String, dynamic>> backup,
+      ) {
+        final seen = <String>{};
+        final merged = <Map<String, dynamic>>[];
+
+        String keyOf(Map<String, dynamic> row) {
+          final id = row['id']?.toString().trim() ?? '';
+          if (id.isNotEmpty) return 'id:$id';
+          final url = row['stream_url']?.toString().trim() ?? '';
+          return 'url:$url';
+        }
+
+        for (final row in [...primary, ...backup]) {
+          final key = keyOf(row);
+          if (key == 'url:' || !seen.add(key)) continue;
+          merged.add(row);
+        }
+        return merged;
+      }
+
+      List<Map<String, dynamic>> rows;
+      if (mirrorRows.isNotEmpty) {
+        final protectedFuture = loadProtected();
+        final first = await Future.any<List<Map<String, dynamic>>>([
+          protectedFuture,
+          Future<List<Map<String, dynamic>>>.delayed(
+            const Duration(milliseconds: 350),
+            () => const <Map<String, dynamic>>[],
+          ),
+        ]);
+
+        if (first.isNotEmpty) {
+          rows = mergeRows(first, mirrorRows);
+        } else {
+          rows = mirrorRows;
+
+          // Do not keep the user waiting for a blocked endpoint. If the
+          // protected API eventually responds, cache the richer protected
+          // list for the next tap.
+          unawaited(
+            protectedFuture.then((protected) {
+              if (protected.isEmpty) return;
+              final merged = mergeRows(protected, mirrorRows);
+              _streamLinkCache[matchId] = _StreamCacheEntry(
+                merged,
+                DateTime.now(),
+              );
+            }),
+          );
+        }
+      } else {
+        rows = await loadProtected();
       }
 
       try {
