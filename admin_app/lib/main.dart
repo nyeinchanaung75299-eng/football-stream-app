@@ -28,7 +28,7 @@ class FootballAdminApp extends StatelessWidget {
       builder: (context, _) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
-          title: 'Football Admin',
+          title: 'NCA Admin',
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: AppThemeController.instance.mode,
