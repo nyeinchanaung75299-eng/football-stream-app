@@ -119,7 +119,8 @@ class NativePlayerActivity : Activity() {
             setBackgroundColor(Color.BLACK)
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             useController = true
-            controllerAutoShow = true
+            // Keep the video clean. Controls appear only after the user taps.
+            controllerAutoShow = false
             controllerShowTimeoutMs = 3000
         }
         root.addView(
@@ -135,6 +136,9 @@ class NativePlayerActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(10), dp(12), dp(6))
             setBackgroundColor(Color.argb(115, 0, 0, 0))
+            // Server name / quality / back button stay hidden until player
+            // controls are shown by a tap.
+            visibility = View.GONE
         }
 
         val back = overlayButton("←").apply {
@@ -175,6 +179,19 @@ class NativePlayerActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP
             )
+        )
+
+        // Mirror our custom top bar to Media3's controller visibility.
+        // Tap video -> controller + Server/Quality appear.
+        // Timeout -> both disappear again.
+        playerView.setControllerVisibilityListener(
+            PlayerView.ControllerVisibilityListener { visibility ->
+                topBar.visibility = if (visibility == View.VISIBLE) {
+                    View.VISIBLE
+                } else {
+                    View.GONE
+                }
+            }
         )
 
         statusText = TextView(this).apply {
