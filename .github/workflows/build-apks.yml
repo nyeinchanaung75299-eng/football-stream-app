@@ -40,7 +40,13 @@ jobs:
           missing=[x for x in perms if x not in s]
           if missing:
               s=s.replace(marker, marker+'\n    '+'\n    '.join(missing))
-              p.write_text(s)
+          import re, shutil
+          s=re.sub(r'android:label="[^"]+"','android:label="NCA Admin"',s,count=1)
+          s=s.replace('@mipmap/ic_launcher','@drawable/nca_icon')
+          p.write_text(s)
+          icon=Path('android/app/src/main/res/drawable/nca_icon.png')
+          icon.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copy2('../user_app/assets/nca_icon.png', icon)
           PY2
 
       - name: Get Admin dependencies
@@ -54,7 +60,7 @@ jobs:
       - name: Upload Admin APKs
         uses: actions/upload-artifact@v7
         with:
-          name: Football-Admin-V9.8-Premium-Release-APKs
+          name: NCA-Admin-V9.8-Release-APKs
           path: admin_app/build/app/outputs/flutter-apk/*-release.apk
 
       - name: Create Android platform for Viewer
@@ -75,7 +81,13 @@ jobs:
           if missing: s=s.replace(marker, marker+'\n    '+'\n    '.join(missing))
           activity='        <activity android:name=".NativePlayerActivity" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="false" android:theme="@style/LaunchTheme" />\n'
           if 'NativePlayerActivity' not in s: s=s.replace('    </application>', activity+'    </application>')
+          import re
+          s=re.sub(r'android:label="[^"]+"','android:label="NCA"',s,count=1)
+          s=s.replace('@mipmap/ic_launcher','@drawable/nca_icon')
           m.write_text(s)
+          icon=Path('android/app/src/main/res/drawable/nca_icon.png')
+          icon.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copy2('assets/nca_icon.png', icon)
 
           gk=Path('android/app/build.gradle.kts')
           if gk.exists():
@@ -107,5 +119,5 @@ jobs:
       - name: Upload Viewer APKs
         uses: actions/upload-artifact@v7
         with:
-          name: Football-Viewer-V9.8-Premium-Release-APKs
+          name: NCA-V9.8-Release-APKs
           path: user_app/build/app/outputs/flutter-apk/*-release.apk
