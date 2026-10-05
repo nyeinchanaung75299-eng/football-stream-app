@@ -615,6 +615,43 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  List<Map<String, dynamic>> _mergeMirrorBackupsIntoMatches(
+    List<Map<String, dynamic>> authoritative,
+    List<Map<String, dynamic>> mirror,
+  ) {
+    final mirrorById = <String, Map<String, dynamic>>{
+      for (final row in mirror)
+        if ((row['id']?.toString().trim().isNotEmpty ?? false))
+          row['id'].toString(): row,
+    };
+
+    return authoritative.map((row) {
+      final id = row['id']?.toString().trim() ?? '';
+      if (id.isEmpty) return row;
+
+      final backup = mirrorById[id];
+      if (backup == null) return row;
+
+      final existingLinks = playableLinks(row['stream_links']);
+      final backupLinks = playableLinks(backup['stream_links']);
+
+      if (existingLinks.isEmpty && backupLinks.isNotEmpty) {
+        row['stream_links'] = backupLinks;
+        row['public_stream_count'] = backupLinks.length;
+      }
+
+      final authoritativeCount =
+          (row['stream_count'] as num?)?.toInt() ?? 0;
+      final mirrorCount =
+          (backup['stream_count'] as num?)?.toInt() ?? 0;
+      if (authoritativeCount <= 0 && mirrorCount > 0) {
+        row['stream_count'] = mirrorCount;
+      }
+
+      return row;
+    }).toList();
+  }
+
   Future<List<Map<String, dynamic>>> loadMatches() async {
     final started = DateTime.now();
 
@@ -643,6 +680,22 @@ class _HomePageState extends State<HomePage> {
         authoritative,
         delay: const Duration(milliseconds: 500),
       );
+
+      // Authoritative sources intentionally expose only availability counts.
+      // Add safe non-keyed mirror lines so WATCH still works when the
+      // protected stream endpoint is blocked on the current phone network.
+      try {
+        final mirror = await _loadMirror().timeout(
+          const Duration(seconds: 2),
+        );
+        result = _MatchLoadResult(
+          _mergeMirrorBackupsIntoMatches(result.rows, mirror),
+          result.label,
+        );
+      } catch (_) {
+        // Preserve the fresh authoritative match list if mirror enrichment
+        // happens to be unavailable.
+      }
     } catch (_) {
       result = _MatchLoadResult(
         await _loadMirror(),
