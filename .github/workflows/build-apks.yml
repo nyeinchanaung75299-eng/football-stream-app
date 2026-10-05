@@ -116,6 +116,72 @@ jobs:
           shutil.copy2('android_patch/NativePlayerActivity.kt', dest/'NativePlayerActivity.kt')
           PY2
 
+      - name: Configure stable Viewer signing
+        working-directory: user_app
+        env:
+          NCA_KEYSTORE_B64: ${{ secrets.NCA_KEYSTORE_B64 }}
+          NCA_KEYSTORE_PASSWORD: ${{ secrets.NCA_KEYSTORE_PASSWORD }}
+          NCA_KEY_ALIAS: ${{ secrets.NCA_KEY_ALIAS }}
+          NCA_KEY_PASSWORD: ${{ secrets.NCA_KEY_PASSWORD }}
+        run: |
+          set -e
+          if [ -z "$NCA_KEYSTORE_B64" ] || [ -z "$NCA_KEYSTORE_PASSWORD" ] || [ -z "$NCA_KEY_ALIAS" ] || [ -z "$NCA_KEY_PASSWORD" ]; then
+            echo "NCA_SIGNING_READY=false" >> "$GITHUB_ENV"
+            echo "Stable signing secrets are not configured. Building fallback APK only; in-app updater publication will be skipped."
+            exit 0
+          fi
+
+          echo "$NCA_KEYSTORE_B64" | base64 -d > android/app/nca-release.jks
+          cat > android/key.properties <<EOF
+          storePassword=$NCA_KEYSTORE_PASSWORD
+          keyPassword=$NCA_KEY_PASSWORD
+          keyAlias=$NCA_KEY_ALIAS
+          storeFile=nca-release.jks
+          EOF
+
+          python3 - <<'PY2'
+          from pathlib import Path
+
+          gk=Path('android/app/build.gradle.kts')
+          if not gk.exists():
+              raise SystemExit('Expected Kotlin Gradle build file was not generated.')
+
+          s=gk.read_text()
+          if 'val ncaKeystoreProperties = Properties()' not in s:
+              prefix='''import java.io.FileInputStream
+import java.util.Properties
+
+val ncaKeystoreProperties = Properties()
+val ncaKeystorePropertiesFile = rootProject.file("key.properties")
+if (ncaKeystorePropertiesFile.exists()) {
+    ncaKeystoreProperties.load(FileInputStream(ncaKeystorePropertiesFile))
+}
+
+'''
+              s=prefix+s
+
+          if 'create("ncaRelease")' not in s:
+              signing='''    signingConfigs {
+        create("ncaRelease") {
+            keyAlias = ncaKeystoreProperties["keyAlias"] as String
+            keyPassword = ncaKeystoreProperties["keyPassword"] as String
+            storeFile = file(ncaKeystoreProperties["storeFile"] as String)
+            storePassword = ncaKeystoreProperties["storePassword"] as String
+        }
+    }
+
+'''
+              s=s.replace('    buildTypes {', signing+'    buildTypes {', 1)
+
+          s=s.replace(
+              'signingConfig = signingConfigs.getByName("debug")',
+              'signingConfig = signingConfigs.getByName("ncaRelease")',
+          )
+          gk.write_text(s)
+          PY2
+
+          echo "NCA_SIGNING_READY=true" >> "$GITHUB_ENV"
+
       - name: Get Viewer dependencies
         working-directory: user_app
         run: flutter pub get
@@ -140,6 +206,7 @@ jobs:
           path: user_app/build/app/outputs/flutter-apk/*-release.apk
 
       - name: Publish in-app updater release
+        if: env.NCA_SIGNING_READY == 'true'
         run: |
           set -e
           git config user.name "github-actions[bot]"
@@ -187,6 +254,7 @@ jobs:
           exit 1
 
       - name: Refresh GitHub Pages release files
+        if: env.NCA_SIGNING_READY == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy-web.yml --ref "${GITHUB_REF_NAME}"
