@@ -25,7 +25,8 @@ class _HomePageState extends State<HomePage> {
 
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
-    defaultValue: '',
+    defaultValue:
+        'https://football-public-api.nyeinchanaung75299-eng.workers.dev',
   );
 
   static const _mirrorBase =
@@ -134,7 +135,8 @@ class _HomePageState extends State<HomePage> {
       throw const FormatException('Public API is not configured.');
     }
 
-    final cleanBase = base.replaceAll(RegExp(r'/+    final bucket =
+    final cleanBase = base.replaceAll(RegExp(r'/+
+    final bucket =
         DateTime.now().millisecondsSinceEpoch ~/ (5 * 60 * 1000);
     final uri = Uri.parse('$_mirrorBase?v=$bucket');
 
@@ -270,17 +272,10 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> openPlayer(Map<String, dynamic> match) async {
     final links = await _resolveLinks(match);
-
     if (links.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            _fallbackLabel == null
-                ? 'Stream is not available yet.'
-                : 'Match list loaded, but no safe stream fallback is reachable yet.',
-          ),
-        ),
+        const SnackBar(content: Text('Stream is not available yet.')),
       );
       return;
     }
@@ -591,17 +586,15 @@ class _HomePageState extends State<HomePage> {
                                   .trim()
                                   .isNotEmpty;
                             }).length;
-
-                            final mirrorCount =
+                            final fallbackCount =
                                 (m['stream_count'] as num?)?.toInt() ?? 0;
-                            final visibleCount = nativeLinkCount > 0
+                            final displayCount = nativeLinkCount > 0
                                 ? nativeLinkCount
-                                : mirrorCount;
-
+                                : fallbackCount;
                             return _MatchCard(
                               match: m,
-                              canWatch: visibleCount > 0,
-                              linkCount: visibleCount,
+                              canWatch: displayCount > 0,
+                              linkCount: displayCount,
                               onWatch: () => openPlayer(m),
                             );
                           },
@@ -922,14 +915,12 @@ class _StateMessage extends StatelessWidget {
     final matchId = match['id']?.toString().trim() ?? '';
     if (matchId.isEmpty) return const [];
 
-    if (_publicApiBase.trim().isNotEmpty) {
-      try {
-        links = playableLinks(
-          await _loadPublicApiStreams(matchId),
-        );
-        if (links.isNotEmpty) return links;
-      } catch (_) {}
-    }
+    try {
+      links = playableLinks(
+        await _loadPublicApiStreams(matchId),
+      );
+      if (links.isNotEmpty) return links;
+    } catch (_) {}
 
     try {
       links = playableLinks(
