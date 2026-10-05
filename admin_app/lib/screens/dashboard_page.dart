@@ -114,8 +114,8 @@ class DashboardPage extends StatelessWidget {
           const SizedBox(height: 10),
           _ActionCard(
             icon: Icons.podcasts_rounded,
-            title: 'Stream Source Picker',
-            subtitle: 'Pick from Soco, YYZB or Fawa. Referer/Origin are captured automatically when available.',
+            title: 'Soco / YYZB / Fawa Links',
+            subtitle: 'Extract M3U8 / MPD / FLV / MP4 source links and add them to a match.',
             iconColor: const Color(0xFFDC2626),
             onTap: () => open(
               context,

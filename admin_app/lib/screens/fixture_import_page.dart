@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'live_links_page.dart';
+import 'soco_import_page.dart';
 import '../analytics_service.dart';
 import '../services/function_gateway.dart';
 
@@ -204,7 +205,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       }
 
       if (chosen.length == 1 && savedIds.isNotEmpty) {
-        final addStreams = await showModalBottomSheet<bool>(
+        final streamAction = await showModalBottomSheet<String>(
           context: context,
           useSafeArea: true,
           showDragHandle: true,
@@ -224,21 +225,30 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Add the live stream now, or come back later from Stream Servers.',
+                  'Pick a Soco / YYZB / Fawa source now, or add a stream manually.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 18),
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
-                    onPressed: () => Navigator.pop(sheetContext, true),
+                    onPressed: () => Navigator.pop(sheetContext, 'source'),
+                    icon: const Icon(Icons.podcasts_rounded),
+                    label: const Text('PICK SOCO / YYZB / FAWA'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.pop(sheetContext, 'manual'),
                     icon: const Icon(Icons.add_link_rounded),
-                    label: const Text('ADD STREAM NOW'),
+                    label: const Text('ADD STREAM MANUALLY'),
                   ),
                 ),
                 const SizedBox(height: 8),
                 TextButton(
-                  onPressed: () => Navigator.pop(sheetContext, false),
+                  onPressed: () => Navigator.pop(sheetContext, 'done'),
                   child: const Text('DONE'),
                 ),
               ],
@@ -246,7 +256,18 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           ),
         );
 
-        if (addStreams == true && mounted) {
+        if (streamAction == 'source' && mounted) {
+          await Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              settings: const RouteSettings(
+                name: '/admin/stream-source-picker',
+              ),
+              builder: (_) => SocoImportPage(
+                initialMatchId: savedIds.first,
+              ),
+            ),
+          );
+        } else if (streamAction == 'manual' && mounted) {
           await Navigator.of(context).push(
             MaterialPageRoute<void>(
               settings: const RouteSettings(
@@ -262,7 +283,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${chosen.length} matches published. Open Stream Servers to add links.',
+              '${chosen.length} matches published. Open Soco / YYZB / Fawa Links or Stream Servers to add links.',
             ),
           ),
         );
