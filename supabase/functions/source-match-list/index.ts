@@ -336,8 +336,10 @@ function isFootballRow(row: any) {
     (row?.guestName != null || row?.awayName != null);
 }
 
-function sourceText(source: "soco" | "yyzb", value: unknown) {
-  return source === "yyzb" ? friendlyText(value) : String(value ?? "").trim();
+function sourceText(_source: "soco" | "yyzb", value: unknown) {
+  // Both source families can return Chinese display names. Keep Latin text
+  // unchanged while translating the common football labels we know.
+  return friendlyText(value);
 }
 
 function normalizeMatchTime(value: unknown) {
@@ -369,6 +371,34 @@ function roomNumber(anchor: any) {
 function friendlyText(value: unknown) {
   let text = String(value ?? "").trim();
   const replacements: Array<[string, string]> = [
+    ["欧国联", "UEFA Nations League"],
+    ["北爱尔兰", "Northern Ireland"],
+    ["格鲁吉亚", "Georgia"],
+    ["意大利", "Italy"],
+    ["土耳其", "Türkiye"],
+    ["法国", "France"],
+    ["罗马尼亚", "Romania"],
+    ["瑞典", "Sweden"],
+    ["乌克兰", "Ukraine"],
+    ["匈牙利", "Hungary"],
+    ["黑山", "Montenegro"],
+    ["亚美尼亚", "Armenia"],
+    ["德国", "Germany"],
+    ["西班牙", "Spain"],
+    ["葡萄牙", "Portugal"],
+    ["荷兰", "Netherlands"],
+    ["克罗地亚", "Croatia"],
+    ["波兰", "Poland"],
+    ["丹麦", "Denmark"],
+    ["挪威", "Norway"],
+    ["芬兰", "Finland"],
+    ["瑞士", "Switzerland"],
+    ["奥地利", "Austria"],
+    ["希腊", "Greece"],
+    ["捷克", "Czechia"],
+    ["塞尔维亚", "Serbia"],
+    ["苏格兰", "Scotland"],
+    ["爱尔兰", "Ireland"],
     ["中国台北", "Chinese Taipei"],
     ["乌兹别克", "Uzbekistan"],
     ["菲律宾", "Philippines"],
