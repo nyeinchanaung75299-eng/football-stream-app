@@ -194,6 +194,10 @@ class _HomePageState extends State<HomePage> {
       try {
         final uri = Uri.parse(
           '$base/matches/${Uri.encodeComponent(matchId)}/streams',
+        ).replace(
+          queryParameters: {
+            't': DateTime.now().millisecondsSinceEpoch.toString(),
+          },
         );
         final response = await http
             .get(
@@ -423,9 +427,8 @@ class _HomePageState extends State<HomePage> {
         SnackBar(
           content: Text(
             advertised > 0
-                ? '$advertised line(s) are configured, but this network cannot '
-                    'open a playable public line yet. Add an HLS/public backup '
-                    'line in Admin for reliable VPN-off playback.'
+                ? 'Could not load the $advertised configured line(s). '
+                    'Please tap WATCH again in a moment.'
                 : 'Stream is not available yet.',
           ),
         ),
