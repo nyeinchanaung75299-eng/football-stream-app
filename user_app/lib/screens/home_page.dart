@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
@@ -36,14 +37,20 @@ class _HomePageState extends State<HomePage> {
         _publicApiBackup,
       }.where((base) => base.isNotEmpty).toList();
 
-  // Read the continuously updated feed branch directly. The GitHub Pages
-  // copies only change on web deploy and can otherwise resurrect old state.
   static const _mirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/matches.json';
   static const _mirrorStreamsBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/streams.json';
+
+  // On GitHub Pages, use the JSON files deployed beside the Flutter app.
+  // This avoids browser CORS/network blocks against raw.githubusercontent.com.
+  Uri _mirrorMatchesUri() =>
+      kIsWeb ? Uri.base.resolve('matches.json') : Uri.parse(_mirrorBase);
+
+  Uri _mirrorStreamsUri() =>
+      kIsWeb ? Uri.base.resolve('streams.json') : Uri.parse(_mirrorStreamsBase);
 
   @override
   void initState() {
@@ -263,7 +270,9 @@ class _HomePageState extends State<HomePage> {
         DateTime.now().millisecondsSinceEpoch ~/ (60 * 1000);
     final response = await http
         .get(
-          Uri.parse('$_mirrorStreamsBase?v=$bucket'),
+          _mirrorStreamsUri().replace(
+            queryParameters: {'v': bucket.toString()},
+          ),
           headers: const {
             'Accept': 'application/json',
             'Cache-Control': 'no-cache',
@@ -337,7 +346,7 @@ class _HomePageState extends State<HomePage> {
     // short cache bucket so a VPN toggle/refresh cannot keep an old snapshot
     // around for a full browser cache lifetime.
     final bucket = DateTime.now().millisecondsSinceEpoch ~/ 15000;
-    final uri = Uri.parse('$_mirrorBase').replace(
+    final uri = _mirrorMatchesUri().replace(
       queryParameters: {'v': bucket.toString()},
     );
 
