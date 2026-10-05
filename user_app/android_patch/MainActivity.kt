@@ -53,6 +53,7 @@ class MainActivity : FlutterActivity() {
                     call.argument<Int>("selectedIndex") ?: 0
                 )
                 putExtra("title", call.argument<String>("title").orEmpty())
+                putExtra("matchId", call.argument<String>("matchId").orEmpty())
             })
 
             result.success(null)
