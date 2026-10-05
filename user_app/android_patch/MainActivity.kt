@@ -8,13 +8,33 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val channelName = "football_stream/native_player"
 
+    companion object {
+        private var playerEventChannel: MethodChannel? = null
+
+        fun emitPlayerEvent(
+            event: String,
+            properties: Map<String, Any?> = emptyMap()
+        ) {
+            playerEventChannel?.invokeMethod(
+                "playerEvent",
+                mapOf(
+                    "event" to event,
+                    "properties" to properties
+                )
+            )
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(
+        val channel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             channelName
-        ).setMethodCallHandler { call, result ->
+        )
+        playerEventChannel = channel
+
+        channel.setMethodCallHandler { call, result ->
             if (call.method != "openPlayer") {
                 result.notImplemented()
                 return@setMethodCallHandler
