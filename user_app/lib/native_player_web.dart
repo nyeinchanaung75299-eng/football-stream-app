@@ -41,7 +41,17 @@ class NativePlayer {
           (type == 'hls' ||
               type == 'm3u8' ||
               url.toLowerCase().contains('.m3u8'))) {
-        _navigateTopLevel(url.toJS);
+        final sourcePage = (selected['referer'] ?? '').toString().trim();
+
+        // Directly opening the raw Fawa HLS endpoint loses the Referer/Origin
+        // context and nginx returns 403. Open the source match page instead;
+        // that page then loads its HLS stream with the headers it expects.
+        if (sourcePage.startsWith('http://') ||
+            sourcePage.startsWith('https://')) {
+          _navigateTopLevel(sourcePage.toJS);
+        } else {
+          _navigateTopLevel(url.toJS);
+        }
         return;
       }
     }
