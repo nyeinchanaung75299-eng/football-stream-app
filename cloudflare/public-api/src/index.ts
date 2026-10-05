@@ -1,7 +1,13 @@
 export interface Env {
-  SUPABASE_URL: string;
-  SUPABASE_PUBLISHABLE_KEY: string;
+  SUPABASE_URL?: string;
+  SUPABASE_PUBLISHABLE_KEY?: string;
+  GITHUB_MIRROR_URL?: string;
 }
+
+const DEFAULT_MIRROR =
+  "https://raw.githubusercontent.com/" +
+  "nyeinchanaung75299-eng/football-stream-app/" +
+  "feed/public/matches.json";
 
 const SELECT = [
   "id",
@@ -57,7 +63,19 @@ export default {
       });
     }
 
-    if (request.method !== "GET" || url.pathname !== "/matches") {
+    if (request.method !== "GET") {
+      return json({ error: "Method not allowed." }, 405);
+    }
+
+    if (url.pathname === "/health") {
+      return json({
+        ok: true,
+        service: "football-public-api",
+        now: new Date().toISOString(),
+      });
+    }
+
+    if (url.pathname !== "/matches") {
       return json({ error: "Not found." }, 404);
     }
 
@@ -66,56 +84,88 @@ export default {
     const cached = await cache.match(cacheKey);
     if (cached) return withCors(cached);
 
-    const upstream = new URL(
-      env.SUPABASE_URL.replace(/\/+$/, "") + "/rest/v1/matches",
-    );
+    try {
+      const loaded = await loadRows(env);
+      const matches = loaded.rows.map(sanitizeMatch);
 
-    upstream.searchParams.set("select", SELECT);
-    upstream.searchParams.set("is_active", "eq.true");
-    upstream.searchParams.set("publish_state", "eq.published");
-    upstream.searchParams.set("is_featured", "eq.true");
-    upstream.searchParams.set("order", "kickoff_at.asc,sort_order.asc");
+      const result = json(
+        {
+          ok: true,
+          source: loaded.source,
+          matches,
+          generated_at: new Date().toISOString(),
+        },
+        200,
+        {
+          "Cache-Control": "public, max-age=20, s-maxage=45",
+        },
+      );
 
-    const response = await fetch(upstream, {
-      headers: {
-        apikey: env.SUPABASE_PUBLISHABLE_KEY,
-        Accept: "application/json",
-      },
-    });
-
-    if (!response.ok) {
+      ctx.waitUntil(cache.put(cacheKey, result.clone()));
+      return result;
+    } catch (error) {
       return json(
         {
-          error: "Upstream unavailable.",
-          upstream_status: response.status,
+          error: error instanceof Error ? error.message : String(error),
         },
         502,
       );
     }
-
-    const rows = await response.json<unknown>();
-    if (!Array.isArray(rows)) {
-      return json({ error: "Invalid upstream response." }, 502);
-    }
-
-    const matches = rows.map(sanitizeMatch);
-
-    const result = json(
-      {
-        ok: true,
-        matches,
-        generated_at: new Date().toISOString(),
-      },
-      200,
-      {
-        "Cache-Control": "public, max-age=30, s-maxage=60",
-      },
-    );
-
-    ctx.waitUntil(cache.put(cacheKey, result.clone()));
-    return result;
   },
 };
+
+async function loadRows(
+  env: Env,
+): Promise<{ rows: unknown[]; source: "supabase" | "github" }> {
+  const base = (env.SUPABASE_URL ?? "").trim();
+  const key = (env.SUPABASE_PUBLISHABLE_KEY ?? "").trim();
+
+  if (base && key) {
+    try {
+      const upstream = new URL(
+        base.replace(/\/+$/, "") + "/rest/v1/matches",
+      );
+
+      upstream.searchParams.set("select", SELECT);
+      upstream.searchParams.set("is_active", "eq.true");
+      upstream.searchParams.set("publish_state", "eq.published");
+      upstream.searchParams.set("is_featured", "eq.true");
+      upstream.searchParams.set("order", "kickoff_at.asc,sort_order.asc");
+
+      const response = await fetch(upstream, {
+        headers: {
+          apikey: key,
+          Accept: "application/json",
+        },
+      });
+
+      if (response.ok) {
+        const rows = await response.json<unknown>();
+        if (Array.isArray(rows)) {
+          return { rows, source: "supabase" };
+        }
+      }
+    } catch (_) {
+      // Use safe mirror below.
+    }
+  }
+
+  const mirror = env.GITHUB_MIRROR_URL?.trim() || DEFAULT_MIRROR;
+  const response = await fetch(mirror, {
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new Error("Public mirror unavailable.");
+  }
+
+  const rows = await response.json<unknown>();
+  if (!Array.isArray(rows)) {
+    throw new Error("Invalid mirror response.");
+  }
+
+  return { rows, source: "github" };
+}
 
 function sanitizeMatch(raw: unknown) {
   const match = {
@@ -127,29 +177,7 @@ function sanitizeMatch(raw: unknown) {
     : [];
 
   match.stream_links = links
-    .filter((item) => {
-      const link = item as Record<string, unknown>;
-
-      if (link.is_active !== true) return false;
-      if (link.use_webview === true) return false;
-
-      const protectedFields = [
-        "referer",
-        "origin",
-        "key_id",
-        "key_data",
-      ];
-
-      if (
-        protectedFields.some(
-          (field) => String(link[field] ?? "").trim().length > 0,
-        )
-      ) {
-        return false;
-      }
-
-      return String(link.stream_url ?? "").trim().length > 0;
-    })
+    .filter((item) => isSafePublicLink(item as Record<string, unknown>))
     .map((item) => {
       const link = item as Record<string, unknown>;
 
@@ -170,6 +198,57 @@ function sanitizeMatch(raw: unknown) {
     });
 
   return match;
+}
+
+function isSafePublicLink(link: Record<string, unknown>) {
+  if (link.is_active !== true) return false;
+  if (link.use_webview === true) return false;
+
+  const protectedFields = [
+    "referer",
+    "origin",
+    "key_id",
+    "key_data",
+  ];
+
+  if (
+    protectedFields.some(
+      (field) => String(link[field] ?? "").trim().length > 0,
+    )
+  ) {
+    return false;
+  }
+
+  const streamUrl = String(link.stream_url ?? "").trim();
+  if (!streamUrl) return false;
+
+  try {
+    const url = new URL(streamUrl);
+    const sensitiveParts = [
+      "token",
+      "auth",
+      "signature",
+      "sig",
+      "key",
+      "expires",
+      "expire",
+      "policy",
+      "jwt",
+      "hdnts",
+      "hdnea",
+    ];
+
+    for (const queryKey of url.searchParams.keys()) {
+      const lower = queryKey.toLowerCase();
+      if (sensitiveParts.some((part) => lower.includes(part))) {
+        return false;
+      }
+    }
+  } catch (_) {
+    return false;
+  }
+
+  return true;
 }
 
 function corsHeaders() {
