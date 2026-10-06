@@ -481,28 +481,6 @@ class _HomePageState extends State<HomePage> {
         }
       }
 
-      List<Map<String, dynamic>> mergeRows(
-        List<Map<String, dynamic>> primary,
-        List<Map<String, dynamic>> backup,
-      ) {
-        final seen = <String>{};
-        final merged = <Map<String, dynamic>>[];
-
-        String keyOf(Map<String, dynamic> row) {
-          final id = row['id']?.toString().trim() ?? '';
-          if (id.isNotEmpty) return 'id:$id';
-          final url = row['stream_url']?.toString().trim() ?? '';
-          return 'url:$url';
-        }
-
-        for (final row in [...primary, ...backup]) {
-          final key = keyOf(row);
-          if (key == 'url:' || !seen.add(key)) continue;
-          merged.add(row);
-        }
-        return merged;
-      }
-
       List<Map<String, dynamic>> rows;
       if (mirrorRows.isNotEmpty) {
         final protectedFuture = loadProtected();
