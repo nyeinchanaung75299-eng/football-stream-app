@@ -23,6 +23,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   static const _fallback = 'https://football-api.nyeinchanaung.ccwu.cc';
   static const _backup =
       'https://football-public-api.nyeinchanaung75299-eng.workers.dev';
+  static const _supabaseFunction =
+      'https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links';
+  static const _supabasePublishableKey =
+      'sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O';
 
   late Future<List<Map<String, dynamic>>> _future;
 
@@ -140,12 +144,52 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return rows;
   }
 
+  Future<List<Map<String, dynamic>>> _loadFromSupabase() async {
+    final response = await http
+        .post(
+          Uri.parse(_supabaseFunction),
+          headers: const {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'apikey': _supabasePublishableKey,
+            'Cache-Control': 'no-cache',
+          },
+          body: jsonEncode({
+            'viewer_public': true,
+            'action': 'matches',
+            'source': source,
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Direct source fallback HTTP ' + response.statusCode.toString(),
+      );
+    }
+    final decoded = jsonDecode(response.body);
+    final raw = decoded is Map ? decoded['matches'] : null;
+    if (raw is! List) throw const FormatException('Invalid direct source list.');
+    final rows =
+        raw.map((x) => Map<String, dynamic>.from(x as Map)).toList();
+    rows.sort((a, b) {
+      if (_live(a) != _live(b)) return _live(a) ? -1 : 1;
+      final at = DateTime.tryParse(a['match_time']?.toString() ?? '');
+      final bt = DateTime.tryParse(b['match_time']?.toString() ?? '');
+      if (at == null && bt == null) return _matchName(a).compareTo(_matchName(b));
+      if (at == null) return 1;
+      if (bt == null) return -1;
+      return at.compareTo(bt);
+    });
+    return rows;
+  }
+
   Future<List<Map<String, dynamic>>> _loadMatches() => _hedged(
-        bases
-            .map<Future<List<Map<String, dynamic>>> Function()>(
-              (base) => () => _loadFrom(base),
-            )
-            .toList(),
+        [
+          ...bases.map<Future<List<Map<String, dynamic>>> Function()>(
+            (base) => () => _loadFrom(base),
+          ),
+          () => _loadFromSupabase(),
+        ],
       );
 
   Future<void> _refresh() async {
@@ -207,16 +251,90 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         .toList();
   }
 
+  Future<List<Map<String, dynamic>>> _anchorFromSupabase(
+    Map<String, dynamic> m,
+    Map<String, dynamic> anchor,
+  ) async {
+    final response = await http
+        .post(
+          Uri.parse(_supabaseFunction),
+          headers: const {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'apikey': _supabasePublishableKey,
+            'Cache-Control': 'no-cache',
+          },
+          body: jsonEncode({
+            'viewer_public': true,
+            'action': 'streams',
+            'source': source,
+            'room_num':
+                anchor['room_num'] ?? m['source_id'] ?? m['schedule_id'],
+            'schedule_id': m['schedule_id'] ?? m['source_id'],
+            'source_id': m['source_id'],
+            'page_url': anchor['page_url'] ?? m['page_url'],
+          }),
+        )
+        .timeout(const Duration(seconds: 12));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Direct stream fallback HTTP ' + response.statusCode.toString(),
+      );
+    }
+    final decoded = jsonDecode(response.body);
+    final raw = decoded is Map ? decoded['lines'] : null;
+    if (raw is! List) throw const FormatException('Invalid direct streams.');
+    final name =
+        (anchor['nick_name'] ?? anchor['name'] ?? anchor['room_num'] ?? '')
+            .toString()
+            .trim();
+    final room =
+        (anchor['room_num'] ?? m['source_id'] ?? m['schedule_id'] ?? '')
+            .toString();
+    final schedule =
+        (m['schedule_id'] ?? m['source_id'] ?? 'match').toString();
+
+    return raw.asMap().entries.map((entry) {
+      final row = Map<String, dynamic>.from(entry.value as Map);
+      final url = (row['url'] ?? row['stream_url'] ?? '').toString().trim();
+      final rawLabel = (row['label'] ??
+              row['resolution'] ??
+              ('Line ' + (entry.key + 1).toString()))
+          .toString();
+      return <String, dynamic>{
+        'id': source +
+            ':' +
+            schedule +
+            ':' +
+            room +
+            ':' +
+            entry.key.toString(),
+        'label': name.isEmpty ? rawLabel : name + ' • ' + rawLabel,
+        'resolution': row['resolution'],
+        'stream_type': row['stream_type'] ?? 'auto',
+        'stream_url': url,
+        'referer': row['referer'],
+        'origin': row['origin'],
+        'key_id': null,
+        'key_data': null,
+        'is_active': true,
+        'priority': row['priority'] ?? 100,
+        'health_status': row['health_status'] ?? 'unknown',
+      };
+    }).where((x) => (x['stream_url']?.toString() ?? '').isNotEmpty).toList();
+  }
+
   Future<List<Map<String, dynamic>>> _anchor(
     Map<String, dynamic> m,
     Map<String, dynamic> anchor,
   ) =>
       _hedged(
-        bases
-            .map<Future<List<Map<String, dynamic>>> Function()>(
-              (base) => () => _anchorFrom(base, m, anchor),
-            )
-            .toList(),
+        [
+          ...bases.map<Future<List<Map<String, dynamic>>> Function()>(
+            (base) => () => _anchorFrom(base, m, anchor),
+          ),
+          () => _anchorFromSupabase(m, anchor),
+        ],
       );
 
   Future<List<Map<String, dynamic>>> _streams(
