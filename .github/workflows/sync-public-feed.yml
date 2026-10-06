@@ -9,6 +9,11 @@ on:
       - "scripts/sync_public_feed.py"
       - "supabase/functions/public-feed-lines/index.ts"
       - "user_app/lib/screens/home_page.dart"
+      - "user_app/lib/screens/source_browser_page.dart"
+      - "admin_app/lib/screens/soco_import_page.dart"
+      - "admin_app/lib/screens/fixture_import_page.dart"
+      - "supabase/functions/source-match-list/index.ts"
+      - "supabase/functions/soco-links/index.ts"
   schedule:
     # GitHub scheduled workflows have a practical 5-minute minimum. Offset
     # the run from the busiest :00/:05 boundaries to reduce delayed/dropped
