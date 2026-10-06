@@ -190,6 +190,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             'schedule_id': m['schedule_id'] ?? m['source_id'],
             'source_id': m['source_id'],
             'page_url': anchor['page_url'] ?? m['page_url'],
+            'anchor_name':
+                anchor['nick_name'] ?? anchor['name'] ?? anchor['room_num'],
           }),
         )
         .timeout(const Duration(seconds: 12));
@@ -249,7 +251,27 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       if (t == 'flv') return 4;
       return 5;
     }
-    out.sort((a, b) => rank(a).compareTo(rank(b)));
+    int healthRank(Map<String, dynamic> x) {
+      return switch ((x['health_status'] ?? 'unknown')
+          .toString()
+          .toLowerCase()) {
+        'healthy' => 0,
+        'unknown' => 1,
+        'slow' => 2,
+        'failed' => 3,
+        _ => 2,
+      };
+    }
+
+    out.sort((a, b) {
+      final health = healthRank(a).compareTo(healthRank(b));
+      if (health != 0) return health;
+      final format = rank(a).compareTo(rank(b));
+      if (format != 0) return format;
+      final ap = (a['priority'] as num?)?.toInt() ?? 100;
+      final bp = (b['priority'] as num?)?.toInt() ?? 100;
+      return ap.compareTo(bp);
+    });
     return out;
   }
 
