@@ -732,9 +732,11 @@
       fullscreenButton.textContent=document.fullscreenElement?'Exit':'Fullscreen';
       if(overlay.classList.contains('open')) revealControls();
     });
-    screen.orientation?.addEventListener?.('change',()=>{
-      if(overlay.classList.contains('open')) revealControls();
-    });
+    if(typeof screen!=='undefined' && screen.orientation){
+      screen.orientation.addEventListener?.('change',()=>{
+        if(overlay.classList.contains('open')) revealControls();
+      });
+    }
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&overlay.classList.contains('open')&&!document.fullscreenElement)closeButton.click()});
     video.addEventListener('waiting',()=>{
       if(!overlay.classList.contains('open'))return;
