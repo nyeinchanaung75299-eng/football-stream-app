@@ -116,6 +116,14 @@ function createHarness({ ios = true, streaming = true, nativeHls = true, plans =
   document.createElement = () => new Element();
   document.head = new Element('head');
   document.fullscreenElement = null;
+  document.exitFullscreen = async () => {
+    document.fullscreenElement = null;
+    document.emit('fullscreenchange');
+  };
+  overlay.requestFullscreen = async () => {
+    document.fullscreenElement = overlay;
+    document.emit('fullscreenchange');
+  };
   const window = { crypto: { subtle: {} }, posthog: { capture(name, properties) { events.push({ name, properties }); } } };
   if (!engineLoads) window.shaka = shaka;
   if (streaming) window.ManagedMediaSource = class {};
@@ -137,7 +145,7 @@ function createHarness({ ios = true, streaming = true, nativeHls = true, plans =
   vm.runInContext(playerScript, context, { filename: htmlPath });
 
   return {
-    video, overlay, message, elements, events, loads, plays, players, logs, scripts,
+    video, overlay, message, elements, events, loads, plays, players, logs, scripts, document,
     async open(sources, index = 0, match = 'test-match') {
       await window.openFootballPlayer(JSON.stringify(sources), index, 'Test match', match);
       await flush();
@@ -202,6 +210,30 @@ test('modern iOS attempts keyed DASH instead of rejecting it up front', async ()
   assert.equal(h.loads.length, 1);
   assert.equal(h.loads[0].url, dash.url);
   assert.deepEqual(h.plays, [dash.url]);
+});
+
+test('recoverable Shaka errors keep the active line playing', async () => {
+  const dash = source('dash'), backup = source('hls', 'backup');
+  const h = createHarness();
+  await h.open([dash, backup]);
+  const onError = h.players[0].listeners.get('error');
+  assert.ok(onError);
+  onError({ detail: { severity: 1, handled: true, category: 1, code: 1001 } });
+  await flush();
+  assert.equal(failures(h).length, 0);
+  assert.equal(h.video.paused, false);
+  assert.deepEqual(h.plays, [dash.url]);
+});
+
+test('Back exits overlay fullscreen before hiding the player', async () => {
+  const h = createHarness();
+  await h.open([source('hls')]);
+  h.elements.get('football-player-fullscreen').click();
+  await flush();
+  assert.equal(h.document.fullscreenElement, h.overlay);
+  await h.close();
+  assert.equal(h.document.fullscreenElement, null);
+  assert.equal(h.overlay.classList.contains('open'), false);
 });
 
 test('Android Chromium uses Shaka for live HLS even when canPlayType claims native HLS', async () => {
