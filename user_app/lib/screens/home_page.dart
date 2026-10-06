@@ -46,7 +46,7 @@ class _HomePageState extends State<HomePage> {
   late Future<List<Map<String, dynamic>>> _future;
   RealtimeChannel? _channel;
   Timer? _debounce;
-  Timer? _scoreRefresh;
+  Timer? _feedRefresh;
   late Future<String> _versionLabel;
   late Future<String> _updateVersionLabel;
   final Map<String, _StreamCacheEntry> _streamLinkCache = {};
@@ -181,10 +181,8 @@ class _HomePageState extends State<HomePage> {
           .subscribe();
     }
 
-    // Keep scores moving even on networks where Supabase Realtime is blocked.
-    // The public Cloudflare feed is cached briefly, so a 60s silent refresh
-    // gives the UI fresh server-side scores without user interaction.
-    _scoreRefresh = Timer.periodic(const Duration(seconds: 60), (_) {
+    // Keep match/stream metadata fresh even where Realtime is blocked.
+    _feedRefresh = Timer.periodic(const Duration(seconds: 60), (_) {
       if (mounted) refresh(silent: true);
     });
   }
@@ -195,10 +193,10 @@ class _HomePageState extends State<HomePage> {
       final version = info.version.trim().isEmpty ? '9.8.0' : info.version.trim();
       final build = info.buildNumber.trim();
       return build.isEmpty
-          ? 'V$version • Auto live scores'
-          : 'V$version • build $build • Auto live scores';
+          ? 'V$version • Live streams'
+          : 'V$version • build $build • Live streams';
     } catch (_) {
-      return 'V9.8 • Auto live scores';
+      return 'V9.8 • Live streams';
     }
   }
 
@@ -257,28 +255,15 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _visibleMatches(
     List<Map<String, dynamic>> rows,
   ) {
-    const finishedStatuses = {'FT', 'AET', 'PEN'};
-    const grace = Duration(minutes: 8);
     final now = DateTime.now();
     const staleKickoffGrace = Duration(hours: 5);
 
     return rows.where((row) {
-      final status =
-          (row['status_short'] ?? '').toString().trim().toUpperCase();
-      final finished =
-          row['is_finished'] == true || finishedStatuses.contains(status);
-
-      // When the score provider is unavailable, an old NS row can otherwise
-      // stay visible forever in a fallback feed. Keep explicitly-live rows,
-      // but hide non-live matches five hours after their scheduled kickoff.
       final kickoff = DateTime.tryParse(
         row['kickoff_at']?.toString() ?? '',
       )?.toLocal();
       final streamCount = (row['stream_count'] as num?)?.toInt() ?? 0;
 
-      // Hide stale "NOT READY" cards quickly when kickoff has already passed
-      // and there is still no playable stream. Matches with a stream stay
-      // visible for the normal match-duration grace window.
       if (row['is_live'] != true &&
           kickoff != null &&
           streamCount <= 0 &&
@@ -292,19 +277,7 @@ class _HomePageState extends State<HomePage> {
         return false;
       }
 
-      if (!finished) return true;
-
-      final detectedText =
-          row['last_score_sync_at']?.toString() ??
-          row['updated_at']?.toString();
-      final detectedAt = detectedText == null
-          ? null
-          : DateTime.tryParse(detectedText)?.toLocal();
-
-      // If an older fallback feed has no finish timestamp, keep it until the
-      // server-side cleanup removes it rather than hiding it too early.
-      if (detectedAt == null) return true;
-      return now.difference(detectedAt) < grace;
+      return true;
     }).toList();
   }
 
@@ -717,9 +690,7 @@ class _HomePageState extends State<HomePage> {
           .from('matches')
           .select('''
             id,league,home_team,away_team,home_logo_url,away_logo_url,
-            kickoff_at,is_live,sort_order,home_score,away_score,status_short,
-            status_elapsed,is_finished,is_featured,publish_state,
-            last_score_sync_at,updated_at
+            kickoff_at,is_live,sort_order,is_featured,publish_state,updated_at
           ''')
           .eq('is_active', true)
           .eq('publish_state', 'published')
@@ -1452,7 +1423,7 @@ class _HomePageState extends State<HomePage> {
                         FutureBuilder<String>(
                           future: _versionLabel,
                           builder: (context, snapshot) => Text(
-                            snapshot.data ?? 'V9.8 • Auto live scores',
+                            snapshot.data ?? 'V9.8 • Live streams',
                             style: const TextStyle(fontSize: 12.5),
                           ),
                         ),
@@ -1520,7 +1491,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _debounce?.cancel();
-    _scoreRefresh?.cancel();
+    _feedRefresh?.cancel();
     final c = _channel;
     final supabase = _supabaseClientOrNull();
     if (c != null && supabase != null) supabase.removeChannel(c);
@@ -1693,14 +1664,6 @@ class _MatchCard extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final kickoff = DateTime.parse(match['kickoff_at']).toLocal();
     final live = match['is_live'] == true;
-    final finished = match['is_finished'] == true;
-    final rawHomeScore = (match['home_score'] as num?)?.toInt();
-    final rawAwayScore = (match['away_score'] as num?)?.toInt();
-    final homeScore = rawHomeScore ?? 0;
-    final awayScore = rawAwayScore ?? 0;
-    final elapsed = (match['status_elapsed'] as num?)?.toInt();
-    final hasStoredScore = rawHomeScore != null && rawAwayScore != null;
-    final showScore = live || finished || hasStoredScore;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -1735,12 +1698,10 @@ class _MatchCard extends StatelessWidget {
                   ),
                 ),
                 if (live)
-                  _Pill(
-                    text: elapsed == null ? 'LIVE' : "LIVE  $elapsed'",
+                  const _Pill(
+                    text: 'LIVE',
                     color: Colors.redAccent,
                   )
-                else if (finished)
-                  const _Pill(text: 'FT', color: Colors.blueGrey)
                 else
                   _Pill(
                     text: DateFormat('HH:mm').format(kickoff),
@@ -1760,48 +1721,26 @@ class _MatchCard extends StatelessWidget {
                 SizedBox(
                   width: 78,
                   child: Center(
-                    child: showScore
-                        ? Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 7,
-                            ),
-                            decoration: BoxDecoration(
-                              color: live
-                                  ? Colors.redAccent.withValues(alpha: .08)
-                                  : colors.surfaceContainerHighest
-                                      .withValues(alpha: .55),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              '$homeScore - $awayScore',
-                              style: const TextStyle(
-                                fontSize: 23,
-                                fontWeight: FontWeight.w900,
-                                height: 1,
-                              ),
-                            ),
-                          )
-                        : Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'VS',
-                                style: TextStyle(
-                                  color: colors.onSurfaceVariant,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                DateFormat('dd MMM').format(kickoff),
-                                style: TextStyle(
-                                  color: colors.onSurfaceVariant,
-                                  fontSize: 10.5,
-                                ),
-                              ),
-                            ],
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'VS',
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
+                            fontWeight: FontWeight.w900,
                           ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          DateFormat('dd MMM').format(kickoff),
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
+                            fontSize: 10.5,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 Expanded(
