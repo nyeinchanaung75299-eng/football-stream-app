@@ -28,40 +28,48 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization") ?? "";
-    if (!authHeader.startsWith("Bearer ")) {
-      return json({ error: "Not signed in." }, 401);
-    }
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: {
-        headers: { Authorization: authHeader },
-      },
-    });
-
-    const {
-      data: { user },
-      error: userError,
-    } = await userClient.auth.getUser();
-
-    if (userError || !user) {
-      return json({ error: "Invalid session." }, 401);
-    }
-
-    const { data: profile } = await userClient
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
-    if (profile?.role !== "admin") {
-      return json({ error: "Admin access required." }, 403);
-    }
-
     const body = await req.json().catch(() => ({}));
+    const viewerPublic = body.viewer_public === true;
+
+    // Admin continues to require a verified admin session. The Viewer may use
+    // this function only in explicit read-only source-browser mode; this
+    // function fetches public provider match/stream metadata and never writes
+    // application data.
+    if (!viewerPublic) {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader.startsWith("Bearer ")) {
+        return json({ error: "Not signed in." }, 401);
+      }
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: {
+          headers: { Authorization: authHeader },
+        },
+      });
+
+      const {
+        data: { user },
+        error: userError,
+      } = await userClient.auth.getUser();
+
+      if (userError || !user) {
+        return json({ error: "Invalid session." }, 401);
+      }
+
+      const { data: profile } = await userClient
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
+
+      if (profile?.role !== "admin") {
+        return json({ error: "Admin access required." }, 403);
+      }
+    }
+
     const source = normalizeSource(body.source);
     const action = body.action === "streams" ? "streams" : "matches";
 
