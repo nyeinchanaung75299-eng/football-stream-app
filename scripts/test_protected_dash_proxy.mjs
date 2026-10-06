@@ -213,6 +213,56 @@ await assert.rejects(
   'protected DASH base routes must not allow path escape',
 );
 
+const hierarchicalMpd = `<MPD>
+  <BaseURL>https://cdn.example/sport/</BaseURL>
+  <Period>
+    <AdaptationSet>
+      <BaseURL>season/</BaseURL>
+      <Representation>
+        <BaseURL>video/</BaseURL>
+        <SegmentTemplate media="chunk-$Number$.m4s" initialization="init.mp4" />
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>`;
+
+const hierarchicalRewritten = await rewriteDashManifest(
+  hierarchicalMpd,
+  'https://origin.example/live/main.mpd',
+  sessionToken,
+  session.k,
+  'https://football-api.example',
+);
+assert.ok(
+  hierarchicalRewritten.includes('<BaseURL>season/</BaseURL>') &&
+    hierarchicalRewritten.includes('<BaseURL>video/</BaseURL>'),
+  'nested relative BaseURL values must stay relative to the protected parent',
+);
+assert.ok(
+  !hierarchicalRewritten.includes('origin.example/live/season') &&
+    !hierarchicalRewritten.includes('origin.example/live/video'),
+  'nested relative BaseURL values must not be flattened against the manifest URL',
+);
+
+const rootRelativeMpd = `<MPD><Period><AdaptationSet><Representation>
+  <SegmentTemplate
+    initialization="/assets/init.mp4"
+    media="/assets/chunk-$Number$.m4s" />
+</Representation></AdaptationSet></Period></MPD>`;
+const rootRelativeRewritten = await rewriteDashManifest(
+  rootRelativeMpd,
+  'https://origin.example/live/main.mpd',
+  sessionToken,
+  session.k,
+  'https://football-api.example',
+);
+assert.ok(
+  !rootRelativeRewritten.includes('initialization="/assets/') &&
+    !rootRelativeRewritten.includes('media="/assets/'),
+  'root-relative DASH references must stay inside the protected playback route',
+);
+assert.match(rootRelativeRewritten, /https:\/\/football-api\.example\/p\//);
+
 const hls = await rewriteHlsPlaylist(
   '#EXTM3U\nsegment-1.ts\n',
   'https://media.example/live/master.m3u8',
@@ -251,8 +301,10 @@ console.log('PASS relative DASH SegmentTemplate uses protected base routing');
 console.log('PASS nested-only BaseURL manifests receive a protected root base');
 console.log('PASS absolute DASH templates preserve substitution tokens');
 console.log('PASS protected DASH base cannot escape its upstream path');
+console.log('PASS nested DASH BaseURL hierarchy stays protected');
+console.log('PASS root-relative DASH references stay protected');
 console.log('PASS existing HLS rewrite remains protected');
 console.log('PASS Fawa raw IP origins are routed through DNS aliases');
 console.log('PASS normal upstream hostnames are not rewritten');
 console.log('PASS Fawa sessions use a browser-compatible upstream profile');
-console.log('11 protected playback regression checks passed.');
+console.log('13 protected playback regression checks passed.');
