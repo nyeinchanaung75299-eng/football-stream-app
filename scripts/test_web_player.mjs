@@ -189,6 +189,20 @@ test('modern iOS preserves the chosen DASH line and supplies MPD MIME to Shaka',
   }
 });
 
+test('iOS keyed DASH immediately falls back to HLS backup', async () => {
+  const dash = {
+    ...source('dash', 'clearkey'),
+    keyId: '00112233445566778899aabbccddeeff',
+    keyData: 'ffeeddccbbaa99887766554433221100',
+  };
+  const hls = source('hls', 'backup');
+  const h = createHarness();
+  await h.open([dash, hls]);
+  assert.equal(failures(h)[0].properties.reason, 'unsupported_browser');
+  await h.tick(1000);
+  assert.deepEqual(h.plays, [hls.url]);
+});
+
 test('Android Chromium uses Shaka for live HLS even when canPlayType claims native HLS', async () => {
   const line = source('hls'), h = createHarness({ nativeHls: true, ios: false });
   await h.open([line]);
@@ -243,17 +257,36 @@ test('startup stalls fall back to HLS and ignore a late old load completion', as
   assert.deepEqual(h.plays, [hls.url], 'Stale load must not play the old source');
 });
 
-test('started playback can recover from a later stall, while user pause does not fail a line', async () => {
+test('iOS native HLS retries the same line before falling back, while user pause stays safe', async () => {
   const primary = source('hls', 'primary'), backup = source('hls', 'backup');
   const h = createHarness();
   await h.open([primary, backup]);
-  h.video.emit('waiting'); h.video.emit('stalled');
-  await h.tick(17000);
+
+  h.video.emit('waiting');
+  await h.tick(11000);
+  assert.deepEqual(h.plays, [primary.url, primary.url]);
+  assert.equal(failures(h).length, 0);
+
+  h.video.emit('waiting');
+  await h.tick(11000);
+  assert.deepEqual(h.plays, [primary.url, primary.url, primary.url]);
+  assert.equal(failures(h).length, 0);
+
+  h.video.emit('waiting');
+  await h.tick(11000);
   assert.equal(failures(h)[0].properties.reason, 'stall_timeout');
-  assert.deepEqual(h.plays, [primary.url, backup.url]);
+  await h.tick(1000);
+  assert.deepEqual(h.plays, [
+    primary.url,
+    primary.url,
+    primary.url,
+    backup.url,
+  ]);
+
   const paused = createHarness();
   await paused.open([primary, backup]);
-  paused.video.emit('waiting'); paused.video.pause();
+  paused.video.emit('waiting');
+  paused.video.pause();
   await paused.tick(30000);
   assert.equal(failures(paused).length, 0);
   assert.deepEqual(paused.plays, [primary.url]);
