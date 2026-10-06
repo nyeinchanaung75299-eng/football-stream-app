@@ -50,6 +50,15 @@ jobs:
             echo "No Viewer tests found; analyze gate passed."
           fi
 
+      - name: Vendor Shaka Player for Web DASH
+        working-directory: user_app
+        run: |
+          mkdir -p web/vendor
+          curl --fail --location --retry 3 \
+            "https://ajax.googleapis.com/ajax/libs/shaka-player/5.2.12/shaka-player.compiled.js" \
+            -o web/vendor/shaka-player.compiled.js
+          test -s web/vendor/shaka-player.compiled.js
+
       - name: Build Viewer Web
         working-directory: user_app
         run: |
