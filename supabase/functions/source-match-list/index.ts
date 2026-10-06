@@ -144,7 +144,9 @@ async function jsonpMatches(args: {
           .map((anchor: any, index: number) => ({
             uid: anchor.uid ?? anchor.id ?? null,
             nick_name:
-              friendlyText(anchor.nickName ?? anchor.name ?? "") ||
+              decodeHtml(
+                stripTags(String(anchor.nickName ?? anchor.name ?? "")),
+              ).replace(/\s+/g, " ").trim() ||
               `Streamer ${index + 1}`,
             room_num: roomNumber(anchor),
           }))
