@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -35,15 +36,28 @@ Future<void> downloadAndInstallApk(
     final total = response.contentLength ?? 0;
     var received = 0;
 
-    await for (final chunk in response.stream) {
-      sink.add(chunk);
-      received += chunk.length;
-      if (total > 0) {
-        onProgress?.call(received / total);
+    try {
+      // Client.send().timeout only covers the response headers. Also enforce
+      // an idle timeout while receiving the body so a stalled download cannot
+      // leave the update dialog spinning forever.
+      await for (final chunk in response.stream.timeout(
+        const Duration(seconds: 20),
+      )) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (total > 0) {
+          onProgress?.call(received / total);
+        }
       }
+      await sink.flush();
+    } on TimeoutException {
+      throw TimeoutException(
+        'APK download stalled for more than 20 seconds.',
+      );
+    } finally {
+      await sink.close();
     }
-    await sink.flush();
-    await sink.close();
+
     onProgress?.call(1);
 
     final expected = expectedSha256.trim().toLowerCase();
