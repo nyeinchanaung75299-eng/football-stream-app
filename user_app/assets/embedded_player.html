@@ -250,13 +250,19 @@
       const token=playbackToken, index=currentSourceIndex;
       if(!isCurrentPlayback(token) || playbackStartedToken!==token ||
           awaitingPlayToken===token || stallTimer!==null || video.paused)return;
+      const currentType=sourceType(sources[index]||{});
+      const watchdogMs=isIOS() && currentType==='dash'
+        ? 25000
+        : isIOS()
+          ? 12000
+          : stallTimeoutMs;
       stallTimer=setTimeout(()=>{
         stallTimer=null;
         if(isCurrentPlayback(token) && !video.paused){
           if(retryIOSSource(index,token))return;
           fallbackToNextLine(index,'This line stopped responding',token,'stall_timeout');
         }
-      },isIOS()?10000:stallTimeoutMs);
+      },watchdogMs);
     }
 
     function safeErrorDetails(error){
@@ -651,28 +657,51 @@
           shakaPlayer=player;
           await player.attach(video);
           if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
-          player.configure({
+          const iosDash=isIOS() && type==='dash';
+          const shakaConfig={
             manifest:{
               retryParameters:{
-                maxAttempts:5,
-                baseDelay:300,
+                maxAttempts:iosDash?7:5,
+                baseDelay:iosDash?450:300,
                 backoffFactor:1.5,
                 fuzzFactor:.2,
-                timeout:8000
+                timeout:iosDash?12000:8000
+              },
+              dash:{
+                autoCorrectDrift:true
               }
             },
             streaming:{
-              rebufferingGoal:2,
-              bufferingGoal:12,
+              rebufferingGoal:iosDash?8:2,
+              bufferingGoal:iosDash?36:12,
+              bufferBehind:iosDash?30:10,
+              segmentPrefetchLimit:iosDash?3:1,
+              updateIntervalSeconds:iosDash?2:1,
+              safeSeekEndOffset:iosDash?5:0,
+              stallEnabled:true,
+              stallThreshold:iosDash?3:1,
+              stallSkip:.1,
+              allowMediaSourceRecoveries:true,
+              minTimeBetweenRecoveries:iosDash?3:5,
               retryParameters:{
-                maxAttempts:5,
-                baseDelay:300,
+                maxAttempts:iosDash?7:5,
+                baseDelay:iosDash?450:300,
                 backoffFactor:1.5,
                 fuzzFactor:.2,
-                timeout:8000
+                timeout:iosDash?12000:8000
               }
             }
-          });
+          };
+          if(iosDash){
+            shakaConfig.abr={
+              enabled:true,
+              useNetworkInformation:false,
+              defaultBandwidthEstimate:700000,
+              switchInterval:10,
+              restrictions:{maxHeight:720}
+            };
+          }
+          player.configure(shakaConfig);
           const rawKeyId=String(source.keyId||source.key_id||'').trim();
           const rawKeyData=String(source.keyData||source.key_data||'').trim();
           const keyId=rawKeyId.replace(/[^0-9a-f]/gi,'').toLowerCase();
@@ -684,10 +713,7 @@
             const clearKeys={};clearKeys[keyId]=keyData;
             const drmConfig={clearKeys};
             if(!isIOS()) drmConfig.preferredKeySystems=['org.w3.clearkey'];
-            player.configure({
-              drm:drmConfig,
-              manifest:{dash:{autoCorrectDrift:true}}
-            });
+            player.configure({drm:drmConfig});
           }
           player.addEventListener('error',event=>{
             const detail=event&&event.detail?event.detail:{};
