@@ -570,12 +570,6 @@
       return 'auto';
     }
 
-    function browserHeaderWarning(source){
-      return (source.referer||source.origin)
-        ? 'This line requires Referer/Origin. Chrome may block it unless the stream server allows browser CORS/referrer access.'
-        : '';
-    }
-
     function updateServerButton(index){
       const source=sources[index]||{};
       serverButton.textContent=String(
@@ -709,9 +703,9 @@
             shakaConfig.abr={
               enabled:true,
               useNetworkInformation:false,
-              defaultBandwidthEstimate:700000,
-              switchInterval:10,
-              restrictions:{maxHeight:720}
+              defaultBandwidthEstimate:450000,
+              switchInterval:15,
+              restrictions:{maxHeight:576}
             };
           }
           player.configure(shakaConfig);
