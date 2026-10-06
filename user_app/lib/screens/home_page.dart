@@ -430,43 +430,20 @@ class _HomePageState extends State<HomePage> {
 
   Future<List<Map<String, dynamic>>> _loadPublicApiStreams(
     String matchId,
-  ) async {
-    // The same Worker is reachable through multiple hostnames, but a phone
-    // network, DNS path or edge/cache path can make one alias fail or lag.
-    // Merge successful responses so one partial path cannot hide newer lines.
-    final results = await Future.wait(
-      _publicApiBases.map((base) async {
-        try {
-          return await _loadPublicApiStreamsFrom(base, matchId);
-        } catch (_) {
-          return const <Map<String, dynamic>>[];
-        }
-      }),
-      eagerError: false,
+  ) {
+    // All aliases point at the same authoritative Worker. Do not wait for
+    // every alias before opening the chooser: one slow/blocked hostname used
+    // to make the stale GitHub mirror win first and show only part of the
+    // configured lines. Hedge the aliases and use the first complete
+    // successful response instead.
+    return _hedged(
+      _publicApiBases
+          .map<Future<List<Map<String, dynamic>>> Function()>(
+            (base) => () => _loadPublicApiStreamsFrom(base, matchId),
+          )
+          .toList(),
+      delay: const Duration(milliseconds: 250),
     );
-
-    final seen = <String>{};
-    final merged = <Map<String, dynamic>>[];
-
-    String keyOf(Map<String, dynamic> row) {
-      final id = row['id']?.toString().trim() ?? '';
-      if (id.isNotEmpty) return 'id:$id';
-      final url = row['stream_url']?.toString().trim() ?? '';
-      return 'url:$url';
-    }
-
-    for (final rows in results) {
-      for (final row in rows) {
-        final key = keyOf(row);
-        if (key == 'url:' || !seen.add(key)) continue;
-        merged.add(row);
-      }
-    }
-
-    if (merged.isEmpty) {
-      throw const FormatException('No stream lines returned.');
-    }
-    return merged;
   }
 
   Future<List<Map<String, dynamic>>> _resolveLinks(
@@ -537,17 +514,17 @@ class _HomePageState extends State<HomePage> {
         final mirrorLooksIncomplete =
             advertisedCount > 0 && mirrorRows.length < advertisedCount;
 
-        // If the match advertises more lines than the mirror currently has,
-        // wait long enough for all protected API aliases to answer. This
-        // prevents a stale 4-line Fawa snapshot from winning over the complete
-        // Soco + MPD authoritative set.
+        // Always give the authoritative protected API a short chance to
+        // answer, even when the mirror's advertised count looks "complete".
+        // The mirror can lag behind newly-added Admin lines (for example 4
+        // mirrored lines while the database already has 7).
         final first = await Future.any<List<Map<String, dynamic>>>([
           protectedFuture,
           Future<List<Map<String, dynamic>>>.delayed(
             Duration(
               milliseconds: kIsWeb
-                  ? (mirrorLooksIncomplete ? 5200 : 3000)
-                  : (mirrorLooksIncomplete ? 4800 : 2200),
+                  ? (mirrorLooksIncomplete ? 4200 : 3200)
+                  : (mirrorLooksIncomplete ? 3800 : 3000),
             ),
             () => const <Map<String, dynamic>>[],
           ),
