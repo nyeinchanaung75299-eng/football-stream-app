@@ -1037,24 +1037,12 @@ async function rewriteDashManifest(
   let rewritten = text;
   const hadRootBaseUrl = hasRootDashBaseUrl(text);
 
-  rewritten = await replaceAsync(
+  rewritten = await rewriteDashBaseUrls(
     rewritten,
-    /<BaseURL(\b[^>]*)>([\s\S]*?)<\/BaseURL>/gi,
-    async (match, attributes, rawValue) => {
-      const value = decodeXmlText(stripXmlText(rawValue));
-      if (!value || value.startsWith("#") || /^urn:/i.test(value)) {
-        return match;
-      }
-      const protectedValue = await protectDashBaseReference(
-        value,
-        manifestUrl,
-        sessionToken,
-        sessionKey,
-        origin,
-      );
-      return "<BaseURL" + (attributes || "") + ">" +
-        escapeXmlText(protectedValue) + "</BaseURL>";
-    },
+    manifestUrl,
+    sessionToken,
+    sessionKey,
+    origin,
   );
 
   // A manifest can have BaseURL only inside one Representation/AdaptationSet.
@@ -1082,7 +1070,7 @@ async function rewriteDashManifest(
     /\b(media|initialization|sourceURL|index|href|xlink:href|value)\s*=\s*(["'])([^"']+)\2/gi,
     async (match, name, quote, rawValue) => {
       const value = decodeXmlText(rawValue.trim());
-      if (!isAbsoluteHttpReference(value)) return match;
+      if (!isDashExternalReference(value)) return match;
       const protectedValue = await protectDashReference(
         value,
         manifestUrl,
@@ -1115,6 +1103,68 @@ async function rewriteDashManifest(
   );
 
   return rewritten;
+}
+
+async function rewriteDashBaseUrls(
+  text,
+  manifestUrl,
+  sessionToken,
+  sessionKey,
+  publicOrigin,
+) {
+  const source = String(text || "");
+  const root = /<MPD\b[^>]*>/i.exec(source);
+  const rootEnd = root ? (root.index || 0) + root[0].length : -1;
+  const afterRoot = rootEnd >= 0 ? source.slice(rootEnd) : "";
+  const firstPeriod = /<Period\b/i.exec(afterRoot);
+  const firstPeriodIndex = firstPeriod
+    ? rootEnd + firstPeriod.index
+    : source.length;
+
+  const regex = /<BaseURL(\b[^>]*)>([\s\S]*?)<\/BaseURL>/gi;
+  let result = "";
+  let cursor = 0;
+  let match;
+
+  while ((match = regex.exec(source)) !== null) {
+    result += source.slice(cursor, match.index);
+    const attributes = match[1] || "";
+    const rawValue = match[2];
+    const value = decodeXmlText(stripXmlText(rawValue));
+    const isRootLevel =
+      rootEnd >= 0 &&
+      match.index >= rootEnd &&
+      match.index < firstPeriodIndex;
+
+    if (!value || value.startsWith("#") || /^urn:/i.test(value)) {
+      result += match[0];
+    } else if (
+      isRootLevel ||
+      isDashExternalReference(value)
+    ) {
+      const protectedValue = await protectDashBaseReference(
+        value,
+        manifestUrl,
+        sessionToken,
+        sessionKey,
+        publicOrigin,
+      );
+      result += "<BaseURL" + attributes + ">" +
+        escapeXmlText(protectedValue) + "</BaseURL>";
+    } else {
+      // Nested relative BaseURL values must stay relative to their protected
+      // parent. Resolving each one against manifestUrl discards hierarchy.
+      result += match[0];
+    }
+
+    cursor = match.index + match[0].length;
+  }
+
+  return result + source.slice(cursor);
+}
+
+function isDashExternalReference(value) {
+  return isAbsoluteHttpReference(value) || /^\//.test(String(value || ""));
 }
 
 async function protectDashBaseReference(
