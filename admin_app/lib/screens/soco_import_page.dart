@@ -7,9 +7,14 @@ import '../analytics_service.dart';
 import '../services/function_gateway.dart';
 
 class SocoImportPage extends StatefulWidget {
-  const SocoImportPage({super.key, this.initialMatchId});
+  const SocoImportPage({
+    super.key,
+    this.initialMatchId,
+    this.initialSource = 'soco',
+  });
 
   final String? initialMatchId;
+  final String initialSource;
 
   @override
   State<SocoImportPage> createState() => _SocoImportPageState();
@@ -28,6 +33,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
   void initState() {
     super.initState();
     targetMatchId = widget.initialMatchId;
+    final requested = widget.initialSource.trim().toLowerCase();
+    source = const {'soco', 'yyzb', 'fawa', 'cola'}.contains(requested)
+        ? requested
+        : 'soco';
+    dayFilter =
+        (source == 'fawa' || source == 'cola') ? 'all' : 'today';
     _loadSoco();
   }
 
