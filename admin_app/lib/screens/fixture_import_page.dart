@@ -225,7 +225,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Pick a Soco / YYZB / Fawa source now, or add a stream manually.',
+                  'Pick a Soco / YYZB / Fawa / ColaTV source now, or add a stream manually.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 18),
@@ -234,7 +234,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                   child: FilledButton.icon(
                     onPressed: () => Navigator.pop(sheetContext, 'source'),
                     icon: const Icon(Icons.podcasts_rounded),
-                    label: const Text('PICK SOCO / YYZB / FAWA'),
+                    label: const Text('PICK SOCO / YYZB / FAWA / COLATV'),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -283,7 +283,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${chosen.length} matches published. Open Soco / YYZB / Fawa Links or Stream Servers to add links.',
+              '${chosen.length} matches published. Open Soco / YYZB / Fawa / ColaTV Links or Stream Servers to add links.',
             ),
           ),
         );
