@@ -30,6 +30,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   bool checkingAll = false;
   final Set<String> checkingLinks = <String>{};
   bool testingHealth = false;
+  late Future<List<Map<String, dynamic>>> _matchesFuture;
+  Future<List<Map<String, dynamic>>>? _linksFuture;
 
   final streamTypes = const <String, String>{
     'auto': 'Auto / Direct',
@@ -43,6 +45,27 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   void initState() {
     super.initState();
     matchId = widget.initialMatchId;
+    _matchesFuture = loadMatches();
+    if (matchId != null) {
+      _linksFuture = loadLinks();
+    }
+  }
+
+  void reloadMatches() {
+    if (!mounted) return;
+    setState(() => _matchesFuture = loadMatches());
+  }
+
+  void reloadLinks() {
+    if (!mounted || matchId == null) return;
+    setState(() => _linksFuture = loadLinks());
+  }
+
+  void selectMatch(String? value) {
+    setState(() {
+      matchId = value;
+      _linksFuture = value == null ? null : loadLinks();
+    });
   }
 
   String? nullable(String value) {
@@ -204,7 +227,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       webViewUrl.clear();
       streamType = 'auto';
       useWebView = false;
-      setState(() {});
+      reloadLinks();
     } catch (e) {
       await AnalyticsService.capture(
         'stream add failed',
@@ -265,7 +288,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         message('Health check finished.');
       }
 
-      setState(() {});
+      reloadLinks();
     } catch (e) {
       await AnalyticsService.capture(
         'stream health check failed',
@@ -313,7 +336,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
       if (mounted) {
         message('Server deleted.');
-        setState(() {});
+        reloadLinks();
       }
     } catch (e) {
       await AnalyticsService.capture('stream delete failed');
@@ -332,7 +355,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       properties: {'is_active': value},
     );
 
-    if (mounted) setState(() {});
+    reloadLinks();
   }
 
   Future<void> checkHealth(String id, {bool quiet = false}) async {
@@ -355,6 +378,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       );
 
       if (!quiet && mounted) {
+        reloadLinks();
         if (data is Map) {
           final status = data['health_status'] ?? 'unknown';
           final latency = data['latency_ms'];
@@ -392,7 +416,10 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         'stream health batch completed',
         properties: {'link_count': activeRows.length},
       );
-      if (mounted) message('Health check finished.');
+      if (mounted) {
+        reloadLinks();
+        message('Health check finished.');
+      }
     } finally {
       if (mounted) setState(() => checkingAll = false);
     }
@@ -630,7 +657,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
       if (mounted) {
         message('Server updated.');
-        setState(() {});
+        reloadLinks();
       }
     } catch (e) {
       await AnalyticsService.capture('stream update failed');
@@ -850,7 +877,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('Live Links')),
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: loadMatches(),
+        future: _matchesFuture,
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
@@ -900,7 +927,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                               },
                             )
                             .toList(),
-                        onChanged: (v) => setState(() => matchId = v),
+                        onChanged: selectMatch,
                       ),
                       const SizedBox(height: 12),
                       SizedBox(
@@ -926,7 +953,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                                       ),
                                     ),
                                   );
-                                  if (mounted) setState(() {});
+                                  reloadLinks();
                                 },
                           icon: const Icon(Icons.podcasts_rounded),
                           label: const Text('PICK STREAM SOURCE'),
@@ -1098,14 +1125,19 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                     const SizedBox(width: 6),
                     IconButton(
                       tooltip: 'Refresh',
-                      onPressed: () => setState(() {}),
+                      onPressed: () {
+                        setState(() {
+                          _matchesFuture = loadMatches();
+                          _linksFuture = loadLinks();
+                        });
+                      },
                       icon: const Icon(Icons.refresh_rounded),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 FutureBuilder<List<Map<String, dynamic>>>(
-                  future: loadLinks(),
+                  future: _linksFuture ??= loadLinks(),
                   builder: (context, linkSnapshot) {
                     if (!linkSnapshot.hasData) {
                       return const Center(
