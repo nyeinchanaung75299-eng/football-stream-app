@@ -443,13 +443,18 @@ async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
       schedule_id: input?.schedule_id ?? null,
       page_url: input?.page_url ?? null,
       source_id: input?.source_id ?? null,
+      anchor_name: input?.anchor_name ?? null,
     });
 
     const rawLines = Array.isArray(payload?.lines) ? payload.lines : [];
+    const roomKey = String(input?.room_num || input?.source_id || "room");
+    const anchorName = String(input?.anchor_name || "").trim();
     const normalized = rawLines.map((line, index) => ({
       id: String(line?.id || source + ":" +
-        String(input?.schedule_id || input?.room_num || "match") + ":" + index),
-      label: line?.label || line?.resolution || ("Line " + (index + 1)),
+        String(input?.schedule_id || "match") + ":" + roomKey + ":" + index),
+      label: anchorName
+        ? anchorName + " • " + String(line?.label || line?.resolution || ("Line " + (index + 1)))
+        : line?.label || line?.resolution || ("Line " + (index + 1)),
       resolution: line?.resolution || "Auto",
       stream_type: line?.stream_type || "auto",
       stream_url: line?.url || line?.stream_url || "",
