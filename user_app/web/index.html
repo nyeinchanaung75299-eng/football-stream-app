@@ -730,6 +730,23 @@
           }
           player.addEventListener('error',event=>{
             const detail=event&&event.detail?event.detail:{};
+            const recoverable=
+              detail.handled===true ||
+              detail.severity===1 ||
+              (window.shaka &&
+               shaka.util &&
+               shaka.util.Error &&
+               shaka.util.Error.Severity &&
+               detail.severity===shaka.util.Error.Severity.RECOVERABLE);
+            if(recoverable){
+              capturePlayerEvent('playback buffering',{
+                selected_index:index,
+                line_count:sources.length,
+                stream_type:type
+              });
+              armStallWatchdog();
+              return;
+            }
             playbackFailure(detail,index,token);
           });
           const manifestMime=type==='dash'?'application/dash+xml':'application/vnd.apple.mpegurl';
@@ -763,6 +780,21 @@
       });
       ++playbackToken;cancelPlaybackTimers();awaitingPlayToken=-1;
       if(controlsTimer)clearTimeout(controlsTimer);
+      try{
+        if(video.webkitDisplayingFullscreen && video.webkitExitFullscreen){
+          video.webkitExitFullscreen();
+        }
+      }catch(_){}
+      try{
+        if(document.fullscreenElement && document.exitFullscreen){
+          await document.exitFullscreen();
+        }
+      }catch(_){}
+      if(typeof screen!=='undefined' &&
+          screen.orientation &&
+          typeof screen.orientation.unlock==='function'){
+        try{screen.orientation.unlock()}catch(_){}
+      }
       overlay.classList.remove('open');
       overlay.setAttribute('aria-hidden','true');
       await destroyPlayback();
