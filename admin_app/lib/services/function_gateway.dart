@@ -6,11 +6,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
 
 class FunctionGateway {
-  static const _alternateApiBase = String.fromEnvironment(
-    'ALT_API_BASE',
-    defaultValue: '',
-  );
-
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
     defaultValue: 'https://football-api.nyeinchanaung.us.ci',
