@@ -110,11 +110,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         'kickoff_at':
             (row['match_time'] ?? DateTime.now().toUtc().toIso8601String())
                 .toString(),
-        'home_score': null,
-        'away_score': null,
         'status_short': isLive ? 'LIVE' : 'NS',
-        'status_elapsed': null,
-        'is_finished': false,
         'is_live': isLive,
         'source_page_url': row['page_url'],
       });
@@ -285,11 +281,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                 'home_logo_url': f['home_logo'],
                 'away_logo_url': f['away_logo'],
                 'kickoff_at': f['kickoff_at'],
-                'home_score': f['home_score'],
-                'away_score': f['away_score'],
                 'status_short': f['status_short'] ?? 'NS',
-                'status_elapsed': f['status_elapsed'],
-                'is_finished': f['is_finished'] == true,
                 'is_live': f['is_live'] == true,
                 'is_active': true,
                 'is_featured': true,
