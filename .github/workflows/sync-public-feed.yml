@@ -49,8 +49,15 @@ jobs:
           set -u
           mkdir -p /tmp/source-feeds
           for source in soco yyzb fawa cola; do
-            url="https://football-public-api.nyeinchanaung75299-eng.workers.dev/sources/$source/matches?t=$(date +%s)"
-            if curl --fail --location --retry 2 --retry-delay 1               --connect-timeout 8 --max-time 35               -H "Accept: application/json"               "$url" -o "/tmp/source-feeds/$source.json.tmp"; then
+            stamp="$(date +%s)"
+            fetched=false
+            for url in               "https://football-public-api.nyeinchanaung75299-eng.workers.dev/sources/$source/matches?t=$stamp"               "https://football-api.nyeinchanaung.us.ci/sources/$source/matches?t=$stamp"               "https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links?viewer_public=1&action=matches&source=$source&t=$stamp"; do
+              if curl --fail --location --retry 1 --retry-delay 1 --connect-timeout 8 --max-time 35                 -H "Accept: application/json"                 "$url" -o "/tmp/source-feeds/$source.json.tmp"; then
+                fetched=true
+                break
+              fi
+            done
+            if [ "$fetched" = true ]; then
               SOURCE="$source" python3 - <<'PY'
           import json, os
           from pathlib import Path
