@@ -18,6 +18,11 @@ const LINK_FIELDS = [
   "expires_at", "health_status",
 ];
 
+const SOFT_RATE_LIMITS = new Map();
+const PLAYBACK_SESSION_AAD = new TextEncoder().encode(
+  "nca-playback-session-v1",
+);
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -63,7 +68,8 @@ export default {
         supabase_configured:
           Boolean(env.SUPABASE_URL?.trim()) &&
           Boolean(env.SUPABASE_PUBLISHABLE_KEY?.trim()),
-        protected_playback: Boolean(env.PLAYBACK_TOKENS),
+        protected_playback:
+          Boolean(env.PLAYBACK_BACKEND_SECRET?.trim()),
         admin_function_proxy: true,
         now: new Date().toISOString(),
       });
@@ -328,7 +334,7 @@ async function handleStreams(request, matchId, env, publicOrigin) {
   const base = env.SUPABASE_URL?.trim() || "";
   const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() || "";
   const backendSecret = env.PLAYBACK_BACKEND_SECRET?.trim() || "";
-  if (!base || !key || !backendSecret || !env.PLAYBACK_TOKENS) {
+  if (!base || !key || !backendSecret) {
     return json({ error: "Protected playback is not configured." }, 503, {
       "Cache-Control": "no-store, max-age=0",
     });
@@ -505,11 +511,12 @@ function advertisedLinkCount(raw) {
 }
 
 async function protectedClientLinks(raw, env, publicOrigin) {
-  if (!env.PLAYBACK_TOKENS) return [];
+  const backendSecret = env.PLAYBACK_BACKEND_SECRET?.trim() || "";
+  if (!backendSecret) return [];
+
   const links = Array.isArray(raw) ? raw : [];
   const now = Date.now();
   const nowSeconds = Math.floor(now / 1000);
-  const idleTtl = 30 * 60;
   const maxLifetime = 3 * 60 * 60;
   const output = [];
 
@@ -541,8 +548,6 @@ async function protectedClientLinks(raw, env, publicOrigin) {
       ? Math.max(60, Math.floor((expiresAt - now) / 1000))
       : maxLifetime;
     const maxTtl = Math.max(60, Math.min(maxLifetime, sourceTtl));
-    const ttl = Math.max(60, Math.min(idleTtl, maxTtl));
-    const sessionToken = randomToken();
     const sessionKey = crypto.getRandomValues(new Uint8Array(32));
     const session = {
       u: upstreamUrl,
@@ -550,15 +555,13 @@ async function protectedClientLinks(raw, env, publicOrigin) {
       o: String(link.origin || "").trim(),
       t: streamType,
       k: bytesToBase64Url(sessionKey),
-      e: nowSeconds + ttl,
-      x: nowSeconds + maxTtl,
+      e: nowSeconds + maxTtl,
     };
 
-    await env.PLAYBACK_TOKENS.put(
-      "s:" + sessionToken,
-      JSON.stringify(session),
-      { expirationTtl: ttl },
-    );
+    // Stateless encrypted session: every playback request can validate and
+    // decrypt the token locally, so HLS/DASH segment requests no longer read
+    // or write Workers KV.
+    const sessionToken = await encryptPlaybackSession(session, backendSecret);
 
     output.push({
       id: link.id,
@@ -568,9 +571,9 @@ async function protectedClientLinks(raw, env, publicOrigin) {
       stream_url: publicOrigin.replace(/\/+$/, "") + "/p/" + sessionToken,
       referer: null,
       origin: null,
-      // The upstream URL stays behind the short-lived Worker session. The
-      // Viewer receives only the ClearKey pair that Admin explicitly saved so
-      // the native DASH player can decrypt authorized ClearKey content.
+      // The upstream URL remains inside an authenticated encrypted token.
+      // The Viewer receives only the ClearKey pair that Admin explicitly
+      // configured for authorized ClearKey playback.
       key_id: keyId || null,
       key_data: keyData || null,
       use_webview: false,
@@ -608,49 +611,28 @@ function isFawaSession(session) {
 }
 
 async function handleProtectedPlayback(request, sessionToken, childPath, env) {
-  if (!env.PLAYBACK_TOKENS) {
+  const backendSecret = env.PLAYBACK_BACKEND_SECRET?.trim() || "";
+  if (!backendSecret) {
     return json({ error: "Protected playback is unavailable." }, 503);
-  }
-
-  const raw = await env.PLAYBACK_TOKENS.get("s:" + sessionToken);
-  if (!raw) {
-    return json({ error: "Playback session expired." }, 410, {
-      "Cache-Control": "no-store",
-    });
   }
 
   let session;
   try {
-    session = JSON.parse(raw);
+    session = await decryptPlaybackSession(sessionToken, backendSecret);
   } catch (_) {
-    return json({ error: "Invalid playback session." }, 410);
+    return json({ error: "Invalid or expired playback session." }, 410, {
+      "Cache-Control": "no-store",
+    });
   }
 
   const nowSeconds = Math.floor(Date.now() / 1000);
   if (
     !session.u || !session.k || !Number.isFinite(session.e) ||
-    session.e <= nowSeconds ||
-    (Number.isFinite(session.x) && session.x <= nowSeconds)
+    session.e <= nowSeconds
   ) {
     return json({ error: "Playback session expired." }, 410, {
       "Cache-Control": "no-store",
     });
-  }
-
-  if (
-    Number.isFinite(session.x) &&
-    session.e - nowSeconds < 10 * 60
-  ) {
-    const nextTtl = Math.max(
-      60,
-      Math.min(30 * 60, session.x - nowSeconds),
-    );
-    session.e = nowSeconds + nextTtl;
-    await env.PLAYBACK_TOKENS.put(
-      "s:" + sessionToken,
-      JSON.stringify(session),
-      { expirationTtl: nextTtl },
-    );
   }
 
   let upstreamUrl;
@@ -1073,6 +1055,65 @@ async function replaceAsync(input, regex, replacer) {
   return result + input.slice(cursor);
 }
 
+async function playbackSessionKey(secret) {
+  const material = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      "nca-playback-key-v1:" + String(secret || ""),
+    ),
+  );
+  return crypto.subtle.importKey(
+    "raw",
+    material,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+async function encryptPlaybackSession(session, secret) {
+  const key = await playbackSessionKey(secret);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plain = new TextEncoder().encode(JSON.stringify(session));
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+      additionalData: PLAYBACK_SESSION_AAD,
+      tagLength: 128,
+    },
+    key,
+    plain,
+  ));
+  const combined = new Uint8Array(iv.length + ciphertext.length);
+  combined.set(iv, 0);
+  combined.set(ciphertext, iv.length);
+  return bytesToBase64Url(combined);
+}
+
+async function decryptPlaybackSession(token, secret) {
+  const combined = base64UrlToBytes(token);
+  if (combined.length <= 28) throw new Error("Invalid playback token.");
+  const iv = combined.slice(0, 12);
+  const ciphertext = combined.slice(12);
+  const key = await playbackSessionKey(secret);
+  const plain = await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv,
+      additionalData: PLAYBACK_SESSION_AAD,
+      tagLength: 128,
+    },
+    key,
+    ciphertext,
+  );
+  const session = JSON.parse(new TextDecoder().decode(plain));
+  if (!session || typeof session !== "object") {
+    throw new Error("Invalid playback session.");
+  }
+  return session;
+}
+
 async function encryptTarget(targetUrl, sessionKey) {
   const rawKey = base64UrlToBytes(sessionKey);
   const key = await crypto.subtle.importKey(
@@ -1123,8 +1164,8 @@ function base64UrlToBytes(value) {
 }
 
 async function allowRequest(request, env, scope, limit) {
-  if (!env.PLAYBACK_TOKENS) return true;
-
+  // Soft per-isolate limiter. This intentionally avoids Workers KV so rate
+  // limiting cannot consume the account's daily KV operation allowance.
   const address =
     request.headers.get("CF-Connecting-IP") ||
     request.headers.get("X-Forwarded-For") ||
@@ -1135,17 +1176,25 @@ async function allowRequest(request, env, scope, limit) {
   );
   const id = bytesToBase64Url(new Uint8Array(digest)).slice(0, 22);
   const bucket = Math.floor(Date.now() / 60000);
-  const key = "rl:" + scope + ":" + id + ":" + bucket;
+  const key = scope + ":" + id + ":" + bucket;
+  const now = Date.now();
 
-  const raw = await env.PLAYBACK_TOKENS.get(key);
-  const count = Number.parseInt(raw || "0", 10) || 0;
+  if (SOFT_RATE_LIMITS.size > 2048) {
+    for (const [candidate, value] of SOFT_RATE_LIMITS.entries()) {
+      if (!value || value.expiresAt <= now) {
+        SOFT_RATE_LIMITS.delete(candidate);
+      }
+    }
+  }
+
+  const current = SOFT_RATE_LIMITS.get(key);
+  const count = current?.count || 0;
   if (count >= limit) return false;
 
-  await env.PLAYBACK_TOKENS.put(
-    key,
-    String(count + 1),
-    { expirationTtl: 120 },
-  );
+  SOFT_RATE_LIMITS.set(key, {
+    count: count + 1,
+    expiresAt: now + 2 * 60 * 1000,
+  });
   return true;
 }
 
