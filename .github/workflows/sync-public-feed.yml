@@ -60,6 +60,10 @@ jobs:
           fi
 
           mkdir -p public
+          MATCHES_CHANGED=true
+          if [ -f public/matches.json ] && cmp -s /tmp/matches.json public/matches.json; then
+            MATCHES_CHANGED=false
+          fi
           cp /tmp/matches.json public/matches.json
 
           python3 - <<'PY'
@@ -85,7 +89,8 @@ jobs:
 
           git commit -m "Update public match feed"
           git push origin feed
-          echo "changed=true" >> "$GITHUB_OUTPUT"
+          # status.json freshness updates should not rebuild the whole app.
+          echo "changed=$MATCHES_CHANGED" >> "$GITHUB_OUTPUT"
 
       - name: Redeploy Web Viewer with latest feed
         if: steps.publish_feed.outputs.changed == 'true'
