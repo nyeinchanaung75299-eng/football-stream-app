@@ -42,6 +42,9 @@ jobs:
       - name: Test protected HLS/DASH proxy
         run: node scripts/test_protected_dash_proxy.mjs
 
+      - name: Test Supabase relay
+        run: node scripts/test_supabase_relay.mjs
+
       - name: Deploy Worker
         if: steps.cloudflare.outputs.ready == 'true'
         working-directory: cloudflare/public-api
