@@ -3,7 +3,6 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'live_links_page.dart';
 import '../analytics_service.dart';
-import '../services/function_gateway.dart';
 
 class EditLivePage extends StatefulWidget {
   const EditLivePage({super.key});
@@ -13,7 +12,6 @@ class EditLivePage extends StatefulWidget {
 }
 
 class _EditLivePageState extends State<EditLivePage> {
-  bool syncing = false;
   String view = 'upcoming';
   late Future<List<Map<String, dynamic>>> _matchesFuture;
 
@@ -46,7 +44,6 @@ class _EditLivePageState extends State<EditLivePage> {
         .select(
           'id,league,home_team,away_team,home_logo_url,away_logo_url,'
           'kickoff_at,sort_order,is_live,is_active,is_featured,publish_state,'
-          'home_score,away_score,status_short,status_elapsed,external_fixture_id,'
           'deleted_at',
         );
 
@@ -80,37 +77,6 @@ class _EditLivePageState extends State<EditLivePage> {
 
   void message(String text) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
-  }
-
-  Future<void> syncScores() async {
-    setState(() => syncing = true);
-    try {
-      final data = await FunctionGateway.invoke(
-        'football-score-sync',
-        body: const {'force': true},
-      );
-      await AnalyticsService.capture(
-        'score sync completed',
-        properties: {
-          'synced_count':
-              data is Map && data['synced'] is num
-                  ? (data['synced'] as num).toInt()
-                  : 0,
-        },
-      );
-      if (!mounted) return;
-      if (data is Map && data['synced'] != null) {
-        message('Score sync: ${data['synced']} match(es) updated.');
-      } else {
-        message('Score sync finished.');
-      }
-      reloadMatches();
-    } catch (e) {
-      await AnalyticsService.capture('score sync failed');
-      if (mounted) message('Score sync failed: $e');
-    } finally {
-      if (mounted) setState(() => syncing = false);
-    }
   }
 
   Future<void> deleteMatch(String id) async {
@@ -167,28 +133,11 @@ class _EditLivePageState extends State<EditLivePage> {
     final homeLogo = TextEditingController(text: '${m['home_logo_url'] ?? ''}');
     final awayLogo = TextEditingController(text: '${m['away_logo_url'] ?? ''}');
     final order = TextEditingController(text: '${m['sort_order'] ?? 0}');
-    final homeScore = TextEditingController(text: m['home_score'] == null ? '' : '${m['home_score']}');
-    final awayScore = TextEditingController(text: m['away_score'] == null ? '' : '${m['away_score']}');
-
     DateTime kickoff = DateTime.parse(m['kickoff_at']).toLocal();
     bool live = m['is_live'] == true;
     bool active = m['is_active'] == true;
     bool featured = m['is_featured'] != false;
     bool published = (m['publish_state'] ?? 'published') == 'published';
-
-    int scoreValue(TextEditingController controller) =>
-        int.tryParse(controller.text.trim()) ?? 0;
-
-    void changeScore(
-      TextEditingController controller,
-      int delta,
-      void Function(void Function()) setSheetState,
-    ) {
-      setSheetState(() {
-        final next = (scoreValue(controller) + delta).clamp(0, 99);
-        controller.text = '$next';
-      });
-    }
 
     final save = await showModalBottomSheet<bool>(
       context: context,
@@ -259,158 +208,6 @@ class _EditLivePageState extends State<EditLivePage> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest
-                            .withValues(alpha: .45),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Goal Score',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  children: [
-                                    Text(
-                                      home.text.trim().isEmpty
-                                          ? 'Home'
-                                          : home.text.trim(),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 7),
-                                    TextField(
-                                      controller: homeScore,
-                                      textAlign: TextAlign.center,
-                                      keyboardType: TextInputType.number,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Home score',
-                                      ),
-                                    ),
-                                    const SizedBox(height: 7),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: OutlinedButton(
-                                            onPressed: () => changeScore(
-                                              homeScore,
-                                              -1,
-                                              setSheetState,
-                                            ),
-                                            child: const Text('−'),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Expanded(
-                                          child: FilledButton(
-                                            onPressed: () => changeScore(
-                                              homeScore,
-                                              1,
-                                              setSheetState,
-                                            ),
-                                            child: const Text('+ GOAL'),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 10),
-                                child: Text(
-                                  '—',
-                                  style: TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: Column(
-                                  children: [
-                                    Text(
-                                      away.text.trim().isEmpty
-                                          ? 'Away'
-                                          : away.text.trim(),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 7),
-                                    TextField(
-                                      controller: awayScore,
-                                      textAlign: TextAlign.center,
-                                      keyboardType: TextInputType.number,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Away score',
-                                      ),
-                                    ),
-                                    const SizedBox(height: 7),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: OutlinedButton(
-                                            onPressed: () => changeScore(
-                                              awayScore,
-                                              -1,
-                                              setSheetState,
-                                            ),
-                                            child: const Text('−'),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Expanded(
-                                          child: FilledButton(
-                                            onPressed: () => changeScore(
-                                              awayScore,
-                                              1,
-                                              setSheetState,
-                                            ),
-                                            child: const Text('+ GOAL'),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            m['external_fixture_id'] == null
-                                ? 'Manual match: score is controlled here.'
-                                : 'API match: score can auto-sync; manual correction is still allowed.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
                     TextField(controller: order, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Display order')),
                     SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
@@ -463,8 +260,6 @@ class _EditLivePageState extends State<EditLivePage> {
             awayLogo.text.trim().isEmpty ? null : awayLogo.text.trim(),
         'kickoff_at': kickoff.toUtc().toIso8601String(),
         'sort_order': int.tryParse(order.text) ?? 0,
-        'home_score': int.tryParse(homeScore.text),
-        'away_score': int.tryParse(awayScore.text),
         'is_featured': featured,
         'publish_state': published ? 'published' : 'draft',
         'is_live': live,
@@ -479,9 +274,6 @@ class _EditLivePageState extends State<EditLivePage> {
           'published': published,
           'is_live': live,
           'is_active': active,
-          'has_score':
-              homeScore.text.trim().isNotEmpty &&
-              awayScore.text.trim().isNotEmpty,
         },
       );
 
@@ -504,15 +296,6 @@ class _EditLivePageState extends State<EditLivePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Manage Matches'),
-        actions: [
-          IconButton(
-            tooltip: 'Sync scores',
-            onPressed: syncing ? null : syncScores,
-            icon: syncing
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.sync_rounded),
-          ),
-        ],
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _matchesFuture,
@@ -599,9 +382,6 @@ class _EditLivePageState extends State<EditLivePage> {
               final live = m['is_live'] == true;
               final featured = m['is_featured'] != false;
               final published = (m['publish_state'] ?? 'published') == 'published';
-              final hs = m['home_score'];
-              final as = m['away_score'];
-              final status = (m['status_short'] ?? 'NS').toString();
 
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -656,7 +436,7 @@ class _EditLivePageState extends State<EditLivePage> {
                                 Text('${m['home_team']} vs ${m['away_team']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
                                 const SizedBox(height: 4),
                                 Text(
-                                  '${m['league']} • ${DateFormat('dd MMM, HH:mm').format(kickoff)}${hs == null || as == null ? '' : ' • $hs-$as'} • $status',
+                                  '${m['league']} • ${DateFormat('dd MMM, HH:mm').format(kickoff)}',
                                   style: TextStyle(fontSize: 12.5, color: colors.onSurfaceVariant),
                                 ),
                               ],
