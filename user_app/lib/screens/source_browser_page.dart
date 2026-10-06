@@ -479,6 +479,22 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                   final type =
                       x['streamType']?.toString().toUpperCase() ?? 'AUTO';
                   final quality = x['resolution']?.toString().trim() ?? '';
+                  final health =
+                      x['healthStatus']?.toString().toLowerCase() ?? 'unknown';
+                  final healthLabel = switch (health) {
+                    'healthy' => 'READY',
+                    'slow' => 'SLOW',
+                    'failed' => 'OFFLINE',
+                    'dead' => 'OFFLINE',
+                    _ => 'UNKNOWN',
+                  };
+                  final healthIcon = switch (health) {
+                    'healthy' => Icons.check_circle_rounded,
+                    'slow' => Icons.speed_rounded,
+                    'failed' => Icons.cloud_off_rounded,
+                    'dead' => Icons.cloud_off_rounded,
+                    _ => Icons.help_outline_rounded,
+                  };
                   return ListTile(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -494,9 +510,20 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     subtitle: Text(
-                      [quality, type].where((x) => x.isNotEmpty).join(' • '),
+                      [quality, type, healthLabel]
+                          .where((x) => x.isNotEmpty)
+                          .join(' • '),
                     ),
-                    trailing: const Icon(Icons.play_arrow_rounded),
+                    trailing: Icon(
+                      healthIcon,
+                      color: health == 'healthy'
+                          ? Colors.green
+                          : health == 'slow'
+                              ? Colors.orange
+                              : (health == 'failed' || health == 'dead')
+                                  ? Colors.redAccent
+                                  : null,
+                    ),
                     onTap: () => Navigator.pop(sheet, i),
                   );
                 },
