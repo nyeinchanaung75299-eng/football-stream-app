@@ -60,6 +60,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 
   Future<Map<String, dynamic>> _loadColaMirror() async {
     Object? lastError;
+    Map<String, dynamic>? emptyFallback;
     for (final url in const [_pagesColaMirror, _rawColaMirror]) {
       try {
         final response = await http
@@ -81,11 +82,18 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         if (decoded is! Map) {
           throw const FormatException('ColaTV mirror response is invalid.');
         }
-        return Map<String, dynamic>.from(decoded);
+        final data = Map<String, dynamic>.from(decoded);
+        final rows = data['matches'];
+        if (rows is! List) {
+          throw const FormatException('ColaTV mirror match list is invalid.');
+        }
+        if (rows.isNotEmpty) return data;
+        emptyFallback ??= data;
       } catch (e) {
         lastError = e;
       }
     }
+    if (emptyFallback != null) return emptyFallback;
     throw Exception(lastError ?? 'ColaTV mirror is unavailable.');
   }
 
@@ -95,6 +103,21 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       // Pick Big Matches is read-only at this stage, so prefer the GitHub
       // mirror when Cloudflare/Supabase is blocked without VPN.
       data = await _loadColaMirror();
+      final mirrorRows = data is Map ? data['matches'] : null;
+      if (mirrorRows is List && mirrorRows.isEmpty) {
+        try {
+          final liveData = await FunctionGateway.invoke(
+            'source-match-list',
+            body: const {'source': 'cola'},
+          );
+          final liveRows = liveData is Map ? liveData['matches'] : null;
+          if (liveRows is List && liveRows.isNotEmpty) {
+            data = liveData;
+          }
+        } catch (_) {
+          // Keep a valid empty ColaTV mirror as the no-VPN last resort.
+        }
+      }
     } catch (_) {
       data = await FunctionGateway.invoke(
         'source-match-list',
