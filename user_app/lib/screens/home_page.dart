@@ -274,6 +274,18 @@ class _HomePageState extends State<HomePage> {
       final kickoff = DateTime.tryParse(
         row['kickoff_at']?.toString() ?? '',
       )?.toLocal();
+      final streamCount = (row['stream_count'] as num?)?.toInt() ?? 0;
+
+      // Hide stale "NOT READY" cards quickly when kickoff has already passed
+      // and there is still no playable stream. Matches with a stream stay
+      // visible for the normal match-duration grace window.
+      if (row['is_live'] != true &&
+          kickoff != null &&
+          streamCount <= 0 &&
+          now.difference(kickoff) > const Duration(minutes: 30)) {
+        return false;
+      }
+
       if (row['is_live'] != true &&
           kickoff != null &&
           now.difference(kickoff) > staleKickoffGrace) {
