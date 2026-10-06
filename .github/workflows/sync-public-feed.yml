@@ -56,19 +56,25 @@ jobs:
           for source in soco yyzb fawa cola; do
             stamp="$(date +%s)"
             fetched=false
-            for url in               "https://football-public-api.nyeinchanaung75299-eng.workers.dev/sources/$source/matches?t=$stamp"               "https://football-api.nyeinchanaung.us.ci/sources/$source/matches?t=$stamp"               "https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links?viewer_public=1&action=matches&source=$source&t=$stamp"; do
-              if curl --fail --location --retry 1 --retry-delay 1 --connect-timeout 8 --max-time 35                 -H "Accept: application/json"                 "$url" -o "/tmp/source-feeds/$source.json.tmp"; then
-                fetched=true
-                break
+            for url in \
+              "https://football-public-api.nyeinchanaung75299-eng.workers.dev/sources/$source/matches?t=$stamp" \
+              "https://football-api.nyeinchanaung.us.ci/sources/$source/matches?t=$stamp" \
+              "https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links?viewer_public=1&action=matches&source=$source&t=$stamp"; do
+              if ! curl --fail --location --retry 1 --retry-delay 1 \
+                --connect-timeout 8 --max-time 35 \
+                -H "Accept: application/json" \
+                "$url" -o "/tmp/source-feeds/$source.json.tmp"; then
+                continue
               fi
-            done
-            if [ "$fetched" = true ]; then
-              SOURCE="$source" python3 - <<'PY'
+
+              if SOURCE="$source" python3 - <<'PY'
           import json, os
           from pathlib import Path
           source = os.environ["SOURCE"]
           p = Path(f"/tmp/source-feeds/{source}.json.tmp")
           data = json.loads(p.read_text(encoding="utf-8"))
+          if not isinstance(data, dict):
+              raise SystemExit(f"{source}: invalid source payload")
           rows = data.get("matches")
           if not isinstance(rows, list):
               raise SystemExit(f"{source}: invalid matches payload")
@@ -82,9 +88,18 @@ jobs:
           )
           print(f"{source} mirror matches: {len(rows)}")
           PY
-            else
+              then
+                fetched=true
+                break
+              fi
+
+              echo "Warning: $source returned an invalid payload; trying next fallback."
+              rm -f "/tmp/source-feeds/$source.json.tmp" "/tmp/source-feeds/$source.json"
+            done
+
+            if [ "$fetched" != true ]; then
               echo "Warning: $source snapshot fetch failed; keeping previous mirror."
-              rm -f "/tmp/source-feeds/$source.json.tmp"
+              rm -f "/tmp/source-feeds/$source.json.tmp" "/tmp/source-feeds/$source.json"
             fi
           done
 
@@ -104,10 +119,6 @@ jobs:
           fi
 
           mkdir -p public
-          MATCHES_CHANGED=true
-          if [ -f public/matches.json ] && cmp -s /tmp/matches.json public/matches.json; then
-            MATCHES_CHANGED=false
-          fi
           cp /tmp/matches.json public/matches.json
 
           mkdir -p public/sources
@@ -115,6 +126,35 @@ jobs:
             if [ -s "/tmp/source-feeds/$source.json" ]; then
               cp "/tmp/source-feeds/$source.json" "public/sources/$source.json"
             fi
+
+            # Never publish a zero-byte or malformed mirror. Keep an existing
+            # valid last-good snapshot; otherwise self-heal to a valid empty
+            # list so Viewer/Admin show "no matches" instead of "Could not load".
+            SOURCE="$source" python3 - <<'PY2'
+          import json, os
+          from pathlib import Path
+
+          source = os.environ["SOURCE"]
+          path = Path(f"public/sources/{source}.json")
+          valid = False
+          if path.is_file() and path.stat().st_size > 0:
+              try:
+                  data = json.loads(path.read_text(encoding="utf-8"))
+                  valid = isinstance(data, dict) and isinstance(data.get("matches"), list)
+              except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                  valid = False
+
+          if not valid:
+              path.write_text(
+                  json.dumps(
+                      {"ok": True, "source": source, "matches": []},
+                      ensure_ascii=False,
+                      separators=(",", ":"),
+                  ),
+                  encoding="utf-8",
+              )
+              print(f"{source}: repaired invalid/missing mirror with an empty valid list")
+          PY2
           done
 
           python3 - <<'PY'
@@ -132,6 +172,13 @@ jobs:
           # streams.json to exist; existing signed releases stay on feed.
           git add -A public/
 
+          # Redeploy Pages when either the public match list OR any source
+          # mirror changes. status.json freshness alone must not trigger it.
+          WEB_FEED_CHANGED=false
+          if ! git diff --cached --quiet -- public/matches.json public/sources; then
+            WEB_FEED_CHANGED=true
+          fi
+
           if git diff --cached --quiet; then
             echo "No feed changes."
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -140,8 +187,7 @@ jobs:
 
           git commit -m "Update public match feed"
           git push origin feed
-          # status.json freshness updates should not rebuild the whole app.
-          echo "changed=$MATCHES_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "changed=$WEB_FEED_CHANGED" >> "$GITHUB_OUTPUT"
 
       - name: Redeploy Web Viewer with latest feed
         if: steps.publish_feed.outputs.changed == 'true'
