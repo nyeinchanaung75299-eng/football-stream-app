@@ -203,7 +203,9 @@ async function jsonpMatches(args: {
           .map((anchor: any, index: number) => ({
             uid: anchor.uid ?? anchor.id ?? null,
             nick_name:
-              friendlyText(anchor.nickName ?? anchor.name ?? "") ||
+              decodeHtml(
+                stripTags(String(anchor.nickName ?? anchor.name ?? "")),
+              ).replace(/\s+/g, " ").trim() ||
               `Streamer ${index + 1}`,
             original_nick_name: anchor.nickName ?? anchor.name ?? null,
             icon:
@@ -560,9 +562,9 @@ async function colaStreams(body: any) {
     ? match.anchorAppointmentVoList
     : [];
   for (const anchor of anchors) {
-    const anchorName = colaEnglishText(
-      anchor?.nickName ?? anchor?.houseName ?? "Streamer",
-    );
+    const anchorName = decodeHtml(
+      stripTags(String(anchor?.nickName ?? anchor?.houseName ?? "Streamer")),
+    ).replace(/\s+/g, " ").trim();
     add(anchor?.playStreamAddress2, "HLS", anchorName);
     add(anchor?.playStreamAddress, "FLV", anchorName);
     if (Array.isArray(anchor?.servers)) {
