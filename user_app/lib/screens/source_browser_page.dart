@@ -25,8 +25,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       'https://football-public-api.nyeinchanaung75299-eng.workers.dev';
   static const _supabaseFunction =
       'https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links';
-  static const _supabasePublishableKey =
-      'sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O';
 
   late Future<List<Map<String, dynamic>>> _future;
 
@@ -120,7 +118,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           ),
           headers: const {
             'Accept': 'application/json',
-            'Cache-Control': 'no-cache',
           },
         )
         .timeout(const Duration(seconds: 9));
@@ -146,21 +143,18 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
   Future<List<Map<String, dynamic>>> _loadFromSupabase() async {
     final response = await http
-        .post(
-          Uri.parse(_supabaseFunction),
-          headers: const {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'apikey': _supabasePublishableKey,
-            'Cache-Control': 'no-cache',
-          },
-          body: jsonEncode({
-            'viewer_public': true,
-            'action': 'matches',
-            'source': source,
-          }),
+        .get(
+          Uri.parse(_supabaseFunction).replace(
+            queryParameters: {
+              'viewer_public': '1',
+              'action': 'matches',
+              'source': source,
+              't': DateTime.now().millisecondsSinceEpoch.toString(),
+            },
+          ),
+          headers: const {'Accept': 'application/json'},
         )
-        .timeout(const Duration(seconds: 10));
+        .timeout(const Duration(seconds: 9));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(
         'Direct source fallback HTTP ' + response.statusCode.toString(),
@@ -226,7 +220,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           headers: const {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
-            'Cache-Control': 'no-cache',
           },
           body: jsonEncode({
             'room_num':
@@ -256,26 +249,26 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     Map<String, dynamic> anchor,
   ) async {
     final response = await http
-        .post(
-          Uri.parse(_supabaseFunction),
-          headers: const {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'apikey': _supabasePublishableKey,
-            'Cache-Control': 'no-cache',
-          },
-          body: jsonEncode({
-            'viewer_public': true,
-            'action': 'streams',
-            'source': source,
-            'room_num':
-                anchor['room_num'] ?? m['source_id'] ?? m['schedule_id'],
-            'schedule_id': m['schedule_id'] ?? m['source_id'],
-            'source_id': m['source_id'],
-            'page_url': anchor['page_url'] ?? m['page_url'],
-          }),
+        .get(
+          Uri.parse(_supabaseFunction).replace(
+            queryParameters: {
+              'viewer_public': '1',
+              'action': 'streams',
+              'source': source,
+              'room_num':
+                  (anchor['room_num'] ?? m['source_id'] ?? m['schedule_id'] ?? '')
+                      .toString(),
+              'schedule_id':
+                  (m['schedule_id'] ?? m['source_id'] ?? '').toString(),
+              'source_id': (m['source_id'] ?? '').toString(),
+              'page_url':
+                  (anchor['page_url'] ?? m['page_url'] ?? '').toString(),
+              't': DateTime.now().millisecondsSinceEpoch.toString(),
+            },
+          ),
+          headers: const {'Accept': 'application/json'},
         )
-        .timeout(const Duration(seconds: 12));
+        .timeout(const Duration(seconds: 10));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(
         'Direct stream fallback HTTP ' + response.statusCode.toString(),
