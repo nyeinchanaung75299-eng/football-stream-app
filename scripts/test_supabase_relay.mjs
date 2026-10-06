@@ -18,6 +18,20 @@ const env = {
 };
 
 const originalFetch = globalThis.fetch;
+const OriginalRequest = globalThis.Request;
+
+// Node 24 requires duplex:'half' when a Request is constructed with a
+// ReadableStream body. Cloudflare Workers does not require callers to set it,
+// so normalize the test runtime without changing production relay behavior.
+globalThis.Request = class CompatibleRequest extends OriginalRequest {
+  constructor(input, init = undefined) {
+    if (init?.body && init.duplex == null) {
+      init = {...init, duplex: 'half'};
+    }
+    super(input, init);
+  }
+};
+
 const calls = [];
 
 globalThis.fetch = async (input, init) => {
@@ -140,4 +154,5 @@ try {
   console.log('5 Supabase relay regression checks passed.');
 } finally {
   globalThis.fetch = originalFetch;
+  globalThis.Request = OriginalRequest;
 }
