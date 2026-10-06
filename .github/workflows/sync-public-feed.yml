@@ -44,6 +44,38 @@ jobs:
           print(f"mirror matches: {len(data)}")
           PY
 
+      - name: Fetch source-list snapshots for VPN-off fallback
+        run: |
+          set -u
+          mkdir -p /tmp/source-feeds
+          for source in soco yyzb fawa cola; do
+            url="https://football-public-api.nyeinchanaung75299-eng.workers.dev/sources/$source/matches?t=$(date +%s)"
+            if curl --fail --location --retry 2 --retry-delay 1               --connect-timeout 8 --max-time 35               -H "Accept: application/json"               "$url" -o "/tmp/source-feeds/$source.json.tmp"; then
+              SOURCE="$source" python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          source = os.environ["SOURCE"]
+          p = Path(f"/tmp/source-feeds/{source}.json.tmp")
+          data = json.loads(p.read_text(encoding="utf-8"))
+          rows = data.get("matches")
+          if not isinstance(rows, list):
+              raise SystemExit(f"{source}: invalid matches payload")
+          # Remove volatile timestamps so the feed branch only changes when
+          # actual source data changes.
+          data.pop("generated_at", None)
+          out = Path(f"/tmp/source-feeds/{source}.json")
+          out.write_text(
+              json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+              encoding="utf-8",
+          )
+          print(f"{source} mirror matches: {len(rows)}")
+          PY
+            else
+              echo "Warning: $source snapshot fetch failed; keeping previous mirror."
+              rm -f "/tmp/source-feeds/$source.json.tmp"
+            fi
+          done
+
       - name: Publish feed branch
         id: publish_feed
         run: |
@@ -65,6 +97,13 @@ jobs:
             MATCHES_CHANGED=false
           fi
           cp /tmp/matches.json public/matches.json
+
+          mkdir -p public/sources
+          for source in soco yyzb fawa cola; do
+            if [ -s "/tmp/source-feeds/$source.json" ]; then
+              cp "/tmp/source-feeds/$source.json" "public/sources/$source.json"
+            fi
+          done
 
           python3 - <<'PY'
           import json
