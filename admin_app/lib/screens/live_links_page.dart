@@ -619,6 +619,15 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
     if (save != true) return;
 
+    if (!web && url.text.trim().isEmpty) {
+      message('Paste a stream URL before saving an active server.');
+      return;
+    }
+    if (web && webUrl.text.trim().isEmpty) {
+      message('Paste a WebView URL before saving an active server.');
+      return;
+    }
+
     final effectiveType =
         web ? 'auto' : detectStreamType(url.text, fallback: type);
 
@@ -1137,9 +1146,11 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                 ),
                 const SizedBox(height: 8),
                 FutureBuilder<List<Map<String, dynamic>>>(
+                  key: ValueKey(matchId),
                   future: _linksFuture ??= loadLinks(),
                   builder: (context, linkSnapshot) {
-                    if (!linkSnapshot.hasData) {
+                    if (linkSnapshot.connectionState != ConnectionState.done ||
+                        !linkSnapshot.hasData) {
                       return const Center(
                         child: Padding(
                           padding: EdgeInsets.all(20),
