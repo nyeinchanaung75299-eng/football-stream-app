@@ -306,7 +306,12 @@ class _EditLivePageState extends State<EditLivePage> {
 
           final now = DateTime.now();
           final visibleRows = rows.where((m) {
+            // Admin "All" is the recovery/edit view: keep every non-deleted
+            // match visible even if it was made inactive, unfeatured or draft.
+            if (view == 'all') return m['deleted_at'] == null;
+
             final current =
+                m['deleted_at'] == null &&
                 m['is_active'] == true &&
                 m['is_featured'] != false &&
                 (m['publish_state'] ?? 'published') == 'published';
