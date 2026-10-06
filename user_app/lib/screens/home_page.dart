@@ -172,18 +172,27 @@ class _HomePageState extends State<HomePage> {
     });
     final supabase = _supabaseClientOrNull();
     if (supabase != null) {
+      void scheduleRefresh({bool clearStreams = false}) {
+        if (clearStreams) _streamLinkCache.clear();
+        _debounce?.cancel();
+        _debounce = Timer(const Duration(milliseconds: 350), () {
+          if (mounted) refresh(silent: true);
+        });
+      }
+
       _channel = supabase
           .channel('v7-pro-featured')
           .onPostgresChanges(
             event: PostgresChangeEvent.all,
             schema: 'public',
             table: 'matches',
-            callback: (_) {
-              _debounce?.cancel();
-              _debounce = Timer(const Duration(milliseconds: 350), () {
-                if (mounted) refresh(silent: true);
-              });
-            },
+            callback: (_) => scheduleRefresh(),
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'stream_links',
+            callback: (_) => scheduleRefresh(clearStreams: true),
           )
           .subscribe();
     }
