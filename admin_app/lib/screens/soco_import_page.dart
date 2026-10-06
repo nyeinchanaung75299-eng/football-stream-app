@@ -151,7 +151,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
       });
     }
 
-    if (source == 'fawa' || dayFilter == 'all') return rows.toList();
+    if (source == 'fawa' || source == 'cola' || dayFilter == 'all') {
+      return rows.toList();
+    }
 
     final now = DateTime.now();
     final wanted = dayFilter == 'tomorrow'
@@ -659,6 +661,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
         return 'YYZB';
       case 'fawa':
         return 'Fawa';
+      case 'cola':
+        return 'ColaTV';
       default:
         return 'Soco';
     }
@@ -671,7 +675,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
         : () {
             setState(() {
               source = value;
-              dayFilter = value == 'fawa' ? 'all' : 'today';
+              dayFilter =
+                  (value == 'fawa' || value == 'cola') ? 'all' : 'today';
               sourceMatches = const [];
               errorText = null;
             });
@@ -776,6 +781,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     _sourceButton('soco', 'Soco'),
                     _sourceButton('yyzb', 'YYZB'),
                     _sourceButton('fawa', 'Fawa'),
+                    _sourceButton('cola', 'ColaTV'),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -801,7 +807,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       setState(() => availableOnly = value),
                 ),
                 const SizedBox(height: 4),
-                if (source != 'fawa')
+                if (source != 'fawa' && source != 'cola')
                   Row(
                     children: [
                       _dayButton('today', 'Today'),
