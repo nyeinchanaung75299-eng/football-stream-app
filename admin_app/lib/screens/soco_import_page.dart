@@ -590,54 +590,97 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final url = (line['url'] ?? '').toString().trim();
     if (url.isEmpty) return false;
 
-    final existing = await Supabase.instance.client
-        .from('stream_links')
-        .select('id')
-        .eq('match_id', target)
-        .eq('stream_url', url)
-        .maybeSingle();
-
-    if (existing != null) {
-      await AnalyticsService.capture(
-        'source line duplicate',
-        properties: {
-          'source': source,
-          'destination_preset': presetTarget != null,
-        },
-      );
-      message('This source line is already added.');
-      return false;
-    }
-
     final sourceName = _sourceLabel(source);
     final label = (line['label'] ?? sourceName).toString();
     final type = (line['stream_type'] ?? 'auto').toString();
     final resolution = (line['resolution'] ?? label).toString();
+    final fullLabel = '$sourceName • $anchorName • $label';
 
-    final inserted = await Supabase.instance.client
+    final exact = await Supabase.instance.client
         .from('stream_links')
-        .insert({
-          'match_id': target,
-          'label': '$sourceName • $anchorName • $label',
-          'resolution': resolution,
-          'stream_type': type,
-          'stream_url': url,
-          'referer': nullable(line['referer']?.toString()),
-          'origin': nullable(line['origin']?.toString()),
-          'use_webview': false,
-          'webview_url': null,
-          'send_notification': false,
-          'is_active': true,
-          'expires_at': line['expires_at'],
-        })
-        .select('id')
-        .single();
+        .select('id,is_active,expires_at')
+        .eq('match_id', target)
+        .eq('stream_url', url)
+        .maybeSingle();
+
+    Map<String, dynamic> saved;
+    if (exact != null) {
+      // A previously imported short-lived line may have been disabled after
+      // its signed URL expired. Re-enable it when the source returns the same
+      // URL again instead of treating it as an unusable duplicate.
+      saved = await Supabase.instance.client
+          .from('stream_links')
+          .update({
+            'label': fullLabel,
+            'resolution': resolution,
+            'stream_type': type,
+            'referer': nullable(line['referer']?.toString()),
+            'origin': nullable(line['origin']?.toString()),
+            'is_active': true,
+            'expires_at': line['expires_at'],
+            'health_status': 'unknown',
+            'health_latency_ms': null,
+            'last_checked_at': null,
+          })
+          .eq('id', exact['id'])
+          .select('id')
+          .single();
+    } else {
+      // Soco/YYZB/Cola signed URLs rotate. Match the logical line by its
+      // stable label/type/resolution and replace the expired URL in-place so
+      // the viewer gets the fresh token without accumulating dead rows.
+      final sameLogical = await Supabase.instance.client
+          .from('stream_links')
+          .select('id')
+          .eq('match_id', target)
+          .eq('label', fullLabel)
+          .eq('stream_type', type)
+          .eq('resolution', resolution)
+          .maybeSingle();
+
+      if (sameLogical != null) {
+        saved = await Supabase.instance.client
+            .from('stream_links')
+            .update({
+              'stream_url': url,
+              'referer': nullable(line['referer']?.toString()),
+              'origin': nullable(line['origin']?.toString()),
+              'is_active': true,
+              'expires_at': line['expires_at'],
+              'health_status': 'unknown',
+              'health_latency_ms': null,
+              'last_checked_at': null,
+            })
+            .eq('id', sameLogical['id'])
+            .select('id')
+            .single();
+      } else {
+        saved = await Supabase.instance.client
+            .from('stream_links')
+            .insert({
+              'match_id': target,
+              'label': fullLabel,
+              'resolution': resolution,
+              'stream_type': type,
+              'stream_url': url,
+              'referer': nullable(line['referer']?.toString()),
+              'origin': nullable(line['origin']?.toString()),
+              'use_webview': false,
+              'webview_url': null,
+              'send_notification': false,
+              'is_active': true,
+              'expires_at': line['expires_at'],
+            })
+            .select('id')
+            .single();
+      }
+    }
 
     var resultText = 'saved';
     try {
       final checked = await FunctionGateway.invoke(
         'stream-health',
-        body: {'link_id': inserted['id']},
+        body: {'link_id': saved['id']},
       );
       if (checked is Map && checked['health_status'] != null) {
         resultText = checked['health_status'].toString();
