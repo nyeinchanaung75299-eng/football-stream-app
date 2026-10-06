@@ -1585,7 +1585,11 @@ class _HomePageState extends State<HomePage> {
                             }).length;
                             final fallbackCount =
                                 (m['stream_count'] as num?)?.toInt() ?? 0;
-                            final displayCount = nativeLinkCount > 0
+                            // The embedded mirror can intentionally
+                            // omit protected/keyed lines. Never let its
+                            // partial count hide the authoritative Admin
+                            // stream_count shown on the match card.
+                            final displayCount = nativeLinkCount > fallbackCount
                                 ? nativeLinkCount
                                 : fallbackCount;
                             return _MatchCard(
