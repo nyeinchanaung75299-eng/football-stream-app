@@ -9,7 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../analytics_service.dart';
 import '../native_player.dart';
-import 'soco_page.dart';
+import 'source_browser_page.dart';
 import 'network_diagnostics_page.dart';
 import '../widgets/theme_mode_button.dart';
 import '../app_update_service.dart';
@@ -1550,6 +1550,14 @@ class _HomePageState extends State<HomePage> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Settings',
+            onPressed: _openAppMenu,
+            icon: const Icon(Icons.settings_outlined),
+          ),
+          const SizedBox(width: 4),
+        ],
       ),
       body: Column(
         children: [
@@ -1628,28 +1636,39 @@ class _HomePageState extends State<HomePage> {
             label: 'Live',
           ),
           NavigationDestination(
-            icon: Icon(Icons.public_outlined),
-            selectedIcon: Icon(Icons.public_rounded),
+            icon: Icon(Icons.sports_soccer_outlined),
+            selectedIcon: Icon(Icons.sports_soccer_rounded),
             label: 'Soco',
           ),
           NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings_rounded),
-            label: 'Settings',
+            icon: Icon(Icons.sensors_outlined),
+            selectedIcon: Icon(Icons.sensors_rounded),
+            label: 'YYZB',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.language_outlined),
+            selectedIcon: Icon(Icons.language_rounded),
+            label: 'Fawa',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.tv_outlined),
+            selectedIcon: Icon(Icons.tv_rounded),
+            label: 'ColaTV',
           ),
         ],
         onDestinationSelected: (index) async {
-          if (index == 1) {
-            await Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const SocoPage(),
-              ),
-            );
-            return;
-          }
-          if (index == 2) {
-            await _openAppMenu();
-          }
+          if (index == 0) return;
+          final source = switch (index) {
+            2 => 'yyzb',
+            3 => 'fawa',
+            4 => 'cola',
+            _ => 'soco',
+          };
+          await Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => SourceBrowserPage(source: source),
+            ),
+          );
         },
       ),
     );
