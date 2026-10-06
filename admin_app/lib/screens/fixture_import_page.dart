@@ -41,6 +41,116 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     await loadFixtures();
   }
 
+  int _stableColaFixtureId(String value) {
+    // Stable 32-bit FNV-1a, moved into a separate bigint range so ColaTV
+    // fixture ids cannot collide with normal football API fixture ids.
+    var hash = 0x811C9DC5;
+    for (final codeUnit in value.codeUnits) {
+      hash ^= codeUnit;
+      hash = (hash * 0x01000193) & 0xFFFFFFFF;
+    }
+    return 8000000000 + hash;
+  }
+
+  Future<List<Map<String, dynamic>>> _loadColaFixtures() async {
+    final data = await FunctionGateway.invoke(
+      'source-match-list',
+      body: const {'source': 'cola'},
+    );
+    final raw = data is Map ? data['matches'] : null;
+    if (raw is! List) {
+      throw const FormatException('ColaTV match list is invalid.');
+    }
+
+    final wantedDate = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+    );
+
+    final rows = <Map<String, dynamic>>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final row = Map<String, dynamic>.from(item);
+      final matchTime = DateTime.tryParse(
+        row['match_time']?.toString() ?? '',
+      )?.toLocal();
+
+      final isLive = row['hot'] == true ||
+          row['status']?.toString().toUpperCase() == 'LIVE' ||
+          row['match_status']?.toString().toUpperCase() == 'LIVE';
+
+      if (mode == 'live') {
+        if (!isLive) continue;
+      } else {
+        if (matchTime == null) continue;
+        final day = DateTime(matchTime.year, matchTime.month, matchTime.day);
+        if (day != wantedDate) continue;
+      }
+
+      final home = (row['home_team'] ?? '').toString().trim();
+      final away = (row['away_team'] ?? '').toString().trim();
+      if (home.isEmpty || away.isEmpty) continue;
+
+      final sourceKey = (row['source_id'] ??
+              row['page_url'] ??
+              '${home.toLowerCase()}::${away.toLowerCase()}::${row['match_time'] ?? ''}')
+          .toString();
+
+      rows.add({
+        'fixture_id': _stableColaFixtureId(sourceKey),
+        'provider': 'cola',
+        'league_name': (row['league'] ?? 'Football').toString(),
+        'home_name': home,
+        'away_name': away,
+        'home_logo': row['home_logo'],
+        'away_logo': row['away_logo'],
+        'kickoff_at':
+            (row['match_time'] ?? DateTime.now().toUtc().toIso8601String())
+                .toString(),
+        'home_score': null,
+        'away_score': null,
+        'status_short': isLive ? 'LIVE' : 'NS',
+        'status_elapsed': null,
+        'is_finished': false,
+        'is_live': isLive,
+        'source_page_url': row['page_url'],
+      });
+    }
+
+    rows.sort((a, b) {
+      final at = DateTime.tryParse(a['kickoff_at']?.toString() ?? '') ??
+          DateTime(9999);
+      final bt = DateTime.tryParse(b['kickoff_at']?.toString() ?? '') ??
+          DateTime(9999);
+      return at.compareTo(bt);
+    });
+    return rows;
+  }
+
+  Future<List<Map<String, dynamic>>> _loadFallbackFixtures() async {
+    final data = await FunctionGateway.invoke(
+      'football-fixtures',
+      body: {
+        'mode': mode,
+        'date': DateFormat('yyyy-MM-dd').format(selectedDate),
+      },
+    );
+    if (data is! Map) {
+      throw Exception('Unexpected API response.');
+    }
+    if (data['error'] != null) {
+      throw Exception(data['error'].toString());
+    }
+    final rows = data['fixtures'];
+    if (rows is! List) {
+      throw Exception('No fixture list returned.');
+    }
+    return rows
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
   Future<void> loadFixtures() async {
     setState(() {
       loading = true;
@@ -48,25 +158,22 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       selectedIds.clear();
     });
 
+    String provider = 'cola';
     try {
-      final data = await FunctionGateway.invoke(
-        'football-fixtures',
-        body: {
-          'mode': mode,
-          'date': DateFormat('yyyy-MM-dd').format(selectedDate),
-        },
-      );
-      if (data is! Map) {
-        throw Exception('Unexpected API response.');
+      List<Map<String, dynamic>> rows = const [];
+
+      try {
+        rows = await _loadColaFixtures();
+      } catch (_) {
+        rows = const [];
       }
 
-      if (data['error'] != null) {
-        throw Exception(data['error'].toString());
-      }
-
-      final rows = data['fixtures'];
-      if (rows is! List) {
-        throw Exception('No fixture list returned.');
+      // ColaTV is the primary and exclusive source whenever it returns a
+      // usable list. Only fall back to the existing fixture provider when
+      // ColaTV is unreachable or has no matches for the selected date/mode.
+      if (rows.isEmpty) {
+        provider = 'fallback';
+        rows = await _loadFallbackFixtures();
       }
 
       await AnalyticsService.capture(
@@ -74,18 +181,22 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         properties: {
           'mode': mode,
           'fixture_count': rows.length,
+          'primary_source': 'cola',
+          'served_by': provider,
         },
       );
+
       if (!mounted) return;
       setState(() {
-        fixtures = rows
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
+        fixtures = rows;
       });
     } catch (e) {
       await AnalyticsService.capture(
         'fixture list failed',
-        properties: {'mode': mode},
+        properties: {
+          'mode': mode,
+          'primary_source': 'cola',
+        },
       );
       if (!mounted) return;
       setState(() {
@@ -95,14 +206,14 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         if (lower.contains('football_providers_missing') ||
             lower.contains('no football fixture provider is configured')) {
           errorText =
-              'No fixture API is configured. Add API_FOOTBALL_KEY and/or FOOTBALL_DATA_ORG_KEY in Supabase Edge Functions > Secrets.';
+              'ColaTV had no usable matches and no fallback fixture API is configured.';
         } else if (lower.contains('account is suspended') &&
             !lower.contains('football_data_org')) {
           errorText =
-              'API-Football is suspended. Add FOOTBALL_DATA_ORG_KEY to use football-data.org as the automatic backup.';
+              'ColaTV had no usable matches and API-Football is suspended. Configure the backup fixture provider.';
         } else {
           errorText =
-              'Could not load fixtures: ${raw.replaceFirst('Exception: ', '')}';
+              'ColaTV and fallback fixtures could not be loaded: ${raw.replaceFirst('Exception: ', '')}';
         }
       });
     } finally {
@@ -264,6 +375,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
               ),
               builder: (_) => SocoImportPage(
                 initialMatchId: savedIds.first,
+                initialSource: 'cola',
               ),
             ),
           );
@@ -304,6 +416,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 
   String _providerLabel(dynamic value) {
     switch (value?.toString()) {
+      case 'cola':
+        return 'ColaTV';
       case 'football_data_org':
         return 'football-data.org';
       case 'source_fallback':
