@@ -79,6 +79,29 @@ export default {
       return handleMatches(env);
     }
 
+    const sourceMatchesRoute = url.pathname.match(
+      /^\/sources\/(soco|yyzb|fawa|cola)\/matches$/,
+    );
+    if (sourceMatchesRoute && request.method === "GET") {
+      return handleSourceBrowserMatches(
+        request,
+        sourceMatchesRoute[1],
+        env,
+      );
+    }
+
+    const sourceStreamsRoute = url.pathname.match(
+      /^\/sources\/(soco|yyzb|fawa|cola)\/streams$/,
+    );
+    if (sourceStreamsRoute && request.method === "POST") {
+      return handleSourceBrowserStreams(
+        request,
+        sourceStreamsRoute[1],
+        env,
+        url.origin,
+      );
+    }
+
     const streamRoute = url.pathname.match(
       /^\/matches\/([^/]+)\/streams$/,
     );
@@ -323,6 +346,141 @@ async function handleMatches(env) {
     return json({
       error: error instanceof Error ? error.message : String(error),
     }, 502, { "Cache-Control": "no-store, max-age=0" });
+  }
+}
+
+async function invokeViewerSourceFunction(env, body) {
+  const base = env.SUPABASE_URL?.trim() || "";
+  const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() || "";
+  if (!base || !key) {
+    throw new Error("Source browser backend is not configured.");
+  }
+
+  const response = await fetch(
+    base.replace(/\/+$/, "") + "/functions/v1/soco-links",
+    {
+      method: "POST",
+      headers: {
+        apikey: key,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        ...body,
+        viewer_public: true,
+      }),
+    },
+  );
+
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch (_) {
+    payload = { error: text || "Invalid source browser response." };
+  }
+
+  if (!response.ok) {
+    const detail =
+      payload && typeof payload === "object" && payload.error
+        ? String(payload.error)
+        : "Source browser upstream unavailable.";
+    const error = new Error(detail);
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
+
+async function handleSourceBrowserMatches(request, source, env) {
+  if (!(await allowRequest(request, env, "source-matches-" + source, 20))) {
+    return json({ error: "Too many source requests. Try again shortly." }, 429, {
+      "Retry-After": "60",
+      "Cache-Control": "no-store, max-age=0",
+    });
+  }
+
+  try {
+    const payload = await invokeViewerSourceFunction(env, {
+      action: "matches",
+      source,
+    });
+    const matches = Array.isArray(payload?.matches) ? payload.matches : [];
+    return json({
+      ok: true,
+      source,
+      matches,
+      results: matches.length,
+      generated_at: payload?.generated_at || new Date().toISOString(),
+    }, 200, { "Cache-Control": "no-store, max-age=0" });
+  } catch (error) {
+    return json({
+      error: error instanceof Error ? error.message : String(error),
+    }, Number(error?.status) || 502, {
+      "Cache-Control": "no-store, max-age=0",
+    });
+  }
+}
+
+async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
+  if (!(await allowRequest(request, env, "source-streams-" + source, 30))) {
+    return json({ error: "Too many source requests. Try again shortly." }, 429, {
+      "Retry-After": "60",
+      "Cache-Control": "no-store, max-age=0",
+    });
+  }
+
+  let input = {};
+  try {
+    input = await request.json();
+  } catch (_) {}
+
+  try {
+    const payload = await invokeViewerSourceFunction(env, {
+      action: "streams",
+      source,
+      room_num: input?.room_num ?? null,
+      schedule_id: input?.schedule_id ?? null,
+      page_url: input?.page_url ?? null,
+      source_id: input?.source_id ?? null,
+    });
+
+    const rawLines = Array.isArray(payload?.lines) ? payload.lines : [];
+    const normalized = rawLines.map((line, index) => ({
+      id: String(line?.id || source + ":" +
+        String(input?.schedule_id || input?.room_num || "match") + ":" + index),
+      label: line?.label || line?.resolution || ("Line " + (index + 1)),
+      resolution: line?.resolution || "Auto",
+      stream_type: line?.stream_type || "auto",
+      stream_url: line?.url || line?.stream_url || "",
+      referer: line?.referer || "",
+      origin: line?.origin || "",
+      key_id: null,
+      key_data: null,
+      use_webview: false,
+      webview_url: null,
+      is_active: true,
+      priority: Number(line?.priority || 100),
+      available_from: null,
+      expires_at: line?.expires_at || null,
+      health_status: line?.health_status || "unknown",
+    }));
+
+    const streams = await protectedClientLinks(normalized, env, publicOrigin);
+    return json({
+      ok: true,
+      source,
+      streams,
+      stream_count: streams.length,
+      live_status: payload?.live_status ?? null,
+      generated_at: new Date().toISOString(),
+    }, 200, { "Cache-Control": "no-store, max-age=0" });
+  } catch (error) {
+    return json({
+      error: error instanceof Error ? error.message : String(error),
+    }, Number(error?.status) || 502, {
+      "Cache-Control": "no-store, max-age=0",
+    });
   }
 }
 
@@ -1238,7 +1396,7 @@ function formatRank(link) {
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET,HEAD,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,HEAD,POST,OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type, apikey, Range, Cache-Control",
     "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
     "X-Content-Type-Options": "nosniff",
