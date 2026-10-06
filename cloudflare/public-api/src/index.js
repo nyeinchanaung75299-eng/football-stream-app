@@ -9,13 +9,6 @@ const MATCH_FIELDS = [
   "status_short", "is_featured", "publish_state", "updated_at",
 ];
 
-const LINK_FIELDS = [
-  "id", "label", "resolution", "stream_type", "stream_url",
-  "referer", "origin", "key_id", "key_data", "use_webview",
-  "webview_url", "is_active", "priority", "available_from",
-  "expires_at", "health_status",
-];
-
 const SOFT_RATE_LIMITS = new Map();
 const PLAYBACK_SESSION_AAD = new TextEncoder().encode(
   "nca-playback-session-v1",
@@ -1368,10 +1361,6 @@ async function decryptTarget(token, sessionKey) {
     { name: "AES-GCM", iv }, key, ciphertext,
   );
   return new TextDecoder().decode(plain);
-}
-
-function randomToken() {
-  return bytesToBase64Url(crypto.getRandomValues(new Uint8Array(24)));
 }
 
 function bytesToBase64Url(bytes) {
