@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'live_links_page.dart';
 import 'soco_import_page.dart';
@@ -14,6 +16,8 @@ class FixtureImportPage extends StatefulWidget {
 }
 
 class _FixtureImportPageState extends State<FixtureImportPage> {
+  static const _githubSourceMirror =
+      'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/sources/cola.json';
   DateTime selectedDate = DateTime.now();
   String mode = 'date';
   bool loading = false;
@@ -52,11 +56,41 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     return 8000000000 + hash;
   }
 
+  Future<Map<String, dynamic>> _loadColaMirror() async {
+    final response = await http
+        .get(
+          Uri.parse(_githubSourceMirror).replace(
+            queryParameters: {
+              't': DateTime.now().millisecondsSinceEpoch.toString(),
+            },
+          ),
+          headers: const {'Accept': 'application/json'},
+        )
+        .timeout(const Duration(seconds: 18));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'GitHub ColaTV mirror HTTP ' + response.statusCode.toString(),
+      );
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map) {
+      throw const FormatException('ColaTV mirror response is invalid.');
+    }
+    return Map<String, dynamic>.from(decoded);
+  }
+
   Future<List<Map<String, dynamic>>> _loadColaFixtures() async {
-    final data = await FunctionGateway.invoke(
-      'source-match-list',
-      body: const {'source': 'cola'},
-    );
+    dynamic data;
+    try {
+      // Pick Big Matches is read-only at this stage, so prefer the GitHub
+      // mirror when Cloudflare/Supabase is blocked without VPN.
+      data = await _loadColaMirror();
+    } catch (_) {
+      data = await FunctionGateway.invoke(
+        'source-match-list',
+        body: const {'source': 'cola'},
+      );
+    }
     final raw = data is Map ? data['matches'] : null;
     if (raw is! List) {
       throw const FormatException('ColaTV match list is invalid.');
