@@ -400,15 +400,42 @@ class _HomePageState extends State<HomePage> {
 
   Future<List<Map<String, dynamic>>> _loadPublicApiStreams(
     String matchId,
-  ) {
-    return _hedged(
-      _publicApiBases
-          .map<Future<List<Map<String, dynamic>>> Function()>(
-            (base) => () => _loadPublicApiStreamsFrom(base, matchId),
-          )
-          .toList(),
-      delay: const Duration(milliseconds: 120),
+  ) async {
+    // The custom domains and workers.dev can briefly run different deploys.
+    // Do not let the fastest stale endpoint hide newer Soco/MPD lines.
+    final results = await Future.wait(
+      _publicApiBases.map((base) async {
+        try {
+          return await _loadPublicApiStreamsFrom(base, matchId);
+        } catch (_) {
+          return const <Map<String, dynamic>>[];
+        }
+      }),
+      eagerError: false,
     );
+
+    final seen = <String>{};
+    final merged = <Map<String, dynamic>>[];
+
+    String keyOf(Map<String, dynamic> row) {
+      final id = row['id']?.toString().trim() ?? '';
+      if (id.isNotEmpty) return 'id:$id';
+      final url = row['stream_url']?.toString().trim() ?? '';
+      return 'url:$url';
+    }
+
+    for (final rows in results) {
+      for (final row in rows) {
+        final key = keyOf(row);
+        if (key == 'url:' || !seen.add(key)) continue;
+        merged.add(row);
+      }
+    }
+
+    if (merged.isEmpty) {
+      throw const FormatException('No stream lines returned.');
+    }
+    return merged;
   }
 
   Future<List<Map<String, dynamic>>> _resolveLinks(
@@ -476,26 +503,37 @@ class _HomePageState extends State<HomePage> {
       List<Map<String, dynamic>> rows;
       if (mirrorRows.isNotEmpty) {
         final protectedFuture = loadProtected();
+        final mirrorLooksIncomplete =
+            advertisedCount > 0 && mirrorRows.length < advertisedCount;
+
+        // If the match advertises more lines than the mirror currently has,
+        // wait long enough for all protected API aliases to answer. This
+        // prevents a stale 4-line Fawa snapshot from winning over the complete
+        // Soco + MPD authoritative set.
         final first = await Future.any<List<Map<String, dynamic>>>([
           protectedFuture,
           Future<List<Map<String, dynamic>>>.delayed(
-            Duration(milliseconds: kIsWeb ? 3000 : 2200),
+            Duration(
+              milliseconds: kIsWeb
+                  ? (mirrorLooksIncomplete ? 5200 : 3000)
+                  : (mirrorLooksIncomplete ? 4800 : 2200),
+            ),
             () => const <Map<String, dynamic>>[],
           ),
         ]);
 
-        if (first.isNotEmpty) {
-          rows = mergeRows(first, mirrorRows);
-        } else {
-          rows = mirrorRows;
+        rows = first.isNotEmpty
+            ? mergeRows(first, mirrorRows)
+            : mirrorRows;
 
-          // Do not keep the user waiting for a blocked endpoint. If the
-          // protected API eventually responds, cache the richer protected
-          // list for the next tap.
+        // A slow endpoint may still finish after the chooser opens. Keep the
+        // richer union in cache so the next tap never regresses to Fawa-only.
+        if (advertisedCount > 0 && rows.length < advertisedCount) {
           unawaited(
             protectedFuture.then((protected) {
               if (protected.isEmpty) return;
               final merged = mergeRows(protected, mirrorRows);
+              if (merged.length <= rows.length) return;
               _streamLinkCache[matchId] = _StreamCacheEntry(
                 merged,
                 DateTime.now(),
