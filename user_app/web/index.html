@@ -231,17 +231,22 @@
       },startupTimeoutMs);
     }
 
-    function isIOSNativeHls(index){
+    function isIOSRecoverableSource(index){
       const source=sources[index]||{};
       const type=sourceType(source);
       const url=String(source.url||'').toLowerCase();
-      return isIOS() &&
-        (type==='hls'||type==='m3u8'||url.includes('.m3u8')) &&
-        video.canPlayType('application/vnd.apple.mpegurl');
+      return isIOS() && (
+        type==='hls' ||
+        type==='m3u8' ||
+        type==='dash' ||
+        type==='mpd' ||
+        url.includes('.m3u8') ||
+        url.includes('.mpd')
+      );
     }
 
-    function retryIOSNativeHls(index,token){
-      if(!isCurrentPlayback(token) || !isIOSNativeHls(index))return false;
+    function retryIOSSource(index,token){
+      if(!isCurrentPlayback(token) || !isIOSRecoverableSource(index))return false;
       const attempts=iosRecoveryAttempts.get(index)||0;
       if(attempts>=2)return false;
       iosRecoveryAttempts.set(index,attempts+1);
@@ -261,7 +266,7 @@
       stallTimer=setTimeout(()=>{
         stallTimer=null;
         if(isCurrentPlayback(token) && !video.paused){
-          if(retryIOSNativeHls(index,token))return;
+          if(retryIOSSource(index,token))return;
           fallbackToNextLine(index,'This line stopped responding',token,'stall_timeout');
         }
       },isIOS()?10000:stallTimeoutMs);
@@ -345,12 +350,6 @@
       const keyData=String(source.keyData||source.key_data||'').trim();
 
       if(isIOS() && type==='dash'){
-        if(keyId&&keyData){
-          return {
-            ok:false,
-            reason:'ClearKey DASH is unstable on iPhone/iPad; using an HLS backup'
-          };
-        }
         if(!hasWebKitStreamingEngine()){
           return {
             ok:false,
@@ -366,7 +365,7 @@
         return {
           ok:true,
           reason:keyId&&keyData
-            ? 'DASH • encrypted playback will be checked by the player'
+            ? 'DASH • ClearKey playback will be attempted on this iPhone/iPad'
             : 'DASH • browser compatibility will be checked by the player'
         };
       }
@@ -644,7 +643,7 @@
             isIOS() &&
             video.canPlayType('application/vnd.apple.mpegurl')){
           video.onerror=()=>{
-            if(retryIOSNativeHls(index,token))return;
+            if(retryIOSSource(index,token))return;
             fallbackToNextLine(
               index,
               'HLS line failed in this browser',
