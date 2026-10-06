@@ -10,9 +10,10 @@ on:
       - "supabase/functions/public-feed-lines/index.ts"
       - "user_app/lib/screens/home_page.dart"
   schedule:
-    # GitHub scheduled workflows have a practical 5-minute minimum. Run at
-    # every available slot and also refresh immediately after viewer changes.
-    - cron: "*/5 * * * *"
+    # GitHub scheduled workflows have a practical 5-minute minimum. Offset
+    # the run from the busiest :00/:05 boundaries to reduce delayed/dropped
+    # scheduled executions, while viewer changes still refresh immediately.
+    - cron: "2-57/5 * * * *"
 
 permissions:
   contents: write
