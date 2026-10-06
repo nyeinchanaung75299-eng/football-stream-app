@@ -393,3 +393,72 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy-web.yml --ref "${GITHUB_REF_NAME}"
+
+
+  report:
+    name: Record current-main mobile build status
+    if: always()
+    needs: [verify-ios, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Publish mobile CI status to feed
+        env:
+          VERIFY_IOS_RESULT: ${{ needs.verify-ios.result }}
+          ANDROID_RESULT: ${{ needs.build.result }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -e
+          python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          ios = os.environ["VERIFY_IOS_RESULT"]
+          android = os.environ["ANDROID_RESULT"]
+          data = {
+              "sha": os.environ["HEAD_SHA"],
+              "run_id": int(os.environ["RUN_ID"]),
+              "run_number": int(os.environ["RUN_NUMBER"]),
+              "workflow": "Build Android V9.8 APKs",
+              "verify_ios": ios,
+              "android": android,
+              "overall": "success" if ios == "success" and android == "success" else "failure",
+              "artifacts": [
+                  "NCA-Admin-V9.8-Release-APKs",
+                  "NCA-V9.8-Release-APKs",
+              ],
+              "updated_at": datetime.now(timezone.utc).isoformat(),
+          }
+          Path("/tmp/mobile-ci.json").write_text(
+              json.dumps(data, separators=(",", ":")),
+              encoding="utf-8",
+          )
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin feed
+          git switch -C feed origin/feed
+          mkdir -p public/ci
+          cp /tmp/mobile-ci.json public/ci/mobile.json
+          git add public/ci/mobile.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Record mobile CI status for ${HEAD_SHA::12}"
+
+          for attempt in 1 2 3 4; do
+            if git push origin feed; then
+              exit 0
+            fi
+            git pull --rebase origin feed
+            sleep 2
+          done
+          exit 1
