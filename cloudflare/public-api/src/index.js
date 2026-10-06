@@ -6,9 +6,7 @@ const DEFAULT_MIRROR =
 const MATCH_FIELDS = [
   "id", "league", "home_team", "away_team", "home_logo_url",
   "away_logo_url", "kickoff_at", "is_live", "sort_order",
-  "home_score", "away_score", "status_short", "status_elapsed",
-  "is_finished", "is_featured", "publish_state",
-  "last_score_sync_at", "updated_at",
+  "status_short", "is_featured", "publish_state", "updated_at",
 ];
 
 const LINK_FIELDS = [
@@ -36,7 +34,7 @@ export default {
     }
 
     const adminFunctionRoute = url.pathname.match(
-      /^\/admin\/functions\/(football-fixtures|football-score-sync|stream-health|soco-links|source-match-list)$/,
+      /^\/admin\/functions\/(football-fixtures|stream-health|soco-links|source-match-list)$/,
     );
     if (adminFunctionRoute && request.method === "POST") {
       return handleAdminFunction(request, adminFunctionRoute[1], env);
