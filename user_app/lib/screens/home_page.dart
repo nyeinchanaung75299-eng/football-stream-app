@@ -790,6 +790,37 @@ class _HomePageState extends State<HomePage> {
     return filtered;
   }
 
+  String _normalizedWebReferer(
+    Map<String, dynamic> link,
+    Map<String, dynamic> match,
+  ) {
+    final referer = (link['referer'] ?? '').toString().trim();
+    if (!kIsWeb || referer.isEmpty) return referer;
+
+    Uri? uri;
+    try {
+      uri = Uri.parse(referer);
+    } catch (_) {
+      return referer;
+    }
+
+    final host = uri.host.toLowerCase();
+    final isFawa = host == 'fawanews.sc' ||
+        host == 'www.fawanews.sc' ||
+        host.endsWith('.fawanews.sc');
+    if (!isFawa) return referer;
+
+    final path = uri.path.trim();
+    if (path.isNotEmpty && path != '/') return referer;
+
+    final home = (match['home_team'] ?? '').toString().trim();
+    final away = (match['away_team'] ?? '').toString().trim();
+    if (home.isEmpty || away.isEmpty) return referer;
+
+    final slug = Uri.encodeComponent('$home vs $away');
+    return 'http://www.fawanews.sc/$slug.html';
+  }
+
   Future<void> openPlayer(Map<String, dynamic> match) async {
     final matchId = match['id']?.toString() ?? '';
     unawaited(AnalyticsService.capture(
@@ -835,7 +866,7 @@ class _HomePageState extends State<HomePage> {
               'label': (x['label'] ?? x['resolution'] ?? 'Server').toString(),
               'streamType': (x['stream_type'] ?? 'auto').toString(),
               'url': (x['stream_url'] ?? '').toString(),
-              'referer': (x['referer'] ?? '').toString(),
+              'referer': _normalizedWebReferer(x, match),
               'origin': (x['origin'] ?? '').toString(),
               'keyId': (x['key_id'] ?? '').toString(),
               'keyData': (x['key_data'] ?? '').toString(),
