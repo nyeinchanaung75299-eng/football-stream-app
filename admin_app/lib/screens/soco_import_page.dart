@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -28,6 +29,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
   String dayFilter = 'today';
   String? errorText;
   List<Map<String, dynamic>> sourceMatches = const [];
+  final Map<String, String> _anchorStatuses = <String, String>{};
+  final Map<String, int> _anchorLineCounts = <String, int>{};
+  int _anchorStatusEpoch = 0;
 
   @override
   void initState() {
@@ -131,7 +135,17 @@ class _SocoImportPageState extends State<SocoImportPage> {
         },
       );
       if (!mounted) return;
-      setState(() => sourceMatches = parsed);
+      setState(() {
+        sourceMatches = parsed;
+        _anchorStatuses.clear();
+        _anchorLineCounts.clear();
+      });
+      unawaited(
+        Future<void>.delayed(
+          Duration.zero,
+          _probeVisibleAnchorStatuses,
+        ),
+      );
     } catch (e) {
       await AnalyticsService.capture(
         'source match list failed',
@@ -147,6 +161,145 @@ class _SocoImportPageState extends State<SocoImportPage> {
     } finally {
       if (mounted) setState(() => loading = false);
     }
+  }
+
+  String _anchorKey(
+    Map<String, dynamic> match,
+    Map<String, dynamic> anchor, {
+    String? provider,
+  }) {
+    final sourceKey = provider ?? source;
+    final matchKey =
+        (match['schedule_id'] ?? match['source_id'] ?? match['page_url'] ?? '')
+            .toString();
+    final roomKey =
+        (anchor['room_num'] ?? anchor['page_url'] ?? anchor['uid'] ?? '')
+            .toString();
+    return '$sourceKey|$matchKey|$roomKey';
+  }
+
+  bool _isLiveStatus(dynamic value) {
+    if (value == true || value == 1) return true;
+    final text = value?.toString().trim().toUpperCase() ?? '';
+    return text == '1' ||
+        text == 'LIVE' ||
+        text == 'LIVING' ||
+        text == 'ON' ||
+        text == 'ONLINE';
+  }
+
+  bool _matchLooksLive(Map<String, dynamic> match) {
+    if (match['hot'] == true) return true;
+    final status =
+        (match['status'] ?? match['match_status'] ?? '')
+            .toString()
+            .trim()
+            .toUpperCase();
+    return const {'LIVE', 'INPLAY', 'IN_PLAY', '1H', '2H', 'HT'}
+        .contains(status);
+  }
+
+  Future<void> _probeVisibleAnchorStatuses() async {
+    if (!mounted || loading) return;
+
+    final provider = source;
+    final epoch = ++_anchorStatusEpoch;
+    final matches = _visibleSourceMatches;
+    final pending = <Map<String, dynamic>>[];
+
+    for (final match in matches) {
+      final anchors = List<Map<String, dynamic>>.from(
+        match['anchors'] ?? const [],
+      );
+      for (final anchor in anchors) {
+        final key = _anchorKey(match, anchor, provider: provider);
+        if (_anchorStatuses.containsKey(key)) continue;
+
+        if (provider == 'cola' || provider == 'fawa') {
+          _anchorStatuses[key] =
+              _matchLooksLive(match) ? 'live' : 'ready';
+          continue;
+        }
+
+        _anchorStatuses[key] = 'checking';
+        pending.add({
+          'match': match,
+          'anchor': anchor,
+          'key': key,
+        });
+      }
+    }
+
+    if (mounted && source == provider) setState(() {});
+
+    for (var offset = 0; offset < pending.length; offset += 4) {
+      if (!mounted || source != provider || epoch != _anchorStatusEpoch) return;
+
+      final batch = pending.skip(offset).take(4).toList();
+      await Future.wait(
+        batch.map((item) async {
+          final match =
+              Map<String, dynamic>.from(item['match'] as Map);
+          final anchor =
+              Map<String, dynamic>.from(item['anchor'] as Map);
+          final key = item['key'].toString();
+
+          try {
+            final room = anchor['room_num']?.toString().trim() ?? '';
+            if (room.isEmpty) {
+              _anchorStatuses[key] = 'offline';
+              return;
+            }
+
+            final data = await FunctionGateway.invoke(
+              'soco-links',
+              body: {
+                'action': 'streams',
+                'source': provider,
+                'room_num': room,
+                'schedule_id': match['schedule_id'],
+                'page_url': anchor['page_url'] ?? match['page_url'],
+                'status_only': true,
+              },
+            );
+
+            if (data is! Map) {
+              _anchorStatuses[key] = 'unknown';
+              return;
+            }
+
+            final lineCount =
+                (data['line_count'] as num?)?.toInt() ?? 0;
+            _anchorLineCounts[key] = lineCount;
+
+            if (_isLiveStatus(data['live_status'])) {
+              _anchorStatuses[key] = 'live';
+            } else if (data['ready'] == true || lineCount > 0) {
+              _anchorStatuses[key] = 'ready';
+            } else {
+              _anchorStatuses[key] = 'offline';
+            }
+          } catch (_) {
+            _anchorStatuses[key] = 'unknown';
+          }
+        }),
+      );
+
+      if (mounted && source == provider && epoch == _anchorStatusEpoch) {
+        setState(() {});
+      }
+    }
+  }
+
+  int _anchorStatusRank(String? status) {
+    return switch (status) {
+      'live' => 0,
+      'ready' => 1,
+      'checking' => 2,
+      'unknown' => 3,
+      'offline' => 4,
+      _ => 3,
+    };
   }
 
   bool _sameDate(DateTime a, DateTime b) =>
@@ -733,6 +886,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   (value == 'fawa' || value == 'cola') ? 'all' : 'today';
               sourceMatches = const [];
               errorText = null;
+              _anchorStatusEpoch += 1;
+              _anchorStatuses.clear();
+              _anchorLineCounts.clear();
             });
             AnalyticsService.capture(
               'source provider selected',
@@ -754,13 +910,24 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
   Widget _dayButton(String value, String label) {
     final selected = dayFilter == value;
+
+    void selectDay() {
+      setState(() => dayFilter = value);
+      unawaited(
+        Future<void>.delayed(
+          Duration.zero,
+          _probeVisibleAnchorStatuses,
+        ),
+      );
+    }
+
     return selected
         ? FilledButton.tonal(
-            onPressed: () => setState(() => dayFilter = value),
+            onPressed: selectDay,
             child: Text(label),
           )
         : TextButton(
-            onPressed: () => setState(() => dayFilter = value),
+            onPressed: selectDay,
             child: Text(label),
           );
   }
@@ -911,7 +1078,16 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   )?.toLocal();
                   final anchors = List<Map<String, dynamic>>.from(
                     match['anchors'] ?? const [],
-                  );
+                  )..sort((a, b) {
+                      final aStatus = _anchorStatuses[
+                          _anchorKey(match, a)
+                      ];
+                      final bStatus = _anchorStatuses[
+                          _anchorKey(match, b)
+                      ];
+                      return _anchorStatusRank(aStatus)
+                          .compareTo(_anchorStatusRank(bStatus));
+                    });
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 10),
@@ -985,14 +1161,48 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                 final name =
                                     (anchor['nick_name'] ?? 'Streamer')
                                         .toString();
+                                final key = _anchorKey(match, anchor);
+                                final status =
+                                    _anchorStatuses[key] ?? 'unknown';
+                                final lineCount =
+                                    _anchorLineCounts[key] ?? 0;
+
+                                final icon = switch (status) {
+                                  'live' => Icons.sensors_rounded,
+                                  'ready' => Icons.check_circle_rounded,
+                                  'offline' => Icons.cloud_off_rounded,
+                                  'checking' => Icons.sync_rounded,
+                                  _ => Icons.help_outline_rounded,
+                                };
+                                final suffix = switch (status) {
+                                  'live' => ' • LIVE',
+                                  'ready' => lineCount > 0
+                                      ? ' • READY ($lineCount)'
+                                      : ' • READY',
+                                  'offline' => ' • OFFLINE',
+                                  'checking' => ' • CHECKING',
+                                  _ => ' • UNKNOWN',
+                                };
+                                final color = switch (status) {
+                                  'live' => Colors.redAccent,
+                                  'ready' => Colors.green,
+                                  'offline' => Colors.blueGrey,
+                                  'checking' => Colors.orange,
+                                  _ => colors.onSurfaceVariant,
+                                };
+
                                 return OutlinedButton.icon(
-                                  onPressed: () =>
-                                      _openAnchor(match, anchor),
-                                  icon: const Icon(
-                                    Icons.podcasts_rounded,
-                                    size: 17,
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: color,
+                                    side: BorderSide(
+                                      color: color.withValues(alpha: .55),
+                                    ),
                                   ),
-                                  label: Text(name),
+                                  onPressed: status == 'checking'
+                                      ? null
+                                      : () => _openAnchor(match, anchor),
+                                  icon: Icon(icon, size: 17),
+                                  label: Text('$name$suffix'),
                                 );
                               }).toList(),
                             ),
