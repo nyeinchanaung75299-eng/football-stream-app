@@ -219,12 +219,15 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
   Future<List<Map<String, dynamic>>> _loadMatches() async {
     try {
+      final workerJobs =
+          bases.map<Future<List<Map<String, dynamic>>> Function()>(
+            (base) => () => _loadFrom(base),
+          ).toList();
       final rows = await _hedged(
         [
-          ...bases.map<Future<List<Map<String, dynamic>>> Function()>(
-            (base) => () => _loadFrom(base),
-          ),
+          if (workerJobs.isNotEmpty) workerJobs.first,
           () => _loadFromSupabase(),
+          ...workerJobs.skip(1),
         ],
       );
       unawaited(_saveLastGood(rows));
@@ -373,10 +376,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   ) =>
       _hedged(
         [
-          ...bases.map<Future<List<Map<String, dynamic>>> Function()>(
+          if (bases.isNotEmpty) () => _anchorFrom(bases.first, m, anchor),
+          () => _anchorFromSupabase(m, anchor),
+          ...bases.skip(1).map<Future<List<Map<String, dynamic>>> Function()>(
             (base) => () => _anchorFrom(base, m, anchor),
           ),
-          () => _anchorFromSupabase(m, anchor),
         ],
       );
 
