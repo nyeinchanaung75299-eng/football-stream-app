@@ -641,9 +641,25 @@ class _HomePageState extends State<HomePage> {
       final existingLinks = playableLinks(row['stream_links']);
       final backupLinks = playableLinks(backup['stream_links']);
 
-      if (existingLinks.isEmpty && backupLinks.isNotEmpty) {
-        row['stream_links'] = backupLinks;
-        row['public_stream_count'] = backupLinks.length;
+      final seenLinks = <String>{};
+      final mergedLinks = <Map<String, dynamic>>[];
+
+      String linkKey(Map<String, dynamic> link) {
+        final id = link['id']?.toString().trim() ?? '';
+        if (id.isNotEmpty) return 'id:$id';
+        final url = link['stream_url']?.toString().trim() ?? '';
+        return 'url:$url';
+      }
+
+      for (final link in [...existingLinks, ...backupLinks]) {
+        final key = linkKey(link);
+        if (key == 'url:' || !seenLinks.add(key)) continue;
+        mergedLinks.add(link);
+      }
+
+      if (mergedLinks.isNotEmpty) {
+        row['stream_links'] = mergedLinks;
+        row['public_stream_count'] = mergedLinks.length;
       }
 
       final authoritativeCount =
