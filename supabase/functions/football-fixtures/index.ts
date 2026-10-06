@@ -282,12 +282,34 @@ async function loadSourceFallbackFixtures(args: {
 
   const deduped = new Map<string, any>();
   for (const fixture of fixtures) {
-    const key = [
-      yangonDate(fixture.kickoff_at),
-      String(fixture.home_name ?? "").trim().toLowerCase(),
-      String(fixture.away_name ?? "").trim().toLowerCase(),
-    ].join("|");
-    if (!deduped.has(key)) deduped.set(key, fixture);
+    const key = sourceFixtureDedupKey(fixture);
+    const current = deduped.get(key);
+    if (current == null) {
+      deduped.set(key, fixture);
+      continue;
+    }
+
+    // Soco and YYZB can publish the same match with different language
+    // labels. Keep one card and prefer the row with the clearer English name,
+    // while filling any missing logo/status fields from the other source.
+    const preferred =
+      fixtureEnglishScore(fixture) > fixtureEnglishScore(current)
+        ? fixture
+        : current;
+    const other = preferred === fixture ? current : fixture;
+
+    deduped.set(key, {
+      ...other,
+      ...preferred,
+      home_logo: preferred.home_logo ?? other.home_logo,
+      away_logo: preferred.away_logo ?? other.away_logo,
+      league_logo: preferred.league_logo ?? other.league_logo,
+      status_short:
+        preferred.status_short !== "NS"
+          ? preferred.status_short
+          : other.status_short,
+      is_live: preferred.is_live === true || other.is_live === true,
+    });
   }
 
   const result = [...deduped.values()];
@@ -305,6 +327,74 @@ async function loadSourceFallbackFixtures(args: {
     source_failures: failures,
     remaining: null,
   };
+}
+
+function sourceFixtureDedupKey(fixture: any) {
+  const kickoff = new Date(fixture?.kickoff_at ?? 0);
+  const minute = Number.isFinite(kickoff.getTime())
+    ? kickoff.toISOString().slice(0, 16)
+    : yangonDate(String(fixture?.kickoff_at ?? ""));
+
+  const homeLogo = canonicalLogoKey(fixture?.home_logo);
+  const awayLogo = canonicalLogoKey(fixture?.away_logo);
+  if (homeLogo && awayLogo) {
+    return [minute, "logos", homeLogo, awayLogo].join("|");
+  }
+
+  return [
+    minute,
+    "names",
+    canonicalTeamName(fixture?.home_name),
+    canonicalTeamName(fixture?.away_name),
+  ].join("|");
+}
+
+function canonicalLogoKey(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    return (url.hostname + url.pathname)
+      .toLowerCase()
+      .replace(/\/+$/, "");
+  } catch (_) {
+    return raw.toLowerCase().split("?")[0];
+  }
+}
+
+function canonicalTeamName(value: unknown) {
+  let text = String(value ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/乌兹别克斯坦/g, "uzbekistan")
+    .replace(/乌兹别克/g, "uzbekistan")
+    .replace(/韩国/g, "south korea")
+    .replace(/越南/g, "vietnam")
+    .replace(/哈萨克斯坦/g, "kazakhstan");
+
+  // Some feeds partially translate a name, producing strings such as
+  // "Uzbekistan斯坦". If Latin text is already present, remove leftover Han
+  // suffixes so the translated and untranslated provider rows collapse.
+  if (/[a-z]/.test(text)) {
+    text = text.replace(/[\u3400-\u9fff]+/g, " ");
+  }
+
+  return text
+    .replace(/\b(?:fc|cf|sc|afc)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function fixtureEnglishScore(fixture: any) {
+  const text = [
+    fixture?.league_name,
+    fixture?.home_name,
+    fixture?.away_name,
+  ].join(" ");
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  const han = (text.match(/[\u3400-\u9fff]/g) ?? []).length;
+  return latin - han * 4;
 }
 
 function normalizeSourceKickoff(value: unknown) {
