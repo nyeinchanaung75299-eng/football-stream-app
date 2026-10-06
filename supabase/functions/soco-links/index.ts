@@ -15,6 +15,7 @@ const YYZB_ROOM_BASE = "https://json.ncctrials.com/room";
 
 const FAWA_BASE = "http://www.fawanews.sc";
 const FAWA_HOME = FAWA_BASE + "/";
+const COLA_HOME = "https://colatv66.live/";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -67,6 +68,9 @@ Deno.serve(async (req) => {
       if (source === "fawa") {
         return await fawaStreams(body);
       }
+      if (source === "cola") {
+        return await colaStreams(body);
+      }
       if (source === "yyzb") {
         return await roomStreams({
           source,
@@ -87,6 +91,9 @@ Deno.serve(async (req) => {
 
     if (source === "fawa") {
       return await fawaMatches();
+    }
+    if (source === "cola") {
+      return await colaMatches();
     }
     if (source === "yyzb") {
       return await jsonpMatches({
@@ -111,7 +118,9 @@ Deno.serve(async (req) => {
 
 function normalizeSource(value: unknown) {
   const source = String(value ?? "soco").trim().toLowerCase();
-  if (source === "yyzb" || source === "fawa") return source;
+  if (source === "yyzb" || source === "fawa" || source === "cola") {
+    return source;
+  }
   return "soco";
 }
 
@@ -431,6 +440,278 @@ async function fawaStreams(body: any) {
     source: "fawa",
     generated_at: new Date().toISOString(),
   });
+}
+
+async function colaMatches() {
+  let html = "";
+  let lastError: unknown = null;
+  for (const candidate of [
+    COLA_HOME + "?lang=en",
+    COLA_HOME + "?language=en",
+    COLA_HOME,
+  ]) {
+    try {
+      html = await fetchText(candidate);
+      if (html.trim()) break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!html.trim()) {
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("ColaTV source is unreachable.");
+  }
+
+  const grouped = new Map<string, any>();
+  const normalized = decodeHtml(
+    html
+      .replace(/\\u002[fF]/g, "/")
+      .replace(/\\\//g, "/"),
+  );
+  const anchorRegex =
+    /<a\b([^>]*?)href=["']([^"']+)["']([^>]*)>([\s\S]{0,5000}?)<\/a>/gi;
+  let hit: RegExpExecArray | null;
+
+  while ((hit = anchorRegex.exec(normalized)) !== null) {
+    const attrs = `${hit[1] ?? ""} ${hit[3] ?? ""}`;
+    const href = decodeHtml(hit[2] ?? "").trim();
+    const pageUrl = safeColaPageUrl(href);
+    if (!pageUrl || pageUrl === COLA_HOME) continue;
+
+    const attrLabel =
+      attrs.match(/(?:aria-label|title)=["']([^"']+)["']/i)?.[1] ?? "";
+    const visible = decodeHtml(stripTags(hit[4] ?? ""))
+      .replace(/\s+/g, " ")
+      .trim();
+    const candidateText = friendlyText(
+      `${attrLabel} ${visible}`.replace(/\s+/g, " ").trim(),
+    );
+    const teams =
+      matchTeamsFromText(candidateText) ??
+      matchTeamsFromUrl(pageUrl);
+    if (!teams) continue;
+
+    const key = `${teams.home.toLowerCase()}::${teams.away.toLowerCase()}`;
+    const existing = grouped.get(key) ?? {
+      source: "cola",
+      source_id: pageUrl,
+      page_url: pageUrl,
+      league: colaLeagueFromText(candidateText),
+      home_team: teams.home,
+      away_team: teams.away,
+      home_logo: null,
+      away_logo: null,
+      match_time: colaTimeFromText(candidateText),
+      time_label: null,
+      hot: /\blive\b/i.test(candidateText),
+      status: /\blive\b/i.test(candidateText) ? "LIVE" : null,
+      match_status: /\blive\b/i.test(candidateText) ? "LIVE" : null,
+      anchors: [],
+    };
+    if (!existing.anchors.some((item: any) => item.page_url === pageUrl)) {
+      existing.anchors.push({
+        uid: pageUrl,
+        nick_name: "ColaTV",
+        icon: null,
+        room_num: pageUrl,
+        page_url: pageUrl,
+      });
+    }
+    grouped.set(key, existing);
+  }
+
+  const matches = [...grouped.values()].sort(compareMatches);
+  return json({
+    ok: true,
+    matches,
+    results: matches.length,
+    source: "cola",
+    language: "en",
+    generated_at: new Date().toISOString(),
+  });
+}
+
+async function colaStreams(body: any) {
+  const pageUrl = safeColaPageUrl(body.page_url ?? body.room_num);
+  if (!pageUrl) {
+    return json({ error: "Invalid ColaTV match page." }, 400);
+  }
+
+  const pages = new Map<string, string>();
+  const firstHtml = await fetchText(pageUrl);
+  pages.set(pageUrl, firstHtml);
+
+  // Some ColaTV revisions put the direct source in a same-site player iframe
+  // or script bundle. Follow only ColaTV-owned pages/assets to avoid turning
+  // this admin-only extractor into an arbitrary fetch proxy.
+  const embedded = [
+    ...extractColaEmbedUrls(firstHtml, pageUrl),
+    ...extractColaScriptUrls(firstHtml, pageUrl),
+  ].slice(0, 8);
+
+  for (const candidate of embedded) {
+    const safe = safeColaPageUrl(candidate);
+    if (!safe || pages.has(safe)) continue;
+    try {
+      pages.set(safe, await fetchText(safe));
+    } catch (_) {
+      // Main page extraction can still succeed.
+    }
+  }
+
+  const found = new Map<string, { url: string; referer: string }>();
+  for (const [sourcePage, html] of pages.entries()) {
+    for (const media of extractMediaUrls(html, sourcePage)) {
+      if (!found.has(media)) {
+        found.set(media, { url: media, referer: sourcePage });
+      }
+    }
+  }
+
+  const lines = [...found.values()]
+    .map((item, index) => ({
+      label: `ColaTV Server ${index + 1} · ${detectType(item.url).toUpperCase()}`,
+      stream_type: detectType(item.url),
+      resolution: qualityFromUrl(item.url),
+      url: item.url,
+      referer: item.referer,
+      origin: new URL(item.referer).origin,
+      expires_at: streamExpiry(item.url),
+    }))
+    .filter((line) => line.stream_type !== "auto");
+
+  const checkedLines = await probeLines(lines);
+
+  return json({
+    ok: true,
+    page_url: pageUrl,
+    title: pageTitle(firstHtml),
+    lines: checkedLines,
+    source: "cola",
+    language: "en",
+    generated_at: new Date().toISOString(),
+  });
+}
+
+function safeColaPageUrl(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw, COLA_HOME);
+    const host = url.hostname.toLowerCase();
+    if (host !== "colatv66.live" && !host.endsWith(".colatv66.live")) {
+      return null;
+    }
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    url.hash = "";
+    return url.toString();
+  } catch (_) {
+    return null;
+  }
+}
+
+function extractColaEmbedUrls(html: string, baseUrl: string) {
+  const urls = new Set<string>();
+  const normalized = decodeHtml(
+    html.replace(/\\u002[fF]/g, "/").replace(/\\\//g, "/"),
+  );
+  const regex =
+    /<iframe\b[^>]+(?:src|data-src)=["']([^"']+)["']/gi;
+  let hit: RegExpExecArray | null;
+  while ((hit = regex.exec(normalized)) !== null) {
+    const safe = safeColaPageUrl(
+      normalizeMediaUrl(hit[1], baseUrl) || new URL(hit[1], baseUrl).toString(),
+    );
+    if (safe) urls.add(safe);
+  }
+  return [...urls];
+}
+
+function extractColaScriptUrls(html: string, baseUrl: string) {
+  const urls = new Set<string>();
+  const regex = /<script\b[^>]+src=["']([^"']+)["']/gi;
+  let hit: RegExpExecArray | null;
+  while ((hit = regex.exec(html)) !== null) {
+    try {
+      const safe = safeColaPageUrl(new URL(decodeHtml(hit[1]), baseUrl).toString());
+      if (safe) urls.add(safe);
+    } catch (_) {}
+  }
+  return [...urls];
+}
+
+function cleanColaTeam(value: string) {
+  return friendlyText(value)
+    .replace(/\b(?:live|watch|stream|football|soccer|today|tomorrow)\b/gi, " ")
+    .replace(/\b\d{1,2}:\d{2}\b/g, " ")
+    .replace(/\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/g, " ")
+    .replace(/[|•]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function matchTeamsFromText(value: string) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  const hit = text.match(
+    /(.{2,80}?)\s+(?:vs?\.?|versus)\s+(.{2,80}?)(?=\s{2,}|\s*[|•]\s*|$)/i,
+  );
+  if (!hit) return null;
+  const home = cleanColaTeam(hit[1]);
+  const away = cleanColaTeam(hit[2]);
+  if (!home || !away || home.length > 80 || away.length > 80) return null;
+  return { home, away };
+}
+
+function matchTeamsFromUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const slug = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() ?? "")
+      .replace(/\.(?:html?|php)$/i, "")
+      .replace(/[_+]+/g, "-");
+    const parts = slug.split(/-vs?-|-versus-/i);
+    if (parts.length < 2) return null;
+    const home = cleanColaTeam(parts[0].replace(/-/g, " "));
+    const away = cleanColaTeam(parts.slice(1).join(" ").replace(/-/g, " "));
+    if (!home || !away) return null;
+    return { home, away };
+  } catch (_) {
+    return null;
+  }
+}
+
+function colaLeagueFromText(value: string) {
+  const text = friendlyText(value);
+  for (const label of [
+    "Premier League",
+    "Champions League",
+    "Europa League",
+    "La Liga",
+    "Serie A",
+    "Bundesliga",
+    "Ligue 1",
+    "International Friendly",
+    "World Cup",
+    "UEFA Nations League",
+  ]) {
+    if (text.toLowerCase().includes(label.toLowerCase())) return label;
+  }
+  return "Football";
+}
+
+function colaTimeFromText(value: string) {
+  const time = String(value ?? "").match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+  if (!time) return null;
+  const now = new Date();
+  const candidate = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    Number(time[1]),
+    Number(time[2]),
+  );
+  return candidate.toISOString();
 }
 
 function collectMatchRows(value: any, depth = 0, output: any[] = []) {
