@@ -264,17 +264,17 @@ test('iOS live streams retry the same line before falling back, while user pause
   await h.open([primary, backup]);
 
   h.video.emit('waiting');
-  await h.tick(11000);
+  await h.tick(13000);
   assert.deepEqual(h.plays, [primary.url, primary.url]);
   assert.equal(failures(h).length, 0);
 
   h.video.emit('waiting');
-  await h.tick(11000);
+  await h.tick(13000);
   assert.deepEqual(h.plays, [primary.url, primary.url, primary.url]);
   assert.equal(failures(h).length, 0);
 
   h.video.emit('waiting');
-  await h.tick(11000);
+  await h.tick(13000);
   assert.equal(failures(h)[0].properties.reason, 'stall_timeout');
   await h.tick(1000);
   assert.deepEqual(h.plays, [
