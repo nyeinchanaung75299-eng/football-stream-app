@@ -26,6 +26,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       'https://football-public-api.nyeinchanaung75299-eng.workers.dev';
   static const _supabaseFunction =
       'https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links';
+  static const _githubMirrorBase =
+      'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/sources';
   static const _sourceMirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/sources';
