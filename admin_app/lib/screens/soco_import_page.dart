@@ -32,6 +32,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   final Map<String, String> _anchorStatuses = <String, String>{};
   final Map<String, int> _anchorLineCounts = <String, int>{};
   int _anchorStatusEpoch = 0;
+  String? _extractingAnchorKey;
 
   @override
   void initState() {
@@ -429,13 +430,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final room = anchor['room_num']?.toString().trim() ?? '';
     if (room.isEmpty) return;
 
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: CircularProgressIndicator(),
-      ),
-    );
+    final extractingKey = _anchorKey(match, anchor);
+    if (_extractingAnchorKey != null) return;
+    setState(() => _extractingAnchorKey = extractingKey);
 
     try {
       final data = await FunctionGateway.invoke(
@@ -446,12 +443,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'room_num': room,
           'schedule_id': match['schedule_id'],
           'page_url': anchor['page_url'] ?? match['page_url'],
+          'skip_probe': true,
         },
       );
-
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
 
       final rows = data is Map ? data['lines'] : null;
       if (rows is! List) {
@@ -1208,6 +1202,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                   _ => colors.onSurfaceVariant,
                                 };
 
+                                final extracting =
+                                    _extractingAnchorKey == key;
+
                                 return OutlinedButton.icon(
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: color,
@@ -1215,11 +1212,25 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                       color: color.withValues(alpha: .55),
                                     ),
                                   ),
-                                  onPressed: status == 'checking'
+                                  onPressed: status == 'checking' ||
+                                          _extractingAnchorKey != null
                                       ? null
                                       : () => _openAnchor(match, anchor),
-                                  icon: Icon(icon, size: 17),
-                                  label: Text('$name$suffix'),
+                                  icon: extracting
+                                      ? SizedBox(
+                                          width: 17,
+                                          height: 17,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: color,
+                                          ),
+                                        )
+                                      : Icon(icon, size: 17),
+                                  label: Text(
+                                    extracting
+                                        ? '$name • LOADING'
+                                        : '$name$suffix',
+                                  ),
                                 );
                               }).toList(),
                             ),
