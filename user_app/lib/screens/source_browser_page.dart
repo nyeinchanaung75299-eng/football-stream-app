@@ -26,8 +26,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       'https://football-public-api.nyeinchanaung75299-eng.workers.dev';
   static const _supabaseFunction =
       'https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links';
-  static const _githubMirrorBase =
-      'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/sources';
   static const _sourceMirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/sources';
@@ -157,7 +155,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           ),
           headers: const {'Accept': 'application/json'},
         )
-        .timeout(const Duration(seconds: 7));
+        .timeout(const Duration(seconds: 18));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(
         'GitHub source mirror HTTP ' + response.statusCode.toString(),
