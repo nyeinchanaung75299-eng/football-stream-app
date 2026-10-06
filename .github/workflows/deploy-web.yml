@@ -75,6 +75,10 @@ jobs:
           # be pinned to an older web release after a VPN/network change.
           cp build/web/index.html build/web/404.html
 
+      - name: Create Admin Web platform
+        working-directory: admin_app
+        run: flutter create . --platforms web
+
       - name: Get Admin Web dependencies
         working-directory: admin_app
         run: flutter pub get
