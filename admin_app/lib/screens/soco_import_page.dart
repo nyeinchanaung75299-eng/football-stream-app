@@ -33,11 +33,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
   final Map<String, int> _anchorLineCounts = <String, int>{};
   int _anchorStatusEpoch = 0;
   String? _extractingAnchorKey;
+  late Future<List<Map<String, dynamic>>> _targetMatchesFuture;
 
   @override
   void initState() {
     super.initState();
     targetMatchId = widget.initialMatchId;
+    _targetMatchesFuture = _loadTargetMatches();
     final requested = widget.initialSource.trim().toLowerCase();
     source = const {'soco', 'yyzb', 'fawa', 'cola'}.contains(requested)
         ? requested
@@ -961,13 +963,17 @@ class _SocoImportPageState extends State<SocoImportPage> {
         ],
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _loadTargetMatches(),
+        future: _targetMatchesFuture,
         builder: (context, targetSnapshot) {
           final targets =
               targetSnapshot.data ?? const <Map<String, dynamic>>[];
 
-          if (targetMatchId != null &&
+          if (targetSnapshot.connectionState == ConnectionState.done &&
+              targetSnapshot.hasData &&
+              targetMatchId != null &&
               !targets.any((row) => row['id'] == targetMatchId)) {
+            // Only invalidate a preset destination after a completed query.
+            // A FutureBuilder waiting snapshot must not erase it.
             targetMatchId = null;
           }
 
