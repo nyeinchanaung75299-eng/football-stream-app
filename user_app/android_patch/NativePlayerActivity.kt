@@ -53,6 +53,8 @@ class NativePlayerActivity : Activity() {
     private var autoFallbackTried = mutableSetOf<Int>()
     private var playbackStartedServers = mutableSetOf<Int>()
     private var bufferingReportedServers = mutableSetOf<Int>()
+    private var pendingFallback: Runnable? = null
+    private var playbackGeneration = 0
 
     private data class QualityOption(
         val label: String,
@@ -288,6 +290,9 @@ class NativePlayerActivity : Activity() {
 
     private fun playServer(index: Int) {
         if (index !in 0 until sources.length()) return
+        pendingFallback?.let { if (::playerView.isInitialized) playerView.removeCallbacks(it) }
+        pendingFallback = null
+        playbackGeneration += 1
         val source = sources.optJSONObject(index) ?: return
         val url = source.optString("url").trim()
         if (url.isBlank()) {
@@ -410,7 +415,17 @@ class NativePlayerActivity : Activity() {
                     )
                 )
                 showStatus("$message • trying backup…")
-                playerView.postDelayed({ playServer(i) }, 550)
+                val generation = playbackGeneration
+                val fallback = Runnable {
+                    if (generation != playbackGeneration || isFinishing || isDestroyed) {
+                        return@Runnable
+                    }
+                    pendingFallback = null
+                    playServer(i)
+                }
+                pendingFallback?.let { playerView.removeCallbacks(it) }
+                pendingFallback = fallback
+                playerView.postDelayed(fallback, 550)
                 return
             }
         }
@@ -584,6 +599,9 @@ class NativePlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        pendingFallback?.let { if (::playerView.isInitialized) playerView.removeCallbacks(it) }
+        pendingFallback = null
+        playbackGeneration += 1
         if (::playerView.isInitialized) playerView.player = null
         player?.release()
         player = null
