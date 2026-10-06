@@ -114,7 +114,7 @@ class DashboardPage extends StatelessWidget {
           const SizedBox(height: 10),
           _ActionCard(
             icon: Icons.podcasts_rounded,
-            title: 'Soco / YYZB / Fawa Links',
+            title: 'Soco / YYZB / Fawa / ColaTV Links',
             subtitle: 'Extract M3U8 / MPD / FLV / MP4 source links and add them to a match.',
             iconColor: const Color(0xFFDC2626),
             onTap: () => open(
