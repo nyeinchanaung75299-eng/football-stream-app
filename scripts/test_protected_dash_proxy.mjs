@@ -6,7 +6,7 @@ const workerPath = fileURLToPath(
   new URL('../cloudflare/public-api/src/index.js', import.meta.url),
 );
 const source = readFileSync(workerPath, 'utf8') +
-  '\nexport { advertisedLinkCount, protectedClientLinks, rewriteDashManifest, rewriteHlsPlaylist, resolveProtectedTarget, workerFetchUrl, isFawaSession };\n';
+  '\nexport { advertisedLinkCount, protectedClientLinks, rewriteDashManifest, rewriteHlsPlaylist, resolveProtectedTarget, workerFetchUrl, isFawaSession, decryptPlaybackSession };\n';
 const mod = await import(
   'data:text/javascript;base64,' + Buffer.from(source).toString('base64')
 );
@@ -19,18 +19,11 @@ const {
   resolveProtectedTarget,
   workerFetchUrl,
   isFawaSession,
+  decryptPlaybackSession,
 } = mod;
 
-const kv = new Map();
 const env = {
-  PLAYBACK_TOKENS: {
-    async put(key, value) {
-      kv.set(key, value);
-    },
-    async get(key) {
-      return kv.get(key) ?? null;
-    },
-  },
+  PLAYBACK_BACKEND_SECRET: 'unit-test-playback-secret',
 };
 
 const dashRow = {
@@ -92,7 +85,10 @@ assert.equal(protectedRows[0].key_id, null);
 assert.equal(protectedRows[0].key_data, null);
 
 const sessionToken = protectedRows[0].stream_url.split('/').pop();
-const session = JSON.parse(await env.PLAYBACK_TOKENS.get('s:' + sessionToken));
+const session = await decryptPlaybackSession(
+  sessionToken,
+  env.PLAYBACK_BACKEND_SECRET,
+);
 assert.equal(session.t, 'dash');
 
 const simpleMpd = `<?xml version="1.0"?>
