@@ -1014,6 +1014,18 @@ class _HomePageState extends State<HomePage> {
     ));
 
     final links = await _resolveLinks(match);
+
+    // Keep the visible card count in sync with the authoritative stream
+    // response. This also corrects a stale persisted/mirror count immediately
+    // after the chooser resolves a newer Admin line set.
+    if (links.isNotEmpty) {
+      final currentCount = (match['stream_count'] as num?)?.toInt() ?? 0;
+      if (links.length > currentCount) {
+        match['stream_count'] = links.length;
+        if (mounted) setState(() {});
+      }
+    }
+
     if (links.isEmpty) {
       await AnalyticsService.capture(
         'stream unavailable',
