@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../analytics_service.dart';
 import '../native_player.dart';
 import 'soco_page.dart';
@@ -22,6 +23,13 @@ class _MatchLoadResult {
 
 class _StreamCacheEntry {
   const _StreamCacheEntry(this.rows, this.fetchedAt);
+
+  final List<Map<String, dynamic>> rows;
+  final DateTime fetchedAt;
+}
+
+class _PersistedMatchCache {
+  const _PersistedMatchCache(this.rows, this.fetchedAt);
 
   final List<Map<String, dynamic>> rows;
   final DateTime fetchedAt;
@@ -62,10 +70,20 @@ class _HomePageState extends State<HomePage> {
   static const _mirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/matches.json';
-  // On GitHub Pages, use the mirrored match JSON deployed beside the app.
-  // It may include safe non-keyed direct backup lines for restricted networks.
+  static const _mirrorStatusBase =
+      'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
+      'football-stream-app/feed/public/status.json';
+  static const _authoritativeCacheKey =
+      'viewer_authoritative_matches_v1';
+  static const _authoritativeCacheFetchedAtKey =
+      'viewer_authoritative_matches_fetched_at_v1';
+
+  // On GitHub Pages, use the mirrored files deployed beside the app.
+  // They may include safe non-keyed direct backup lines for restricted networks.
   Uri _mirrorMatchesUri() =>
       kIsWeb ? Uri.base.resolve('matches.json') : Uri.parse(_mirrorBase);
+  Uri _mirrorStatusUri() =>
+      kIsWeb ? Uri.base.resolve('status.json') : Uri.parse(_mirrorStatusBase);
 
   SupabaseClient? _supabaseClientOrNull() {
     try {
@@ -584,6 +602,88 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<void> _saveAuthoritativeCache(
+    List<Map<String, dynamic>> rows,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final snapshot = rows
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
+      await prefs.setString(
+        _authoritativeCacheKey,
+        jsonEncode(snapshot),
+      );
+      await prefs.setString(
+        _authoritativeCacheFetchedAtKey,
+        DateTime.now().toUtc().toIso8601String(),
+      );
+    } catch (_) {
+      // Disk cache is only a resilience layer; never block the live feed.
+    }
+  }
+
+  Future<_PersistedMatchCache?> _loadAuthoritativeCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_authoritativeCacheKey);
+      final fetchedText =
+          prefs.getString(_authoritativeCacheFetchedAtKey);
+      final fetchedAt = fetchedText == null
+          ? null
+          : DateTime.tryParse(fetchedText)?.toUtc();
+      if (raw == null || raw.isEmpty || fetchedAt == null) return null;
+
+      // A sports feed must not survive indefinitely just because all remote
+      // transports are blocked. Six hours is enough to bridge VPN/network
+      // changes without resurrecting yesterday's LIVE matches.
+      if (DateTime.now().toUtc().difference(fetchedAt) >
+          const Duration(hours: 6)) {
+        return null;
+      }
+
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return null;
+      final rows = decoded
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
+      final visible = _sortMatchesChronologically(_visibleMatches(rows));
+      if (visible.isEmpty) return null;
+      return _PersistedMatchCache(visible, fetchedAt);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<DateTime?> _loadMirrorUpdatedAt() async {
+    final bucket = DateTime.now().millisecondsSinceEpoch ~/ 15000;
+    final uri = _mirrorStatusUri().replace(
+      queryParameters: {'v': bucket.toString()},
+    );
+
+    try {
+      final response = await http
+          .get(
+            uri,
+            headers: const {
+              'Accept': 'application/json',
+              'Cache-Control': 'no-cache',
+            },
+          )
+          .timeout(const Duration(seconds: 3));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return null;
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map) return null;
+      final text = decoded['updated_at']?.toString();
+      return text == null ? null : DateTime.tryParse(text)?.toUtc();
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<List<Map<String, dynamic>>> _loadMirror() async {
     // GitHub Pages is the reliable transport on restricted networks. Use a
     // short cache bucket so a VPN toggle/refresh cannot keep an old snapshot
@@ -742,6 +842,11 @@ class _HomePageState extends State<HomePage> {
         delay: const Duration(milliseconds: 500),
       );
 
+      // Save the latest authoritative match list before any mirror enrichment.
+      // If VPN/API routing later fails, this prevents an older GitHub snapshot
+      // from replacing a newer match that the phone has already seen.
+      unawaited(_saveAuthoritativeCache(result.rows));
+
       // Authoritative sources intentionally expose only availability counts.
       // Add safe non-keyed mirror lines so WATCH still works when the
       // protected stream endpoint is blocked on the current phone network.
@@ -758,10 +863,35 @@ class _HomePageState extends State<HomePage> {
         // happens to be unavailable.
       }
     } catch (_) {
-      result = _MatchLoadResult(
-        await _loadMirror(),
-        'Backup feed',
-      );
+      // On restricted networks GitHub may be the only reachable transport.
+      // Compare its publish timestamp with the last authoritative feed saved
+      // on this phone. Never regress from a newer known feed to an older
+      // mirror just because VPN was turned off.
+      final cachedFuture = _loadAuthoritativeCache();
+      final mirrorStatusFuture = _loadMirrorUpdatedAt();
+      try {
+        final mirror = await _loadMirror();
+        final cached = await cachedFuture;
+        final mirrorUpdatedAt = await mirrorStatusFuture;
+        final cacheIsNewer = cached != null &&
+            (mirrorUpdatedAt == null ||
+                cached.fetchedAt.isAfter(
+                  mirrorUpdatedAt.add(const Duration(minutes: 1)),
+                ));
+
+        if (cacheIsNewer) {
+          result = _MatchLoadResult(
+            _mergeMirrorBackupsIntoMatches(cached.rows, mirror),
+            'Saved live feed',
+          );
+        } else {
+          result = _MatchLoadResult(mirror, 'Backup feed');
+        }
+      } catch (_) {
+        final cached = await cachedFuture;
+        if (cached == null) rethrow;
+        result = _MatchLoadResult(cached.rows, 'Saved live feed');
+      }
     }
 
     unawaited(
