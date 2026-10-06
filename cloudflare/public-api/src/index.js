@@ -842,13 +842,28 @@ async function handleProtectedPlayback(request, sessionToken, childPath, env) {
   if (session.r) headers.set("Referer", session.r);
   if (session.o) headers.set("Origin", session.o);
 
+  const requestedPath = upstream.pathname.toLowerCase();
+  const requestedSessionType = String(session.t || "auto").toLowerCase();
+  const liveManifestRequest =
+    requestedPath.endsWith(".m3u8") ||
+    requestedPath.endsWith(".mpd") ||
+    (!childPath &&
+      ["hls", "m3u8", "dash", "mpd"].includes(requestedSessionType));
+
+  if (liveManifestRequest) {
+    headers.set("Cache-Control", "no-cache");
+    headers.set("Pragma", "no-cache");
+  }
+
   let response;
   try {
-    response = await fetch(upstream, {
+    const fetchOptions = {
       method: request.method,
       headers,
       redirect: "follow",
-    });
+    };
+    if (liveManifestRequest) fetchOptions.cache = "no-store";
+    response = await fetch(upstream, fetchOptions);
   } catch (_) {
     return json({ error: "Playback upstream unavailable." }, 502, {
       "Cache-Control": "no-store",
