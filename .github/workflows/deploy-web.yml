@@ -6,6 +6,7 @@ on:
     branches: [ "main", "master" ]
     paths:
       - "user_app/**"
+      - "admin_app/**"
       - ".github/workflows/deploy-web.yml"
 
 permissions:
@@ -73,6 +74,44 @@ jobs:
           # Disable Flutter's service-worker cache. Live match data must not
           # be pinned to an older web release after a VPN/network change.
           cp build/web/index.html build/web/404.html
+
+      - name: Get Admin Web dependencies
+        working-directory: admin_app
+        run: flutter pub get
+
+      - name: Verify Admin Web source
+        working-directory: admin_app
+        run: flutter analyze --no-fatal-infos
+
+      - name: Build Admin Web under /admin/
+        working-directory: admin_app
+        run: |
+          flutter build web --release \
+            --base-href "/football-stream-app/admin/" \
+            --pwa-strategy=none
+
+          BUILD_ID="${GITHUB_SHA::12}-${GITHUB_RUN_NUMBER}"
+          python3 - "$BUILD_ID" <<'PY'
+          from pathlib import Path
+          import sys
+
+          p = Path("build/web/index.html")
+          s = p.read_text(encoding="utf-8")
+          build_id = sys.argv[1]
+          s = s.replace(
+              'src="flutter_bootstrap.js"',
+              f'src="flutter_bootstrap.js?v={build_id}"',
+          )
+          p.write_text(s, encoding="utf-8")
+          PY
+
+          cp build/web/index.html build/web/404.html
+
+      - name: Add Admin Web to Viewer Pages build
+        run: |
+          rm -rf user_app/build/web/admin
+          mkdir -p user_app/build/web/admin
+          cp -R admin_app/build/web/. user_app/build/web/admin/
 
       - name: Add same-origin VPN-off metadata backup
         working-directory: user_app
