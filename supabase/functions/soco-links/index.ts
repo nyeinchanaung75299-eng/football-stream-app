@@ -1054,6 +1054,7 @@ function friendlyText(value: unknown) {
     ["苏格兰", "Scotland"],
     ["爱尔兰", "Ireland"],
     ["中国台北", "Chinese Taipei"],
+    ["乌兹别克斯坦", "Uzbekistan"],
     ["乌兹别克", "Uzbekistan"],
     ["菲律宾", "Philippines"],
     ["哈萨克斯坦", "Kazakhstan"],
@@ -1067,6 +1068,7 @@ function friendlyText(value: unknown) {
     ["澳大利亚", "Australia"],
     ["韩国", "South Korea"],
     ["朝鲜", "North Korea"],
+    ["越南杯", "Vietnam Cup"],
     ["越南", "Vietnam"],
     ["泰国", "Thailand"],
     ["日本", "Japan"],
@@ -1089,7 +1091,9 @@ function friendlyText(value: unknown) {
     text = text.replaceAll(from, to);
   }
 
-  return text.replace(/\s+/g, " ").trim();
+  text = text.replace(/\s+/g, " ").trim();
+  if (/^INTERF$/i.test(text)) return "International Friendly";
+  return text;
 }
 
 function streamExpiry(value: string) {
