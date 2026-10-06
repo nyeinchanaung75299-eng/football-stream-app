@@ -24,7 +24,9 @@ class SocoImportPage extends StatefulWidget {
 }
 
 class _SocoImportPageState extends State<SocoImportPage> {
-  static const _githubMirrorBase =
+  static const _pagesMirrorBase =
+      'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources';
+  static const _rawMirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/sources';
   String? targetMatchId;
   bool loading = false;
@@ -95,26 +97,34 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   Future<Map<String, dynamic>> _loadSourceMirror() async {
-    final response = await http
-        .get(
-          Uri.parse(_githubMirrorBase + '/' + source + '.json').replace(
-            queryParameters: {
-              't': DateTime.now().millisecondsSinceEpoch.toString(),
-            },
-          ),
-          headers: const {'Accept': 'application/json'},
-        )
-        .timeout(const Duration(seconds: 18));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        'GitHub source mirror HTTP ' + response.statusCode.toString(),
-      );
+    Object? lastError;
+    for (final base in const [_pagesMirrorBase, _rawMirrorBase]) {
+      try {
+        final response = await http
+            .get(
+              Uri.parse(base + '/' + source + '.json').replace(
+                queryParameters: {
+                  't': DateTime.now().millisecondsSinceEpoch.toString(),
+                },
+              ),
+              headers: const {'Accept': 'application/json'},
+            )
+            .timeout(const Duration(seconds: 18));
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw Exception(
+            'Source mirror HTTP ' + response.statusCode.toString(),
+          );
+        }
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map) {
+          throw const FormatException('Source mirror response is invalid.');
+        }
+        return Map<String, dynamic>.from(decoded);
+      } catch (e) {
+        lastError = e;
+      }
     }
-    final decoded = jsonDecode(response.body);
-    if (decoded is! Map) {
-      throw const FormatException('Source mirror response is invalid.');
-    }
-    return Map<String, dynamic>.from(decoded);
+    throw Exception(lastError ?? 'Source mirror is unavailable.');
   }
 
   Future<void> _loadSoco() async {
