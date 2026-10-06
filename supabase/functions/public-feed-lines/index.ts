@@ -75,7 +75,6 @@ Deno.serve(async (req) => {
     const lines = ((streams ?? []) as StreamRow[])
       .filter((row) => {
         if (!row.stream_url?.trim()) return false;
-        if (row.key_id?.trim() || row.key_data?.trim()) return false;
 
         const availableFrom = Date.parse(row.available_from ?? "");
         if (Number.isFinite(availableFrom) && now < availableFrom) return false;
@@ -85,23 +84,55 @@ Deno.serve(async (req) => {
 
         return true;
       })
-      .map((row) => ({
-        id: row.id,
-        match_id: row.match_id,
-        label: row.label,
-        resolution: row.resolution,
-        stream_type: normalizeType(row.stream_type, row.stream_url),
-        stream_url: row.stream_url!,
-        referer: row.referer,
-        origin: row.origin,
-        use_webview: false,
-        is_active: true,
-        priority: row.priority ?? 100,
-        available_from: row.available_from,
-        expires_at: row.expires_at,
-        health_status: row.health_status ?? "unknown",
-        backup_transport: "github_mirror_direct",
-      }));
+      .map((row) => {
+        const protectedLine =
+          Boolean(row.key_id?.trim()) || Boolean(row.key_data?.trim());
+
+        if (protectedLine) {
+          // Preserve the Admin-configured line in the public mirror without
+          // exposing the upstream URL or ClearKey values. When the protected
+          // API is reachable the Viewer merges the real line by id; when it
+          // is not reachable, users can still see that the configured line
+          // exists instead of silently losing it from the chooser.
+          return {
+            id: row.id,
+            match_id: row.match_id,
+            label: row.label,
+            resolution: row.resolution,
+            stream_type: normalizeType(row.stream_type, row.stream_url),
+            stream_url: "blocked://protected-line",
+            referer: null,
+            origin: null,
+            use_webview: false,
+            is_active: true,
+            priority: row.priority ?? 100,
+            available_from: row.available_from,
+            expires_at: row.expires_at,
+            health_status: row.health_status ?? "unknown",
+            blocked_reason: "protected_api_required",
+            viewer_message: "Protected line. Reconnect to load this stream.",
+            backup_transport: "github_mirror_protected_metadata",
+          };
+        }
+
+        return {
+          id: row.id,
+          match_id: row.match_id,
+          label: row.label,
+          resolution: row.resolution,
+          stream_type: normalizeType(row.stream_type, row.stream_url),
+          stream_url: row.stream_url!,
+          referer: row.referer,
+          origin: row.origin,
+          use_webview: false,
+          is_active: true,
+          priority: row.priority ?? 100,
+          available_from: row.available_from,
+          expires_at: row.expires_at,
+          health_status: row.health_status ?? "unknown",
+          backup_transport: "github_mirror_direct",
+        };
+      });
 
     return json({
       ok: true,
