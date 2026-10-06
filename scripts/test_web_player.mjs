@@ -432,3 +432,5 @@ for (const { name, run } of tests) {
   process.stdout.write(`PASS ${name}\n`);
 }
 process.stdout.write(`${tests.length} web player regression checks passed.\n`);
+
+// V9.8 final release verification marker: VPN-off source fallback + original streamer names.
