@@ -411,9 +411,8 @@ class _HomePageState extends State<HomePage> {
       rows.addAll(blocked);
     }
 
-    if (rows.isEmpty) {
-      throw const FormatException('No stream lines returned.');
-    }
+    // HTTP 200 + an empty stream list is authoritative: Admin may have
+    // removed/disabled the final line. Treat it as success, not an API error.
     return rows;
   }
 
@@ -765,13 +764,8 @@ class _HomePageState extends State<HomePage> {
         row['public_stream_count'] = mergedLinks.length;
       }
 
-      final authoritativeCount =
-          (row['stream_count'] as num?)?.toInt() ?? 0;
-      final mirrorCount =
-          (backup['stream_count'] as num?)?.toInt() ?? 0;
-      if (authoritativeCount <= 0 && mirrorCount > 0) {
-        row['stream_count'] = mirrorCount;
-      }
+      // The authoritative feed owns stream_count, including zero. Never
+      // resurrect a deleted final line from an older mirror count.
 
       return row;
     }).toList();
