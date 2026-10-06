@@ -142,6 +142,15 @@ jobs:
           git show origin/feed:public/matches.json > build/web/matches.json
           git show origin/feed:public/status.json > build/web/status.json || true
 
+          mkdir -p build/web/sources
+          for source in soco yyzb fawa cola; do
+            if git cat-file -e "origin/feed:public/sources/$source.json" 2>/dev/null; then
+              git show "origin/feed:public/sources/$source.json" > "build/web/sources/$source.json"
+            else
+              echo "No $source source mirror on feed yet."
+            fi
+          done
+
           # Signing may not be configured yet. Publish a release only when both
           # files exist, rather than leaving empty files from failed redirects.
           if git cat-file -e origin/feed:public/releases/latest.json 2>/dev/null && \
