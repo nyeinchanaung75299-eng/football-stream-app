@@ -15,6 +15,18 @@ class EditLivePage extends StatefulWidget {
 class _EditLivePageState extends State<EditLivePage> {
   bool syncing = false;
   String view = 'upcoming';
+  late Future<List<Map<String, dynamic>>> _matchesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _matchesFuture = load();
+  }
+
+  void reloadMatches() {
+    if (!mounted) return;
+    setState(() => _matchesFuture = load());
+  }
 
   String sectionLabel(DateTime value) {
     final now = DateTime.now();
@@ -92,7 +104,7 @@ class _EditLivePageState extends State<EditLivePage> {
       } else {
         message('Score sync finished.');
       }
-      setState(() {});
+      reloadMatches();
     } catch (e) {
       await AnalyticsService.capture('score sync failed');
       if (mounted) message('Score sync failed: $e');
@@ -137,7 +149,7 @@ class _EditLivePageState extends State<EditLivePage> {
 
       if (mounted) {
         message('Match deleted. It will not be re-imported automatically.');
-        setState(() {});
+        reloadMatches();
       }
     } catch (e) {
       await AnalyticsService.capture(
@@ -475,7 +487,7 @@ class _EditLivePageState extends State<EditLivePage> {
 
       if (mounted) {
         message('Match updated.');
-        setState(() {});
+        reloadMatches();
       }
     } catch (e) {
       await AnalyticsService.capture(
@@ -503,7 +515,7 @@ class _EditLivePageState extends State<EditLivePage> {
         ],
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: load(),
+        future: _matchesFuture,
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
           final rows = snapshot.data!;
