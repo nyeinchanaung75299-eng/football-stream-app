@@ -250,6 +250,15 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     try {
       final savedIds = <String>[];
 
+      // Big Match selection is authoritative: clear the previous featured
+      // set first so old cards do not remain in the Viewer after publishing
+      // a new selection. Historical rows stay in the database; only their
+      // featured flag is removed.
+      await Supabase.instance.client
+          .from('matches')
+          .update({'is_featured': false})
+          .eq('is_featured', true);
+
       var skippedDeleted = 0;
       for (final f in chosen) {
         final fixtureId = f['fixture_id'];
