@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -22,6 +24,8 @@ class SocoImportPage extends StatefulWidget {
 }
 
 class _SocoImportPageState extends State<SocoImportPage> {
+  static const _githubMirrorBase =
+      'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/sources';
   String? targetMatchId;
   bool loading = false;
   bool availableOnly = true;
@@ -90,6 +94,29 @@ class _SocoImportPageState extends State<SocoImportPage> {
         .toList();
   }
 
+  Future<Map<String, dynamic>> _loadSourceMirror() async {
+    final response = await http
+        .get(
+          Uri.parse(_githubMirrorBase + '/' + source + '.json').replace(
+            queryParameters: {
+              't': DateTime.now().millisecondsSinceEpoch.toString(),
+            },
+          ),
+          headers: const {'Accept': 'application/json'},
+        )
+        .timeout(const Duration(seconds: 18));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'GitHub source mirror HTTP ' + response.statusCode.toString(),
+      );
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map) {
+      throw const FormatException('Source mirror response is invalid.');
+    }
+    return Map<String, dynamic>.from(decoded);
+  }
+
   Future<void> _loadSoco() async {
     setState(() {
       loading = true;
@@ -97,12 +124,20 @@ class _SocoImportPageState extends State<SocoImportPage> {
     });
 
     try {
-      final data = await FunctionGateway.invoke(
-        'source-match-list',
-        body: {
-          'source': source,
-        },
-      );
+      dynamic data;
+      try {
+        // Read-only source lists can come from GitHub without VPN or Admin
+        // backend connectivity. Dynamic link extraction still uses the
+        // authenticated backend after a source is selected.
+        data = await _loadSourceMirror();
+      } catch (_) {
+        data = await FunctionGateway.invoke(
+          'source-match-list',
+          body: {
+            'source': source,
+          },
+        );
+      }
 
       final rows = data is Map ? data['matches'] : null;
       if (rows is! List) {
