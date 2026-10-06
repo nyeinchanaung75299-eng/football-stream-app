@@ -57,6 +57,18 @@ export default {
       );
     }
 
+    const sourceStreamsRoute = url.pathname.match(
+      /^\/sources\/(soco|yyzb|fawa|cola)\/streams$/,
+    );
+    if (sourceStreamsRoute && request.method === "POST") {
+      return handleSourceBrowserStreams(
+        request,
+        sourceStreamsRoute[1],
+        env,
+        url.origin,
+      );
+    }
+
     if (request.method !== "GET") {
       return json({ error: "Method not allowed." }, 405);
     }
@@ -87,18 +99,6 @@ export default {
         request,
         sourceMatchesRoute[1],
         env,
-      );
-    }
-
-    const sourceStreamsRoute = url.pathname.match(
-      /^\/sources\/(soco|yyzb|fawa|cola)\/streams$/,
-    );
-    if (sourceStreamsRoute && request.method === "POST") {
-      return handleSourceBrowserStreams(
-        request,
-        sourceStreamsRoute[1],
-        env,
-        url.origin,
       );
     }
 
