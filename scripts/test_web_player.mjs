@@ -189,7 +189,7 @@ test('modern iOS preserves the chosen DASH line and supplies MPD MIME to Shaka',
   }
 });
 
-test('iOS keyed DASH immediately falls back to HLS backup', async () => {
+test('modern iOS attempts keyed DASH instead of rejecting it up front', async () => {
   const dash = {
     ...source('dash', 'clearkey'),
     keyId: '00112233445566778899aabbccddeeff',
@@ -198,9 +198,10 @@ test('iOS keyed DASH immediately falls back to HLS backup', async () => {
   const hls = source('hls', 'backup');
   const h = createHarness();
   await h.open([dash, hls]);
-  assert.equal(failures(h)[0].properties.reason, 'unsupported_browser');
-  await h.tick(1000);
-  assert.deepEqual(h.plays, [hls.url]);
+  assert.equal(failures(h).length, 0);
+  assert.equal(h.loads.length, 1);
+  assert.equal(h.loads[0].url, dash.url);
+  assert.deepEqual(h.plays, [dash.url]);
 });
 
 test('Android Chromium uses Shaka for live HLS even when canPlayType claims native HLS', async () => {
@@ -257,7 +258,7 @@ test('startup stalls fall back to HLS and ignore a late old load completion', as
   assert.deepEqual(h.plays, [hls.url], 'Stale load must not play the old source');
 });
 
-test('iOS native HLS retries the same line before falling back, while user pause stays safe', async () => {
+test('iOS live streams retry the same line before falling back, while user pause stays safe', async () => {
   const primary = source('hls', 'primary'), backup = source('hls', 'backup');
   const h = createHarness();
   await h.open([primary, backup]);
