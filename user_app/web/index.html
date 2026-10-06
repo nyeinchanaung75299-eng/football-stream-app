@@ -108,6 +108,7 @@
     let fallbackScheduledToken=-1, awaitingPlayToken=-1;
     let activePlayingHandler=null;
     let playbackTeardown=Promise.resolve();
+    const iosRecoveryAttempts=new Map();
     const startupTimeoutMs=20000, stallTimeoutMs=15000;
     const scriptLoads=new Map();
 
@@ -226,6 +227,29 @@
       },startupTimeoutMs);
     }
 
+    function isIOSNativeHls(index){
+      const source=sources[index]||{};
+      const type=sourceType(source);
+      const url=String(source.url||'').toLowerCase();
+      return isIOS() &&
+        (type==='hls'||type==='m3u8'||url.includes('.m3u8')) &&
+        video.canPlayType('application/vnd.apple.mpegurl');
+    }
+
+    function retryIOSNativeHls(index,token){
+      if(!isCurrentPlayback(token) || !isIOSNativeHls(index))return false;
+      const attempts=iosRecoveryAttempts.get(index)||0;
+      if(attempts>=2)return false;
+      iosRecoveryAttempts.set(index,attempts+1);
+      clearPlaybackWatchdogs();
+      showMessage('Stream paused • reconnecting…');
+      fallbackTimer=setTimeout(()=>{
+        fallbackTimer=null;
+        if(isCurrentPlayback(token))loadSource(index,false);
+      },350);
+      return true;
+    }
+
     function armStallWatchdog(){
       const token=playbackToken, index=currentSourceIndex;
       if(!isCurrentPlayback(token) || playbackStartedToken!==token ||
@@ -233,9 +257,10 @@
       stallTimer=setTimeout(()=>{
         stallTimer=null;
         if(isCurrentPlayback(token) && !video.paused){
+          if(retryIOSNativeHls(index,token))return;
           fallbackToNextLine(index,'This line stopped responding',token,'stall_timeout');
         }
-      },stallTimeoutMs);
+      },isIOS()?10000:stallTimeoutMs);
     }
 
     function safeErrorDetails(error){
@@ -316,6 +341,12 @@
       const keyData=String(source.keyData||source.key_data||'').trim();
 
       if(isIOS() && type==='dash'){
+        if(keyId&&keyData){
+          return {
+            ok:false,
+            reason:'ClearKey DASH is unstable on iPhone/iPad; using an HLS backup'
+          };
+        }
         if(!hasWebKitStreamingEngine()){
           return {
             ok:false,
@@ -608,13 +639,16 @@
         if((type==='hls'||url.includes('.m3u8')) &&
             isIOS() &&
             video.canPlayType('application/vnd.apple.mpegurl')){
-          video.onerror=()=>fallbackToNextLine(
-            index,
-            'HLS line failed in this browser',
-            token,
-            'native_hls_error',
-            safeErrorDetails(video.error)
-          );
+          video.onerror=()=>{
+            if(retryIOSNativeHls(index,token))return;
+            fallbackToNextLine(
+              index,
+              'HLS line failed in this browser',
+              token,
+              'native_hls_error',
+              safeErrorDetails(video.error)
+            );
+          };
           video.src=url;
           await requestVideoPlay(index,token);
           return;
@@ -763,6 +797,7 @@
     window.openFootballPlayer=async(sourcesJson,selectedIndex,title,matchId)=>{
       try{const parsed=JSON.parse(String(sourcesJson||'[]'));sources=Array.isArray(parsed)?parsed.filter(x=>x&&x.url):[]}catch(_){sources=[]}
       autoFallbackTried.clear();
+      iosRecoveryAttempts.clear();
       currentMatchId=String(matchId||'').trim();
       titleEl.textContent=String(title||'NCA');
       let startIndex=Math.max(0,Math.min(Number(selectedIndex)||0,sources.length-1));
