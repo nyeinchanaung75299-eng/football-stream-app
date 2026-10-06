@@ -98,6 +98,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
   Future<Map<String, dynamic>> _loadSourceMirror() async {
     Object? lastError;
+    Map<String, dynamic>? emptyFallback;
     for (final base in const [_pagesMirrorBase, _rawMirrorBase]) {
       try {
         final response = await http
@@ -119,11 +120,18 @@ class _SocoImportPageState extends State<SocoImportPage> {
         if (decoded is! Map) {
           throw const FormatException('Source mirror response is invalid.');
         }
-        return Map<String, dynamic>.from(decoded);
+        final data = Map<String, dynamic>.from(decoded);
+        final rows = data['matches'];
+        if (rows is! List) {
+          throw const FormatException('Source mirror match list is invalid.');
+        }
+        if (rows.isNotEmpty) return data;
+        emptyFallback ??= data;
       } catch (e) {
         lastError = e;
       }
     }
+    if (emptyFallback != null) return emptyFallback;
     throw Exception(lastError ?? 'Source mirror is unavailable.');
   }
 
@@ -140,6 +148,23 @@ class _SocoImportPageState extends State<SocoImportPage> {
         // backend connectivity. Dynamic link extraction still uses the
         // authenticated backend after a source is selected.
         data = await _loadSourceMirror();
+        final mirrorRows = data is Map ? data['matches'] : null;
+        if (mirrorRows is List && mirrorRows.isEmpty) {
+          try {
+            final liveData = await FunctionGateway.invoke(
+              'source-match-list',
+              body: {
+                'source': source,
+              },
+            );
+            final liveRows = liveData is Map ? liveData['matches'] : null;
+            if (liveRows is List && liveRows.isNotEmpty) {
+              data = liveData;
+            }
+          } catch (_) {
+            // A valid empty mirror remains the last-resort no-VPN result.
+          }
+        }
       } catch (_) {
         data = await FunctionGateway.invoke(
           'source-match-list',
