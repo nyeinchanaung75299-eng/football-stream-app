@@ -26,6 +26,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       'https://football-public-api.nyeinchanaung75299-eng.workers.dev';
   static const _supabaseFunction =
       'https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links';
+  static const _sourceMirrorBase =
+      'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
+      'football-stream-app/feed/public/sources';
 
   late Future<List<Map<String, dynamic>>> _future;
 
@@ -142,6 +145,43 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return rows;
   }
 
+  Future<List<Map<String, dynamic>>> _loadFromMirror() async {
+    final response = await http
+        .get(
+          Uri.parse('$_sourceMirrorBase/$source.json').replace(
+            queryParameters: {
+              't': DateTime.now().millisecondsSinceEpoch.toString(),
+            },
+          ),
+          headers: const {'Accept': 'application/json'},
+        )
+        .timeout(const Duration(seconds: 7));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'GitHub source mirror HTTP ' + response.statusCode.toString(),
+      );
+    }
+    final decoded = jsonDecode(response.body);
+    final raw = decoded is Map ? decoded['matches'] : null;
+    if (raw is! List) {
+      throw const FormatException('Invalid GitHub source mirror.');
+    }
+    final rows =
+        raw.map((x) => Map<String, dynamic>.from(x as Map)).toList();
+    rows.sort((a, b) {
+      if (_live(a) != _live(b)) return _live(a) ? -1 : 1;
+      final at = DateTime.tryParse(a['match_time']?.toString() ?? '');
+      final bt = DateTime.tryParse(b['match_time']?.toString() ?? '');
+      if (at == null && bt == null) {
+        return _matchName(a).compareTo(_matchName(b));
+      }
+      if (at == null) return 1;
+      if (bt == null) return -1;
+      return at.compareTo(bt);
+    });
+    return rows;
+  }
+
   Future<List<Map<String, dynamic>>> _loadFromSupabase() async {
     final response = await http
         .get(
@@ -226,6 +266,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       final rows = await _hedged(
         [
           if (workerJobs.isNotEmpty) workerJobs.first,
+          () => _loadFromMirror(),
           () => _loadFromSupabase(),
           ...workerJobs.skip(1),
         ],
