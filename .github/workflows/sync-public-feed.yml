@@ -196,7 +196,21 @@ jobs:
           fi
 
           git commit -m "Update public match feed"
-          git push origin feed
+
+          pushed=false
+          for attempt in 1 2 3 4; do
+            if git push origin feed; then
+              pushed=true
+              break
+            fi
+            git pull --rebase origin feed
+            sleep 2
+          done
+          if [ "$pushed" != true ]; then
+            echo "Could not publish feed after retries." >&2
+            exit 1
+          fi
+
           echo "changed=$WEB_FEED_CHANGED" >> "$GITHUB_OUTPUT"
 
       - name: Redeploy Web Viewer with latest feed
