@@ -23,13 +23,19 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  if (req.method !== "POST") {
+  if (req.method !== "POST" && req.method !== "GET") {
     return json({ error: "Method not allowed." }, 405);
   }
 
   try {
-    const body = await req.json().catch(() => ({}));
-    const viewerPublic = body.viewer_public === true;
+    const requestUrl = new URL(req.url);
+    const body: Record<string, any> = req.method === "GET"
+      ? Object.fromEntries(requestUrl.searchParams.entries())
+      : await req.json().catch(() => ({}));
+    const viewerPublic =
+      body.viewer_public === true ||
+      body.viewer_public === "true" ||
+      body.viewer_public === "1";
 
     // Admin continues to require a verified admin session. The Viewer may use
     // this function only in explicit read-only source-browser mode; this
@@ -87,8 +93,8 @@ Deno.serve(async (req) => {
           roomNum: body.room_num,
           scheduleId: body.schedule_id,
           refererOrigin: "https://m.yyzb22.live",
-          statusOnly: body.status_only === true,
-          skipProbe: body.skip_probe === true,
+          statusOnly: body.status_only === true || body.status_only === "true" || body.status_only === "1",
+          skipProbe: body.skip_probe === true || body.skip_probe === "true" || body.skip_probe === "1",
         });
       }
       return await roomStreams({
@@ -97,8 +103,8 @@ Deno.serve(async (req) => {
         roomNum: body.room_num,
         scheduleId: body.schedule_id,
         refererOrigin: "https://m.sutbongtv.com",
-        statusOnly: body.status_only === true,
-        skipProbe: body.skip_probe === true,
+        statusOnly: body.status_only === true || body.status_only === "true" || body.status_only === "1",
+        skipProbe: body.skip_probe === true || body.skip_probe === "true" || body.skip_probe === "1",
       });
     }
 
