@@ -671,7 +671,7 @@
           await player.attach(video);
           if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
           const iosDash=isIOS() && type==='dash';
-          player.configure({
+          const shakaConfig={
             manifest:{
               retryParameters:{
                 maxAttempts:iosDash?7:5,
@@ -703,15 +703,18 @@
                 fuzzFactor:.2,
                 timeout:iosDash?12000:8000
               }
-            },
-            abr:iosDash?{
+            }
+          };
+          if(iosDash){
+            shakaConfig.abr={
               enabled:true,
               useNetworkInformation:false,
               defaultBandwidthEstimate:700000,
               switchInterval:10,
               restrictions:{maxHeight:720}
-            }:undefined
-          });
+            };
+          }
+          player.configure(shakaConfig);
           const rawKeyId=String(source.keyId||source.key_id||'').trim();
           const rawKeyData=String(source.keyData||source.key_data||'').trim();
           const keyId=rawKeyId.replace(/[^0-9a-f]/gi,'').toLowerCase();
