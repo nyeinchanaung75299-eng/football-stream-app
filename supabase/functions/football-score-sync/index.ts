@@ -10,10 +10,6 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-    const footballKey = Deno.env.get("API_FOOTBALL_KEY");
-    const footballDataKey =
-      Deno.env.get("FOOTBALL_DATA_ORG_KEY") ??
-      Deno.env.get("FOOTBALL_DATA_KEY");
     const cronSecret = Deno.env.get("CRON_SECRET");
 
     if (!supabaseUrl || !serviceRole) {
@@ -25,16 +21,10 @@ Deno.serve(async (req) => {
       !!cronSecret && req.headers.get("x-cron-secret") === cronSecret;
 
     let adminAuthorized = false;
-
     if (!cronAuthorized && anonKey && authHeader.startsWith("Bearer ")) {
       const userClient = createClient(supabaseUrl, anonKey, {
-        global: {
-          headers: {
-            Authorization: authHeader,
-          },
-        },
+        global: { headers: { Authorization: authHeader } },
       });
-
       const {
         data: { user },
         error: userError,
@@ -46,7 +36,6 @@ Deno.serve(async (req) => {
           .select("role")
           .eq("id", user.id)
           .single();
-
         adminAuthorized = profile?.role === "admin";
       }
     }
@@ -61,32 +50,13 @@ Deno.serve(async (req) => {
     const client = createClient(supabaseUrl, serviceRole);
     const now = new Date();
 
-    const scoreSummary = footballKey || footballDataKey
-      ? await syncScores(
-          client,
-          footballKey,
-          footballDataKey,
-          now,
-          force,
-        )
-      : {
-          synced: 0,
-          candidates: 0,
-          failed_updates: 0,
-          api_calls: 0,
-          score_sync_skipped:
-            "Neither API_FOOTBALL_KEY nor FOOTBALL_DATA_ORG_KEY is configured.",
-        };
-
-    const finishedCleanup = await hideFinishedMatchesAfterGrace(client, now);
     const staleCleanup = await hideStaleMatches(client, now);
     const expiredStreamCleanup = await disableExpiredStreams(client, now);
     const healthSummary = await syncStreamHealth(client, now, force);
 
     return json({
       ok: true,
-      ...scoreSummary,
-      finished_cleanup: finishedCleanup,
+      maintenance_only: true,
       stale_cleanup: staleCleanup,
       expired_stream_cleanup: expiredStreamCleanup,
       stream_health: healthSummary,
@@ -94,10 +64,9 @@ Deno.serve(async (req) => {
       checked_at: now.toISOString(),
     });
   } catch (error) {
-    console.error(error);
+    console.error("football maintenance failed:", error);
     return json(
       {
-        ok: false,
         error: error instanceof Error ? error.message : String(error),
       },
       500,
@@ -105,436 +74,7 @@ Deno.serve(async (req) => {
   }
 });
 
-async function syncScores(
-  client: any,
-  footballKey: string | undefined,
-  footballDataKey: string | undefined,
-  now: Date,
-  force: boolean,
-) {
-  const windowStart = new Date(now.getTime() - 6 * 60 * 60 * 1000);
-  const windowEnd = new Date(now.getTime() + 90 * 60 * 1000);
-
-  const { data: rows, error } = await client
-    .from("matches")
-    .select(
-      `
-        id,
-        source,
-        external_fixture_id,
-        kickoff_at,
-        last_score_sync_at,
-        is_active,
-        publish_state,
-        is_featured,
-        is_finished,
-        is_live
-      `,
-    )
-    .eq("is_active", true)
-    .eq("publish_state", "published")
-    .eq("is_featured", true)
-    .not("external_fixture_id", "is", null);
-
-  if (error) throw error;
-
-  const minIntervalSeconds = Number(
-    Deno.env.get("SCORE_SYNC_INTERVAL_SECONDS") ?? "120",
-  );
-
-  const candidates = (rows ?? []).filter((match: any) => {
-    if (match.is_finished === true) return false;
-    if (!match.kickoff_at) return false;
-
-    const kickoff = new Date(match.kickoff_at);
-    if (
-      kickoff.getTime() < windowStart.getTime() ||
-      kickoff.getTime() > windowEnd.getTime()
-    ) {
-      return false;
-    }
-
-    if (!force && match.last_score_sync_at) {
-      const previousSync = new Date(match.last_score_sync_at);
-      const elapsed = now.getTime() - previousSync.getTime();
-      if (elapsed < Math.max(30, minIntervalSeconds) * 1000) {
-        return false;
-      }
-    }
-
-    return true;
-  });
-
-  const apiCandidates = candidates.filter((item: any) =>
-    item.source !== "football_data_org" &&
-    Number(item.external_fixture_id) > 0
-  );
-  const dataCandidates = candidates.filter((item: any) =>
-    item.source === "football_data_org" ||
-    Number(item.external_fixture_id) < 0
-  );
-
-  const totals = {
-    synced: 0,
-    candidates: candidates.length,
-    received_fixtures: 0,
-    failed_updates: 0,
-    api_calls: 0,
-    provider_errors: [] as unknown[],
-  };
-
-  if (apiCandidates.length > 0) {
-    if (footballKey) {
-      const summary = await syncApiFootballScores(
-        client,
-        footballKey,
-        apiCandidates,
-        now,
-      );
-      mergeScoreSummary(totals, summary);
-    } else {
-      totals.provider_errors.push({
-        provider: "api_football",
-        error: "API_FOOTBALL_KEY is not configured.",
-      });
-    }
-  }
-
-  if (dataCandidates.length > 0) {
-    if (footballDataKey) {
-      const summary = await syncFootballDataScores(
-        client,
-        footballDataKey,
-        dataCandidates,
-        now,
-      );
-      mergeScoreSummary(totals, summary);
-    } else {
-      totals.provider_errors.push({
-        provider: "football_data_org",
-        error: "FOOTBALL_DATA_ORG_KEY is not configured.",
-      });
-    }
-  }
-
-  return {
-    ...totals,
-    provider_errors: totals.provider_errors.slice(0, 8),
-  };
-}
-
-async function syncApiFootballScores(
-  client: any,
-  key: string,
-  candidates: any[],
-  now: Date,
-) {
-  const summary = emptyScoreSummary();
-  const candidateIds = new Set(
-    candidates.map((item: any) => String(item.external_fixture_id)),
-  );
-  const candidateByFixture = new Map(
-    candidates.map((item: any) => [
-      String(item.external_fixture_id),
-      item,
-    ]),
-  );
-
-  for (const date of candidateDates(candidates)) {
-    const url = new URL("https://v3.football.api-sports.io/fixtures");
-    url.searchParams.set("date", date);
-
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        "x-apisports-key": key,
-        "Accept": "application/json",
-      },
-    });
-
-    summary.api_calls += 1;
-
-    if (!response.ok) {
-      summary.provider_errors.push({
-        provider: "api_football",
-        date,
-        status: response.status,
-      });
-      continue;
-    }
-
-    const payload = await response.json();
-    if (payload?.errors && Object.keys(payload.errors).length > 0) {
-      summary.provider_errors.push({
-        provider: "api_football",
-        date,
-        errors: payload.errors,
-      });
-      console.error("API-Football returned errors:", payload.errors);
-      continue;
-    }
-
-    const fixtures = (Array.isArray(payload?.response) ? payload.response : [])
-      .filter((row: any) =>
-        candidateIds.has(String(row?.fixture?.id ?? ""))
-      );
-
-    summary.received_fixtures += fixtures.length;
-
-    for (const row of fixtures) {
-      const fixtureId = Number(row?.fixture?.id);
-      if (!Number.isFinite(fixtureId)) continue;
-
-      const statusShort = row?.fixture?.status?.short ?? "NS";
-      const isLive = [
-        "1H",
-        "HT",
-        "2H",
-        "ET",
-        "BT",
-        "P",
-        "LIVE",
-        "INT",
-        "SUSP",
-      ].includes(statusShort);
-      const isFinished = ["FT", "AET", "PEN"].includes(statusShort);
-      const existing = candidateByFixture.get(String(fixtureId));
-      const nextLive = isFinished
-        ? false
-        : isLive || existing?.is_live === true;
-
-      const { error: updateError } = await client
-        .from("matches")
-        .update({
-          kickoff_at: row?.fixture?.date ?? null,
-          home_score: row?.goals?.home ?? 0,
-          away_score: row?.goals?.away ?? 0,
-          status_short: statusShort,
-          status_elapsed: row?.fixture?.status?.elapsed ?? null,
-          is_live: nextLive,
-          is_finished: isFinished,
-          last_score_sync_at: now.toISOString(),
-        })
-        .eq("external_fixture_id", fixtureId);
-
-      if (updateError) {
-        summary.failed_updates += 1;
-      } else {
-        summary.synced += 1;
-      }
-    }
-  }
-
-  return summary;
-}
-
-async function syncFootballDataScores(
-  client: any,
-  key: string,
-  candidates: any[],
-  now: Date,
-) {
-  const summary = emptyScoreSummary();
-  const candidateIds = new Set(
-    candidates.map((item: any) => String(item.external_fixture_id)),
-  );
-  const candidateByFixture = new Map(
-    candidates.map((item: any) => [
-      String(item.external_fixture_id),
-      item,
-    ]),
-  );
-
-  for (const date of candidateDates(candidates)) {
-    const url = new URL("https://api.football-data.org/v4/matches");
-    url.searchParams.set("dateFrom", date);
-    url.searchParams.set("dateTo", date);
-
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        "X-Auth-Token": key,
-        "Accept": "application/json",
-      },
-    });
-
-    summary.api_calls += 1;
-    const payload = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      summary.provider_errors.push({
-        provider: "football_data_org",
-        date,
-        status: response.status,
-        error: payload?.message ?? payload?.error ?? null,
-      });
-      continue;
-    }
-
-    const fixtures = (Array.isArray(payload?.matches) ? payload.matches : [])
-      .filter((row: any) => {
-        const rawId = Number(row?.id);
-        if (!Number.isFinite(rawId)) return false;
-        return candidateIds.has(String(-Math.abs(rawId)));
-      });
-
-    summary.received_fixtures += fixtures.length;
-
-    for (const row of fixtures) {
-      const rawId = Number(row?.id);
-      if (!Number.isFinite(rawId)) continue;
-      const fixtureId = -Math.abs(rawId);
-      const statusShort = footballDataStatus(row?.status);
-      const isLive = ["LIVE", "HT", "SUSP"].includes(statusShort);
-      const isFinished = statusShort === "FT";
-      const existing = candidateByFixture.get(String(fixtureId));
-      const nextLive = isFinished
-        ? false
-        : isLive || existing?.is_live === true;
-
-      const { error: updateError } = await client
-        .from("matches")
-        .update({
-          kickoff_at: row?.utcDate ?? null,
-          home_score:
-            row?.score?.fullTime?.home ??
-            row?.score?.halfTime?.home ??
-            0,
-          away_score:
-            row?.score?.fullTime?.away ??
-            row?.score?.halfTime?.away ??
-            0,
-          status_short: statusShort,
-          status_elapsed: Number.isFinite(Number(row?.minute))
-            ? Number(row.minute)
-            : null,
-          is_live: nextLive,
-          is_finished: isFinished,
-          last_score_sync_at: now.toISOString(),
-        })
-        .eq("source", "football_data_org")
-        .eq("external_fixture_id", fixtureId);
-
-      if (updateError) {
-        summary.failed_updates += 1;
-      } else {
-        summary.synced += 1;
-      }
-    }
-  }
-
-  return summary;
-}
-
-function footballDataStatus(value: unknown) {
-  const status = String(value ?? "").trim().toUpperCase();
-  switch (status) {
-    case "FINISHED":
-      return "FT";
-    case "LIVE":
-    case "IN_PLAY":
-      return "LIVE";
-    case "PAUSED":
-      return "HT";
-    case "POSTPONED":
-      return "PST";
-    case "SUSPENDED":
-      return "SUSP";
-    case "CANCELLED":
-      return "CANC";
-    case "AWARDED":
-      return "AWD";
-    default:
-      return "NS";
-  }
-}
-
-function candidateDates(candidates: any[]) {
-  return [
-    ...new Set(
-      candidates.map((item: any) =>
-        new Date(item.kickoff_at).toISOString().slice(0, 10)
-      ),
-    ),
-  ];
-}
-
-function emptyScoreSummary() {
-  return {
-    synced: 0,
-    received_fixtures: 0,
-    failed_updates: 0,
-    api_calls: 0,
-    provider_errors: [] as unknown[],
-  };
-}
-
-function mergeScoreSummary(target: any, source: any) {
-  target.synced += source.synced ?? 0;
-  target.received_fixtures += source.received_fixtures ?? 0;
-  target.failed_updates += source.failed_updates ?? 0;
-  target.api_calls += source.api_calls ?? 0;
-  target.provider_errors.push(...(source.provider_errors ?? []));
-}
-
-async function hideFinishedMatchesAfterGrace(
-  client: any,
-  now: Date,
-) {
-  const graceMs = 8 * 60 * 1000;
-  const { data: rows, error } = await client
-    .from("matches")
-    .select("id,is_finished,status_short,last_score_sync_at,updated_at")
-    .eq("is_active", true)
-    .eq("publish_state", "published")
-    .eq("is_featured", true);
-
-  if (error) {
-    console.error("Finished-match cleanup query failed:", error);
-    return { hidden: 0, grace_minutes: 8 };
-  }
-
-  const finishedStatuses = new Set(["FT", "AET", "PEN"]);
-  const ids = (rows ?? [])
-    .filter((row: any) => {
-      const finished =
-        row.is_finished === true ||
-        finishedStatuses.has(String(row.status_short ?? "").toUpperCase());
-      if (!finished) return false;
-
-      const detectedAt = row.last_score_sync_at ?? row.updated_at;
-      if (!detectedAt) return false;
-      const timestamp = new Date(detectedAt).getTime();
-      return Number.isFinite(timestamp) && now.getTime() - timestamp >= graceMs;
-    })
-    .map((row: any) => row.id)
-    .filter(Boolean);
-
-  if (ids.length === 0) {
-    return { hidden: 0, grace_minutes: 8 };
-  }
-
-  const { error: updateError } = await client
-    .from("matches")
-    .update({
-      is_live: false,
-      is_finished: true,
-      is_featured: false,
-    })
-    .in("id", ids);
-
-  if (updateError) {
-    console.error("Finished-match cleanup update failed:", updateError);
-    return { hidden: 0, grace_minutes: 8 };
-  }
-
-  return { hidden: ids.length, grace_minutes: 8 };
-}
-
-async function hideStaleMatches(
-  client: any,
-  now: Date,
-) {
+async function hideStaleMatches(client: any, now: Date) {
   const cutoff = new Date(now.getTime() - 5 * 60 * 60 * 1000).toISOString();
   const { data: rows, error } = await client
     .from("matches")
@@ -543,7 +83,6 @@ async function hideStaleMatches(
     .eq("publish_state", "published")
     .eq("is_featured", true)
     .eq("is_live", false)
-    .eq("is_finished", false)
     .lt("kickoff_at", cutoff);
 
   if (error) {
@@ -572,10 +111,7 @@ async function hideStaleMatches(
   return { hidden: ids.length, grace_hours: 5 };
 }
 
-async function disableExpiredStreams(
-  client: any,
-  now: Date,
-) {
+async function disableExpiredStreams(client: any, now: Date) {
   const { data: rows, error } = await client
     .from("stream_links")
     .update({
@@ -685,7 +221,6 @@ async function probeStreamLink(
     "Accept": "*/*",
     "Range": "bytes=0-4095",
   };
-
   if (link.referer) headers["Referer"] = link.referer;
   if (link.origin) headers["Origin"] = link.origin;
 
