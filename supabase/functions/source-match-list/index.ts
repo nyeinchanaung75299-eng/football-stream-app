@@ -471,6 +471,31 @@ function colaEnglishText(value: unknown) {
     ["Giao hữu Quốc tế", "International Friendly"],
     ["Cúp Quốc gia", "Vietnam National Cup"],
     ["Giải vô địch bóng đá các quốc gia châu Âu", "UEFA Nations League"],
+    ["Đội tuyển quốc gia Bắc Macedonia", "North Macedonia"],
+    ["Đội tuyển QG Bắc Macedonia", "North Macedonia"],
+    ["Bắc Macedonia", "North Macedonia"],
+    ["Cộng hòa Séc", "Czechia"],
+    ["Tây Ban Nha", "Spain"],
+    ["Thụy Sĩ", "Switzerland"],
+    ["Chilê", "Chile"],
+    ["Mỹ", "USA"],
+    ["ĐTQG Anh", "England"],
+    ["ĐTQG Scotland", "Scotland"],
+    ["ĐTQG Iceland", "Iceland"],
+    ["Cúp Liên đoàn Bóng đá Ai Cập", "Egypt League Cup"],
+    ["Cúp Liên đoàn Bolivia", "Bolivia League Cup"],
+    ["Cúp liên đoàn UAE", "UAE League Cup"],
+    ["Cúp Chile", "Chile Cup"],
+    ["Giải bóng đá Hạng nhất Brasil", "Brazil Serie A"],
+    ["Giải bóng đá Hạng nhì Colombia", "Colombia Second Division"],
+    ["Giải Bóng đá Vô địch Quốc gia Phần Lan", "Finland Veikkausliiga"],
+    ["Giải vô địch quốc gia Qatar", "Qatar Stars League"],
+    ["Giải vô địch quốc gia Việt Nam", "Vietnam V.League 1"],
+    ["Đại học Kyoto Sangyo", "Kyoto Sangyo University"],
+    ["Thể Công - Viettel", "The Cong - Viettel"],
+    ["Hồng Lĩnh Hà Tĩnh", "Hong Linh Ha Tinh"],
+    ["Phong Phú Hà Nam Nữ", "Phong Phu Ha Nam Women"],
+    ["Hà Nội Nữ", "Ha Noi Women"],
     ["Huế", "Hue"],
     ["Bình Phước", "Binh Phuoc"],
     ["Đồng Tháp", "Dong Thap"],
@@ -478,6 +503,21 @@ function colaEnglishText(value: unknown) {
   for (const [from, to] of replacements) {
     text = text.replaceAll(from, to);
   }
+
+  text = text
+    .replace(/\b(?:Đội tuyển quốc gia|Đội tuyển QG|ĐTQG|CLB)\b/gi, " ")
+    .replace(/\bNữ\b/gi, " Women ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Proper names that remain Vietnamese are safer as Latin transliterations
+  // than mixed accented/provider-language labels across Viewer/Admin.
+  text = text
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D");
+
   return friendlyText(text).replace(/\s+/g, " ").trim();
 }
 
@@ -688,6 +728,47 @@ function friendlyText(value: unknown) {
     ["苏格兰", "Scotland"],
     ["爱尔兰", "Ireland"],
     ["中国台北", "Chinese Taipei"],
+    ["北马其顿", "North Macedonia"],
+    ["斯洛文尼亚", "Slovenia"],
+    ["卢森堡", "Luxembourg"],
+    ["保加利亚", "Bulgaria"],
+    ["摩尔多瓦", "Moldova"],
+    ["斯洛伐克", "Slovakia"],
+    ["爱沙尼亚", "Estonia"],
+    ["冰岛", "Iceland"],
+    ["白俄罗斯", "Belarus"],
+    ["白Russia", "Belarus"],
+    ["阿尔巴尼亚", "Albania"],
+    ["圣马力诺", "San Marino"],
+    ["安哥拉", "Angola"],
+    ["马拉维", "Malawi"],
+    ["圣文森特和格林纳丁斯", "Saint Vincent and the Grenadines"],
+    ["荷属圣马丁岛", "Sint Maarten"],
+    ["安提瓜和巴布达", "Antigua and Barbuda"],
+    ["阿鲁巴", "Aruba"],
+    ["阿根廷", "Argentina"],
+    ["贝宁", "Benin"],
+    ["哥伦比亚", "Colombia"],
+    ["秘鲁", "Peru"],
+    ["美国", "USA"],
+    ["加拿大", "Canada"],
+    ["法属圭亚那", "French Guiana"],
+    ["伯利兹", "Belize"],
+    ["墨西哥", "Mexico"],
+    ["智利", "Chile"],
+    ["印度", "India"],
+    ["中国", "China"],
+    ["波黑", "Bosnia and Herzegovina"],
+    ["中北美国联", "CONCACAF Nations League"],
+    ["女欧U19", "UEFA Women's U19"],
+    ["女欧U17", "UEFA Women's U17"],
+    ["日皇杯", "Emperor's Cup"],
+    ["美职业", "MLS"],
+    ["非洲杯", "Africa Cup of Nations"],
+    ["英足总杯", "FA Cup"],
+    ["英锦赛", "EFL Trophy"],
+    ["巴西乙", "Brazil Serie B"],
+    ["智利杯", "Chile Cup"],
     ["乌兹别克斯坦", "Uzbekistan"],
     ["乌兹别克", "Uzbekistan"],
     ["菲律宾", "Philippines"],
