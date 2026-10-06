@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../native_player.dart';
 
@@ -177,7 +178,48 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return rows;
   }
 
-  Future<List<Map<String, dynamic>>> _loadMatches() => _hedged(
+  String get _cacheKey => 'viewer_source_cache_v1_' + source;
+
+  Future<void> _saveLastGood(List<Map<String, dynamic>> rows) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _cacheKey,
+        jsonEncode({
+          'fetched_at': DateTime.now().toUtc().toIso8601String(),
+          'matches': rows,
+        }),
+      );
+    } catch (_) {}
+  }
+
+  Future<List<Map<String, dynamic>>?> _loadLastGood() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_cacheKey);
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map || decoded['matches'] is! List) return null;
+      final fetched = DateTime.tryParse(
+        decoded['fetched_at']?.toString() ?? '',
+      );
+      if (fetched == null ||
+          DateTime.now().toUtc().difference(fetched.toUtc()) >
+              const Duration(minutes: 20)) {
+        return null;
+      }
+      return (decoded['matches'] as List)
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _loadMatches() async {
+    try {
+      final rows = await _hedged(
         [
           ...bases.map<Future<List<Map<String, dynamic>>> Function()>(
             (base) => () => _loadFrom(base),
@@ -185,6 +227,14 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           () => _loadFromSupabase(),
         ],
       );
+      unawaited(_saveLastGood(rows));
+      return rows;
+    } catch (error, stack) {
+      final cached = await _loadLastGood();
+      if (cached != null && cached.isNotEmpty) return cached;
+      Error.throwWithStackTrace(error, stack);
+    }
+  }
 
   Future<void> _refresh() async {
     final next = _loadMatches();
