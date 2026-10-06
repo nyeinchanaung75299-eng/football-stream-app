@@ -107,11 +107,14 @@
         const script=document.createElement('script');
         script.src=src;
         script.async=true;
-        script.onload=resolve;
+        script.onload=()=>{
+          if(window[key]) resolve();
+          else reject(new Error(key+' player engine loaded without a global.'));
+        };
         script.onerror=()=>reject(new Error('Could not load '+key+' player engine.'));
         document.head.appendChild(script);
       }).catch(error=>{
-        // A transient CDN failure must not poison every later manual retry.
+        // A transient CDN/network failure must not poison later retries.
         scriptLoads.delete(src);
         throw error;
       });
@@ -119,20 +122,43 @@
       return promise;
     }
 
+    async function loadScriptFallback(urls,key){
+      let lastError=null;
+      for(const src of urls){
+        try{
+          await loadScriptOnce(src,key);
+          if(window[key]) return;
+        }catch(error){
+          lastError=error;
+        }
+      }
+      throw lastError||new Error('Could not load '+key+' player engine.');
+    }
+
+    function sameOriginAsset(path){
+      try{
+        if(location.protocol==='http:'||location.protocol==='https:'){
+          return new URL(path,document.baseURI).toString();
+        }
+      }catch(_){}
+      return '';
+    }
+
     async function ensurePlayerEngine(type,url){
       if(type==='flv'){
-        await loadScriptOnce(
-          'https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.js',
-          'mpegts'
-        );
+        await loadScriptFallback([
+          'https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.js'
+        ],'mpegts');
         return;
       }
       if(type==='hls'||type==='dash'||url.includes('.m3u8')||url.includes('.mpd')){
         if(type==='hls' && video.canPlayType('application/vnd.apple.mpegurl')) return;
-        await loadScriptOnce(
-          'https://cdn.jsdelivr.net/npm/shaka-player@5.2.12/dist/shaka-player.compiled.js',
-          'shaka'
-        );
+        const local=sameOriginAsset('vendor/shaka-player.compiled.js');
+        await loadScriptFallback([
+          ...(local?[local]:[]),
+          'https://ajax.googleapis.com/ajax/libs/shaka-player/5.2.12/shaka-player.compiled.js',
+          'https://cdn.jsdelivr.net/npm/shaka-player@5.2.12/dist/shaka-player.compiled.js'
+        ],'shaka');
       }
     }
 
@@ -575,9 +601,27 @@
           shakaPlayer=player;
           await player.attach(video);
           if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
-          const keyId=String(source.keyId||source.key_id||'').trim();
-          const keyData=String(source.keyData||source.key_data||'').trim();
-          if(keyId&&keyData){const clearKeys={};clearKeys[keyId]=keyData;player.configure({drm:{clearKeys}})}
+          const rawKeyId=String(source.keyId||source.key_id||'').trim();
+          const rawKeyData=String(source.keyData||source.key_data||'').trim();
+          const keyId=rawKeyId.replace(/[^0-9a-f]/gi,'').toLowerCase();
+          const keyData=rawKeyData.replace(/[^0-9a-f]/gi,'').toLowerCase();
+          if(keyId&&keyData){
+            if(keyId.length!==32||keyData.length!==32){
+              throw new Error('Invalid ClearKey format.');
+            }
+            const clearKeys={};clearKeys[keyId]=keyData;
+            const drmConfig={clearKeys};
+            if(!isIOS()) drmConfig.preferredKeySystems=['org.w3.clearkey'];
+            player.configure({
+              drm:drmConfig,
+              manifest:{dash:{autoCorrectDrift:true}},
+              streaming:{
+                rebufferingGoal:2,
+                bufferingGoal:12,
+                retryParameters:{maxAttempts:3,baseDelay:400,backoffFactor:1.6,fuzzFactor:.2}
+              }
+            });
+          }
           player.addEventListener('error',event=>{
             const detail=event&&event.detail?event.detail:{};
             playbackFailure(detail,index,token);
