@@ -401,8 +401,9 @@ class _HomePageState extends State<HomePage> {
   Future<List<Map<String, dynamic>>> _loadPublicApiStreams(
     String matchId,
   ) async {
-    // The custom domains and workers.dev can briefly run different deploys.
-    // Do not let the fastest stale endpoint hide newer Soco/MPD lines.
+    // The same Worker is reachable through multiple hostnames, but a phone
+    // network, DNS path or edge/cache path can make one alias fail or lag.
+    // Merge successful responses so one partial path cannot hide newer lines.
     final results = await Future.wait(
       _publicApiBases.map((base) async {
         try {
