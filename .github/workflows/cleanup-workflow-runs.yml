@@ -55,6 +55,7 @@ jobs:
             );
 
             const keep = new Set([currentRunId]);
+            const latestCompletedByPath = new Map();
             const latestSuccessByPath = new Map();
 
             for (const run of runs) {
@@ -62,6 +63,14 @@ jobs:
               if (run.status !== 'completed') {
                 keep.add(run.id);
                 continue;
+              }
+
+              if (
+                corePaths.has(run.path) &&
+                !latestCompletedByPath.has(run.path)
+              ) {
+                latestCompletedByPath.set(run.path, run.id);
+                keep.add(run.id);
               }
 
               if (
@@ -117,6 +126,8 @@ jobs:
                 `Deleted: ${deleted}\n` +
                 `Kept: ${kept}\n` +
                 `Delete failures: ${failed}\n` +
+                `Latest completed production runs retained: ` +
+                `${latestCompletedByPath.size}\n` +
                 `Latest successful production runs retained: ` +
                 `${latestSuccessByPath.size}\n`,
               )
