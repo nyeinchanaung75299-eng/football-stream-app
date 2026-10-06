@@ -52,11 +52,6 @@ class _HomePageState extends State<HomePage> {
   final Map<String, _StreamCacheEntry> _streamLinkCache = {};
   final Map<String, Future<List<Map<String, dynamic>>>> _streamLinkInflight = {};
 
-  static const _alternateApiBase = String.fromEnvironment(
-    'ALT_API_BASE',
-    defaultValue: '',
-  );
-
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
     defaultValue: 'https://football-api.nyeinchanaung.us.ci',
