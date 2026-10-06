@@ -504,13 +504,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
         'source lines failed',
         properties: {'source': source},
       );
-      if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
       final detail = e.toString().replaceFirst('Exception: ', '');
       message(
         'Could not load ${_sourceLabel(source)} stream links. $detail',
       );
+    } finally {
+      if (mounted && _extractingAnchorKey == extractingKey) {
+        setState(() => _extractingAnchorKey = null);
+      }
     }
   }
 
