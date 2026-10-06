@@ -463,6 +463,23 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .where((row) => (row['url'] ?? '').toString().trim().isNotEmpty)
           .toList();
 
+      final statusKey = _anchorKey(match, anchor);
+      final sourceIsLive =
+          data is Map && _isLiveStatus(data['live_status']);
+      final hasHealthy = lines.any((line) {
+        final health =
+            (line['health_status'] ?? '').toString().toLowerCase();
+        return health == 'healthy' || health == 'slow';
+      });
+      if (mounted) {
+        setState(() {
+          _anchorLineCounts[statusKey] = lines.length;
+          _anchorStatuses[statusKey] = sourceIsLive
+              ? 'live'
+              : (hasHealthy || lines.isNotEmpty ? 'ready' : 'offline');
+        });
+      }
+
       await AnalyticsService.capture(
         'source lines loaded',
         properties: {
