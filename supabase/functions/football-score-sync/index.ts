@@ -157,28 +157,33 @@ async function syncStreamHealth(
     return { checked: 0, healthy: 0, slow: 0, failed: 0, unknown: 0 };
   }
 
-  const { data: links, error: linkError } = await client
+  const minAgeMs = 10 * 60 * 1000;
+  const dueBefore = new Date(now.getTime() - minAgeMs).toISOString();
+
+  let linkQuery = client
     .from("stream_links")
     .select(
       "id,match_id,stream_url,referer,origin,use_webview,webview_url,last_checked_at",
     )
     .eq("is_active", true)
     .in("match_id", matchIds)
-    .limit(60);
+    .order("last_checked_at", { ascending: true, nullsFirst: true })
+    .limit(16);
+
+  if (!force) {
+    linkQuery = linkQuery.or(
+      "last_checked_at.is.null,last_checked_at.lt." + dueBefore,
+    );
+  }
+
+  const { data: links, error: linkError } = await linkQuery;
 
   if (linkError) {
     console.error("Health link query failed:", linkError);
     return { checked: 0, healthy: 0, slow: 0, failed: 0, unknown: 0 };
   }
 
-  const minAgeMs = 10 * 60 * 1000;
-  const due = (links ?? [])
-    .filter((link: any) => {
-      if (force || !link.last_checked_at) return true;
-      const checked = new Date(link.last_checked_at).getTime();
-      return !Number.isFinite(checked) || now.getTime() - checked >= minAgeMs;
-    })
-    .slice(0, 16);
+  const due = links ?? [];
 
   const totals = {
     checked: 0,
