@@ -28,6 +28,13 @@ class _StreamCacheEntry {
   final DateTime fetchedAt;
 }
 
+class _ProtectedStreamResult {
+  const _ProtectedStreamResult(this.ok, this.rows);
+
+  final bool ok;
+  final List<Map<String, dynamic>> rows;
+}
+
 class _PersistedMatchCache {
   const _PersistedMatchCache(this.rows, this.fetchedAt);
 
@@ -434,7 +441,7 @@ class _HomePageState extends State<HomePage> {
         DateTime.now().difference(cached.fetchedAt) <
             const Duration(seconds: 25);
     final cacheLooksComplete =
-        advertisedCount <= 0 || cachedRows.length >= advertisedCount;
+        advertisedCount > 0 && cachedRows.length == advertisedCount;
     if (cacheIsFresh && cachedRows.isNotEmpty && cacheLooksComplete) {
       return cachedRows;
     }
@@ -451,11 +458,17 @@ class _HomePageState extends State<HomePage> {
         return true;
       }).toList();
 
-      Future<List<Map<String, dynamic>>> loadProtected() async {
+      Future<_ProtectedStreamResult> loadProtected() async {
         try {
-          return playableLinks(await _loadPublicApiStreams(matchId));
+          return _ProtectedStreamResult(
+            true,
+            playableLinks(await _loadPublicApiStreams(matchId)),
+          );
         } catch (_) {
-          return const <Map<String, dynamic>>[];
+          return const _ProtectedStreamResult(
+            false,
+            <Map<String, dynamic>>[],
+          );
         }
       }
 
@@ -487,43 +500,47 @@ class _HomePageState extends State<HomePage> {
         final mirrorLooksIncomplete =
             advertisedCount > 0 && mirrorRows.length < advertisedCount;
 
-        // Always give the authoritative protected API a short chance to
-        // answer, even when the mirror's advertised count looks "complete".
-        // The mirror can lag behind newly-added Admin lines (for example 4
-        // mirrored lines while the database already has 7).
-        final first = await Future.any<List<Map<String, dynamic>>>([
+        // A successful protected API response is authoritative. Do not union
+        // it with an older mirror, otherwise a server deleted/disabled in
+        // Admin can remain visible until the mirror refreshes.
+        final first = await Future.any<_ProtectedStreamResult>([
           protectedFuture,
-          Future<List<Map<String, dynamic>>>.delayed(
+          Future<_ProtectedStreamResult>.delayed(
             Duration(
               milliseconds: kIsWeb
                   ? (mirrorLooksIncomplete ? 4200 : 3200)
                   : (mirrorLooksIncomplete ? 3800 : 3000),
             ),
-            () => const <Map<String, dynamic>>[],
+            () => const _ProtectedStreamResult(
+              false,
+              <Map<String, dynamic>>[],
+            ),
           ),
         ]);
 
-        rows = first.isNotEmpty
-            ? mergeRows(first, mirrorRows)
-            : mirrorRows;
+        rows = first.ok ? first.rows : mirrorRows;
 
-        // A slow endpoint may still finish after the chooser opens. Keep the
-        // richer union in cache so the next tap never regresses to Fawa-only.
-        if (advertisedCount > 0 && rows.length < advertisedCount) {
+        // If the protected endpoint answers after the initial timeout, replace
+        // the fallback cache with its exact authoritative set (including an
+        // empty set after every Admin line was removed).
+        if (!first.ok) {
           unawaited(
             protectedFuture.then((protected) {
-              if (protected.isEmpty) return;
-              final merged = mergeRows(protected, mirrorRows);
-              if (merged.length <= rows.length) return;
+              if (!protected.ok) return;
+              if (protected.rows.isEmpty) {
+                _streamLinkCache.remove(matchId);
+                return;
+              }
               _streamLinkCache[matchId] = _StreamCacheEntry(
-                merged,
+                protected.rows,
                 DateTime.now(),
               );
             }),
           );
         }
       } else {
-        rows = await loadProtected();
+        final protected = await loadProtected();
+        rows = protected.ok ? protected.rows : const <Map<String, dynamic>>[];
       }
 
       try {
@@ -986,15 +1003,13 @@ class _HomePageState extends State<HomePage> {
 
     final links = await _resolveLinks(match);
 
-    // Keep the visible card count in sync with the authoritative stream
-    // response. This also corrects a stale persisted/mirror count immediately
-    // after the chooser resolves a newer Admin line set.
-    if (links.isNotEmpty) {
-      final currentCount = (match['stream_count'] as num?)?.toInt() ?? 0;
-      if (links.length > currentCount) {
-        match['stream_count'] = links.length;
-        if (mounted) setState(() {});
-      }
+    // Keep the visible count synchronized after link resolution. The protected
+    // API path now replaces stale mirror rows, so this can correct both added
+    // and removed Admin servers.
+    final currentCount = (match['stream_count'] as num?)?.toInt() ?? 0;
+    if (links.isNotEmpty && links.length != currentCount) {
+      match['stream_count'] = links.length;
+      if (mounted) setState(() {});
     }
 
     if (links.isEmpty) {
