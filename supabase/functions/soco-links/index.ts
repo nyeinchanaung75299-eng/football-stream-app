@@ -88,6 +88,7 @@ Deno.serve(async (req) => {
           scheduleId: body.schedule_id,
           refererOrigin: "https://m.yyzb22.live",
           statusOnly: body.status_only === true,
+          skipProbe: body.skip_probe === true,
         });
       }
       return await roomStreams({
@@ -97,6 +98,7 @@ Deno.serve(async (req) => {
         scheduleId: body.schedule_id,
         refererOrigin: "https://m.sutbongtv.com",
         statusOnly: body.status_only === true,
+        skipProbe: body.skip_probe === true,
       });
     }
 
@@ -227,6 +229,7 @@ async function roomStreams(args: {
   scheduleId: unknown;
   refererOrigin: string;
   statusOnly?: boolean;
+  skipProbe?: boolean;
 }) {
   const roomNum = String(args.roomNum ?? "").trim();
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(roomNum)) {
@@ -254,7 +257,16 @@ async function roomStreams(args: {
     : `${args.refererOrigin}/room/${encodeURIComponent(roomNum)}`;
 
   const lines = extractStreamLines(stream, referer);
-  const checkedLines = args.statusOnly ? [] : await probeLines(lines);
+  const checkedLines = args.statusOnly
+    ? []
+    : args.skipProbe
+      ? lines.map((line) => ({
+          ...line,
+          health_status: "unknown",
+          health_http: null,
+          checked_at: null,
+        }))
+      : await probeLines(lines);
   const liveStatus =
     room.liveStatus ??
     room.live_status ??
