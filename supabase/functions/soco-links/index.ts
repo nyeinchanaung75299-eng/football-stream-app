@@ -16,6 +16,7 @@ const YYZB_ROOM_BASE = "https://json.ncctrials.com/room";
 const FAWA_BASE = "http://www.fawanews.sc";
 const FAWA_HOME = FAWA_BASE + "/";
 const COLA_HOME = "https://colatv66.live/";
+const COLA_API = "https://api.cltvlv.com/api/matches";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -443,85 +444,17 @@ async function fawaStreams(body: any) {
 }
 
 async function colaMatches() {
-  let html = "";
-  let lastError: unknown = null;
-  for (const candidate of [
-    COLA_HOME + "?lang=en",
-    COLA_HOME + "?language=en",
-    COLA_HOME,
-  ]) {
-    try {
-      html = await fetchText(candidate);
-      if (html.trim()) break;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  if (!html.trim()) {
-    throw lastError instanceof Error
-      ? lastError
-      : new Error("ColaTV source is unreachable.");
+  const payload = await fetchColaMatchesPayload();
+  const rawData = payload?.data;
+  if (!rawData || typeof rawData !== "object" || Array.isArray(rawData)) {
+    throw new Error("ColaTV returned an invalid match payload.");
   }
 
-  const grouped = new Map<string, any>();
-  const normalized = decodeHtml(
-    html
-      .replace(/\\u002[fF]/g, "/")
-      .replace(/\\\//g, "/"),
-  );
-  const anchorRegex =
-    /<a\b([^>]*?)href=["']([^"']+)["']([^>]*)>([\s\S]{0,5000}?)<\/a>/gi;
-  let hit: RegExpExecArray | null;
+  const matches = Object.entries(rawData)
+    .map(([slug, raw]: [string, any]) => colaMatchRow(slug, raw))
+    .filter((row: any) => row != null)
+    .sort(compareMatches);
 
-  while ((hit = anchorRegex.exec(normalized)) !== null) {
-    const attrs = `${hit[1] ?? ""} ${hit[3] ?? ""}`;
-    const href = decodeHtml(hit[2] ?? "").trim();
-    const pageUrl = safeColaPageUrl(href);
-    if (!pageUrl || pageUrl === COLA_HOME) continue;
-
-    const attrLabel =
-      attrs.match(/(?:aria-label|title)=["']([^"']+)["']/i)?.[1] ?? "";
-    const visible = decodeHtml(stripTags(hit[4] ?? ""))
-      .replace(/\s+/g, " ")
-      .trim();
-    const candidateText = friendlyText(
-      `${attrLabel} ${visible}`.replace(/\s+/g, " ").trim(),
-    );
-    const teams =
-      matchTeamsFromText(candidateText) ??
-      matchTeamsFromUrl(pageUrl);
-    if (!teams) continue;
-
-    const key = `${teams.home.toLowerCase()}::${teams.away.toLowerCase()}`;
-    const existing = grouped.get(key) ?? {
-      source: "cola",
-      source_id: pageUrl,
-      page_url: pageUrl,
-      league: colaLeagueFromText(candidateText),
-      home_team: teams.home,
-      away_team: teams.away,
-      home_logo: null,
-      away_logo: null,
-      match_time: colaTimeFromText(candidateText),
-      time_label: null,
-      hot: /\blive\b/i.test(candidateText),
-      status: /\blive\b/i.test(candidateText) ? "LIVE" : null,
-      match_status: /\blive\b/i.test(candidateText) ? "LIVE" : null,
-      anchors: [],
-    };
-    if (!existing.anchors.some((item: any) => item.page_url === pageUrl)) {
-      existing.anchors.push({
-        uid: pageUrl,
-        nick_name: "ColaTV",
-        icon: null,
-        room_num: pageUrl,
-        page_url: pageUrl,
-      });
-    }
-    grouped.set(key, existing);
-  }
-
-  const matches = [...grouped.values()].sort(compareMatches);
   return json({
     ok: true,
     matches,
@@ -533,185 +466,250 @@ async function colaMatches() {
 }
 
 async function colaStreams(body: any) {
-  const pageUrl = safeColaPageUrl(body.page_url ?? body.room_num);
-  if (!pageUrl) {
-    return json({ error: "Invalid ColaTV match page." }, 400);
+  const payload = await fetchColaMatchesPayload();
+  const rawData = payload?.data;
+  if (!rawData || typeof rawData !== "object" || Array.isArray(rawData)) {
+    return json({ error: "ColaTV match data is unavailable." }, 502);
   }
 
-  const pages = new Map<string, string>();
-  const firstHtml = await fetchText(pageUrl);
-  pages.set(pageUrl, firstHtml);
+  const target = String(
+    body?.schedule_id ?? body?.room_num ?? body?.source_id ?? "",
+  ).trim();
+  const pageUrl = String(body?.page_url ?? "").trim();
 
-  // Some ColaTV revisions put the direct source in a same-site player iframe
-  // or script bundle. Follow only ColaTV-owned pages/assets to avoid turning
-  // this admin-only extractor into an arbitrary fetch proxy.
-  const embedded = [
-    ...extractColaEmbedUrls(firstHtml, pageUrl),
-    ...extractColaScriptUrls(firstHtml, pageUrl),
-  ].slice(0, 8);
-
-  for (const candidate of embedded) {
-    const safe = safeColaPageUrl(candidate);
-    if (!safe || pages.has(safe)) continue;
-    try {
-      pages.set(safe, await fetchText(safe));
-    } catch (_) {
-      // Main page extraction can still succeed.
+  let slug = "";
+  let match: any = null;
+  for (const [candidateSlug, candidate] of Object.entries(rawData) as [string, any][]) {
+    const candidateId = String(
+      candidate?.matchId ?? candidate?.match_id ?? candidate?.node_api_data?.match_id ?? "",
+    ).trim();
+    const candidatePage = `${COLA_HOME}${encodeURI(candidateSlug)}`;
+    if (
+      (target && (target === candidateId || target === candidateSlug)) ||
+      (pageUrl && pageUrl === candidatePage)
+    ) {
+      slug = candidateSlug;
+      match = candidate;
+      break;
     }
   }
 
-  const found = new Map<string, { url: string; referer: string }>();
-  for (const [sourcePage, html] of pages.entries()) {
-    for (const media of extractMediaUrls(html, sourcePage)) {
-      if (!found.has(media)) {
-        found.set(media, { url: media, referer: sourcePage });
-      }
+  if (!match) {
+    return json({ error: "ColaTV match is no longer available." }, 404);
+  }
+
+  const found = new Map<string, any>();
+  const add = (
+    value: unknown,
+    label: string,
+    anchorName: string | null = null,
+  ) => {
+    const url = colaMediaUrl(value);
+    if (!url || found.has(url)) return;
+    const type = detectType(url);
+    if (type === "auto") return;
+    found.set(url, {
+      label: anchorName
+        ? `ColaTV • ${anchorName} • ${label}`
+        : `ColaTV • ${label}`,
+      stream_type: type,
+      resolution: qualityFromUrl(url),
+      url,
+      referer: COLA_HOME,
+      origin: "https://colatv66.live",
+      expires_at: streamExpiry(url),
+    });
+  };
+
+  add(match?.videoUrl, "Main");
+  add(match?.video_url, "Main");
+
+  const anchors = Array.isArray(match?.anchorAppointmentVoList)
+    ? match.anchorAppointmentVoList
+    : [];
+  for (const anchor of anchors) {
+    const anchorName = colaEnglishText(
+      anchor?.nickName ?? anchor?.houseName ?? "Streamer",
+    );
+    add(anchor?.playStreamAddress2, "HLS", anchorName);
+    add(anchor?.playStreamAddress, "FLV", anchorName);
+    if (Array.isArray(anchor?.servers)) {
+      anchor.servers.forEach((server: unknown, index: number) => {
+        add(server, `Backup ${index + 1}`, anchorName);
+      });
     }
   }
 
-  const lines = [...found.values()]
-    .map((item, index) => ({
-      label: `ColaTV Server ${index + 1} · ${detectType(item.url).toUpperCase()}`,
-      stream_type: detectType(item.url),
-      resolution: qualityFromUrl(item.url),
-      url: item.url,
-      referer: item.referer,
-      origin: new URL(item.referer).origin,
-      expires_at: streamExpiry(item.url),
-    }))
-    .filter((line) => line.stream_type !== "auto");
-
-  const checkedLines = await probeLines(lines);
+  const lines = await probeLines([...found.values()]);
+  const row = colaMatchRow(slug, match);
 
   return json({
     ok: true,
-    page_url: pageUrl,
-    title: pageTitle(firstHtml),
-    lines: checkedLines,
+    page_url: `${COLA_HOME}${encodeURI(slug)}`,
+    title: row == null ? null : `${row.home_team} vs ${row.away_team}`,
+    lines,
     source: "cola",
     language: "en",
     generated_at: new Date().toISOString(),
   });
 }
 
-function safeColaPageUrl(value: unknown) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
+async function fetchColaMatchesPayload() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
   try {
-    const url = new URL(raw, COLA_HOME);
-    const host = url.hostname.toLowerCase();
-    if (host !== "colatv66.live" && !host.endsWith(".colatv66.live")) {
-      return null;
+    const response = await fetch(`${COLA_API}?v=${Date.now()}`, {
+      headers: {
+        Accept: "application/json",
+        "Accept-Language": "en-US,en;q=0.9",
+        "X-Domain": "colatv66.live",
+        Referer: COLA_HOME,
+        Origin: "https://colatv66.live",
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36 NCA-Admin/9.8",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+      redirect: "follow",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`ColaTV API returned HTTP ${response.status}.`);
     }
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    url.hash = "";
+    const payload = await response.json();
+    if (String(payload?.code ?? "") !== "0000") {
+      throw new Error(
+        String(payload?.message ?? payload?.msg ?? "ColaTV API returned an error."),
+      );
+    }
+    return payload;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function colaMatchRow(slug: string, row: any) {
+  if (Number(row?.sportId ?? row?.sport_id ?? 0) !== 1) return null;
+  const node = row?.node_api_data ?? {};
+  const homeNode = node?.home_team ?? {};
+  const awayNode = node?.away_team ?? {};
+  const competitionNode = node?.competition ?? {};
+  const matchId = String(
+    row?.matchId ?? row?.match_id ?? node?.match_id ?? slug,
+  ).trim();
+  if (!matchId) return null;
+
+  const home = colaEnglishText(
+    homeNode?.name ?? row?.homeTeamName ?? row?.home_team?.name ?? "Home",
+  );
+  const away = colaEnglishText(
+    awayNode?.name ?? row?.awayTeamName ?? row?.away_team?.name ?? "Away",
+  );
+  const league = colaEnglishText(
+    competitionNode?.name ??
+      row?.competitionName ??
+      row?.competition?.name ??
+      "Football",
+  );
+  const statusNum = Number(
+    row?.matchStatus ?? row?.match_status_num ?? node?.status_id ?? 1,
+  );
+
+  return {
+    source: "cola",
+    source_id: matchId,
+    schedule_id: matchId,
+    slug,
+    page_url: `${COLA_HOME}${encodeURI(slug)}`,
+    league,
+    home_team: home,
+    away_team: away,
+    home_logo:
+      homeNode?.logo ??
+      row?.homeTeamLogo ??
+      row?.home_team?.logo ??
+      null,
+    away_logo:
+      awayNode?.logo ??
+      row?.awayTeamLogo ??
+      row?.away_team?.logo ??
+      null,
+    match_time: normalizeMatchTime(
+      row?.matchTime ?? row?.match_time ?? node?.match_time,
+    ),
+    hot: statusNum === 2,
+    status: statusNum === 2 ? "LIVE" : statusNum === 3 ? "FT" : "NS",
+    match_status:
+      statusNum === 2 ? "LIVE" : statusNum === 3 ? "FT" : "SCHEDULED",
+    anchors: colaHasPlayableSource(row)
+      ? [{
+          uid: matchId,
+          nick_name: "ColaTV",
+          icon: null,
+          room_num: matchId,
+          page_url: `${COLA_HOME}${encodeURI(slug)}`,
+        }]
+      : [],
+  };
+}
+
+function colaHasPlayableSource(row: any) {
+  const candidates: unknown[] = [row?.videoUrl, row?.video_url];
+  const anchors = Array.isArray(row?.anchorAppointmentVoList)
+    ? row.anchorAppointmentVoList
+    : [];
+  for (const anchor of anchors) {
+    candidates.push(anchor?.playStreamAddress2);
+    candidates.push(anchor?.playStreamAddress);
+    if (Array.isArray(anchor?.servers)) {
+      candidates.push(...anchor.servers);
+    }
+  }
+  return candidates.some((value) => colaMediaUrl(value) != null);
+}
+
+function colaMediaUrl(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!/^https?:\/\//i.test(raw)) return null;
+  const lower = raw.toLowerCase();
+  if (
+    !lower.includes(".m3u8") &&
+    !lower.includes(".flv") &&
+    !lower.includes(".mpd") &&
+    !lower.includes(".mp4")
+  ) {
+    return null;
+  }
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
     return url.toString();
   } catch (_) {
     return null;
   }
 }
 
-function extractColaEmbedUrls(html: string, baseUrl: string) {
-  const urls = new Set<string>();
-  const normalized = decodeHtml(
-    html.replace(/\\u002[fF]/g, "/").replace(/\\\//g, "/"),
-  );
-  const regex =
-    /<iframe\b[^>]+(?:src|data-src)=["']([^"']+)["']/gi;
-  let hit: RegExpExecArray | null;
-  while ((hit = regex.exec(normalized)) !== null) {
-    const safe = safeColaPageUrl(
-      normalizeMediaUrl(hit[1], baseUrl) || new URL(hit[1], baseUrl).toString(),
-    );
-    if (safe) urls.add(safe);
+function colaEnglishText(value: unknown) {
+  let text = String(value ?? "").trim();
+  const replacements: Array<[string, string]> = [
+    ["Hàn Quốc", "South Korea"],
+    ["Trung Quốc", "China"],
+    ["Cộng hòa Tajikistan", "Tajikistan"],
+    ["ĐTQG Kazakhstan", "Kazakhstan"],
+    ["Quần đảo Faroe", "Faroe Islands"],
+    ["Đội tuyển quốc gia Ấn Độ", "India"],
+    ["Giao hữu Quốc tế", "International Friendly"],
+    ["Cúp Quốc gia", "Vietnam National Cup"],
+    ["Giải vô địch bóng đá các quốc gia châu Âu", "UEFA Nations League"],
+    ["Huế", "Hue"],
+    ["Bình Phước", "Binh Phuoc"],
+    ["Đồng Tháp", "Dong Thap"],
+  ];
+  for (const [from, to] of replacements) {
+    text = text.replaceAll(from, to);
   }
-  return [...urls];
-}
-
-function extractColaScriptUrls(html: string, baseUrl: string) {
-  const urls = new Set<string>();
-  const regex = /<script\b[^>]+src=["']([^"']+)["']/gi;
-  let hit: RegExpExecArray | null;
-  while ((hit = regex.exec(html)) !== null) {
-    try {
-      const safe = safeColaPageUrl(new URL(decodeHtml(hit[1]), baseUrl).toString());
-      if (safe) urls.add(safe);
-    } catch (_) {}
-  }
-  return [...urls];
-}
-
-function cleanColaTeam(value: string) {
-  return friendlyText(value)
-    .replace(/\b(?:live|watch|stream|football|soccer|today|tomorrow)\b/gi, " ")
-    .replace(/\b\d{1,2}:\d{2}\b/g, " ")
-    .replace(/\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/g, " ")
-    .replace(/[|•]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function matchTeamsFromText(value: string) {
-  const text = String(value ?? "").replace(/\s+/g, " ").trim();
-  if (!text) return null;
-  const hit = text.match(
-    /(.{2,80}?)\s+(?:vs?\.?|versus)\s+(.{2,80}?)(?=\s{2,}|\s*[|•]\s*|$)/i,
-  );
-  if (!hit) return null;
-  const home = cleanColaTeam(hit[1]);
-  const away = cleanColaTeam(hit[2]);
-  if (!home || !away || home.length > 80 || away.length > 80) return null;
-  return { home, away };
-}
-
-function matchTeamsFromUrl(value: string) {
-  try {
-    const url = new URL(value);
-    const slug = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() ?? "")
-      .replace(/\.(?:html?|php)$/i, "")
-      .replace(/[_+]+/g, "-");
-    const parts = slug.split(/-vs?-|-versus-/i);
-    if (parts.length < 2) return null;
-    const home = cleanColaTeam(parts[0].replace(/-/g, " "));
-    const away = cleanColaTeam(parts.slice(1).join(" ").replace(/-/g, " "));
-    if (!home || !away) return null;
-    return { home, away };
-  } catch (_) {
-    return null;
-  }
-}
-
-function colaLeagueFromText(value: string) {
-  const text = friendlyText(value);
-  for (const label of [
-    "Premier League",
-    "Champions League",
-    "Europa League",
-    "La Liga",
-    "Serie A",
-    "Bundesliga",
-    "Ligue 1",
-    "International Friendly",
-    "World Cup",
-    "UEFA Nations League",
-  ]) {
-    if (text.toLowerCase().includes(label.toLowerCase())) return label;
-  }
-  return "Football";
-}
-
-function colaTimeFromText(value: string) {
-  const time = String(value ?? "").match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
-  if (!time) return null;
-  const now = new Date();
-  const candidate = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    Number(time[1]),
-    Number(time[2]),
-  );
-  return candidate.toISOString();
+  return friendlyText(text).replace(/\s+/g, " ").trim();
 }
 
 function collectMatchRows(value: any, depth = 0, output: any[] = []) {
