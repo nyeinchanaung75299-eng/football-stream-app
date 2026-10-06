@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: public-match-feed
@@ -44,6 +45,7 @@ jobs:
           PY
 
       - name: Publish feed branch
+        id: publish_feed
         run: |
           set -e
           git config user.name "github-actions[bot]"
@@ -77,8 +79,17 @@ jobs:
 
           if git diff --cached --quiet; then
             echo "No feed changes."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           git commit -m "Update public match feed"
           git push origin feed
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Redeploy Web Viewer with latest feed
+        if: steps.publish_feed.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run deploy-web.yml --ref "${{ github.event.repository.default_branch }}"
