@@ -77,7 +77,14 @@ jobs:
 
       - name: Create Admin Web platform
         working-directory: admin_app
-        run: flutter create . --platforms web
+        run: |
+          flutter create . --platforms web
+          # flutter create adds the template counter test to projects that did
+          # not already have a test directory. It references the template
+          # MyApp class, not NCA Admin, and must not block the real Admin build.
+          if [ -f test/widget_test.dart ] && grep -q "MyApp" test/widget_test.dart; then
+            rm -f test/widget_test.dart
+          fi
 
       - name: Get Admin Web dependencies
         working-directory: admin_app
