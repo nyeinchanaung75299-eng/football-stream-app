@@ -125,6 +125,8 @@ async function jsonpMatches(args: {
           args.source,
           row.guestName ?? row.awayName ?? row.away_team ?? "Away",
         ),
+        home_logo: sourceLogo(row, "home"),
+        away_logo: sourceLogo(row, "away"),
         match_time: normalizeMatchTime(
           row.matchTime ?? row.match_time ?? row.startTime ?? row.kickoff,
         ),
@@ -334,6 +336,83 @@ function isFootballRow(row: any) {
   return !Number.isFinite(categoryId) &&
     (row?.hostName != null || row?.homeName != null) &&
     (row?.guestName != null || row?.awayName != null);
+}
+
+function sourceLogo(row: any, side: "home" | "away") {
+  const home = side === "home";
+  const directCandidates = home
+    ? [
+        row?.hostLogo,
+        row?.hostLogoUrl,
+        row?.host_logo,
+        row?.host_logo_url,
+        row?.homeLogo,
+        row?.homeLogoUrl,
+        row?.home_logo,
+        row?.home_logo_url,
+        row?.homeTeamLogo,
+        row?.home_team_logo,
+        row?.team1Logo,
+        row?.team1_logo,
+      ]
+    : [
+        row?.guestLogo,
+        row?.guestLogoUrl,
+        row?.guest_logo,
+        row?.guest_logo_url,
+        row?.awayLogo,
+        row?.awayLogoUrl,
+        row?.away_logo,
+        row?.away_logo_url,
+        row?.awayTeamLogo,
+        row?.away_team_logo,
+        row?.team2Logo,
+        row?.team2_logo,
+      ];
+
+  const nested = home
+    ? [
+        row?.host?.logo,
+        row?.host?.logoUrl,
+        row?.home?.logo,
+        row?.home?.logoUrl,
+        row?.homeTeam?.logo,
+        row?.homeTeam?.logoUrl,
+        row?.teams?.home?.logo,
+        row?.teams?.home?.logoUrl,
+      ]
+    : [
+        row?.guest?.logo,
+        row?.guest?.logoUrl,
+        row?.away?.logo,
+        row?.away?.logoUrl,
+        row?.awayTeam?.logo,
+        row?.awayTeam?.logoUrl,
+        row?.teams?.away?.logo,
+        row?.teams?.away?.logoUrl,
+      ];
+
+  for (const value of [...directCandidates, ...nested]) {
+    const normalized = normalizeLogoUrl(value);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function normalizeLogoUrl(value: unknown) {
+  if (value == null) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  try {
+    const url = new URL(raw);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return url.toString();
+    }
+  } catch (_) {}
+
+  if (raw.startsWith("//")) return "https:" + raw;
+  return null;
 }
 
 function sourceText(_source: "soco" | "yyzb", value: unknown) {
