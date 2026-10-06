@@ -27,7 +27,6 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   String? matchId;
   bool useWebView = false;
   bool loading = false;
-  bool checkingAll = false;
   final Set<String> checkingLinks = <String>{};
   bool testingHealth = false;
   late Future<List<Map<String, dynamic>>> _matchesFuture;
@@ -49,11 +48,6 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     if (matchId != null) {
       _linksFuture = loadLinks();
     }
-  }
-
-  void reloadMatches() {
-    if (!mounted) return;
-    setState(() => _matchesFuture = loadMatches());
   }
 
   void reloadLinks() {
@@ -243,29 +237,22 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     }
   }
 
-  Future<void> testHealth({String? linkId}) async {
-    if (linkId == null && matchId == null) {
+  Future<void> testHealth() async {
+    if (matchId == null) {
       message('Select a match first.');
       return;
     }
 
     setState(() => testingHealth = true);
     try {
-      final body = <String, dynamic>{};
-      if (linkId != null) {
-        body['link_id'] = linkId;
-      } else {
-        body['match_id'] = matchId;
-      }
-
       final data = await FunctionGateway.invoke(
         'stream-health',
-        body: body,
+        body: {'match_id': matchId},
       );
       await AnalyticsService.capture(
         'stream health checked',
         properties: {
-          'scope': linkId != null ? 'link' : 'match',
+          'scope': 'match',
           if (data is Map && data['health_status'] != null)
             'health_status': data['health_status'].toString(),
         },
@@ -279,11 +266,6 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
           '${summary['slow'] ?? 0} slow, '
           '${summary['failed'] ?? 0} failed.',
         );
-      } else if (data is Map && data['health_status'] != null) {
-        message(
-          'Server: ${data['health_status']} '
-          '(${data['latency_ms'] ?? '-'} ms)',
-        );
       } else {
         message('Health check finished.');
       }
@@ -292,7 +274,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     } catch (e) {
       await AnalyticsService.capture(
         'stream health check failed',
-        properties: {'scope': linkId != null ? 'link' : 'match'},
+        properties: {'scope': 'match'},
       );
       if (mounted) message('Health check failed: $e');
     } finally {
@@ -358,7 +340,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     reloadLinks();
   }
 
-  Future<void> checkHealth(String id, {bool quiet = false}) async {
+  Future<void> checkHealth(String id) async {
     if (checkingLinks.contains(id)) return;
 
     setState(() => checkingLinks.add(id));
@@ -377,7 +359,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         },
       );
 
-      if (!quiet && mounted) {
+      if (mounted) {
         reloadLinks();
         if (data is Map) {
           final status = data['health_status'] ?? 'unknown';
@@ -394,47 +376,11 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         'stream health check failed',
         properties: {'scope': 'link'},
       );
-      if (!quiet && mounted) message('Health check failed: $e');
+      if (mounted) message('Health check failed: $e');
     } finally {
       if (mounted) {
         setState(() => checkingLinks.remove(id));
       }
-    }
-  }
-
-  Future<void> checkAllHealth(List<Map<String, dynamic>> rows) async {
-    if (checkingAll) return;
-    setState(() => checkingAll = true);
-
-    try {
-      final activeRows =
-          rows.where((item) => item['is_active'] == true).toList();
-      for (final row in activeRows) {
-        await checkHealth(row['id'].toString(), quiet: true);
-      }
-      await AnalyticsService.capture(
-        'stream health batch completed',
-        properties: {'link_count': activeRows.length},
-      );
-      if (mounted) {
-        reloadLinks();
-        message('Health check finished.');
-      }
-    } finally {
-      if (mounted) setState(() => checkingAll = false);
-    }
-  }
-
-  Color healthColor(String status) {
-    switch (status) {
-      case 'healthy':
-        return Colors.green;
-      case 'slow':
-        return Colors.orange;
-      case 'failed':
-        return Colors.redAccent;
-      default:
-        return Colors.blueGrey;
     }
   }
 
