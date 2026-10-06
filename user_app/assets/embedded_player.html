@@ -13,7 +13,7 @@
     #football-player-topbar.controls-hidden{opacity:0;pointer-events:none}
     #football-player-title{font-weight:800;flex:1 1 220px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
     #football-player-video-wrap{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#000}
-    #football-player-video{width:100%;height:100%;object-fit:contain;background:#000}
+    #football-player-video{width:100%;height:100%;object-fit:contain;background:#000;transform-origin:center center}
     #football-player-video.fill{object-fit:fill}
     /* Keep fullscreen on the whole NCA player so line/quality controls remain
        available. Chrome/Brave may otherwise fullscreen only the <video>. */
@@ -58,6 +58,7 @@
       <button id="football-player-server" class="football-control" type="button" aria-label="Choose line">Line</button>
       <button id="football-player-quality" class="football-control" type="button" aria-label="Choose quality">Auto</button>
       <button id="football-player-fit" class="football-control" type="button">Fill</button>
+      <button id="football-player-rotate" class="football-control" type="button" aria-label="Rotate video">↻ Rotate</button>
       <button id="football-player-fullscreen" class="football-control" type="button">Fullscreen</button>
     </div>
     <div id="football-player-menu" class="hidden" role="dialog" aria-modal="false">
@@ -82,7 +83,9 @@
     const messageEl=document.getElementById('football-player-message');
     const closeButton=document.getElementById('football-player-close');
     const fitButton=document.getElementById('football-player-fit');
+    const rotateButton=document.getElementById('football-player-rotate');
     const fullscreenButton=document.getElementById('football-player-fullscreen');
+    const videoWrap=document.getElementById('football-player-video-wrap');
     let sources=[], shakaPlayer=null, mpegtsPlayer=null, currentTracks=[];
     let currentSourceIndex=0;
     let currentMatchId='';
@@ -95,6 +98,7 @@
     let fallbackScheduledToken=-1, awaitingPlayToken=-1;
     let activePlayingHandler=null;
     let playbackTeardown=Promise.resolve();
+    let manualRotation=0;
     const iosRecoveryAttempts=new Map();
     const startupTimeoutMs=20000, stallTimeoutMs=15000;
     const scriptLoads=new Map();
@@ -736,6 +740,50 @@
       const fill=video.classList.toggle('fill');
       fitButton.textContent=fill?'Fit':'Fill';
     });
+    function clearManualRotation(){
+      manualRotation=0;
+      video.style.transform='';
+      video.style.width='100%';
+      video.style.height='100%';
+      rotateButton.textContent='↻ Rotate';
+    }
+
+    function applyManualRotation(){
+      const angle=((manualRotation%360)+360)%360;
+      video.style.transform='rotate('+angle+'deg)';
+      if(angle===90||angle===270){
+        const w=videoWrap.clientWidth||window.innerWidth||1;
+        const h=videoWrap.clientHeight||window.innerHeight||1;
+        video.style.width=h+'px';
+        video.style.height=w+'px';
+      }else{
+        video.style.width='100%';
+        video.style.height='100%';
+      }
+      rotateButton.textContent=angle?'↻ '+angle+'°':'↻ Rotate';
+    }
+
+    async function rotatePlayer(){
+      revealControls();
+      try{
+        const orientation=
+          typeof screen!=='undefined' ? screen.orientation : null;
+        if(orientation && typeof orientation.lock==='function'){
+          if(!document.fullscreenElement && overlay.requestFullscreen){
+            await overlay.requestFullscreen();
+          }
+          const landscape=String(orientation.type||'').startsWith('landscape');
+          await orientation.lock(landscape?'portrait-primary':'landscape');
+          clearManualRotation();
+          return;
+        }
+      }catch(_){}
+
+      manualRotation=(manualRotation+90)%360;
+      applyManualRotation();
+    }
+
+    rotateButton.addEventListener('click',rotatePlayer);
     fullscreenButton.addEventListener('click',async()=>{
       try{
         // Non-iOS browsers fullscreen the entire NCA overlay, not the video,
@@ -751,13 +799,24 @@
     });
     document.addEventListener('fullscreenchange',()=>{
       fullscreenButton.textContent=document.fullscreenElement?'Exit':'Fullscreen';
+      if(!document.fullscreenElement &&
+          typeof screen!=='undefined' &&
+          screen.orientation &&
+          typeof screen.orientation.unlock==='function'){
+        try{screen.orientation.unlock()}catch(_){}
+      }
+      if(manualRotation)applyManualRotation();
       if(overlay.classList.contains('open')) revealControls();
     });
     if(typeof screen!=='undefined' && screen.orientation){
       screen.orientation.addEventListener?.('change',()=>{
+        if(manualRotation)applyManualRotation();
         if(overlay.classList.contains('open')) revealControls();
       });
     }
+    window.addEventListener?.('resize',()=>{
+      if(manualRotation)applyManualRotation();
+    });
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&overlay.classList.contains('open')&&!document.fullscreenElement)closeButton.click()});
     video.addEventListener('waiting',()=>{
       if(!overlay.classList.contains('open'))return;
@@ -798,6 +857,7 @@
       updateServerButton(startIndex);
       video.classList.remove('fill');
       fitButton.textContent='Fill';
+      clearManualRotation();
       overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');
       hideControls();
       await loadSource(startIndex);
