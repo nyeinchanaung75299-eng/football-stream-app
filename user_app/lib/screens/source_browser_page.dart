@@ -27,6 +27,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   static const _supabaseFunction =
       'https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links';
   static const _sourceMirrorBase =
+      'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources';
+  static const _rawSourceMirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/sources';
 
@@ -145,10 +147,12 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return rows;
   }
 
-  Future<List<Map<String, dynamic>>> _loadFromMirror() async {
+  Future<List<Map<String, dynamic>>> _loadFromMirror([
+    String base = _sourceMirrorBase,
+  ]) async {
     final response = await http
         .get(
-          Uri.parse('$_sourceMirrorBase/$source.json').replace(
+          Uri.parse('$base/$source.json').replace(
             queryParameters: {
               't': DateTime.now().millisecondsSinceEpoch.toString(),
             },
@@ -267,6 +271,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         [
           if (workerJobs.isNotEmpty) workerJobs.first,
           () => _loadFromMirror(),
+          () => _loadFromMirror(_rawSourceMirrorBase),
           () => _loadFromSupabase(),
           ...workerJobs.skip(1),
         ],
