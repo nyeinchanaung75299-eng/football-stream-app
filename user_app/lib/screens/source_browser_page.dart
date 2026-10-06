@@ -60,43 +60,69 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     _future = _loadMatches();
   }
 
-  Future<T> _hedged<T>(List<Future<T> Function()> jobs) {
-    final c = Completer<T>();
+  Future<List<Map<String, dynamic>>> _hedged(
+    List<Future<List<Map<String, dynamic>>> Function()> jobs,
+  ) {
+    final c = Completer<List<Map<String, dynamic>>>();
     var next = 0;
     var running = 0;
+    List<Map<String, dynamic>>? emptyFallback;
     Object? error;
     StackTrace? stack;
     Timer? timer;
 
+    void finishIfDone() {
+      if (c.isCompleted || next < jobs.length || running > 0) return;
+      timer?.cancel();
+      if (emptyFallback != null) {
+        c.complete(emptyFallback!);
+      } else if (error != null) {
+        c.completeError(error!, stack);
+      } else {
+        c.complete(const <Map<String, dynamic>>[]);
+      }
+    }
+
     void start() {
-      if (c.isCompleted || next >= jobs.length) return;
+      if (c.isCompleted || next >= jobs.length) {
+        finishIfDone();
+        return;
+      }
       final job = jobs[next++];
       running++;
       job().then((value) {
         running--;
-        if (!c.isCompleted) {
+        if (c.isCompleted) return;
+        if (value.isNotEmpty) {
           timer?.cancel();
           c.complete(value);
+          return;
         }
+
+        // An empty source is still a valid last-resort result, but do not let
+        // it win the hedge while another VPN-off/live fallback may have rows.
+        emptyFallback ??= value;
+        if (next < jobs.length) start();
+        finishIfDone();
       }).catchError((Object e, StackTrace s) {
         running--;
         error = e;
         stack = s;
-        if (!c.isCompleted && next < jobs.length) {
-          start();
-        } else if (!c.isCompleted && running == 0) {
-          timer?.cancel();
-          c.completeError(error!, stack);
-        }
+        if (!c.isCompleted && next < jobs.length) start();
+        finishIfDone();
       });
     }
 
     start();
     timer = Timer.periodic(const Duration(milliseconds: 300), (t) {
-      if (c.isCompleted || next >= jobs.length) {
+      if (c.isCompleted) {
         t.cancel();
-      } else {
-        start();
+        return;
+      }
+      if (next < jobs.length) start();
+      if (next >= jobs.length) {
+        t.cancel();
+        finishIfDone();
       }
     });
     return c.future;
