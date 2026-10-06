@@ -244,62 +244,48 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     setState(() => importing = true);
 
     try {
-      final savedIds = <String>[];
+      final payload = chosen
+          .map(
+            (f) => <String, dynamic>{
+              'fixture_id': f['fixture_id'],
+              'provider': (f['provider'] ?? 'api_football').toString(),
+              'league_name': f['league_name'],
+              'home_name': f['home_name'],
+              'away_name': f['away_name'],
+              'home_logo': f['home_logo'],
+              'away_logo': f['away_logo'],
+              'kickoff_at': f['kickoff_at'],
+              'status_short': f['status_short'] ?? 'NS',
+              'is_live': f['is_live'] == true,
+            },
+          )
+          .toList();
 
-      // Big Match selection is authoritative: clear the previous featured
-      // set first so old cards do not remain in the Viewer after publishing
-      // a new selection. Historical rows stay in the database; only their
-      // featured flag is removed.
-      await Supabase.instance.client
-          .from('matches')
-          .update({'is_featured': false})
-          .eq('is_featured', true);
+      // One RPC owns the complete replacement transaction. The previous
+      // featured set is kept if validation/upsert fails, so Viewer cards never
+      // disappear because of a partial publish.
+      final result = await Supabase.instance.client.rpc(
+        'publish_featured_matches',
+        params: {'p_fixtures': payload},
+      );
 
-      var skippedDeleted = 0;
-      for (final f in chosen) {
-        final fixtureId = f['fixture_id'];
-        final existing = await Supabase.instance.client
-            .from('matches')
-            .select('id,deleted_at')
-            .eq('external_fixture_id', fixtureId)
-            .maybeSingle();
-
-        if (existing != null && existing['deleted_at'] != null) {
-          skippedDeleted += 1;
-          continue;
-        }
-
-        final saved = await Supabase.instance.client
-            .from('matches')
-            .upsert(
-              {
-                'external_fixture_id': f['fixture_id'],
-                'source': (f['provider'] ?? 'api_football').toString(),
-                'league': f['league_name'],
-                'home_team': f['home_name'],
-                'away_team': f['away_name'],
-                'home_logo_url': f['home_logo'],
-                'away_logo_url': f['away_logo'],
-                'kickoff_at': f['kickoff_at'],
-                'status_short': f['status_short'] ?? 'NS',
-                'is_live': f['is_live'] == true,
-                'is_active': true,
-                'is_featured': true,
-                'publish_state': 'published',
-              },
-              onConflict: 'external_fixture_id',
-            )
-            .select('id')
-            .single();
-
-        savedIds.add(saved['id'].toString());
-      }
+      final resultMap = result is Map
+          ? Map<String, dynamic>.from(result)
+          : const <String, dynamic>{};
+      final savedIds = (resultMap['saved_ids'] as List? ?? const [])
+          .map((id) => id.toString())
+          .where((id) => id.isNotEmpty)
+          .toList();
+      final skippedDeleted =
+          (resultMap['skipped_deleted'] as num?)?.toInt() ??
+          (chosen.length - savedIds.length).clamp(0, chosen.length);
 
       await AnalyticsService.capture(
         'matches published',
         properties: {
           'requested_count': chosen.length,
-          'published_count': savedIds.length,
+          'published_count':
+              (resultMap['published_count'] as num?)?.toInt() ?? savedIds.length,
           'skipped_deleted': skippedDeleted,
         },
       );
