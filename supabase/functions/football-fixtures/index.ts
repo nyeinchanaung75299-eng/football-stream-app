@@ -260,17 +260,13 @@ async function loadSourceFallbackFixtures(args: {
           kickoff_at: kickoff,
           status_short: statusShort,
           status_long: row?.match_status ?? row?.status ?? null,
-          status_elapsed: null,
           is_live: isLive,
-          is_finished: ["FT", "AET", "PEN"].includes(statusShort),
           league_name: row?.league ?? "Football",
           league_logo: null,
           home_name: row?.home_team ?? "Home",
           away_name: row?.away_team ?? "Away",
           home_logo: row?.home_logo ?? row?.home_logo_url ?? null,
           away_logo: row?.away_logo ?? row?.away_logo_url ?? null,
-          home_score: null,
-          away_score: null,
         });
       }
     } catch (error) {
@@ -496,7 +492,6 @@ async function loadApiFootballFixtures(
       kickoff_at: row.fixture?.date,
       status_short: row.fixture?.status?.short ?? "NS",
       status_long: row.fixture?.status?.long ?? null,
-      status_elapsed: row.fixture?.status?.elapsed ?? null,
       is_live: [
         "1H",
         "HT",
@@ -508,15 +503,12 @@ async function loadApiFootballFixtures(
         "INT",
         "LIVE",
       ].includes(row.fixture?.status?.short),
-      is_finished: ["FT", "AET", "PEN"].includes(row.fixture?.status?.short),
       league_name: row.league?.name ?? "Football",
       league_logo: row.league?.logo ?? null,
       home_name: row.teams?.home?.name ?? "Home",
       away_name: row.teams?.away?.name ?? "Away",
       home_logo: row.teams?.home?.logo ?? null,
       away_logo: row.teams?.away?.logo ?? null,
-      home_score: row.goals?.home ?? null,
-      away_score: row.goals?.away ?? null,
     }));
 
   sortFixtures(fixtures);
@@ -594,7 +586,6 @@ function mapFootballDataFixture(row: any) {
   const isLive = ["LIVE", "1H", "HT", "2H", "ET", "INT", "SUSP"].includes(
     statusShort,
   );
-  const isFinished = statusShort === "FT";
 
   return {
     provider: "football_data_org",
@@ -603,25 +594,13 @@ function mapFootballDataFixture(row: any) {
     kickoff_at: row?.utcDate ?? null,
     status_short: statusShort,
     status_long: row?.status ?? null,
-    status_elapsed: Number.isFinite(Number(row?.minute))
-      ? Number(row.minute)
-      : null,
     is_live: isLive,
-    is_finished: isFinished,
     league_name: row?.competition?.name ?? "Football",
     league_logo: row?.competition?.emblem ?? null,
     home_name: row?.homeTeam?.name ?? row?.homeTeam?.shortName ?? "Home",
     away_name: row?.awayTeam?.name ?? row?.awayTeam?.shortName ?? "Away",
     home_logo: row?.homeTeam?.crest ?? null,
     away_logo: row?.awayTeam?.crest ?? null,
-    home_score:
-      row?.score?.fullTime?.home ??
-      row?.score?.halfTime?.home ??
-      null,
-    away_score:
-      row?.score?.fullTime?.away ??
-      row?.score?.halfTime?.away ??
-      null,
   };
 }
 
