@@ -107,6 +107,16 @@ jobs:
         id: publish_feed
         run: |
           set -e
+          # A slower run from an older main commit must never overwrite a
+          # newer VPN-off mirror. The next/current run owns feed publication.
+          git fetch origin main:refs/remotes/origin/main
+          CURRENT_MAIN="$(git rev-parse origin/main)"
+          if [ "$GITHUB_SHA" != "$CURRENT_MAIN" ]; then
+            echo "Skipping stale feed run $GITHUB_SHA; current main is $CURRENT_MAIN."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
