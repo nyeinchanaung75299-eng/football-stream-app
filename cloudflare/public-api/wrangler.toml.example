@@ -1,8 +1,8 @@
 name = "football-public-api"
-main = "src/index.ts"
+main = "src/index.js"
 compatibility_date = "2026-10-01"
 
 [vars]
 SUPABASE_URL = "https://woggzixprvyjnfjzsglz.supabase.co"
 
-# Store SUPABASE_PUBLISHABLE_KEY as a Worker secret.
+# Store SUPABASE_PUBLISHABLE_KEY and PLAYBACK_BACKEND_SECRET as Worker secrets.
