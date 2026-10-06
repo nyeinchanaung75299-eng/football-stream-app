@@ -485,9 +485,9 @@ function sanitizeMatchMetadata(raw) {
   const links = Array.isArray(source.stream_links) ? source.stream_links : [];
   const result = {};
   for (const field of MATCH_FIELDS) result[field] = source[field];
-  result.stream_count = advertisedLinkCount(
-    links.length > 0 ? links : source.stream_count,
-  );
+  const embeddedCount = advertisedLinkCount(links);
+  const authoritativeCount = advertisedLinkCount(source.stream_count);
+  result.stream_count = Math.max(embeddedCount, authoritativeCount);
   result.public_stream_count = 0;
   return result;
 }
@@ -1239,7 +1239,7 @@ function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET,HEAD,OPTIONS",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type, apikey, Range",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type, apikey, Range, Cache-Control",
     "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
