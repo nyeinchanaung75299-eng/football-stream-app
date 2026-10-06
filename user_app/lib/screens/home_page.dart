@@ -418,11 +418,17 @@ class _HomePageState extends State<HomePage> {
     if (matchId.isEmpty) return const [];
 
     final cached = _streamLinkCache[matchId];
-    if (cached != null &&
+    final advertisedCount =
+        (match['stream_count'] as num?)?.toInt() ?? 0;
+    final cachedRows =
+        cached?.rows ?? const <Map<String, dynamic>>[];
+    final cacheIsFresh = cached != null &&
         DateTime.now().difference(cached.fetchedAt) <
-            const Duration(seconds: 25) &&
-        cached.rows.isNotEmpty) {
-      return cached.rows;
+            const Duration(seconds: 25);
+    final cacheLooksComplete =
+        advertisedCount <= 0 || cachedRows.length >= advertisedCount;
+    if (cacheIsFresh && cachedRows.isNotEmpty && cacheLooksComplete) {
+      return cachedRows;
     }
 
     final existing = _streamLinkInflight[matchId];
@@ -473,7 +479,7 @@ class _HomePageState extends State<HomePage> {
         final first = await Future.any<List<Map<String, dynamic>>>([
           protectedFuture,
           Future<List<Map<String, dynamic>>>.delayed(
-            Duration(milliseconds: kIsWeb ? 2500 : 350),
+            Duration(milliseconds: kIsWeb ? 3000 : 2200),
             () => const <Map<String, dynamic>>[],
           ),
         ]);
