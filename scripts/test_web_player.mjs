@@ -189,6 +189,14 @@ test('modern iOS preserves the chosen DASH line and supplies MPD MIME to Shaka',
   }
 });
 
+test('Android Chromium uses Shaka for live HLS even when canPlayType claims native HLS', async () => {
+  const line = source('hls'), h = createHarness({ nativeHls: true, ios: false });
+  await h.open([line]);
+  assert.equal(h.players.length, 1);
+  assert.equal(h.loads[0].mime, 'application/vnd.apple.mpegurl');
+  assert.equal(h.loads[0].url, line.url);
+});
+
 test('non-native HLS uses the same engine with explicit HLS MIME', async () => {
   const line = source('m3u8'), h = createHarness({ nativeHls: false, ios: false });
   await h.open([line]);
