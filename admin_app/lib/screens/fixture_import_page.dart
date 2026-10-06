@@ -82,11 +82,13 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 
       if (mode == 'live') {
         if (!isLive) continue;
-      } else {
+      } else if (mode == 'date') {
         if (matchTime == null) continue;
         final day = DateTime(matchTime.year, matchTime.month, matchTime.day);
         if (day != wantedDate) continue;
       }
+      // mode == 'all' intentionally keeps every ColaTV football match,
+      // regardless of kickoff date or live status.
 
       final home = (row['home_team'] ?? '').toString().trim();
       final away = (row['away_team'] ?? '').toString().trim();
@@ -514,6 +516,12 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                 value: 'live',
                 label: 'Live',
                 icon: Icons.podcasts_rounded,
+              ),
+              const SizedBox(width: 8),
+              modeButton(
+                value: 'all',
+                label: 'All',
+                icon: Icons.view_list_rounded,
               ),
             ],
           ),
