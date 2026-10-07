@@ -255,8 +255,12 @@
 
     function armProgressWatchdog(index,token){
       if(!isIOS())return;
+      const initialTime=Number(video.currentTime);
+      if(!Number.isFinite(initialTime) || !Number.isFinite(Number(video.readyState))){
+        return;
+      }
       clearProgressWatchdog();
-      let lastTime=Number(video.currentTime)||0;
+      let lastTime=initialTime;
       let stuckTicks=0;
 
       const check=()=>{
