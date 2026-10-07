@@ -972,16 +972,16 @@
     rotateButton.addEventListener('click',rotatePlayer);
     fullscreenButton.addEventListener('click',async()=>{
       try{
-        // Non-iOS browsers fullscreen the entire NCA overlay, not the video,
-        // so Line/Quality/Fill controls remain usable after rotation.
-        if(video.webkitEnterFullscreen && isIOS()){
-          video.webkitEnterFullscreen();
-          return;
+        // Fullscreen the whole player, including Line and Quality controls.
+        // iPhone native video fullscreen cannot display the website toolbar;
+        // keep the inline overlay when container fullscreen is unavailable.
+        if(!document.fullscreenElement){
+          if(overlay.requestFullscreen)await overlay.requestFullscreen();
+        }else if(document.exitFullscreen){
+          await document.exitFullscreen();
         }
-        if(!document.fullscreenElement) await overlay.requestFullscreen();
-        else await document.exitFullscreen();
-        revealControls();
       }catch(_){}
+      revealControls();
     });
     document.addEventListener('fullscreenchange',()=>{
       fullscreenButton.textContent=document.fullscreenElement?'Exit':'Fullscreen';
@@ -1002,6 +1002,7 @@
     }
     window.addEventListener?.('resize',()=>{
       if(manualRotation)applyManualRotation();
+      if(isIOS() && overlay.classList.contains('open'))revealControls();
     });
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&overlay.classList.contains('open')&&!document.fullscreenElement)closeButton.click()});
     function normalizeIOSPlaybackRate(){
