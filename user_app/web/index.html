@@ -176,7 +176,7 @@
     async function ensurePlayerEngine(type,url){
       if(type==='flv'){
         await loadScriptFallback([
-          'https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.js'
+          'https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.js'
         ],'mpegts');
         return;
       }
@@ -408,23 +408,34 @@
       const keyData=String(source.keyData||source.key_data||'').trim();
 
       if(isIOS() && type==='dash'){
+        if(keyId&&keyData){
+          return {
+            ok:false,
+            reason:'ClearKey MPD is not supported by iPhone browsers • use an HLS/FLV line or the iOS app'
+          };
+        }
         if(!hasWebKitStreamingEngine()){
           return {
             ok:false,
-            reason:'DASH needs modern iOS WebKit (iOS 17.1+) or an HLS backup'
-          };
-        }
-        if(keyId&&keyData && !(window.crypto&&window.crypto.subtle)){
-          return {
-            ok:false,
-            reason:'Encrypted DASH needs WebCrypto on this iPhone/iPad'
+            reason:'DASH needs modern iOS WebKit (iOS 17.1+) or an HLS/FLV backup'
           };
         }
         return {
           ok:true,
-          reason:keyId&&keyData
-            ? 'DASH • ClearKey playback will be attempted on this iPhone/iPad'
-            : 'DASH • browser compatibility will be checked by the player'
+          reason:'DASH • browser compatibility will be checked by the player'
+        };
+      }
+
+      if(isIOS() && type==='flv'){
+        if(!hasWebKitStreamingEngine()){
+          return {
+            ok:false,
+            reason:'FLV needs iOS 17.1+ ManagedMediaSource'
+          };
+        }
+        return {
+          ok:true,
+          reason:'FLV • iPhone Web compatible'
         };
       }
 
@@ -452,16 +463,22 @@
         ...details
       });
 
-      const candidates=[...sources.keys()].filter(i=>!autoFallbackTried.has(i));
+      let candidates=[...sources.keys()]
+        .filter(i=>!autoFallbackTried.has(i))
+        .filter(i=>sourceSupport(sources[i]).ok);
       if(isIOS()){
         const rank=(i)=>{
-          const type=sourceType(sources[i]);
+          const source=sources[i]||{};
+          const type=sourceType(source);
+          const hasKey=
+            String(source.keyId||source.key_id||'').trim() &&
+            String(source.keyData||source.key_data||'').trim();
           if(type==='hls')return 0;
-          if(type==='dash')return 1;
+          if(type==='flv')return 1;
           if(type==='mp4')return 2;
-          if(type==='auto')return 3;
-          if(type==='flv')return 9;
-          return 5;
+          if(type==='dash'&&!hasKey)return 3;
+          if(type==='auto')return 4;
+          return 9;
         };
         candidates.sort((a,b)=>rank(a)-rank(b));
       }
@@ -688,8 +705,26 @@
         if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
         if(type==='flv'){
           if(!window.mpegts||!mpegts.isSupported())throw new Error('FLV is not supported by this browser.');
-          mpegtsPlayer=mpegts.createPlayer({type:'flv',isLive:true,url});
-          mpegtsPlayer.attachMediaElement(video);mpegtsPlayer.load();
+          mpegtsPlayer=mpegts.createPlayer(
+            {type:'flv',isLive:true,url},
+            {
+              enableWorker:true,
+              enableWorkerForMSE:isIOS(),
+              enableStashBuffer:true,
+              stashInitialSize:384*1024,
+              isLive:true,
+              liveBufferLatencyChasing:false,
+              liveSync:false,
+              lazyLoad:false,
+              autoCleanupSourceBuffer:true,
+              autoCleanupMaxBackwardDuration:30,
+              autoCleanupMinBackwardDuration:10
+            }
+          );
+          mpegtsPlayer.attachMediaElement(video);
+          mpegtsPlayer.load();
+          video.defaultPlaybackRate=1;
+          video.playbackRate=1;
           await requestVideoPlay(index,token);return;
         }
         if((type==='hls'||url.includes('.m3u8')) &&
@@ -983,9 +1018,26 @@
       titleEl.textContent=String(title||'NCA');
       let startIndex=Math.max(0,Math.min(Number(selectedIndex)||0,sources.length-1));
       if(isIOS() && sources[startIndex]){
-        if(sourceType(sources[startIndex])==='flv'){
-          const hlsIndex=sources.findIndex(source=>sourceType(source)==='hls');
-          if(hlsIndex>=0) startIndex=hlsIndex;
+        const iosRank=(source)=>{
+          const type=sourceType(source);
+          const hasKey=
+            String(source.keyId||source.key_id||'').trim() &&
+            String(source.keyData||source.key_data||'').trim();
+          if(!sourceSupport(source).ok)return 99;
+          if(type==='hls')return 0;
+          if(type==='flv')return 1;
+          if(type==='mp4')return 2;
+          if(type==='dash'&&!hasKey)return 3;
+          if(type==='auto')return 4;
+          return 9;
+        };
+        if(iosRank(sources[startIndex])>=90){
+          let best=-1,bestRank=100;
+          sources.forEach((source,i)=>{
+            const rank=iosRank(source);
+            if(rank<bestRank){best=i;bestRank=rank}
+          });
+          if(best>=0) startIndex=best;
         }
       }
       currentSourceIndex=startIndex;
