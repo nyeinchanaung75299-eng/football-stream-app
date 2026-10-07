@@ -69,6 +69,7 @@ jobs:
 
               if SOURCE="$source" python3 - <<'PY'
           import json, os
+          from datetime import datetime, timezone
           from pathlib import Path
           source = os.environ["SOURCE"]
           p = Path(f"/tmp/source-feeds/{source}.json.tmp")
@@ -78,6 +79,31 @@ jobs:
           rows = data.get("matches")
           if not isinstance(rows, list):
               raise SystemExit(f"{source}: invalid matches payload")
+
+          # Source providers can leave finished matches marked hot/live for
+          # hours. Keep no-timestamp rows (e.g. some Fawa entries), but never
+          # publish a timestamped match more than four hours after kickoff.
+          now = datetime.now(timezone.utc)
+          fresh_rows = []
+          for row in rows:
+              if not isinstance(row, dict):
+                  continue
+              raw_time = row.get("match_time")
+              if raw_time:
+                  try:
+                      kickoff = datetime.fromisoformat(
+                          str(raw_time).replace("Z", "+00:00")
+                      )
+                      if kickoff.tzinfo is None:
+                          kickoff = kickoff.replace(tzinfo=timezone.utc)
+                      if (now - kickoff.astimezone(timezone.utc)).total_seconds() > 4 * 3600:
+                          continue
+                  except (TypeError, ValueError):
+                      pass
+              fresh_rows.append(row)
+          data["matches"] = fresh_rows
+          rows = fresh_rows
+
           # Remove volatile timestamps so the feed branch only changes when
           # actual source data changes.
           data.pop("generated_at", None)
