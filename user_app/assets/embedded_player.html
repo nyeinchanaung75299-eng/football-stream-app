@@ -99,6 +99,7 @@
     let activePlayingHandler=null;
     let playbackTeardown=Promise.resolve();
     let manualRotation=0;
+    let iosLastPlaybackTime=NaN;
     const iosRecoveryAttempts=new Map();
     const startupTimeoutMs=20000, stallTimeoutMs=15000;
     const scriptLoads=new Map();
@@ -170,7 +171,8 @@
       if(type==='hls'||type==='dash'||url.includes('.m3u8')||url.includes('.mpd')){
         if(type==='hls' && isIOS() &&
             video.canPlayType('application/vnd.apple.mpegurl')) return;
-        const local=sameOriginAsset('vendor/shaka-player.compiled.js');
+        // iOS needs the 5.2 ClearKey WebCrypto path; bypass older cached bundles.
+        const local=sameOriginAsset('vendor/shaka-player.compiled.js'+(isIOS()?'?v=5.2.12':''));
         await loadScriptFallback([
           ...(local?[local]:[]),
           'https://ajax.googleapis.com/ajax/libs/shaka-player/5.2.12/shaka-player.compiled.js',
@@ -234,6 +236,7 @@
         type==='m3u8' ||
         type==='dash' ||
         type==='mpd' ||
+        type==='flv' ||
         url.includes('.m3u8') ||
         url.includes('.mpd')
       );
@@ -241,10 +244,13 @@
 
     function retryIOSSource(index,token){
       if(!isCurrentPlayback(token) || !isIOSRecoverableSource(index))return false;
+      if(fallbackScheduledToken===token)return true;
       const attempts=iosRecoveryAttempts.get(index)||0;
       if(attempts>=1)return false;
       iosRecoveryAttempts.set(index,attempts+1);
+      fallbackScheduledToken=token;
       clearPlaybackWatchdogs();
+      clearProgressWatchdog();
       showMessage('Stream paused • reconnecting…');
       fallbackTimer=setTimeout(()=>{
         fallbackTimer=null;
@@ -268,7 +274,7 @@
         if(!isCurrentPlayback(token) || video.paused || video.ended)return;
 
         const now=Number(video.currentTime)||0;
-        if(video.seeking || video.readyState<2){
+        if(video.seeking || document.hidden){
           stuckTicks=0;
           lastTime=now;
         }else if(now>lastTime+0.05){
@@ -278,7 +284,9 @@
           stuckTicks+=1;
         }
 
-        if(stuckTicks>=3){
+        // An empty buffer must also count as a freeze. Allow segment retries
+        // time to finish instead of tearing down iOS playback after 5–8s.
+        if(stuckTicks>=8){
           capturePlayerEvent('playback buffering',{
             selected_index:index,
             line_count:sources.length,
@@ -302,19 +310,16 @@
       const token=playbackToken, index=currentSourceIndex;
       if(!isCurrentPlayback(token) || playbackStartedToken!==token ||
           awaitingPlayToken===token || stallTimer!==null || video.paused)return;
-      const currentType=sourceType(sources[index]||{});
-      const watchdogMs=isIOS() && currentType==='dash'
-        ? 8000
-        : isIOS()
-          ? 6000
-          : stallTimeoutMs;
+      const stalledAt=Number(video.currentTime);
       stallTimer=setTimeout(()=>{
         stallTimer=null;
         if(isCurrentPlayback(token) && !video.paused){
+          if(isIOS() && (document.hidden || video.seeking ||
+              Number(video.currentTime)>stalledAt+0.05))return;
           if(retryIOSSource(index,token))return;
           fallbackToNextLine(index,'This line stopped responding',token,'stall_timeout');
         }
-      },watchdogMs);
+      },stallTimeoutMs);
     }
 
     function safeErrorDetails(error){
@@ -395,21 +400,23 @@
       const keyData=String(source.keyData||source.key_data||'').trim();
 
       if(isIOS() && type==='dash'){
-        if(keyId&&keyData){
-          return {
-            ok:false,
-            reason:'ClearKey MPD is not supported by iPhone browsers • use an HLS/FLV line or the iOS app'
-          };
-        }
         if(!hasWebKitStreamingEngine()){
           return {
             ok:false,
             reason:'DASH needs modern iOS WebKit (iOS 17.1+) or an HLS/FLV backup'
           };
         }
+        if(keyId&&keyData && !(window.crypto&&window.crypto.subtle)){
+          return {
+            ok:false,
+            reason:'ClearKey needs HTTPS and WebCrypto in this browser'
+          };
+        }
         return {
           ok:true,
-          reason:'DASH • browser compatibility will be checked by the player'
+          reason:keyId&&keyData
+            ? 'DASH • ClearKey via WebCrypto'
+            : 'DASH • browser compatibility will be checked by the player'
         };
       }
 
@@ -667,6 +674,7 @@
       const onPlaying=()=>{
         if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
         clearPlaybackWatchdogs();awaitingPlayToken=-1;showMessage('');
+        if(isIOS())iosLastPlaybackTime=Number(video.currentTime);
         armProgressWatchdog(index,token);
         if(playbackStartedToken===token)return;
         playbackStartedToken=token;
@@ -708,6 +716,12 @@
               autoCleanupMinBackwardDuration:10
             }
           );
+          if(isIOS()){
+            mpegtsPlayer.on(mpegts.Events.ERROR,()=>{
+              if(retryIOSSource(index,token))return;
+              fallbackToNextLine(index,'FLV line stopped responding',token,'flv_error');
+            });
+          }
           mpegtsPlayer.attachMediaElement(video);
           mpegtsPlayer.load();
           video.defaultPlaybackRate=1;
@@ -985,6 +999,15 @@
       });
     });
     video.addEventListener('stalled',armStallWatchdog);
+    video.addEventListener('timeupdate',()=>{
+      if(!isIOS() || !isCurrentPlayback(playbackToken) ||
+          playbackStartedToken!==playbackToken || video.paused)return;
+      const now=Number(video.currentTime);
+      if(now>iosLastPlaybackTime+0.05 && stallTimer!==null){
+        clearTimeout(stallTimer);stallTimer=null;
+      }
+      iosLastPlaybackTime=now;
+    });
     video.addEventListener('pause',()=>{
       if(stallTimer!==null)clearTimeout(stallTimer);
       stallTimer=null;
@@ -995,6 +1018,11 @@
         selected_index:currentSourceIndex,
         line_count:sources.length
       });
+      if(isIOSRecoverableSource(currentSourceIndex)){
+        const token=playbackToken,index=currentSourceIndex;
+        if(retryIOSSource(index,token))return;
+        fallbackToNextLine(index,'Live stream ended',token,'stream_ended');
+      }
     });
 
     window.openFootballPlayer=async(sourcesJson,selectedIndex,title,matchId)=>{
