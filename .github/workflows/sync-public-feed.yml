@@ -168,11 +168,13 @@ jobs:
             # list so Viewer/Admin show "no matches" instead of "Could not load".
             SOURCE="$source" python3 - <<'PY2'
           import json, os
+          from datetime import datetime, timezone
           from pathlib import Path
 
           source = os.environ["SOURCE"]
           path = Path(f"public/sources/{source}.json")
           valid = False
+          data = None
           if path.is_file() and path.stat().st_size > 0:
               try:
                   data = json.loads(path.read_text(encoding="utf-8"))
@@ -181,15 +183,52 @@ jobs:
                   valid = False
 
           if not valid:
+              data = {"ok": True, "source": source, "matches": []}
               path.write_text(
                   json.dumps(
-                      {"ok": True, "source": source, "matches": []},
+                      data,
                       ensure_ascii=False,
                       separators=(",", ":"),
                   ),
                   encoding="utf-8",
               )
               print(f"{source}: repaired invalid/missing mirror with an empty valid list")
+          else:
+              # Even when the fresh fetch failed and we keep the previous
+              # mirror, prune timestamped matches older than four hours.
+              now = datetime.now(timezone.utc)
+              rows = data["matches"]
+              fresh_rows = []
+              for row in rows:
+                  if not isinstance(row, dict):
+                      continue
+                  raw_time = row.get("match_time")
+                  if raw_time:
+                      try:
+                          kickoff = datetime.fromisoformat(
+                              str(raw_time).replace("Z", "+00:00")
+                          )
+                          if kickoff.tzinfo is None:
+                              kickoff = kickoff.replace(tzinfo=timezone.utc)
+                          if (now - kickoff.astimezone(timezone.utc)).total_seconds() > 4 * 3600:
+                              continue
+                      except (TypeError, ValueError):
+                          pass
+                  fresh_rows.append(row)
+
+              if len(fresh_rows) != len(rows):
+                  data["matches"] = fresh_rows
+                  path.write_text(
+                      json.dumps(
+                          data,
+                          ensure_ascii=False,
+                          separators=(",", ":"),
+                      ),
+                      encoding="utf-8",
+                  )
+                  print(
+                      f"{source}: pruned {len(rows) - len(fresh_rows)} stale mirror matches"
+                  )
           PY2
           done
 
