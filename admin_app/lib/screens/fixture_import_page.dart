@@ -325,9 +325,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           )
           .toList();
 
-      // One RPC owns the complete replacement transaction. The previous
-      // featured set is kept if validation/upsert fails, so Viewer cards never
-      // disappear because of a partial publish.
+      // One RPC appends the selected matches to the featured set. Existing
+      // unfinished/current featured matches stay published instead of being
+      // replaced when a new Big Match is added.
       final result = await Supabase.instance.client.rpc(
         'publish_featured_matches',
         params: {'p_fixtures': payload},
@@ -550,7 +550,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
               borderRadius: BorderRadius.circular(18),
             ),
             child: const Text(
-              'Only the matches you tick are published as featured matches. The viewer will not list the rest.',
+              'Selected matches are added to Live. Existing unfinished featured matches stay visible.',
               style: TextStyle(height: 1.4),
             ),
           ),
