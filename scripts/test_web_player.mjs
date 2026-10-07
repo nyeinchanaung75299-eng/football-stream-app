@@ -108,7 +108,8 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
       if (plan.loadGate) await plan.loadGate.promise;
       this.video.playUrl = url;
     }
-    getVariantTracks() { return []; }
+    getVariantTracks() { return plans[this.url]?.tracks || []; }
+    selectVariantTrack(track) { this.selectedTrack = track; }
     drmInfo() { return this.drmState || null; }
     async destroy() { this.destroyed = true; }
   }
@@ -141,7 +142,9 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
     document.fullscreenElement = overlay;
     document.emit('fullscreenchange');
   };
-  const window = { crypto: webCrypto ? { subtle: {} } : {}, posthog: { capture(name, properties) { events.push({ name, properties }); } } };
+  const window = new Element('window');
+  window.crypto = webCrypto ? { subtle: {} } : {};
+  window.posthog = { capture(name, properties) { events.push({ name, properties }); } };
   if (!engineLoads) window.shaka = shaka;
   window.mpegts = mpegts;
   if (streaming) window.ManagedMediaSource = class {};
@@ -164,7 +167,7 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
   vm.runInContext(playerScript, context, { filename: htmlPath });
 
   return {
-    video, overlay, message, elements, events, loads, plays, players, flvPlayers, logs, scripts, document,
+    video, overlay, message, elements, events, loads, plays, players, flvPlayers, logs, scripts, document, window,
     async open(sources, index = 0, match = 'test-match') {
       await window.openFootballPlayer(JSON.stringify(sources), index, 'Test match', match);
       await flush();
@@ -406,6 +409,58 @@ test('Back exits overlay fullscreen before hiding the player', async () => {
   await h.close();
   assert.equal(h.document.fullscreenElement, null);
   assert.equal(h.overlay.classList.contains('open'), false);
+});
+
+test('iOS fullscreen keeps line and quality controls in the website player', async () => {
+  const dash = source('dash'), backup = source('hls', 'backup');
+  const tracks = [{ id: 1, height: 720, bandwidth: 1000000 }];
+  const h = createHarness({ plans: { [dash.url]: { tracks } } });
+  let nativeFullscreenCalls = 0;
+  h.video.webkitEnterFullscreen = () => { nativeFullscreenCalls++; };
+  await h.open([dash, backup]);
+  h.elements.get('football-player-fullscreen').click(); await flush();
+  assert.equal(nativeFullscreenCalls, 0, 'Native video fullscreen hides the website controls');
+  assert.equal(h.document.fullscreenElement, h.overlay);
+  h.elements.get('football-player-quality').click();
+  h.elements.get('football-player-menu-items').children[1].click(); await flush();
+  assert.equal(h.players[0].selectedTrack.height, 720);
+  await h.choose(1);
+  assert.deepEqual(h.plays, [dash.url, backup.url]);
+  assert.equal(h.document.fullscreenElement, h.overlay);
+  await h.close();
+  assert.equal(h.document.fullscreenElement, null);
+});
+
+test('iOS fullscreen without container support keeps inline line and quality controls', async () => {
+  for (const support of ['missing', 'denied']) {
+    const dash = source('dash'), backup = source('hls', 'backup');
+    const h = createHarness({ plans: { [dash.url]: { tracks: [{ id: 1, height: 720, bandwidth: 1000000 }] } } });
+    let nativeFullscreenCalls = 0;
+    h.video.webkitEnterFullscreen = () => { nativeFullscreenCalls++; };
+    if (support === 'missing') delete h.overlay.requestFullscreen;
+    else h.overlay.requestFullscreen = async () => { throw new Error('Fullscreen unavailable'); };
+    await h.open([dash, backup]);
+    h.elements.get('football-player-fullscreen').click(); await flush();
+    assert.equal(nativeFullscreenCalls, 0);
+    assert.equal(h.document.fullscreenElement, null);
+    assert.equal(h.elements.get('football-player-topbar').classList.contains('controls-hidden'), false);
+    h.elements.get('football-player-quality').click();
+    h.elements.get('football-player-menu-items').children[1].click(); await flush();
+    assert.equal(h.players[0].selectedTrack.height, 720);
+    await h.choose(1);
+    assert.deepEqual(h.plays, [dash.url, backup.url]);
+    assert.equal(h.overlay.classList.contains('open'), true);
+  }
+});
+
+test('iOS phone rotation reveals the toolbar without restarting playback', async () => {
+  const dash = source('dash'), h = createHarness();
+  await h.open([dash]);
+  assert.equal(h.elements.get('football-player-topbar').classList.contains('controls-hidden'), true);
+  h.window.emit('resize'); await flush();
+  assert.equal(h.elements.get('football-player-topbar').classList.contains('controls-hidden'), false);
+  assert.deepEqual(h.plays, [dash.url]);
+  assert.equal(failures(h).length, 0);
 });
 
 test('Android Chromium uses Shaka for live HLS even when canPlayType claims native HLS', async () => {
