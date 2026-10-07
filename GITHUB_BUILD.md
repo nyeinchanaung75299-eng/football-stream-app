@@ -6,7 +6,7 @@ On a pull request to `main`, a manual run, or a push to `main` or `master`, GitH
 1. Install Flutter.
 2. Generate Android platform files.
 3. Analyze and test the Admin and Viewer apps.
-4. Build release APKs and compile the Viewer for the iOS simulator.
+4. Build release APKs, compile the Web Viewer, and compile the Viewer for the iOS simulator.
 5. Upload both APK files as GitHub Actions artifacts.
 
 ## Download APKs
@@ -16,6 +16,7 @@ Open the GitHub repository:
 - Scroll to `Artifacts`
 - Download `NCA-Admin-V9.8-Release-APKs`
 - Download `NCA-V9.8-Release-APKs`
+- Download `NCA-Web-Review` for the compiled Web files
 
 Pull requests and manual runs on review branches build artifacts for testing.
 They use separate concurrency groups and do not publish updater files or
