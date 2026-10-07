@@ -194,6 +194,15 @@
 
     function showMessage(text){messageEl.textContent=text||'';messageEl.style.display=text?'block':'none'}
 
+    function syncIOSSystemRotationControls(){
+      const systemRotationOnly=isIOS();
+      rotateButton.style.display=systemRotationOnly?'none':'';
+      fullscreenButton.style.display=systemRotationOnly?'none':'';
+      if(systemRotationOnly){
+        clearManualRotation();
+      }
+    }
+
     function isCurrentPlayback(token){
       return token===playbackToken && overlay.classList.contains('open');
     }
@@ -1163,6 +1172,7 @@
       video.classList.remove('fill');
       fitButton.textContent='Fill';
       clearManualRotation();
+      syncIOSSystemRotationControls();
       overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');
       hideControls();
       await loadSource(startIndex);
