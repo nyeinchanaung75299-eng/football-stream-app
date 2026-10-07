@@ -153,6 +153,7 @@ async function jsonpMatches(args: {
           .filter((anchor: any) => anchor.room_num),
       };
     })
+    .filter((row: any) => !staleKickoff(row.match_time))
     .sort(compareMatches);
 
   return json({
@@ -670,6 +671,14 @@ function sourceText(_source: "soco" | "yyzb", value: unknown) {
   // Both source families can return Chinese display names. Keep Latin text
   // unchanged while translating the common football labels we know.
   return friendlyText(value);
+}
+
+function staleKickoff(value: unknown) {
+  const normalized = normalizeMatchTime(value);
+  if (!normalized) return false;
+  const millis = Date.parse(normalized);
+  if (!Number.isFinite(millis)) return false;
+  return Date.now() - millis > 4 * 60 * 60 * 1000;
 }
 
 function normalizeMatchTime(value: unknown) {
