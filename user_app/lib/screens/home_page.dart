@@ -85,6 +85,15 @@ class _HomePageState extends State<HomePage> {
   static const _authoritativeCacheFetchedAtKey =
       'viewer_authoritative_matches_fetched_at_v1';
 
+  // Default to the fast VPN-only path. The former restricted-network
+  // mirror/cache fallback is opt-in for special builds only.
+  static final bool _enableNoVpnFallback =
+      const String.fromEnvironment(
+        'ENABLE_NO_VPN_FALLBACK',
+        defaultValue: '0',
+      ).trim() ==
+      '1';
+
   // On GitHub Pages, use the mirrored files deployed beside the app.
   // They may include safe non-keyed direct backup lines for restricted networks.
   Uri _mirrorMatchesUri() =>
@@ -348,6 +357,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadPublicApi() {
+    if (!_enableNoVpnFallback) {
+      final base = _publicApiBases.first;
+      return _loadPublicApiFrom(base);
+    }
     return _hedged(
       _publicApiBases
           .map<Future<List<Map<String, dynamic>>> Function()>(
@@ -419,11 +432,11 @@ class _HomePageState extends State<HomePage> {
   Future<List<Map<String, dynamic>>> _loadPublicApiStreams(
     String matchId,
   ) {
-    // All aliases point at the same authoritative Worker. Do not wait for
-    // every alias before opening the chooser: one slow/blocked hostname used
-    // to make the stale GitHub mirror win first and show only part of the
-    // configured lines. Hedge the aliases and use the first complete
-    // successful response instead.
+    if (!_enableNoVpnFallback) {
+      final base = _publicApiBases.first;
+      return _loadPublicApiStreamsFrom(base, matchId);
+    }
+
     return _hedged(
       _publicApiBases
           .map<Future<List<Map<String, dynamic>>> Function()>(
@@ -458,6 +471,29 @@ class _HomePageState extends State<HomePage> {
     if (existing != null) return existing;
 
     final request = () async {
+      if (!_enableNoVpnFallback) {
+        List<Map<String, dynamic>> rows;
+        try {
+          rows = playableLinks(await _loadPublicApiStreams(matchId));
+        } catch (_) {
+          rows = const <Map<String, dynamic>>[];
+        }
+
+        try {
+          if (rows.isNotEmpty) {
+            _streamLinkCache[matchId] = _StreamCacheEntry(
+              rows,
+              DateTime.now(),
+            );
+          } else {
+            _streamLinkCache.remove(matchId);
+          }
+          return rows;
+        } finally {
+          _streamLinkInflight.remove(matchId);
+        }
+      }
+
       List<Map<String, dynamic>> mirrorRows = playableLinks(
         match['stream_links'],
       ).where((row) {
@@ -773,6 +809,22 @@ class _HomePageState extends State<HomePage> {
 
   Future<List<Map<String, dynamic>>> loadMatches() async {
     final started = DateTime.now();
+
+    if (!_enableNoVpnFallback) {
+      final rows = await _loadPublicApi();
+      unawaited(
+        AnalyticsService.capture(
+          'match feed loaded',
+          properties: {
+            'source': 'VPN live API',
+            'match_count': rows.length,
+            'latency_ms': DateTime.now().difference(started).inMilliseconds,
+          },
+        ),
+      );
+      unawaited(_warmStreamLinks(rows));
+      return rows;
+    }
 
     // Cloudflare and direct Supabase are authoritative. Race those first.
     // Only fall back to GitHub after both fail, otherwise an older mirror can
