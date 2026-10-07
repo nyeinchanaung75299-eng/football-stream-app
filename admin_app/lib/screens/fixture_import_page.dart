@@ -309,9 +309,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     setState(() => importing = true);
 
     try {
-      // The RPC saves the replacement and clears old featured flags in one
-      // transaction. A failure or an entirely tombstoned selection preserves
-      // the current featured matches.
+      // The RPC adds this batch atomically and preserves existing published
+      // matches. A failure or entirely tombstoned selection changes nothing.
       final response = await Supabase.instance.client.rpc(
         'publish_featured_fixtures',
         params: {
@@ -339,7 +338,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'No replacements published. Current featured matches were kept.'
+              'No new matches published. Current featured matches were kept.'
               '${skippedDeleted > 0 ? ' $skippedDeleted deleted match(es) were skipped.' : ''}',
             ),
           ),
@@ -539,7 +538,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
               borderRadius: BorderRadius.circular(18),
             ),
             child: const Text(
-              'Only the matches you tick are published as featured matches. The viewer will not list the rest.',
+              'Selected matches are added to Live. Existing unfinished featured matches stay visible.',
               style: TextStyle(height: 1.4),
             ),
           ),

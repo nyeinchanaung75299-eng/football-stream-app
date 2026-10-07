@@ -31,6 +31,7 @@ end $$;
 -- even when it was omitted by an older bootstrap schema.
 alter table public.matches drop column deleted_at;
 \ir ../supabase/migrations/20261007_atomic_featured_publish.sql
+\ir ../supabase/migrations/20261007134500_keep_existing_featured_matches.sql
 \ir ../supabase/migrations/20261008000000_harden_featured_publication.sql
 -- Verify that operationally reapplying this additive migration is harmless.
 \ir ../supabase/migrations/20261008000000_harden_featured_publication.sql
@@ -128,13 +129,15 @@ select backend_test.assert_true(
 );
 select backend_test.assert_true((select count(*) = 2 from public.matches), 'Rejected input must not insert partial fixtures.');
 
--- Successful replacement publishes every requested row and clears the old set.
+-- Adding a batch retains existing published matches and cleans unavailable rows.
+insert into public.matches(external_fixture_id, league, home_team, away_team, kickoff_at, is_active)
+values (20, 'Unavailable', 'Old Home', 'Old Away', now(), false);
 do $$ declare result jsonb; begin
   result := public.publish_featured_fixtures(jsonb_build_array(backend_test.fixture(2), backend_test.fixture(-3)));
   perform backend_test.assert_true(jsonb_array_length(result -> 'published_ids') = 2 and (result ->> 'skipped_deleted')::int = 0, 'Return the actual published IDs.');
   perform backend_test.assert_true(
-    (select array_agg(external_fixture_id order by external_fixture_id) = array[-3, 2]::bigint[] from public.matches where is_featured),
-    'Successful publication must replace the complete featured set.'
+    (select array_agg(external_fixture_id order by external_fixture_id) = array[-3, 1, 2]::bigint[] from public.matches where is_featured),
+    'New publication must retain existing active published matches and remove unavailable featured rows.'
   );
 end $$;
 
@@ -147,7 +150,7 @@ do $$ declare result jsonb; original_id uuid; begin
   perform backend_test.assert_true((select deleted_at is not null and not is_featured and not is_active and home_team = 'Keep tombstone' from public.matches where external_fixture_id = 9), 'A tombstone must remain unchanged.');
   result := public.publish_featured_fixtures(jsonb_build_array(backend_test.fixture(9)));
   perform backend_test.assert_true(result -> 'published_ids' = '[]'::jsonb and (result ->> 'skipped_deleted')::int = 1, 'All-deleted selections must return no published IDs.');
-  perform backend_test.assert_true((select array_agg(external_fixture_id) = array[2]::bigint[] from public.matches where is_featured), 'All-deleted selections must preserve the featured set.');
+  perform backend_test.assert_true((select array_agg(external_fixture_id order by external_fixture_id) = array[-3, 1, 2]::bigint[] from public.matches where is_featured), 'All-deleted selections must preserve the featured set.');
 end $$;
 
 -- Previously released Admin clients retain their payload/result contract.
@@ -183,8 +186,8 @@ set local role authenticated;
 
 -- A failure after the first valid upsert must roll back the entire call.
 select backend_test.expect_rejection(jsonb_build_array(backend_test.fixture(5), backend_test.fixture(4)), '23514');
-select backend_test.assert_true((select array_agg(external_fixture_id) = array[2]::bigint[] from public.matches where is_featured), 'Write failure must preserve the old featured set.');
+select backend_test.assert_true((select array_agg(external_fixture_id order by external_fixture_id) = array[-3, 1, 2]::bigint[] from public.matches where is_featured), 'Write failure must preserve the old featured set.');
 select backend_test.assert_true(not exists(select 1 from public.matches where external_fixture_id in (4, 5)), 'Write failure must roll back earlier upserts.');
 
 rollback;
-\echo Atomic publication regressions passed: invoker permissions, admin guard, validation, replacement, updates, tombstones, and rollback.
+\echo Atomic publication regressions passed: invoker permissions, admin guard, validation, additive publishing, updates, tombstones, and rollback.

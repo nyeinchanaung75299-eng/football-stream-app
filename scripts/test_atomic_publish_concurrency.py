@@ -89,8 +89,8 @@ try:
         first.result()
         second.result()
 
-    assert sql("select array_agg(external_fixture_id order by external_fixture_id) from public.matches where is_featured;") == "{12,13}", \
-        "The later complete publication must replace the earlier set without mixing both selections."
+    assert sql("select array_agg(external_fixture_id order by external_fixture_id) from public.matches where is_featured;") == "{10,11,12,13,100}", \
+        "Both publications must complete atomically while retaining the existing published match."
 
     # A soft deletion outside the RPC can win a conflicting row lock. The
     # publication must re-check deleted_at after the delete commits.
@@ -118,7 +118,7 @@ commit;
     assert result["skipped_deleted"] == 1 and len(result["published_ids"]) == 1
     assert sql("select deleted_at is not null and not is_active and not is_featured and home_team='Keep Tombstone' from public.matches where external_fixture_id=14;") == "t", \
         "A concurrent deletion tombstone must never be restored."
-    assert sql("select array_agg(external_fixture_id) from public.matches where is_featured;") == "{15}"
+    assert sql("select array_agg(external_fixture_id order by external_fixture_id) from public.matches where is_featured;") == "{10,11,12,13,15,100}"
 finally:
     sql(f"""
 delete from public.matches where external_fixture_id in (10,11,12,13,14,15,100);
@@ -126,4 +126,4 @@ delete from public.profiles where id='{admin}';
 delete from auth.users where id='{admin}';
 """)
 
-print("Atomic publication concurrency regressions passed: serialized replacements and concurrent tombstone preservation.")
+print("Atomic publication concurrency regressions passed: serialized additions and concurrent tombstone preservation.")

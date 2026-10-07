@@ -2,8 +2,8 @@
 -- Keep the committed schema reproducible and preserve deleted fixture IDs.
 alter table public.matches add column if not exists deleted_at timestamptz;
 
--- Publishing a selection is one transaction. A failed replacement never
--- clears the current selection, and concurrent publications are serialized.
+-- Publishing a batch is one transaction. Existing published matches stay
+-- featured, and concurrent publications are serialized.
 create or replace function public.publish_featured_fixtures(p_fixtures jsonb)
 returns jsonb
 language plpgsql
@@ -128,7 +128,9 @@ begin
   if pg_catalog.cardinality(v_published_ids) > 0 then
     update public.matches
     set is_featured = false
-    where is_featured = true and not (id = any(v_published_ids));
+    where is_featured = true and (
+      is_active = false or publish_state <> 'published' or deleted_at is not null
+    );
   end if;
 
   return pg_catalog.jsonb_build_object(

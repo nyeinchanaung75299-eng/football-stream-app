@@ -1,7 +1,7 @@
 # Review fixes
 
 This change addresses the review of `70f2a95` and includes later main changes
-through `c4e249e`. It adds regression coverage and hardens the remaining cases
+through `dae9770`. It adds regression coverage and hardens the remaining cases
 before production release.
 
 | Area | Result |
@@ -9,7 +9,7 @@ before production release.
 | Last stream deleted | Successful empty/count-zero responses revoke cached lines; failed requests retain fallback behavior. |
 | Web/iOS recovery | Recoverable or handled Shaka errors preserve playback; critical errors and the stall watchdog still trigger recovery. |
 | Player Back | Exits browser/native fullscreen and releases the orientation lock. |
-| Big Match publish | An Admin-only transaction validates and publishes the complete selection before replacing the previous featured set. Failed batches roll back; deletion tombstones stay deleted. |
+| Big Match publish | An Admin-only transaction validates and adds the complete selection while retaining existing published matches. Failed batches roll back; deletion tombstones stay deleted. Both Admin RPC versions use the same transaction lock. |
 | Admin visibility | All includes non-deleted inactive, draft, and unfeatured matches. |
 | DASH paths | Resolves nested BaseURL ancestry and root/parent-relative segments through authenticated proxy references. |
 | Admin stream editing | Pending queries hide old actions; active native/WebView lines require valid HTTP(S) URLs. |
@@ -50,7 +50,7 @@ node scripts/test_backend_regressions.mjs
 
 `scripts/test_atomic_publish.sql` and `scripts/test_atomic_publish_concurrency.py`
 must run only against a disposable database named `football_backend_test`.
-They test authorization, rollback, concurrent replacement, and concurrent
+They test authorization, rollback, concurrent additions, and concurrent
 soft deletion. The regression workflow provisions PostgreSQL 17 for this.
 
 Run `flutter analyze --no-fatal-infos` and `flutter test` in both app directories.
