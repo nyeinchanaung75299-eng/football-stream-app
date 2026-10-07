@@ -153,34 +153,22 @@ class _SocoImportPageState extends State<SocoImportPage> {
     try {
       dynamic data;
       try {
-        // Read-only source lists can come from GitHub without VPN or Admin
-        // backend connectivity. Dynamic link extraction still uses the
-        // authenticated backend after a source is selected.
-        data = await _loadSourceMirror();
-        final mirrorRows = data is Map ? data['matches'] : null;
-        if (mirrorRows is List && mirrorRows.isEmpty) {
-          try {
-            final liveData = await FunctionGateway.invoke(
-              'source-match-list',
-              body: {
-                'source': source,
-              },
-            );
-            final liveRows = liveData is Map ? liveData['matches'] : null;
-            if (liveRows is List && liveRows.isNotEmpty) {
-              data = liveData;
-            }
-          } catch (_) {
-            // A valid empty mirror remains the last-resort no-VPN result.
-          }
-        }
-      } catch (_) {
+        // The live source is authoritative. If it successfully returns an
+        // empty list, keep that empty list so matches removed by Soco/YYZB do
+        // not reappear from an older mirror.
         data = await FunctionGateway.invoke(
           'source-match-list',
           body: {
             'source': source,
           },
         );
+        final liveRows = data is Map ? data['matches'] : null;
+        if (liveRows is! List) {
+          throw const FormatException('Live source match list is invalid.');
+        }
+      } catch (_) {
+        // GitHub is connectivity fallback only (VPN/backend unreachable).
+        data = await _loadSourceMirror();
       }
 
       final rows = data is Map ? data['matches'] : null;
@@ -272,14 +260,25 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   bool _matchLooksLive(Map<String, dynamic> match) {
-    if (match['hot'] == true) return true;
+    if (_staleSourceMatch(match)) return false;
     final status =
         (match['status'] ?? match['match_status'] ?? '')
             .toString()
             .trim()
             .toUpperCase();
-    return const {'LIVE', 'INPLAY', 'IN_PLAY', '1H', '2H', 'HT'}
-        .contains(status);
+    if (const {'LIVE', 'INPLAY', 'IN_PLAY', '1H', '2H', 'HT'}
+        .contains(status)) {
+      return true;
+    }
+
+    final kickoff = DateTime.tryParse(
+      match['match_time']?.toString() ?? '',
+    )?.toUtc();
+    if (kickoff == null) return false;
+    final now = DateTime.now().toUtc();
+    if (now.isBefore(kickoff)) return false;
+    return now.difference(kickoff) <=
+        const Duration(hours: 3, minutes: 30);
   }
 
   Future<void> _probeVisibleAnchorStatuses() async {
