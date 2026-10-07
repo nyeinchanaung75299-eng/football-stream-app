@@ -109,6 +109,7 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
       this.video.playUrl = url;
     }
     getVariantTracks() { return []; }
+    drmInfo() { return this.drmState || null; }
     async destroy() { this.destroyed = true; }
   }
   const shaka = { Player, polyfill: { installAll() {} } };
@@ -147,6 +148,7 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
   const context = vm.createContext({
     window, document, shaka, mpegts,
     navigator: { userAgent: ios ? 'iPhone Safari' : 'Chrome Android', platform: ios ? 'iPhone' : 'Linux', maxTouchPoints: 1 },
+    btoa: value => Buffer.from(value, 'binary').toString('base64'),
     console: { error: (...args) => logs.push(args) },
     setTimeout(fn, delay = 0) { const id = nextTimer++; timers.set(id, { at: clock + delay, fn }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -230,6 +232,35 @@ test('modern iOS attempts the selected ClearKey DASH with Shaka WebCrypto', asyn
   assert.deepEqual(h.plays, [dash.url]);
 });
 
+test('iOS retains its supplied WebCrypto key across repeated live MPD DRM updates', async () => {
+  const dash = { ...source('dash'), keyId: '00112233445566778899aabbccddeeff', keyData: 'ffeeddccbbaa99887766554433221100' };
+  const h = createHarness();
+  await h.open([dash]);
+  const player = h.players[0];
+  const kid = Buffer.from(dash.keyId, 'hex').toString('base64url');
+  const key = Buffer.from(dash.keyData, 'hex').toString('base64url');
+  for (let update = 0; update < 3; update++) {
+    const rebuiltInfo = { keySystem: 'org.w3.clearkey' };
+    player.drmState = rebuiltInfo;
+    player.listeners.get('manifestupdated')();
+    assert.equal(rebuiltInfo.clearKeys.get(kid), key);
+  }
+  const existingInfo = { keySystem: 'org.w3.clearkey', clearKeys: new Map([['existing-kid', 'existing-key']]) };
+  player.drmState = existingInfo;
+  player.listeners.get('drmsessionupdate')();
+  assert.equal(existingInfo.clearKeys.get('existing-kid'), 'existing-key');
+  assert.equal(existingInfo.clearKeys.get(kid), key);
+  await h.close();
+  const staleInfo = { keySystem: 'org.w3.clearkey' };
+  player.drmState = staleInfo;
+  player.listeners.get('manifestupdated')();
+  assert.equal(staleInfo.clearKeys, undefined, 'Closed playback must not restore an old line key');
+
+  const android = createHarness({ ios: false });
+  await android.open([dash]);
+  assert.equal(android.players[0].listeners.has('manifestupdated'), false);
+});
+
 test('iOS without WebCrypto selects a playable backup for ClearKey DASH', async () => {
   const dash = { ...source('dash'), keyId: '00112233445566778899aabbccddeeff', keyData: 'ffeeddccbbaa99887766554433221100' };
   const hls = source('hls'), h = createHarness({ webCrypto: false });
@@ -249,6 +280,36 @@ test('recoverable Shaka errors keep the active line playing', async () => {
   assert.equal(failures(h).length, 0);
   assert.equal(h.video.paused, false);
   assert.deepEqual(h.plays, [dash.url]);
+});
+
+test('iOS preserves Shaka zero playback rate while buffering without closing the player', async () => {
+  const dash = source('dash'), h = createHarness();
+  await h.open([dash]);
+  for (const event of ['ratechange', 'loadedmetadata', 'playing']) {
+    h.video.playbackRate = 0;
+    h.video.emit(event);
+    assert.equal(h.video.playbackRate, 0, `${event} must not fight Shaka's buffering rate`);
+  }
+  h.video.playbackRate = 1;
+  h.video.emit('ratechange');
+  assert.equal(h.video.playbackRate, 1);
+  assert.equal(h.overlay.classList.contains('open'), true);
+  assert.deepEqual(h.plays, [dash.url]);
+});
+
+test('iOS still corrects a positive playback speed without changing Android rates', async () => {
+  const dash = source('dash'), ios = createHarness();
+  await ios.open([dash]);
+  ios.video.playbackRate = 1.1;
+  ios.video.emit('ratechange');
+  assert.equal(ios.video.playbackRate, 1);
+  const android = createHarness({ ios: false });
+  await android.open([dash]);
+  for (const rate of [0, 1.1]) {
+    android.video.playbackRate = rate;
+    android.video.emit('ratechange');
+    assert.equal(android.video.playbackRate, rate);
+  }
 });
 
 test('a recoverable iOS Shaka error never reconnects a line that keeps advancing', async () => {

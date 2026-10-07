@@ -814,6 +814,25 @@
             }
             const clearKeys={};clearKeys[keyId]=keyData;
             const drmConfig={clearKeys};
+            if(iosDash){
+              const toBase64=hex=>btoa(hex.match(/../g)
+                .map(byte=>String.fromCharCode(parseInt(byte,16))).join(''))
+                .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+              const softwareKeyId=toBase64(keyId),softwareKeyData=toBase64(keyData);
+              // Shaka 5.2 rebuilds DrmInfo on live MPD updates without keeping
+              // its WebCrypto key map. A reused license session does not fill
+              // it again, so restore the supplied key after each MPD update.
+              const retainSoftwareKey=()=>{
+                if(!isCurrentPlayback(token))return;
+                const drmInfo=player.drmInfo();
+                if(drmInfo && drmInfo.keySystem==='org.w3.clearkey'){
+                  if(!drmInfo.clearKeys)drmInfo.clearKeys=new Map();
+                  drmInfo.clearKeys.set(softwareKeyId,softwareKeyData);
+                }
+              };
+              player.addEventListener('manifestupdated',retainSoftwareKey);
+              player.addEventListener('drmsessionupdate',retainSoftwareKey);
+            }
             if(!isIOS()) drmConfig.preferredKeySystems=['org.w3.clearkey'];
             player.configure({drm:drmConfig});
           }
@@ -979,6 +998,10 @@
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&overlay.classList.contains('open')&&!document.fullscreenElement)closeButton.click()});
     function normalizeIOSPlaybackRate(){
       if(!isIOS())return;
+      // Shaka holds playback at zero while buffering. Forcing it back to one
+      // makes its rate controller set zero again, creating an event loop that
+      // can freeze or reload the iPhone tab before the MPD starts playing.
+      if(video.playbackRate===0)return;
       if(!Number.isFinite(video.playbackRate) || Math.abs(video.playbackRate-1)>0.005){
         video.defaultPlaybackRate=1;
         video.playbackRate=1;
