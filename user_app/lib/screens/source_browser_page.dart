@@ -848,33 +848,17 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 68,
+        toolbarHeight: 52,
         titleSpacing: 12,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 21,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -.3,
-              ),
-            ),
-            Text(
-              'Direct live source • auto refresh',
-              style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w600,
-                color: colors.onSurfaceVariant,
-              ),
-            ),
-          ],
+        title: Text(
+          title,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -.25,
+          ),
         ),
         actions: [
           IconButton(
@@ -882,7 +866,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             onPressed: _refresh,
             icon: const Icon(Icons.refresh_rounded),
           ),
-          const SizedBox(width: 5),
+          const SizedBox(width: 3),
         ],
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
@@ -894,7 +878,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           if (snap.hasError && !snap.hasData) {
             return _StateView(
               title: title + ' unavailable',
-              text: 'Connect VPN, then refresh the live source.',
+              text: 'Connect VPN, then refresh.',
               onRefresh: _refresh,
             );
           }
@@ -903,31 +887,20 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           if (matches.isEmpty) {
             return _StateView(
               title: 'No ' + title + ' matches',
-              text: 'The source is online but has no football matches now.',
+              text: 'No football matches are available from this source now.',
               onRefresh: _refresh,
             );
           }
-
-          final liveCount = matches.where(_live).length;
 
           return RefreshIndicator(
             onRefresh: _refresh,
             child: ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
-              itemCount: matches.length + 1,
-              separatorBuilder: (_, index) =>
-                  SizedBox(height: index == 0 ? 14 : 12),
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 16),
+              itemCount: matches.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
               itemBuilder: (_, index) {
-                if (index == 0) {
-                  return _SourceHeader(
-                    title: title,
-                    count: matches.length,
-                    liveCount: liveCount,
-                  );
-                }
-
-                final m = matches[index - 1];
+                final m = matches[index];
                 final live = _live(m);
                 final anchors = _anchors(m);
                 final ready = anchors.isNotEmpty;
@@ -946,13 +919,13 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                   kickoff: time,
                   isLive: live,
                   canWatch: ready,
-                  metaLabel: ready
-                      ? anchors.length.toString() +
-                          ' ' +
-                          (anchors.length == 1 ? 'streamer' : 'streamers') +
-                          ' available'
-                      : null,
-                  actionLabel: ready ? 'WATCH  •  AUTO LINES' : 'NOT READY',
+                  actionLabel: ready
+                      ? (anchors.length > 1
+                          ? 'WATCH  •  ' +
+                              anchors.length.toString() +
+                              ' SOURCES'
+                          : 'WATCH')
+                      : 'NOT READY',
                   onWatch: () => _watch(m),
                 );
               },
@@ -963,93 +936,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       bottomNavigationBar: PremiumBottomNav(
         selectedIndex: navIndex,
         onSelected: _select,
-      ),
-    );
-  }
-}
-
-class _SourceHeader extends StatelessWidget {
-  const _SourceHeader({
-    required this.title,
-    required this.count,
-    required this.liveCount,
-  });
-
-  final String title;
-  final int count;
-  final int liveCount;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(2, 3, 2, 0),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: colors.primary.withValues(alpha: .10),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(
-              Icons.sensors_rounded,
-              color: colors.primary,
-              size: 23,
-            ),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title + ' matches',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -.2,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  liveCount > 0
-                      ? liveCount.toString() +
-                          ' live • ' +
-                          count.toString() +
-                          ' available'
-                      : count.toString() + ' scheduled • auto refresh',
-                  style: TextStyle(
-                    color: colors.onSurfaceVariant,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-            decoration: BoxDecoration(
-              color: colors.primary.withValues(alpha: .09),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: colors.primary.withValues(alpha: .16),
-              ),
-            ),
-            child: Text(
-              'DIRECT',
-              style: TextStyle(
-                color: colors.primary,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-                letterSpacing: .3,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
