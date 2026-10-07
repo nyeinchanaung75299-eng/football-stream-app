@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'live_links_page.dart';
 import 'soco_import_page.dart';
@@ -15,6 +17,17 @@ class FixtureImportPage extends StatefulWidget {
 }
 
 class _FixtureImportPageState extends State<FixtureImportPage> {
+  static const _pagesColaMirror =
+      'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources/cola.json';
+  static const _rawColaMirror =
+      'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/sources/cola.json';
+
+  static final bool _enableNoVpnFallback =
+      const String.fromEnvironment(
+        'ENABLE_NO_VPN_FALLBACK',
+        defaultValue: '0',
+      ).trim() ==
+      '1';
   DateTime selectedDate = DateTime.now();
   String mode = 'date';
   bool loading = false;
@@ -53,11 +66,62 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     return 8000000000 + hash;
   }
 
+  Future<Map<String, dynamic>> _loadColaMirror() async {
+    Object? lastError;
+    Map<String, dynamic>? emptyFallback;
+    for (final url in const [_pagesColaMirror, _rawColaMirror]) {
+      try {
+        final response = await http
+            .get(
+              Uri.parse(url).replace(
+                queryParameters: {
+                  't': DateTime.now().millisecondsSinceEpoch.toString(),
+                },
+              ),
+              headers: const {'Accept': 'application/json'},
+            )
+            .timeout(const Duration(seconds: 18));
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw Exception(
+            'ColaTV mirror HTTP ' + response.statusCode.toString(),
+          );
+        }
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map) {
+          throw const FormatException('ColaTV mirror response is invalid.');
+        }
+        final data = Map<String, dynamic>.from(decoded);
+        final rows = data['matches'];
+        if (rows is! List) {
+          throw const FormatException('ColaTV mirror match list is invalid.');
+        }
+        if (rows.isNotEmpty) return data;
+        emptyFallback ??= data;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    if (emptyFallback != null) return emptyFallback;
+    throw Exception(lastError ?? 'ColaTV mirror is unavailable.');
+  }
+
   Future<List<Map<String, dynamic>>> _loadColaFixtures() async {
-    final data = await FunctionGateway.invoke(
-      'source-match-list',
-      body: const {'source': 'cola'},
-    );
+    dynamic data;
+    if (!_enableNoVpnFallback) {
+      data = await FunctionGateway.invoke(
+        'source-match-list',
+        body: const {'source': 'cola'},
+      );
+    } else {
+      try {
+        data = await FunctionGateway.invoke(
+          'source-match-list',
+          body: const {'source': 'cola'},
+        );
+      } catch (_) {
+        data = await _loadColaMirror();
+      }
+    }
     final raw = data is Map ? data['matches'] : null;
     if (raw is! List) {
       throw const FormatException('ColaTV match list is invalid.');
@@ -262,7 +326,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         'matches published',
         properties: {
           'requested_count': chosen.length,
-          'published_count': savedIds.length,
+          'published_count':
+              (resultMap['published_count'] as num?)?.toInt() ?? savedIds.length,
           'skipped_deleted': skippedDeleted,
         },
       );

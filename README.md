@@ -36,7 +36,7 @@ Open Supabase SQL Editor and run:
 For a fresh database, also apply the files in `supabase/migrations/` in filename
 order. For an existing database, apply only migrations not already recorded as
 applied. The updated Admin app requires
-`20261006194419_publish_featured_fixtures_atomically.sql` before release; it adds
+`20261008000000_harden_featured_publication.sql` before release; it adds
 the atomic publication RPC and ensures `matches.deleted_at` exists.
 
 Then create an Auth user with email/password.

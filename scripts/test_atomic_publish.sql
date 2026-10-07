@@ -30,9 +30,10 @@ end $$;
 -- Simulate the existing-project upgrade too: the migration must add the column
 -- even when it was omitted by an older bootstrap schema.
 alter table public.matches drop column deleted_at;
-\ir ../supabase/migrations/20261006194419_publish_featured_fixtures_atomically.sql
+\ir ../supabase/migrations/20261007_atomic_featured_publish.sql
+\ir ../supabase/migrations/20261008000000_harden_featured_publication.sql
 -- Verify that operationally reapplying this additive migration is harmless.
-\ir ../supabase/migrations/20261006194419_publish_featured_fixtures_atomically.sql
+\ir ../supabase/migrations/20261008000000_harden_featured_publication.sql
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on all tables in schema public to anon, authenticated;
 
@@ -75,6 +76,12 @@ select backend_test.assert_true(
 select backend_test.assert_true(
   has_function_privilege('authenticated', 'public.publish_featured_fixtures(jsonb)', 'EXECUTE'),
   'Signed-in admins need RPC EXECUTE permission.'
+);
+select backend_test.assert_true(
+  not has_function_privilege('anon', 'public.publish_featured_matches(jsonb)', 'EXECUTE')
+  and (select not prosecdef from pg_proc
+       where oid = 'public.publish_featured_matches(jsonb)'::regprocedure),
+  'The already released Admin RPC must also use invoker privileges and deny anonymous calls.'
 );
 select backend_test.assert_true(
   (select not prosecdef and proconfig = array['search_path=""'] from pg_proc
@@ -141,6 +148,24 @@ do $$ declare result jsonb; original_id uuid; begin
   result := public.publish_featured_fixtures(jsonb_build_array(backend_test.fixture(9)));
   perform backend_test.assert_true(result -> 'published_ids' = '[]'::jsonb and (result ->> 'skipped_deleted')::int = 1, 'All-deleted selections must return no published IDs.');
   perform backend_test.assert_true((select array_agg(external_fixture_id) = array[2]::bigint[] from public.matches where is_featured), 'All-deleted selections must preserve the featured set.');
+end $$;
+
+-- Previously released Admin clients retain their payload/result contract.
+do $$ declare result jsonb; begin
+  result := public.publish_featured_matches(jsonb_build_array(
+    jsonb_build_object('fixture_id', 2, 'league_name', 'Legacy League',
+      'home_name', 'Legacy Home', 'away_name', 'Legacy Away',
+      'kickoff_at', '2026-10-06T12:00:00Z'),
+    jsonb_build_object('fixture_id', 9, 'league_name', 'Deleted League',
+      'home_name', 'Deleted Home', 'away_name', 'Deleted Away',
+      'kickoff_at', '2026-10-06T12:00:00Z')
+  ));
+  perform backend_test.assert_true(
+    jsonb_array_length(result -> 'saved_ids') = 1
+    and (result ->> 'published_count')::int = 1
+    and (result ->> 'skipped_deleted')::int = 1,
+    'Legacy clients must receive actual saved IDs/counts and preserve tombstones.'
+  );
 end $$;
 
 reset role;

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,6 +11,8 @@ import '../native_player.dart';
 import 'source_browser_page.dart';
 import 'network_diagnostics_page.dart';
 import '../widgets/theme_mode_button.dart';
+import '../widgets/premium_bottom_nav.dart';
+import '../widgets/premium_match_card.dart';
 import '../app_update_service.dart';
 
 class _MatchLoadResult {
@@ -87,6 +88,15 @@ class _HomePageState extends State<HomePage> {
       'viewer_authoritative_matches_v1';
   static const _authoritativeCacheFetchedAtKey =
       'viewer_authoritative_matches_fetched_at_v1';
+
+  // Default to the fast VPN-only path. The former restricted-network
+  // mirror/cache fallback is opt-in for special builds only.
+  static final bool _enableNoVpnFallback =
+      const String.fromEnvironment(
+        'ENABLE_NO_VPN_FALLBACK',
+        defaultValue: '0',
+      ).trim() ==
+      '1';
 
   // On GitHub Pages, use the mirrored files deployed beside the app.
   // They may include safe non-keyed direct backup lines for restricted networks.
@@ -352,6 +362,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadPublicApi() {
+    if (!_enableNoVpnFallback) {
+      final base = _publicApiBases.first;
+      return _loadPublicApiFrom(base);
+    }
     return _hedged(
       _publicApiBases
           .map<Future<List<Map<String, dynamic>>> Function()>(
@@ -421,11 +435,11 @@ class _HomePageState extends State<HomePage> {
   Future<List<Map<String, dynamic>>> _loadPublicApiStreams(
     String matchId,
   ) {
-    // All aliases point at the same authoritative Worker. Do not wait for
-    // every alias before opening the chooser: one slow/blocked hostname used
-    // to make the stale GitHub mirror win first and show only part of the
-    // configured lines. Hedge the aliases and use the first complete
-    // successful response instead.
+    if (!_enableNoVpnFallback) {
+      final base = _publicApiBases.first;
+      return _loadPublicApiStreamsFrom(base, matchId);
+    }
+
     return _hedged(
       _publicApiBases
           .map<Future<List<Map<String, dynamic>>> Function()>(
@@ -465,20 +479,11 @@ class _HomePageState extends State<HomePage> {
     if (existing != null) return existing;
 
     final request = () async {
-      List<Map<String, dynamic>> mirrorRows = playableLinks(
-        match['stream_links'],
-      ).where((row) {
-        final url = (row['stream_url'] ?? '').toString().trim();
-        if (url.isEmpty) return false;
-        return true;
-      }).toList();
-
       Future<_ProtectedStreamResult> loadProtected() async {
         try {
           final rows = playableLinks(await _loadPublicApiStreams(matchId));
           if (rows.isEmpty) {
-            // An empty successful response revokes the old mirror/cache lines.
-            // Keep that state on the match so another WATCH cannot revive them.
+            // A successful empty response revokes lines in both build modes.
             match['stream_count'] = 0;
             match['stream_links'] = const <Map<String, dynamic>>[];
             _streamLinkCache.remove(matchId);
@@ -493,6 +498,33 @@ class _HomePageState extends State<HomePage> {
           );
         }
       }
+
+      if (!_enableNoVpnFallback) {
+        final protected = await loadProtected();
+        final rows = protected.rows;
+
+        try {
+          if (rows.isNotEmpty) {
+            _streamLinkCache[matchId] = _StreamCacheEntry(
+              rows,
+              DateTime.now(),
+            );
+          } else {
+            _streamLinkCache.remove(matchId);
+          }
+          return rows;
+        } finally {
+          _streamLinkInflight.remove(matchId);
+        }
+      }
+
+      List<Map<String, dynamic>> mirrorRows = playableLinks(
+        match['stream_links'],
+      ).where((row) {
+        final url = (row['stream_url'] ?? '').toString().trim();
+        if (url.isEmpty) return false;
+        return true;
+      }).toList();
 
       // Requests already have bounded timeouts. Wait for their outcome rather
       // than letting an older mirror beat a valid (possibly empty) response.
@@ -771,6 +803,22 @@ class _HomePageState extends State<HomePage> {
   Future<List<Map<String, dynamic>>> loadMatches() async {
     final started = DateTime.now();
 
+    if (!_enableNoVpnFallback) {
+      final rows = await _loadPublicApi();
+      unawaited(
+        AnalyticsService.capture(
+          'match feed loaded',
+          properties: {
+            'source': 'VPN live API',
+            'match_count': rows.length,
+            'latency_ms': DateTime.now().difference(started).inMilliseconds,
+          },
+        ),
+      );
+      unawaited(_warmStreamLinks(rows));
+      return rows;
+    }
+
     // Cloudflare and direct Supabase are authoritative. Race those first.
     // Only fall back to GitHub after both fail, otherwise an older mirror can
     // win the race and resurrect deleted matches or stale LIVE state.
@@ -919,11 +967,17 @@ class _HomePageState extends State<HomePage> {
       final url = (row['stream_url'] ?? '').toString().toLowerCase();
 
       if (type == 'hls' || type == 'm3u8' || url.contains('.m3u8')) return 0;
-      if (type == 'dash' || type == 'mpd' || url.contains('.mpd')) return 1;
+
+      // On Web, especially iPhone WebKit, current mpegts.js can play healthy
+      // FLV via ManagedMediaSource while ClearKey DASH is not supported by
+      // Safari. Put FLV ahead of DASH in the chooser so the first tap has the
+      // best chance of actually starting.
+      if (kIsWeb && (type == 'flv' || url.contains('.flv'))) return 1;
       if (type == 'mp4' || url.contains('.mp4')) return 2;
-      if (type == 'auto') return 3;
-      if (type == 'flv' || url.contains('.flv')) return 4;
-      return 5;
+      if (type == 'dash' || type == 'mpd' || url.contains('.mpd')) return 3;
+      if (type == 'auto') return 4;
+      if (type == 'flv' || url.contains('.flv')) return 5;
+      return 6;
     }
 
     filtered.sort((a, b) {
@@ -1502,133 +1556,112 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        titleSpacing: 16,
-        title: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.asset(
-                'assets/nca_icon.png',
-                width: 30,
-                height: 30,
-                fit: BoxFit.cover,
-              ),
-            ),
-            const SizedBox(width: 10),
-            const Text(
-              'NCA',
-              style: TextStyle(fontWeight: FontWeight.w900),
-            ),
-          ],
+        toolbarHeight: 52,
+        titleSpacing: 14,
+        title: const Text(
+          'Live',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -.25,
+          ),
         ),
         actions: [
           IconButton(
+            tooltip: 'Refresh',
+            onPressed: () => refresh(silent: true),
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
             tooltip: 'Settings',
             onPressed: _openAppMenu,
-            icon: const Icon(Icons.settings_outlined),
+            icon: const Icon(Icons.tune_rounded),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 3),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-                    future: _future,
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState != ConnectionState.done &&
-                          !snapshot.hasData) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      if (snapshot.hasError && !snapshot.hasData) {
-                        return _StateMessage(
-                          icon: Icons.wifi_off_rounded,
-                          title: 'Couldn’t load matches',
-                          subtitle: 'Check the connection and try again.',
-                          onPressed: refresh,
-                        );
-                      }
-                      final matches = snapshot.data ?? const [];
-                      if (matches.isEmpty) {
-                        return _StateMessage(
-                          icon: Icons.sports_soccer_outlined,
-                          title: 'No matches now',
-                          subtitle: 'Selected big matches will appear here.',
-                          onPressed: refresh,
-                        );
-                      }
-                      return RefreshIndicator(
-                        onRefresh: refresh,
-                        child: ListView.separated(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(14, 10, 14, 28),
-                          itemCount: matches.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 12),
-                          itemBuilder: (context, index) {
-                            final m = matches[index];
-                            final links = playableLinks(m['stream_links']);
-                            final nativeLinkCount = links.where((x) {
-                              if (x['use_webview'] == true) return false;
-                              return (x['stream_url']?.toString() ?? '')
-                                  .trim()
-                                  .isNotEmpty;
-                            }).length;
-                            final fallbackCount =
-                                (m['stream_count'] as num?)?.toInt() ?? 0;
-                            // The embedded mirror can intentionally
-                            // omit protected/keyed lines. Never let its
-                            // partial count hide the authoritative Admin
-                            // stream_count shown on the match card.
-                            final displayCount = nativeLinkCount > fallbackCount
-                                ? nativeLinkCount
-                                : fallbackCount;
-                            return _MatchCard(
-                              match: m,
-                              canWatch: displayCount > 0,
-                              linkCount: displayCount,
-                              onWatch: () => openPlayer(m),
-                            );
-                          },
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done &&
+              !snapshot.hasData) {
+            return const _PremiumLoading();
+          }
+          if (snapshot.hasError && !snapshot.hasData) {
+            return _StateMessage(
+              icon: Icons.vpn_key_off_outlined,
+              title: 'Live feed unavailable',
+              subtitle: 'Connect VPN, then tap refresh.',
+              onPressed: refresh,
+            );
+          }
+
+          final matches = snapshot.data ?? const <Map<String, dynamic>>[];
+          if (matches.isEmpty) {
+            return _StateMessage(
+              icon: Icons.sports_soccer_outlined,
+              title: 'No matches now',
+              subtitle: 'New matches will appear here automatically.',
+              onPressed: refresh,
+            );
+          }
+
+          return RefreshIndicator(
+            onRefresh: refresh,
+            child: ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 16),
+              itemCount: matches.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final m = matches[index];
+                final links = playableLinks(m['stream_links']);
+                final nativeLinkCount = links.where((x) {
+                  if (x['use_webview'] == true) return false;
+                  return (x['stream_url']?.toString() ?? '')
+                      .trim()
+                      .isNotEmpty;
+                }).length;
+                final fallbackCount =
+                    (m['stream_count'] as num?)?.toInt() ?? 0;
+                final displayCount = nativeLinkCount > fallbackCount
+                    ? nativeLinkCount
+                    : fallbackCount;
+                final kickoff = DateTime.tryParse(
+                  m['kickoff_at']?.toString() ?? '',
+                )?.toLocal();
+                final canWatch = displayCount > 0;
+
+                return PremiumMatchCard(
+                  league: (m['league'] ?? 'Football').toString(),
+                  homeName: (m['home_team'] ?? 'Home').toString(),
+                  awayName: (m['away_team'] ?? 'Away').toString(),
+                  homeLogo: m['home_logo_url']?.toString(),
+                  awayLogo: m['away_logo_url']?.toString(),
+                  kickoff: kickoff,
+                  isLive: m['is_live'] == true,
+                  canWatch: canWatch,
+                  actionLabel: canWatch
+                      ? (displayCount > 1
+                          ? 'WATCH LIVE  •  ' +
+                              displayCount.toString() +
+                              ' LINES'
+                          : 'WATCH LIVE')
+                      : 'NOT READY',
+                  onWatch: () => openPlayer(m),
+                );
+              },
+            ),
+          );
+        },
       ),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: PremiumBottomNav(
         selectedIndex: 0,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.live_tv_outlined),
-            selectedIcon: Icon(Icons.live_tv_rounded),
-            label: 'Live',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.sports_soccer_outlined),
-            selectedIcon: Icon(Icons.sports_soccer_rounded),
-            label: 'Soco',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.sensors_outlined),
-            selectedIcon: Icon(Icons.sensors_rounded),
-            label: 'YYZB',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.language_outlined),
-            selectedIcon: Icon(Icons.language_rounded),
-            label: 'Fawa',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.tv_outlined),
-            selectedIcon: Icon(Icons.tv_rounded),
-            label: 'ColaTV',
-          ),
-        ],
-        onDestinationSelected: (index) async {
-          if (index == 0) return;
+        onSelected: (index) async {
+          if (index == 0) {
+            await refresh(silent: true);
+            return;
+          }
           final source = switch (index) {
             2 => 'yyzb',
             3 => 'fawa',
@@ -1640,229 +1673,121 @@ class _HomePageState extends State<HomePage> {
               builder: (_) => SourceBrowserPage(source: source),
             ),
           );
+          if (mounted) await refresh(silent: true);
         },
       ),
     );
   }
 }
 
-class _MatchCard extends StatelessWidget {
-  const _MatchCard({
-    required this.match,
-    required this.canWatch,
-    required this.linkCount,
-    required this.onWatch,
-  });
-
-  final Map<String, dynamic> match;
-  final bool canWatch;
-  final int linkCount;
-  final VoidCallback onWatch;
+class _PremiumLoading extends StatelessWidget {
+  const _PremiumLoading();
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final kickoff = DateTime.parse(match['kickoff_at']).toLocal();
-    final live = match['is_live'] == true;
 
-    return Card(
-      margin: EdgeInsets.zero,
-      elevation: live ? 2 : 0,
-      shadowColor: colors.primary.withValues(alpha: .10),
-      surfaceTintColor: Colors.transparent,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(
-          color: live
-              ? Colors.redAccent.withValues(alpha: .35)
-              : colors.outlineVariant.withValues(alpha: .4),
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerHighest.withValues(alpha: .55),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: colors.outlineVariant.withValues(alpha: .24),
+          ),
         ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
-        child: Column(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    (match['league'] ?? '').toString(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: colors.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                if (live)
-                  const _Pill(
-                    text: 'LIVE',
-                    color: Colors.redAccent,
-                  )
-                else
-                  _Pill(
-                    text: DateFormat('HH:mm').format(kickoff),
-                    color: colors.primary,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 9),
-            Row(
-              children: [
-                Expanded(
-                  child: _Team(
-                    name: '${match['home_team']}',
-                    logo: match['home_logo_url']?.toString(),
-                  ),
-                ),
-                SizedBox(
-                  width: 78,
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'VS',
-                          style: TextStyle(
-                            color: colors.onSurfaceVariant,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          DateFormat('dd MMM').format(kickoff),
-                          style: TextStyle(
-                            color: colors.onSurfaceVariant,
-                            fontSize: 10.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: _Team(
-                    name: '${match['away_team']}',
-                    logo: match['away_logo_url']?.toString(),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 9),
             SizedBox(
-              width: double.infinity,
-              height: 44,
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                onPressed: canWatch ? onWatch : null,
-                icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                label: Text(
-                  canWatch
-                      ? (linkCount > 1
-                          ? 'WATCH LIVE  •  $linkCount LINES'
-                          : 'WATCH LIVE')
-                      : 'NOT READY',
-                ),
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.4,
+                color: colors.primary,
               ),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'Loading live feed…',
+              style: TextStyle(fontWeight: FontWeight.w700),
             ),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _Team extends StatelessWidget {
-  const _Team({required this.name, required this.logo});
-
-  final String name;
-  final String? logo;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final hasLogo = logo != null && logo!.trim().isNotEmpty;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: colors.surfaceContainerHighest.withValues(alpha: .5),
-            borderRadius: BorderRadius.circular(15),
-          ),
-          child: hasLogo
-              ? Image.network(
-                  logo!,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) =>
-                      const Icon(Icons.shield_outlined, size: 26),
-                )
-              : const Icon(Icons.shield_outlined, size: 26),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          name,
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  const _Pill({required this.text, required this.color});
-  final String text;
-  final Color color;
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(color: color.withValues(alpha: .10), borderRadius: BorderRadius.circular(999)),
-      child: Text(text, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w900)),
     );
   }
 }
 
 class _StateMessage extends StatelessWidget {
-  const _StateMessage({required this.icon, required this.title, required this.subtitle, required this.onPressed});
+  const _StateMessage({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onPressed,
+  });
+
   final IconData icon;
   final String title;
   final String subtitle;
   final Future<void> Function() onPressed;
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 60, color: colors.onSurfaceVariant),
-            const SizedBox(height: 14),
-            Text(title, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 8),
-            Text(subtitle, textAlign: TextAlign.center, style: TextStyle(color: colors.onSurfaceVariant)),
-            const SizedBox(height: 18),
-            FilledButton(onPressed: () => onPressed(), child: const Text('REFRESH')),
-          ],
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          padding: const EdgeInsets.fromLTRB(24, 26, 24, 22),
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: colors.outlineVariant.withValues(alpha: .28),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: colors.primary.withValues(alpha: .09),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Icon(icon, size: 29, color: colors.primary),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: colors.onSurfaceVariant,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: () => onPressed(),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('REFRESH'),
+              ),
+            ],
+          ),
         ),
       ),
     );

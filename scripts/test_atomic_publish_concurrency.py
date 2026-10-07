@@ -43,19 +43,28 @@ def wait_until(query, message):
 admin = "10000000-0000-0000-0000-000000000001"
 
 
-def publication(ids, app_name, hold=False):
-    payload = json.dumps([{
+def publication(ids, app_name, hold=False, legacy=False):
+    fixtures = [{
         "external_fixture_id": fixture_id, "source": "api_football", "league": "Concurrency League",
         "home_team": f"Home {fixture_id}", "away_team": f"Away {fixture_id}",
         "kickoff_at": "2026-10-06T12:00:00Z", "status_short": "NS", "is_live": False,
-    } for fixture_id in ids])
+    } for fixture_id in ids]
+    if legacy:
+        fixtures = [{
+            'fixture_id': item['external_fixture_id'], 'provider': item['source'],
+            'league_name': item['league'], 'home_name': item['home_team'],
+            'away_name': item['away_team'], 'kickoff_at': item['kickoff_at'],
+            'status_short': item['status_short'], 'is_live': item['is_live'],
+        } for item in fixtures]
+    payload = json.dumps(fixtures)
+    rpc = 'publish_featured_matches' if legacy else 'publish_featured_fixtures'
     return f"""
 begin;
 set local statement_timeout = '10s';
 set local application_name = '{app_name}';
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '{admin}', true);
-select public.publish_featured_fixtures('{payload}'::jsonb);
+select public.{rpc}('{payload}'::jsonb);
 {'select pg_sleep(2);' if hold else ''}
 commit;
 """
@@ -74,7 +83,7 @@ try:
         first = pool.submit(sql, publication([10, 11], "football-publish-first", hold=True))
         wait_until("select exists(select 1 from pg_stat_activity where application_name='football-publish-first' and wait_event='PgSleep');",
                    "First publication did not hold its transaction open.")
-        second = pool.submit(sql, publication([12, 13], "football-publish-second"))
+        second = pool.submit(sql, publication([12, 13], "football-publish-second", legacy=True))
         wait_until("select exists(select 1 from pg_locks l join pg_stat_activity a on a.pid=l.pid where a.application_name='football-publish-second' and l.locktype='advisory' and not l.granted);",
                    "Concurrent publication did not wait for the transaction advisory lock.")
         first.result()

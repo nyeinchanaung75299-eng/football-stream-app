@@ -366,9 +366,8 @@ function canonicalLogoKey(value: unknown) {
 }
 
 function canonicalTeamName(value: unknown) {
-  let text = String(value ?? "")
-    .normalize("NFKC")
-    .toLowerCase()
+  const original = String(value ?? "").normalize("NFKC").toLowerCase();
+  let text = original
     .replace(/乌兹别克斯坦/g, "uzbekistan")
     .replace(/乌兹别克/g, "uzbekistan")
     .replace(/韩国/g, "south korea")
@@ -379,9 +378,18 @@ function canonicalTeamName(value: unknown) {
   // Preserve other Han text, including club names preceded by "FC".
   text = text.replace(/\b(uzbekistan|kazakhstan)(?:斯坦)+/g, "$1");
 
-  return text
+  const latinKey = text
     .replace(/\b(?:fc|cf|sc|afc)\b/g, " ")
     .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (latinKey) return latinKey;
+
+  // Unknown non-Latin names must not collapse to an empty key. Preserve
+  // Unicode letters/numbers as a stable provider-independent fallback.
+  return original
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

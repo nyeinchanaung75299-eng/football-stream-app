@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:football_viewer/screens/home_page.dart';
 
 void main() {
+  const fallbackEnabled =
+      String.fromEnvironment('ENABLE_NO_VPN_FALLBACK', defaultValue: '0') == '1';
   final kickoff = DateTime.now().toUtc().toIso8601String();
   Map<String, dynamic> match(int count) => {
         'id': 'match-1',
@@ -127,12 +129,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('NOT READY'), findsOneWidget);
     expect(find.text('Choose line'), findsNothing);
-    final prefs = await SharedPreferences.getInstance();
-    final cached = jsonDecode(
-      prefs.getString('viewer_authoritative_matches_v1')!,
-    ) as List;
-    expect((cached.single as Map)['stream_count'], 0);
-    expect((cached.single as Map)['stream_links'], isEmpty);
+    if (fallbackEnabled) {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = jsonDecode(
+        prefs.getString('viewer_authoritative_matches_v1')!,
+      ) as List;
+      expect((cached.single as Map)['stream_count'], 0);
+      expect((cached.single as Map)['stream_links'], isEmpty);
+    }
     await tester.pumpWidget(const SizedBox());
     client.close();
   });
@@ -151,5 +155,5 @@ void main() {
     expect(find.text('Old mirror line'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     client.close();
-  });
+  }, skip: !fallbackEnabled);
 }

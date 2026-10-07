@@ -270,11 +270,6 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
           '${summary['slow'] ?? 0} slow, '
           '${summary['failed'] ?? 0} failed.',
         );
-      } else if (data is Map && data['health_status'] != null) {
-        message(
-          'Server: ${data['health_status']} '
-          '(${data['latency_ms'] ?? '-'} ms)',
-        );
       } else {
         message('Health check finished.');
       }
@@ -595,6 +590,15 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     );
 
     if (save != true) return;
+
+    if (!web && url.text.trim().isEmpty) {
+      message('Paste a stream URL before saving an active server.');
+      return;
+    }
+    if (web && webUrl.text.trim().isEmpty) {
+      message('Paste a WebView URL before saving an active server.');
+      return;
+    }
 
     final effectiveType =
         web ? 'auto' : detectStreamType(url.text, fallback: type);

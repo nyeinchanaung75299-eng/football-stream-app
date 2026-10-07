@@ -9,6 +9,11 @@ on:
       - "scripts/sync_public_feed.py"
       - "supabase/functions/public-feed-lines/index.ts"
       - "user_app/lib/screens/home_page.dart"
+      - "user_app/lib/screens/source_browser_page.dart"
+      - "admin_app/lib/screens/soco_import_page.dart"
+      - "admin_app/lib/screens/fixture_import_page.dart"
+      - "supabase/functions/source-match-list/index.ts"
+      - "supabase/functions/soco-links/index.ts"
   schedule:
     # GitHub scheduled workflows have a practical 5-minute minimum. Offset
     # the run from the busiest :00/:05 boundaries to reduce delayed/dropped
@@ -44,10 +49,100 @@ jobs:
           print(f"mirror matches: {len(data)}")
           PY
 
+      - name: Fetch source-list snapshots for VPN-off fallback
+        run: |
+          set -u
+          mkdir -p /tmp/source-feeds
+          for source in soco yyzb fawa cola; do
+            stamp="$(date +%s)"
+            fetched=false
+            for url in \
+              "https://football-public-api.nyeinchanaung75299-eng.workers.dev/sources/$source/matches?t=$stamp" \
+              "https://football-api.nyeinchanaung.us.ci/sources/$source/matches?t=$stamp" \
+              "https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links?viewer_public=1&action=matches&source=$source&t=$stamp"; do
+              if ! curl --fail --location --retry 1 --retry-delay 1 \
+                --connect-timeout 8 --max-time 35 \
+                -H "Accept: application/json" \
+                "$url" -o "/tmp/source-feeds/$source.json.tmp"; then
+                continue
+              fi
+
+              if SOURCE="$source" python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          source = os.environ["SOURCE"]
+          p = Path(f"/tmp/source-feeds/{source}.json.tmp")
+          data = json.loads(p.read_text(encoding="utf-8"))
+          if not isinstance(data, dict):
+              raise SystemExit(f"{source}: invalid source payload")
+          rows = data.get("matches")
+          if not isinstance(rows, list):
+              raise SystemExit(f"{source}: invalid matches payload")
+
+          # Source providers can leave finished matches marked hot/live for
+          # hours. Keep no-timestamp rows (e.g. some Fawa entries), but never
+          # publish a timestamped match more than four hours after kickoff.
+          now = datetime.now(timezone.utc)
+          fresh_rows = []
+          for row in rows:
+              if not isinstance(row, dict):
+                  continue
+              raw_time = row.get("match_time")
+              if raw_time:
+                  try:
+                      kickoff = datetime.fromisoformat(
+                          str(raw_time).replace("Z", "+00:00")
+                      )
+                      if kickoff.tzinfo is None:
+                          kickoff = kickoff.replace(tzinfo=timezone.utc)
+                      if (now - kickoff.astimezone(timezone.utc)).total_seconds() > 4 * 3600:
+                          continue
+                  except (TypeError, ValueError):
+                      pass
+              fresh_rows.append(row)
+          data["matches"] = fresh_rows
+          rows = fresh_rows
+
+          # Remove volatile timestamps so the feed branch only changes when
+          # actual source data changes.
+          data.pop("generated_at", None)
+          out = Path(f"/tmp/source-feeds/{source}.json")
+          out.write_text(
+              json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+              encoding="utf-8",
+          )
+          print(f"{source} mirror matches: {len(rows)}")
+          PY
+              then
+                fetched=true
+                break
+              fi
+
+              echo "Warning: $source returned an invalid payload; trying next fallback."
+              rm -f "/tmp/source-feeds/$source.json.tmp" "/tmp/source-feeds/$source.json"
+            done
+
+            if [ "$fetched" != true ]; then
+              echo "Warning: $source snapshot fetch failed; keeping previous mirror."
+              rm -f "/tmp/source-feeds/$source.json.tmp" "/tmp/source-feeds/$source.json"
+            fi
+          done
+
       - name: Publish feed branch
         id: publish_feed
         run: |
           set -e
+          # A slower run from an older main commit must never overwrite a
+          # newer VPN-off mirror. The next/current run owns feed publication.
+          git fetch origin main:refs/remotes/origin/main
+          CURRENT_MAIN="$(git rev-parse origin/main)"
+          if [ "$GITHUB_SHA" != "$CURRENT_MAIN" ]; then
+            echo "Skipping stale feed run $GITHUB_SHA; current main is $CURRENT_MAIN."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -61,6 +156,81 @@ jobs:
 
           mkdir -p public
           cp /tmp/matches.json public/matches.json
+
+          mkdir -p public/sources
+          for source in soco yyzb fawa cola; do
+            if [ -s "/tmp/source-feeds/$source.json" ]; then
+              cp "/tmp/source-feeds/$source.json" "public/sources/$source.json"
+            fi
+
+            # Never publish a zero-byte or malformed mirror. Keep an existing
+            # valid last-good snapshot; otherwise self-heal to a valid empty
+            # list so Viewer/Admin show "no matches" instead of "Could not load".
+            SOURCE="$source" python3 - <<'PY2'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          source = os.environ["SOURCE"]
+          path = Path(f"public/sources/{source}.json")
+          valid = False
+          data = None
+          if path.is_file() and path.stat().st_size > 0:
+              try:
+                  data = json.loads(path.read_text(encoding="utf-8"))
+                  valid = isinstance(data, dict) and isinstance(data.get("matches"), list)
+              except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                  valid = False
+
+          if not valid:
+              data = {"ok": True, "source": source, "matches": []}
+              path.write_text(
+                  json.dumps(
+                      data,
+                      ensure_ascii=False,
+                      separators=(",", ":"),
+                  ),
+                  encoding="utf-8",
+              )
+              print(f"{source}: repaired invalid/missing mirror with an empty valid list")
+          else:
+              # Even when the fresh fetch failed and we keep the previous
+              # mirror, prune timestamped matches older than four hours.
+              now = datetime.now(timezone.utc)
+              rows = data["matches"]
+              fresh_rows = []
+              for row in rows:
+                  if not isinstance(row, dict):
+                      continue
+                  raw_time = row.get("match_time")
+                  if raw_time:
+                      try:
+                          kickoff = datetime.fromisoformat(
+                              str(raw_time).replace("Z", "+00:00")
+                          )
+                          if kickoff.tzinfo is None:
+                              kickoff = kickoff.replace(tzinfo=timezone.utc)
+                          if (now - kickoff.astimezone(timezone.utc)).total_seconds() > 4 * 3600:
+                              continue
+                      except (TypeError, ValueError):
+                          pass
+                  fresh_rows.append(row)
+
+              if len(fresh_rows) != len(rows):
+                  data["matches"] = fresh_rows
+                  path.write_text(
+                      json.dumps(
+                          data,
+                          ensure_ascii=False,
+                          separators=(",", ":"),
+                      ),
+                      encoding="utf-8",
+                  )
+                  print(
+                      f"{source}: pruned {len(rows) - len(fresh_rows)} stale mirror matches"
+                  )
+          PY2
+          done
 
           python3 - <<'PY'
           import json
@@ -77,6 +247,13 @@ jobs:
           # streams.json to exist; existing signed releases stay on feed.
           git add -A public/
 
+          # Redeploy Pages when either the public match list OR any source
+          # mirror changes. status.json freshness alone must not trigger it.
+          WEB_FEED_CHANGED=false
+          if ! git diff --cached --quiet -- public/matches.json public/sources; then
+            WEB_FEED_CHANGED=true
+          fi
+
           if git diff --cached --quiet; then
             echo "No feed changes."
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -84,8 +261,22 @@ jobs:
           fi
 
           git commit -m "Update public match feed"
-          git push origin feed
-          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+          pushed=false
+          for attempt in 1 2 3 4; do
+            if git push origin feed; then
+              pushed=true
+              break
+            fi
+            git pull --rebase origin feed
+            sleep 2
+          done
+          if [ "$pushed" != true ]; then
+            echo "Could not publish feed after retries." >&2
+            exit 1
+          fi
+
+          echo "changed=$WEB_FEED_CHANGED" >> "$GITHUB_OUTPUT"
 
       - name: Redeploy Web Viewer with latest feed
         if: steps.publish_feed.outputs.changed == 'true'

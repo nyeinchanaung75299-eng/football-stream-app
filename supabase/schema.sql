@@ -160,6 +160,7 @@ alter table public.matches add column if not exists status_short text not null d
 alter table public.matches add column if not exists status_elapsed integer;
 alter table public.matches add column if not exists is_finished boolean not null default false;
 alter table public.matches add column if not exists last_score_sync_at timestamptz;
+alter table public.matches add column if not exists deleted_at timestamptz;
 
 alter table public.matches drop constraint if exists matches_publish_state_check;
 alter table public.matches add constraint matches_publish_state_check check (publish_state in ('draft','published'));
@@ -193,3 +194,8 @@ begin
     alter publication supabase_realtime add table public.matches;
   end if;
 end $$;
+
+
+-- Publish a complete replacement Big Match set atomically.
+-- See supabase/migrations/20261007_atomic_featured_publish.sql for the full
+-- implementation used in production.

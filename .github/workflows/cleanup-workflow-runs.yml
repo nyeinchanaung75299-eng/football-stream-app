@@ -6,16 +6,27 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/cleanup-workflow-runs.yml"
+  workflow_run:
+    workflows:
+      - "Build Android V9.8 APKs"
+      - "Build and Deploy Web Viewer"
+      - "Deploy Cloudflare Public API"
+      - "Sync Public Match Feed"
+    types: [completed]
 
 permissions:
   actions: write
   contents: read
 
+concurrency:
+  group: workflow-run-cleanup
+  cancel-in-progress: true
+
 jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete obsolete cancelled and failed runs
+      - name: Keep only current and latest useful runs
         uses: actions/github-script@v7
         with:
           script: |
@@ -23,52 +34,101 @@ jobs:
             const repo = context.repo.repo;
             const currentRunId = context.runId;
 
-            const removableConclusions = new Set([
-              'cancelled',
-              'failure',
-              'timed_out',
-              'action_required',
-              'stale'
+            const corePaths = new Set([
+              '.github/workflows/build-apks.yml',
+              '.github/workflows/deploy-web.yml',
+              '.github/workflows/deploy-cloudflare-public-api.yml',
+              '.github/workflows/sync-public-feed.yml',
             ]);
 
             const runs = await github.paginate(
               github.rest.actions.listWorkflowRunsForRepo,
-              {
-                owner,
-                repo,
-                per_page: 100,
-              },
+              { owner, repo, per_page: 100 },
             );
+
+            // Newest first so the first successful completed run for each
+            // production workflow is the one worth retaining.
+            runs.sort(
+              (a, b) =>
+                new Date(b.created_at).getTime() -
+                new Date(a.created_at).getTime(),
+            );
+
+            const keep = new Set([currentRunId]);
+            const latestCompletedByPath = new Map();
+            const latestSuccessByPath = new Map();
+
+            for (const run of runs) {
+              // Never delete queued/in-progress runs.
+              if (run.status !== 'completed') {
+                keep.add(run.id);
+                continue;
+              }
+
+              if (
+                corePaths.has(run.path) &&
+                !latestCompletedByPath.has(run.path)
+              ) {
+                latestCompletedByPath.set(run.path, run.id);
+                keep.add(run.id);
+              }
+
+              if (
+                corePaths.has(run.path) &&
+                run.conclusion === 'success' &&
+                !latestSuccessByPath.has(run.path)
+              ) {
+                latestSuccessByPath.set(run.path, run.id);
+                keep.add(run.id);
+              }
+            }
 
             let deleted = 0;
             let kept = 0;
+            let failed = 0;
 
             for (const run of runs) {
-              if (run.id === currentRunId) {
+              if (keep.has(run.id)) {
                 kept++;
                 continue;
               }
 
-              // Never touch queued/in-progress runs or successful runs/artifacts.
-              if (run.status !== 'completed' ||
-                  !removableConclusions.has(run.conclusion)) {
+              // Only completed runs are removable. This deletes obsolete
+              // success/cancelled/failure runs from older commits together
+              // with their stale logs/artifacts.
+              if (run.status !== 'completed') {
                 kept++;
                 continue;
               }
 
-              await github.rest.actions.deleteWorkflowRun({
-                owner,
-                repo,
-                run_id: run.id,
-              });
-
-              deleted++;
-              core.info(
-                `Deleted ${run.name} #${run.run_number} (${run.conclusion}) id=${run.id}`,
-              );
+              try {
+                await github.rest.actions.deleteWorkflowRun({
+                  owner,
+                  repo,
+                  run_id: run.id,
+                });
+                deleted++;
+                core.info(
+                  `Deleted ${run.name} #${run.run_number} ` +
+                  `(${run.conclusion || run.status}) id=${run.id}`,
+                );
+              } catch (error) {
+                failed++;
+                core.warning(
+                  `Could not delete run id=${run.id}: ${error.message}`,
+                );
+              }
             }
 
             core.summary
               .addHeading('Workflow run cleanup')
-              .addRaw(`Deleted: ${deleted}\nKept: ${kept}\n`)
+              .addRaw(
+                `Deleted: ${deleted}\n` +
+                `Kept: ${kept}\n` +
+                `Delete failures: ${failed}\n` +
+                `Latest completed production runs retained: ` +
+                `${latestCompletedByPath.size}\n` +
+                `Latest successful production runs retained: ` +
+                `${latestSuccessByPath.size}\n`,
+              )
               .write();

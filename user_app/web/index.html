@@ -79,7 +79,7 @@
       <div id="football-player-menu-items"></div>
     </div>
     <div id="football-player-video-wrap">
-      <video id="football-player-video" controls controlslist="nodownload nofullscreen noremoteplayback" disablepictureinpicture playsinline webkit-playsinline preload="metadata"></video>
+      <video id="football-player-video" controls controlslist="nodownload nofullscreen noremoteplayback" disablepictureinpicture playsinline webkit-playsinline preload="auto"></video>
       <div id="football-player-message"></div>
     </div>
   </div>
@@ -107,7 +107,7 @@
     let playbackToken=0;
     let playbackStartedToken=-1;
     let bufferingReportedToken=-1;
-    let startupTimer=null, stallTimer=null, fallbackTimer=null;
+    let startupTimer=null, stallTimer=null, fallbackTimer=null, progressTimer=null;
     let fallbackScheduledToken=-1, awaitingPlayToken=-1;
     let activePlayingHandler=null;
     let playbackTeardown=Promise.resolve();
@@ -176,7 +176,7 @@
     async function ensurePlayerEngine(type,url){
       if(type==='flv'){
         await loadScriptFallback([
-          'https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.js'
+          'https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.js'
         ],'mpegts');
         return;
       }
@@ -215,20 +215,27 @@
       startupTimer=null;stallTimer=null;
     }
 
+    function clearProgressWatchdog(){
+      if(progressTimer!==null)clearTimeout(progressTimer);
+      progressTimer=null;
+    }
+
     function cancelPlaybackTimers(){
       clearPlaybackWatchdogs();
+      clearProgressWatchdog();
       if(fallbackTimer!==null)clearTimeout(fallbackTimer);
       fallbackTimer=null;fallbackScheduledToken=-1;
     }
 
     function armStartupWatchdog(index,token){
       if(startupTimer!==null)clearTimeout(startupTimer);
+      const timeoutMs=isIOS()?12000:startupTimeoutMs;
       startupTimer=setTimeout(()=>{
         startupTimer=null;
         if(isCurrentPlayback(token) && awaitingPlayToken!==token){
           fallbackToNextLine(index,'This line did not start in time',token,'startup_timeout');
         }
-      },startupTimeoutMs);
+      },timeoutMs);
     }
 
     function isIOSRecoverableSource(index){
@@ -248,7 +255,7 @@
     function retryIOSSource(index,token){
       if(!isCurrentPlayback(token) || !isIOSRecoverableSource(index))return false;
       const attempts=iosRecoveryAttempts.get(index)||0;
-      if(attempts>=2)return false;
+      if(attempts>=1)return false;
       iosRecoveryAttempts.set(index,attempts+1);
       clearPlaybackWatchdogs();
       showMessage('Stream paused • reconnecting…');
@@ -259,15 +266,60 @@
       return true;
     }
 
+    function armProgressWatchdog(index,token){
+      if(!isIOS())return;
+      const initialTime=Number(video.currentTime);
+      if(!Number.isFinite(initialTime) || !Number.isFinite(Number(video.readyState))){
+        return;
+      }
+      clearProgressWatchdog();
+      let lastTime=initialTime;
+      let stuckTicks=0;
+
+      const check=()=>{
+        progressTimer=null;
+        if(!isCurrentPlayback(token) || video.paused || video.ended)return;
+
+        const now=Number(video.currentTime)||0;
+        if(video.seeking || video.readyState<2){
+          stuckTicks=0;
+          lastTime=now;
+        }else if(now>lastTime+0.05){
+          stuckTicks=0;
+          lastTime=now;
+        }else{
+          stuckTicks+=1;
+        }
+
+        if(stuckTicks>=3){
+          capturePlayerEvent('playback buffering',{
+            selected_index:index,
+            line_count:sources.length,
+            stream_type:sourceType(sources[index]||{})
+          });
+          if(retryIOSSource(index,token))return;
+          fallbackToNextLine(
+            index,
+            'This line stopped advancing',
+            token,
+            'stall_timeout'
+          );
+          return;
+        }
+        progressTimer=setTimeout(check,2000);
+      };
+      progressTimer=setTimeout(check,2500);
+    }
+
     function armStallWatchdog(){
       const token=playbackToken, index=currentSourceIndex;
       if(!isCurrentPlayback(token) || playbackStartedToken!==token ||
           awaitingPlayToken===token || stallTimer!==null || video.paused)return;
       const currentType=sourceType(sources[index]||{});
       const watchdogMs=isIOS() && currentType==='dash'
-        ? 25000
+        ? 8000
         : isIOS()
-          ? 12000
+          ? 6000
           : stallTimeoutMs;
       stallTimer=setTimeout(()=>{
         stallTimer=null;
@@ -356,23 +408,34 @@
       const keyData=String(source.keyData||source.key_data||'').trim();
 
       if(isIOS() && type==='dash'){
+        if(keyId&&keyData){
+          return {
+            ok:false,
+            reason:'ClearKey MPD is not supported by iPhone browsers • use an HLS/FLV line or the iOS app'
+          };
+        }
         if(!hasWebKitStreamingEngine()){
           return {
             ok:false,
-            reason:'DASH needs modern iOS WebKit (iOS 17.1+) or an HLS backup'
-          };
-        }
-        if(keyId&&keyData && !(window.crypto&&window.crypto.subtle)){
-          return {
-            ok:false,
-            reason:'Encrypted DASH needs WebCrypto on this iPhone/iPad'
+            reason:'DASH needs modern iOS WebKit (iOS 17.1+) or an HLS/FLV backup'
           };
         }
         return {
           ok:true,
-          reason:keyId&&keyData
-            ? 'DASH • ClearKey playback will be attempted on this iPhone/iPad'
-            : 'DASH • browser compatibility will be checked by the player'
+          reason:'DASH • browser compatibility will be checked by the player'
+        };
+      }
+
+      if(isIOS() && type==='flv'){
+        if(!hasWebKitStreamingEngine()){
+          return {
+            ok:false,
+            reason:'FLV needs iOS 17.1+ ManagedMediaSource'
+          };
+        }
+        return {
+          ok:true,
+          reason:'FLV • iPhone Web compatible'
         };
       }
 
@@ -400,16 +463,22 @@
         ...details
       });
 
-      const candidates=[...sources.keys()].filter(i=>!autoFallbackTried.has(i));
+      let candidates=[...sources.keys()]
+        .filter(i=>!autoFallbackTried.has(i))
+        .filter(i=>sourceSupport(sources[i]).ok);
       if(isIOS()){
         const rank=(i)=>{
-          const type=sourceType(sources[i]);
+          const source=sources[i]||{};
+          const type=sourceType(source);
+          const hasKey=
+            String(source.keyId||source.key_id||'').trim() &&
+            String(source.keyData||source.key_data||'').trim();
           if(type==='hls')return 0;
-          if(type==='dash')return 1;
+          if(type==='flv')return 1;
           if(type==='mp4')return 2;
-          if(type==='auto')return 3;
-          if(type==='flv')return 9;
-          return 5;
+          if(type==='dash'&&!hasKey)return 3;
+          if(type==='auto')return 4;
+          return 9;
         };
         candidates.sort((a,b)=>rank(a)-rank(b));
       }
@@ -611,6 +680,7 @@
       const onPlaying=()=>{
         if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
         clearPlaybackWatchdogs();awaitingPlayToken=-1;showMessage('');
+        armProgressWatchdog(index,token);
         if(playbackStartedToken===token)return;
         playbackStartedToken=token;
         capturePlayerEvent('playback started',{
@@ -635,8 +705,26 @@
         if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
         if(type==='flv'){
           if(!window.mpegts||!mpegts.isSupported())throw new Error('FLV is not supported by this browser.');
-          mpegtsPlayer=mpegts.createPlayer({type:'flv',isLive:true,url});
-          mpegtsPlayer.attachMediaElement(video);mpegtsPlayer.load();
+          mpegtsPlayer=mpegts.createPlayer(
+            {type:'flv',isLive:true,url},
+            {
+              enableWorker:true,
+              enableWorkerForMSE:isIOS(),
+              enableStashBuffer:true,
+              stashInitialSize:384*1024,
+              isLive:true,
+              liveBufferLatencyChasing:false,
+              liveSync:false,
+              lazyLoad:false,
+              autoCleanupSourceBuffer:true,
+              autoCleanupMaxBackwardDuration:30,
+              autoCleanupMinBackwardDuration:10
+            }
+          );
+          mpegtsPlayer.attachMediaElement(video);
+          mpegtsPlayer.load();
+          video.defaultPlaybackRate=1;
+          video.playbackRate=1;
           await requestVideoPlay(index,token);return;
         }
         if((type==='hls'||url.includes('.m3u8')) &&
@@ -652,7 +740,10 @@
               safeErrorDetails(video.error)
             );
           };
+          video.defaultPlaybackRate=1;
+          video.playbackRate=1;
           video.src=url;
+          video.load();
           await requestVideoPlay(index,token);
           return;
         }
@@ -668,34 +759,37 @@
           const shakaConfig={
             manifest:{
               retryParameters:{
-                maxAttempts:iosDash?7:5,
-                baseDelay:iosDash?450:300,
-                backoffFactor:1.5,
+                maxAttempts:iosDash?5:5,
+                baseDelay:iosDash?250:300,
+                backoffFactor:1.45,
                 fuzzFactor:.2,
-                timeout:iosDash?12000:8000
+                timeout:iosDash?8000:8000
               },
               dash:{
                 autoCorrectDrift:true
               }
             },
             streaming:{
-              rebufferingGoal:iosDash?8:2,
-              bufferingGoal:iosDash?36:12,
-              bufferBehind:iosDash?30:10,
-              segmentPrefetchLimit:iosDash?3:1,
-              updateIntervalSeconds:iosDash?2:1,
-              safeSeekEndOffset:iosDash?5:0,
+              // Mobile Safari should start quickly and keep a modest buffer.
+              // The previous 36s/8s iOS goals delayed recovery and could make
+              // VPN jitter look like slow-motion playback.
+              rebufferingGoal:iosDash?2:2,
+              bufferingGoal:iosDash?12:12,
+              bufferBehind:iosDash?8:10,
+              segmentPrefetchLimit:iosDash?2:1,
+              updateIntervalSeconds:1,
+              safeSeekEndOffset:iosDash?3:0,
               stallEnabled:true,
-              stallThreshold:iosDash?3:1,
+              stallThreshold:iosDash?2:1,
               stallSkip:.1,
               allowMediaSourceRecoveries:true,
-              minTimeBetweenRecoveries:iosDash?3:5,
+              minTimeBetweenRecoveries:iosDash?2:5,
               retryParameters:{
-                maxAttempts:iosDash?7:5,
-                baseDelay:iosDash?450:300,
-                backoffFactor:1.5,
+                maxAttempts:iosDash?5:5,
+                baseDelay:iosDash?250:300,
+                backoffFactor:1.45,
                 fuzzFactor:.2,
-                timeout:iosDash?12000:8000
+                timeout:iosDash?8000:8000
               }
             }
           };
@@ -703,8 +797,8 @@
             shakaConfig.abr={
               enabled:true,
               useNetworkInformation:false,
-              defaultBandwidthEstimate:700000,
-              switchInterval:10,
+              defaultBandwidthEstimate:900000,
+              switchInterval:6,
               restrictions:{maxHeight:720}
             };
           }
@@ -723,10 +817,25 @@
             player.configure({drm:drmConfig});
           }
           player.addEventListener('error',event=>{
+            if(!isCurrentPlayback(token))return;
             const detail=event&&event.detail?event.detail:{};
-            // Shaka can recover by retrying or switching variants on this line.
-            // Keep the watchdog armed if recovery never resumes playback.
-            if(detail.severity===shaka.util.Error.Severity.RECOVERABLE || detail.handled)return;
+            const recoverable=
+              detail.handled===true ||
+              detail.severity===1 ||
+              (window.shaka &&
+               shaka.util &&
+               shaka.util.Error &&
+               shaka.util.Error.Severity &&
+               detail.severity===shaka.util.Error.Severity.RECOVERABLE);
+            if(recoverable){
+              capturePlayerEvent('playback buffering',{
+                selected_index:index,
+                line_count:sources.length,
+                stream_type:type
+              });
+              armStallWatchdog();
+              return;
+            }
             playbackFailure(detail,index,token);
           });
           const manifestMime=type==='dash'?'application/dash+xml':'application/vnd.apple.mpegurl';
@@ -781,6 +890,21 @@
       });
       ++playbackToken;cancelPlaybackTimers();awaitingPlayToken=-1;
       if(controlsTimer)clearTimeout(controlsTimer);
+      try{
+        if(video.webkitDisplayingFullscreen && video.webkitExitFullscreen){
+          video.webkitExitFullscreen();
+        }
+      }catch(_){}
+      try{
+        if(document.fullscreenElement && document.exitFullscreen){
+          await document.exitFullscreen();
+        }
+      }catch(_){}
+      if(typeof screen!=='undefined' &&
+          screen.orientation &&
+          typeof screen.orientation.unlock==='function'){
+        try{screen.orientation.unlock()}catch(_){}
+      }
       overlay.classList.remove('open');
       overlay.setAttribute('aria-hidden','true');
       await Promise.all([fullscreenExit,destroyPlayback()]);
@@ -874,6 +998,17 @@
       if(manualRotation)applyManualRotation();
     });
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&overlay.classList.contains('open')&&!document.fullscreenElement)closeButton.click()});
+    function normalizeIOSPlaybackRate(){
+      if(!isIOS())return;
+      if(!Number.isFinite(video.playbackRate) || Math.abs(video.playbackRate-1)>0.005){
+        video.defaultPlaybackRate=1;
+        video.playbackRate=1;
+      }
+    }
+    video.addEventListener('ratechange',normalizeIOSPlaybackRate);
+    video.addEventListener('playing',normalizeIOSPlaybackRate);
+    video.addEventListener('loadedmetadata',normalizeIOSPlaybackRate);
+
     video.addEventListener('waiting',()=>{
       if(!overlay.classList.contains('open'))return;
       armStallWatchdog();
@@ -888,6 +1023,7 @@
     video.addEventListener('pause',()=>{
       if(stallTimer!==null)clearTimeout(stallTimer);
       stallTimer=null;
+      clearProgressWatchdog();
     });
     video.addEventListener('ended',()=>{
       capturePlayerEvent('playback ended',{
@@ -904,9 +1040,26 @@
       titleEl.textContent=String(title||'NCA');
       let startIndex=Math.max(0,Math.min(Number(selectedIndex)||0,sources.length-1));
       if(isIOS() && sources[startIndex]){
-        if(sourceType(sources[startIndex])==='flv'){
-          const hlsIndex=sources.findIndex(source=>sourceType(source)==='hls');
-          if(hlsIndex>=0) startIndex=hlsIndex;
+        const iosRank=(source)=>{
+          const type=sourceType(source);
+          const hasKey=
+            String(source.keyId||source.key_id||'').trim() &&
+            String(source.keyData||source.key_data||'').trim();
+          if(!sourceSupport(source).ok)return 99;
+          if(type==='hls')return 0;
+          if(type==='flv')return 1;
+          if(type==='mp4')return 2;
+          if(type==='dash'&&!hasKey)return 3;
+          if(type==='auto')return 4;
+          return 9;
+        };
+        if(iosRank(sources[startIndex])>=90){
+          let best=-1,bestRank=100;
+          sources.forEach((source,i)=>{
+            const rank=iosRank(source);
+            if(rank<bestRank){best=i;bestRank=rank}
+          });
+          if(best>=0) startIndex=best;
         }
       }
       currentSourceIndex=startIndex;

@@ -207,7 +207,7 @@ test('modern iOS preserves the chosen DASH line and supplies MPD MIME to Shaka',
   }
 });
 
-test('modern iOS attempts keyed DASH instead of rejecting it up front', async () => {
+test('modern iOS skips unsupported ClearKey DASH and starts a compatible backup', async () => {
   const dash = {
     ...source('dash', 'clearkey'),
     keyId: '00112233445566778899aabbccddeeff',
@@ -217,9 +217,32 @@ test('modern iOS attempts keyed DASH instead of rejecting it up front', async ()
   const h = createHarness();
   await h.open([dash, hls]);
   assert.equal(failures(h).length, 0);
-  assert.equal(h.loads.length, 1);
-  assert.equal(h.loads[0].url, dash.url);
+  assert.equal(h.loads.length, 0);
+  assert.deepEqual(h.plays, [hls.url]);
+});
+
+test('recoverable Shaka errors keep the active line playing', async () => {
+  const dash = source('dash'), backup = source('hls', 'backup');
+  const h = createHarness();
+  await h.open([dash, backup]);
+  const onError = h.players[0].listeners.get('error');
+  assert.ok(onError);
+  onError({ detail: { severity: 1, handled: true, category: 1, code: 1001 } });
+  await flush();
+  assert.equal(failures(h).length, 0);
+  assert.equal(h.video.paused, false);
   assert.deepEqual(h.plays, [dash.url]);
+});
+
+test('Back exits overlay fullscreen before hiding the player', async () => {
+  const h = createHarness();
+  await h.open([source('hls')]);
+  h.elements.get('football-player-fullscreen').click();
+  await flush();
+  assert.equal(h.document.fullscreenElement, h.overlay);
+  await h.close();
+  assert.equal(h.document.fullscreenElement, null);
+  assert.equal(h.overlay.classList.contains('open'), false);
 });
 
 test('Android Chromium uses Shaka for live HLS even when canPlayType claims native HLS', async () => {
@@ -237,13 +260,12 @@ test('non-native HLS uses the same engine with explicit HLS MIME', async () => {
   assert.equal(h.loads[0].url, line.url);
 });
 
-test('older iOS reports unsupported DASH and falls back to supplied HLS', async () => {
+test('older iOS skips unsupported DASH and starts supplied HLS directly', async () => {
   const dash = source('dash'), mp4 = source('mp4'), hls = source('hls');
   const h = createHarness({ streaming: false });
   await h.open([dash, mp4, hls]);
   assert.equal(h.loads.length, 0);
-  assert.equal(failures(h)[0].properties.reason, 'unsupported_browser');
-  await h.tick(1000);
+  assert.equal(failures(h).length, 0);
   assert.deepEqual(h.plays, [hls.url]);
 });
 
@@ -314,27 +336,21 @@ test('startup stalls fall back to HLS and ignore a late old load completion', as
   assert.deepEqual(h.plays, [hls.url], 'Stale load must not play the old source');
 });
 
-test('iOS live streams retry the same line before falling back, while user pause stays safe', async () => {
+test('iOS live streams recover once then fall back quickly, while user pause stays safe', async () => {
   const primary = source('hls', 'primary'), backup = source('hls', 'backup');
   const h = createHarness();
   await h.open([primary, backup]);
 
   h.video.emit('waiting');
-  await h.tick(13000);
+  await h.tick(9000);
   assert.deepEqual(h.plays, [primary.url, primary.url]);
   assert.equal(failures(h).length, 0);
 
   h.video.emit('waiting');
-  await h.tick(13000);
-  assert.deepEqual(h.plays, [primary.url, primary.url, primary.url]);
-  assert.equal(failures(h).length, 0);
-
-  h.video.emit('waiting');
-  await h.tick(13000);
+  await h.tick(9000);
   assert.equal(failures(h)[0].properties.reason, 'stall_timeout');
   await h.tick(1000);
   assert.deepEqual(h.plays, [
-    primary.url,
     primary.url,
     primary.url,
     backup.url,
@@ -509,3 +525,5 @@ for (const { name, run } of tests) {
   process.stdout.write(`PASS ${name}\n`);
 }
 process.stdout.write(`${tests.length} web player regression checks passed.\n`);
+
+// V9.8 final release verification marker: VPN-off source fallback + original streamer names.

@@ -1,3 +1,4 @@
+-- Sort after the existing 20261007 migration, including fresh filename-order setup.
 -- Keep the committed schema reproducible and preserve deleted fixture IDs.
 alter table public.matches add column if not exists deleted_at timestamptz;
 
@@ -139,3 +140,52 @@ $$;
 
 revoke all on function public.publish_featured_fixtures(jsonb) from public, anon;
 grant execute on function public.publish_featured_fixtures(jsonb) to authenticated;
+
+-- Keep already released Admin clients on the same serialized transaction.
+-- Their existing RPC uses provider fixture fields and the saved_ids result.
+create or replace function public.publish_featured_matches(p_fixtures jsonb)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_input jsonb;
+  v_result jsonb;
+begin
+  if (select public.is_admin()) is distinct from true then
+    raise exception 'Admin access required.' using errcode = '42501';
+  end if;
+  if p_fixtures is null or pg_catalog.jsonb_typeof(p_fixtures) <> 'array' then
+    raise exception 'p_fixtures must be a nonempty array.' using errcode = '22023';
+  end if;
+
+  select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+    'external_fixture_id', (item ->> 'fixture_id')::bigint,
+    'source', coalesce(nullif(item ->> 'provider', ''), 'api_football'),
+    'league', item -> 'league_name',
+    'home_team', item -> 'home_name',
+    'away_team', item -> 'away_name',
+    'home_logo_url', item -> 'home_logo',
+    'away_logo_url', item -> 'away_logo',
+    'kickoff_at', item -> 'kickoff_at',
+    'status_short', item -> 'status_short',
+    'is_live', item -> 'is_live'
+  )) into v_input
+  from pg_catalog.jsonb_array_elements(p_fixtures) as entries(item);
+
+  v_result := public.publish_featured_fixtures(coalesce(v_input, '[]'::jsonb));
+  if pg_catalog.jsonb_array_length(v_result -> 'published_ids') = 0 then
+    raise exception 'All selected matches were previously deleted; current Viewer matches were kept.'
+      using errcode = '22023';
+  end if;
+  return pg_catalog.jsonb_build_object(
+    'saved_ids', v_result -> 'published_ids',
+    'published_count', pg_catalog.jsonb_array_length(v_result -> 'published_ids'),
+    'skipped_deleted', v_result -> 'skipped_deleted'
+  );
+end;
+$$;
+
+revoke all on function public.publish_featured_matches(jsonb) from public, anon;
+grant execute on function public.publish_featured_matches(jsonb) to authenticated;

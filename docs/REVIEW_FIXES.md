@@ -1,7 +1,8 @@
 # Review fixes
 
-This change addresses the review of `70f2a95`. It is intended for review and
-testing before production release.
+This change addresses the review of `70f2a95` and includes later main changes
+through `c4e249e`. It adds regression coverage and hardens the remaining cases
+before production release.
 
 | Area | Result |
 | --- | --- |
@@ -24,11 +25,11 @@ testing before production release.
 The embedded iOS player asset, current source endpoints, dependencies,
 historical migrations, status.json freshness logic, and maintenance-only
 football-score-sync remain. The KV namespace and its data are untouched.
-Timestamp-only Web rebuild optimization is deferred.
+The existing timestamp-only Web rebuild optimization from main is preserved.
 
 ## Release order
 
-1. Apply `supabase/migrations/20261006194419_publish_featured_fixtures_atomically.sql`.
+1. Apply `supabase/migrations/20261008000000_harden_featured_publication.sql`.
 2. Deploy the changed football-fixtures and football-score-sync Edge Functions.
 3. Deploy the Worker with its existing secrets.
 4. Release the Admin and Viewer APK/Web builds.
@@ -53,5 +54,7 @@ They test authorization, rollback, concurrent replacement, and concurrent
 soft deletion. The regression workflow provisions PostgreSQL 17 for this.
 
 Run `flutter analyze --no-fatal-infos` and `flutter test` in both app directories.
-The APK workflow additionally compiles Android and the iOS simulator target.
+For the Viewer mirror fallback cases, also run
+`flutter test --dart-define=ENABLE_NO_VPN_FALLBACK=1 test/home_stream_availability_test.dart`.
+The APK workflow additionally compiles Android, Web, and the iOS simulator target.
 Playback on physical Android/iOS devices remains a release validation step.

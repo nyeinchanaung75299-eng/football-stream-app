@@ -23,13 +23,19 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  if (req.method !== "POST") {
+  if (req.method !== "POST" && req.method !== "GET") {
     return json({ error: "Method not allowed." }, 405);
   }
 
   try {
-    const body = await req.json().catch(() => ({}));
-    const viewerPublic = body.viewer_public === true;
+    const requestUrl = new URL(req.url);
+    const body: Record<string, any> = req.method === "GET"
+      ? Object.fromEntries(requestUrl.searchParams.entries())
+      : await req.json().catch(() => ({}));
+    const viewerPublic =
+      body.viewer_public === true ||
+      body.viewer_public === "true" ||
+      body.viewer_public === "1";
 
     // Admin continues to require a verified admin session. The Viewer may use
     // this function only in explicit read-only source-browser mode; this
@@ -87,8 +93,8 @@ Deno.serve(async (req) => {
           roomNum: body.room_num,
           scheduleId: body.schedule_id,
           refererOrigin: "https://m.yyzb22.live",
-          statusOnly: body.status_only === true,
-          skipProbe: body.skip_probe === true,
+          statusOnly: body.status_only === true || body.status_only === "true" || body.status_only === "1",
+          skipProbe: body.skip_probe === true || body.skip_probe === "true" || body.skip_probe === "1",
         });
       }
       return await roomStreams({
@@ -97,8 +103,8 @@ Deno.serve(async (req) => {
         roomNum: body.room_num,
         scheduleId: body.schedule_id,
         refererOrigin: "https://m.sutbongtv.com",
-        statusOnly: body.status_only === true,
-        skipProbe: body.skip_probe === true,
+        statusOnly: body.status_only === true || body.status_only === "true" || body.status_only === "1",
+        skipProbe: body.skip_probe === true || body.skip_probe === "true" || body.skip_probe === "1",
       });
     }
 
@@ -197,7 +203,9 @@ async function jsonpMatches(args: {
           .map((anchor: any, index: number) => ({
             uid: anchor.uid ?? anchor.id ?? null,
             nick_name:
-              friendlyText(anchor.nickName ?? anchor.name ?? "") ||
+              decodeHtml(
+                stripTags(String(anchor.nickName ?? anchor.name ?? "")),
+              ).replace(/\s+/g, " ").trim() ||
               `Streamer ${index + 1}`,
             original_nick_name: anchor.nickName ?? anchor.name ?? null,
             icon:
@@ -211,6 +219,7 @@ async function jsonpMatches(args: {
           .filter((anchor: any) => anchor.room_num),
       };
     })
+    .filter((row: any) => !staleKickoff(row.match_time))
     .sort(compareMatches);
 
   return json({
@@ -554,9 +563,9 @@ async function colaStreams(body: any) {
     ? match.anchorAppointmentVoList
     : [];
   for (const anchor of anchors) {
-    const anchorName = colaEnglishText(
-      anchor?.nickName ?? anchor?.houseName ?? "Streamer",
-    );
+    const anchorName = decodeHtml(
+      stripTags(String(anchor?.nickName ?? anchor?.houseName ?? "Streamer")),
+    ).replace(/\s+/g, " ").trim();
     add(anchor?.playStreamAddress2, "HLS", anchorName);
     add(anchor?.playStreamAddress, "FLV", anchorName);
     if (Array.isArray(anchor?.servers)) {
@@ -728,6 +737,31 @@ function colaEnglishText(value: unknown) {
     ["Giao hữu Quốc tế", "International Friendly"],
     ["Cúp Quốc gia", "Vietnam National Cup"],
     ["Giải vô địch bóng đá các quốc gia châu Âu", "UEFA Nations League"],
+    ["Đội tuyển quốc gia Bắc Macedonia", "North Macedonia"],
+    ["Đội tuyển QG Bắc Macedonia", "North Macedonia"],
+    ["Bắc Macedonia", "North Macedonia"],
+    ["Cộng hòa Séc", "Czechia"],
+    ["Tây Ban Nha", "Spain"],
+    ["Thụy Sĩ", "Switzerland"],
+    ["Chilê", "Chile"],
+    ["Mỹ", "USA"],
+    ["ĐTQG Anh", "England"],
+    ["ĐTQG Scotland", "Scotland"],
+    ["ĐTQG Iceland", "Iceland"],
+    ["Cúp Liên đoàn Bóng đá Ai Cập", "Egypt League Cup"],
+    ["Cúp Liên đoàn Bolivia", "Bolivia League Cup"],
+    ["Cúp liên đoàn UAE", "UAE League Cup"],
+    ["Cúp Chile", "Chile Cup"],
+    ["Giải bóng đá Hạng nhất Brasil", "Brazil Serie A"],
+    ["Giải bóng đá Hạng nhì Colombia", "Colombia Second Division"],
+    ["Giải Bóng đá Vô địch Quốc gia Phần Lan", "Finland Veikkausliiga"],
+    ["Giải vô địch quốc gia Qatar", "Qatar Stars League"],
+    ["Giải vô địch quốc gia Việt Nam", "Vietnam V.League 1"],
+    ["Đại học Kyoto Sangyo", "Kyoto Sangyo University"],
+    ["Thể Công - Viettel", "The Cong - Viettel"],
+    ["Hồng Lĩnh Hà Tĩnh", "Hong Linh Ha Tinh"],
+    ["Phong Phú Hà Nam Nữ", "Phong Phu Ha Nam Women"],
+    ["Hà Nội Nữ", "Ha Noi Women"],
     ["Huế", "Hue"],
     ["Bình Phước", "Binh Phuoc"],
     ["Đồng Tháp", "Dong Thap"],
@@ -735,6 +769,21 @@ function colaEnglishText(value: unknown) {
   for (const [from, to] of replacements) {
     text = text.replaceAll(from, to);
   }
+
+  text = text
+    .replace(/\b(?:Đội tuyển quốc gia|Đội tuyển QG|ĐTQG|CLB)\b/gi, " ")
+    .replace(/\bNữ\b/gi, " Women ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Proper names that remain Vietnamese are safer as Latin transliterations
+  // than mixed accented/provider-language labels across Viewer/Admin.
+  text = text
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D");
+
   return friendlyText(text).replace(/\s+/g, " ").trim();
 }
 
@@ -790,6 +839,14 @@ function sourceText(_source: "soco" | "yyzb", value: unknown) {
   // Both source families can return Chinese display names. Keep Latin text
   // unchanged while translating the common football labels we know.
   return friendlyText(value);
+}
+
+function staleKickoff(value: unknown) {
+  const normalized = normalizeMatchTime(value);
+  if (!normalized) return false;
+  const millis = Date.parse(normalized);
+  if (!Number.isFinite(millis)) return false;
+  return Date.now() - millis > 4 * 60 * 60 * 1000;
 }
 
 function normalizeMatchTime(value: unknown) {
@@ -1078,6 +1135,47 @@ function friendlyText(value: unknown) {
     ["苏格兰", "Scotland"],
     ["爱尔兰", "Ireland"],
     ["中国台北", "Chinese Taipei"],
+    ["北马其顿", "North Macedonia"],
+    ["斯洛文尼亚", "Slovenia"],
+    ["卢森堡", "Luxembourg"],
+    ["保加利亚", "Bulgaria"],
+    ["摩尔多瓦", "Moldova"],
+    ["斯洛伐克", "Slovakia"],
+    ["爱沙尼亚", "Estonia"],
+    ["冰岛", "Iceland"],
+    ["白俄罗斯", "Belarus"],
+    ["白Russia", "Belarus"],
+    ["阿尔巴尼亚", "Albania"],
+    ["圣马力诺", "San Marino"],
+    ["安哥拉", "Angola"],
+    ["马拉维", "Malawi"],
+    ["圣文森特和格林纳丁斯", "Saint Vincent and the Grenadines"],
+    ["荷属圣马丁岛", "Sint Maarten"],
+    ["安提瓜和巴布达", "Antigua and Barbuda"],
+    ["阿鲁巴", "Aruba"],
+    ["阿根廷", "Argentina"],
+    ["贝宁", "Benin"],
+    ["哥伦比亚", "Colombia"],
+    ["秘鲁", "Peru"],
+    ["美国", "USA"],
+    ["加拿大", "Canada"],
+    ["法属圭亚那", "French Guiana"],
+    ["伯利兹", "Belize"],
+    ["墨西哥", "Mexico"],
+    ["智利", "Chile"],
+    ["印度", "India"],
+    ["中国", "China"],
+    ["波黑", "Bosnia and Herzegovina"],
+    ["中北美国联", "CONCACAF Nations League"],
+    ["女欧U19", "UEFA Women's U19"],
+    ["女欧U17", "UEFA Women's U17"],
+    ["日皇杯", "Emperor's Cup"],
+    ["美职业", "MLS"],
+    ["非洲杯", "Africa Cup of Nations"],
+    ["英足总杯", "FA Cup"],
+    ["英锦赛", "EFL Trophy"],
+    ["巴西乙", "Brazil Serie B"],
+    ["智利杯", "Chile Cup"],
     ["乌兹别克斯坦", "Uzbekistan"],
     ["乌兹别克", "Uzbekistan"],
     ["菲律宾", "Philippines"],

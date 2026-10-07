@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -23,6 +25,17 @@ class SocoImportPage extends StatefulWidget {
 }
 
 class _SocoImportPageState extends State<SocoImportPage> {
+  static const _pagesMirrorBase =
+      'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources';
+  static const _rawMirrorBase =
+      'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/sources';
+
+  static final bool _enableNoVpnFallback =
+      const String.fromEnvironment(
+        'ENABLE_NO_VPN_FALLBACK',
+        defaultValue: '0',
+      ).trim() ==
+      '1';
   String? targetMatchId;
   late Future<List<Map<String, dynamic>>> _targetMatchesFuture;
   bool loading = false;
@@ -35,6 +48,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
   final Map<String, int> _anchorLineCounts = <String, int>{};
   int _anchorStatusEpoch = 0;
   String? _extractingAnchorKey;
+  Timer? _sourceRefreshTimer;
+  bool _backgroundRefreshBusy = false;
 
   @override
   void initState() {
@@ -48,6 +63,26 @@ class _SocoImportPageState extends State<SocoImportPage> {
     dayFilter =
         (source == 'fawa' || source == 'cola') ? 'all' : 'today';
     _loadSoco();
+    _sourceRefreshTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => unawaited(_refreshSourceInBackground()),
+    );
+  }
+
+  @override
+  void dispose() {
+    _sourceRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshSourceInBackground() async {
+    if (!mounted || _backgroundRefreshBusy) return;
+    _backgroundRefreshBusy = true;
+    try {
+      await _loadSoco(silent: true);
+    } finally {
+      _backgroundRefreshBusy = false;
+    }
   }
 
   void message(String text) {
@@ -105,19 +140,87 @@ class _SocoImportPageState extends State<SocoImportPage> {
     await _loadSoco();
   }
 
-  Future<void> _loadSoco() async {
-    setState(() {
-      loading = true;
-      errorText = null;
-    });
+  Future<Map<String, dynamic>> _loadSourceMirror() async {
+    Object? lastError;
+    Map<String, dynamic>? emptyFallback;
+    for (final base in const [_pagesMirrorBase, _rawMirrorBase]) {
+      try {
+        final response = await http
+            .get(
+              Uri.parse(base + '/' + source + '.json').replace(
+                queryParameters: {
+                  't': DateTime.now().millisecondsSinceEpoch.toString(),
+                },
+              ),
+              headers: const {'Accept': 'application/json'},
+            )
+            .timeout(const Duration(seconds: 18));
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw Exception(
+            'Source mirror HTTP ' + response.statusCode.toString(),
+          );
+        }
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map) {
+          throw const FormatException('Source mirror response is invalid.');
+        }
+        final data = Map<String, dynamic>.from(decoded);
+        final rows = data['matches'];
+        if (rows is! List) {
+          throw const FormatException('Source mirror match list is invalid.');
+        }
+        if (rows.isNotEmpty) return data;
+        emptyFallback ??= data;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    if (emptyFallback != null) return emptyFallback;
+    throw Exception(lastError ?? 'Source mirror is unavailable.');
+  }
+
+  bool _staleSourceMatch(Map<String, dynamic> row) {
+    final kickoff = DateTime.tryParse(
+      row['match_time']?.toString() ?? '',
+    )?.toUtc();
+    if (kickoff == null) return false;
+    return DateTime.now().toUtc().difference(kickoff) >
+        const Duration(hours: 4);
+  }
+
+  Future<void> _loadSoco({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        loading = true;
+        errorText = null;
+      });
+    }
 
     try {
-      final data = await FunctionGateway.invoke(
-        'source-match-list',
-        body: {
-          'source': source,
-        },
-      );
+      dynamic data;
+      if (!_enableNoVpnFallback) {
+        data = await FunctionGateway.invoke(
+          'source-match-list',
+          body: {'source': source},
+        );
+        final liveRows = data is Map ? data['matches'] : null;
+        if (liveRows is! List) {
+          throw const FormatException('Live source match list is invalid.');
+        }
+      } else {
+        try {
+          data = await FunctionGateway.invoke(
+            'source-match-list',
+            body: {'source': source},
+          );
+          final liveRows = data is Map ? data['matches'] : null;
+          if (liveRows is! List) {
+            throw const FormatException('Live source match list is invalid.');
+          }
+        } catch (_) {
+          data = await _loadSourceMirror();
+        }
+      }
 
       final rows = data is Map ? data['matches'] : null;
       if (rows is! List) {
@@ -126,6 +229,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
       final parsed = rows
           .map((row) => Map<String, dynamic>.from(row as Map))
+          .where((row) => !_staleSourceMatch(row))
           .toList();
 
       parsed.sort((a, b) {
@@ -170,14 +274,16 @@ class _SocoImportPageState extends State<SocoImportPage> {
         properties: {'source': source},
       );
       if (!mounted) return;
-      final detail = e.toString().replaceFirst('Exception: ', '');
-      setState(() {
-        sourceMatches = const [];
-        errorText =
-            'Could not load ${_sourceLabel(source)} sources. $detail';
-      });
+      if (!silent) {
+        final detail = e.toString().replaceFirst('Exception: ', '');
+        setState(() {
+          sourceMatches = const [];
+          errorText =
+              'Could not load ${_sourceLabel(source)} sources. $detail';
+        });
+      }
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (!silent && mounted) setState(() => loading = false);
     }
   }
 
@@ -207,14 +313,17 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   bool _matchLooksLive(Map<String, dynamic> match) {
-    if (match['hot'] == true) return true;
-    final status =
-        (match['status'] ?? match['match_status'] ?? '')
-            .toString()
-            .trim()
-            .toUpperCase();
-    return const {'LIVE', 'INPLAY', 'IN_PLAY', '1H', '2H', 'HT'}
-        .contains(status);
+    if (_staleSourceMatch(match)) return false;
+    if (match['is_live'] == true) return true;
+
+    for (final value in [match['match_status'], match['status']]) {
+      final status = value?.toString().trim().toUpperCase() ?? '';
+      if (const {'LIVE', 'INPLAY', 'IN_PLAY', '1H', '2H', 'HT'}
+          .contains(status)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _probeVisibleAnchorStatuses() async {

@@ -12,7 +12,7 @@ on:
       - ".github/workflows/deploy-web.yml"
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -142,6 +142,15 @@ jobs:
           git show origin/feed:public/matches.json > build/web/matches.json
           git show origin/feed:public/status.json > build/web/status.json || true
 
+          mkdir -p build/web/sources
+          for source in soco yyzb fawa cola; do
+            if git cat-file -e "origin/feed:public/sources/$source.json" 2>/dev/null; then
+              git show "origin/feed:public/sources/$source.json" > "build/web/sources/$source.json"
+            else
+              echo "No $source source mirror on feed yet."
+            fi
+          done
+
           # Signing may not be configured yet. Publish a release only when both
           # files exist, rather than leaving empty files from failed redirects.
           if git cat-file -e origin/feed:public/releases/latest.json 2>/dev/null && \
@@ -185,3 +194,71 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+
+  report:
+    name: Record current-main web deploy status
+    if: always()
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Publish Web CI status to feed
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -e
+          python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          build = os.environ["BUILD_RESULT"]
+          deploy = os.environ["DEPLOY_RESULT"]
+          data = {
+              "sha": os.environ["HEAD_SHA"],
+              "run_id": int(os.environ["RUN_ID"]),
+              "run_number": int(os.environ["RUN_NUMBER"]),
+              "workflow": "Build and Deploy Web Viewer",
+              "build": build,
+              "deploy": deploy,
+              "overall": "success" if build == "success" and deploy == "success" else "failure",
+              "artifact": "NCA-V9.8-Web",
+              "viewer_url": "https://nyeinchanaung75299-eng.github.io/football-stream-app/",
+              "admin_url": "https://nyeinchanaung75299-eng.github.io/football-stream-app/admin/",
+              "updated_at": datetime.now(timezone.utc).isoformat(),
+          }
+          Path("/tmp/web-ci.json").write_text(
+              json.dumps(data, separators=(",", ":")),
+              encoding="utf-8",
+          )
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin feed
+          git switch -C feed origin/feed
+          mkdir -p public/ci
+          cp /tmp/web-ci.json public/ci/web.json
+          git add public/ci/web.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Record Web CI status for ${HEAD_SHA::12}"
+
+          for attempt in 1 2 3 4; do
+            if git push origin feed; then
+              exit 0
+            fi
+            git pull --rebase origin feed
+            sleep 2
+          done
+          exit 1
