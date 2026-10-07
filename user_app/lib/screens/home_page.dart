@@ -969,11 +969,17 @@ class _HomePageState extends State<HomePage> {
       final url = (row['stream_url'] ?? '').toString().toLowerCase();
 
       if (type == 'hls' || type == 'm3u8' || url.contains('.m3u8')) return 0;
-      if (type == 'dash' || type == 'mpd' || url.contains('.mpd')) return 1;
+
+      // On Web, especially iPhone WebKit, current mpegts.js can play healthy
+      // FLV via ManagedMediaSource while ClearKey DASH is not supported by
+      // Safari. Put FLV ahead of DASH in the chooser so the first tap has the
+      // best chance of actually starting.
+      if (kIsWeb && (type == 'flv' || url.contains('.flv'))) return 1;
       if (type == 'mp4' || url.contains('.mp4')) return 2;
-      if (type == 'auto') return 3;
-      if (type == 'flv' || url.contains('.flv')) return 4;
-      return 5;
+      if (type == 'dash' || type == 'mpd' || url.contains('.mpd')) return 3;
+      if (type == 'auto') return 4;
+      if (type == 'flv' || url.contains('.flv')) return 5;
+      return 6;
     }
 
     filtered.sort((a, b) {
