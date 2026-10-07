@@ -142,6 +142,68 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return DateTime.now().toUtc().difference(kickoff) > _staleAfter;
   }
 
+  Future<List<Map<String, dynamic>>> _authoritativeHedged(
+    List<Future<List<Map<String, dynamic>>> Function()> jobs,
+  ) {
+    final c = Completer<List<Map<String, dynamic>>>();
+    var next = 0;
+    var running = 0;
+    Object? error;
+    StackTrace? stack;
+    Timer? timer;
+
+    void finishIfDone() {
+      if (c.isCompleted || next < jobs.length || running > 0) return;
+      timer?.cancel();
+      if (error != null) {
+        c.completeError(error!, stack);
+      } else {
+        c.completeError(Exception('No authoritative source endpoint succeeded.'));
+      }
+    }
+
+    void start() {
+      if (c.isCompleted || next >= jobs.length) {
+        finishIfDone();
+        return;
+      }
+      final job = jobs[next++];
+      running++;
+      job().then((value) {
+        running--;
+        if (c.isCompleted) return;
+        // A valid empty live response is authoritative: do not resurrect
+        // disappeared matches from a stale mirror.
+        timer?.cancel();
+        c.complete(value);
+      }).catchError((Object e, StackTrace s) {
+        running--;
+        error = e;
+        stack = s;
+        if (!c.isCompleted && next < jobs.length) start();
+        finishIfDone();
+      });
+    }
+
+    if (jobs.isEmpty) {
+      return Future.error(Exception('No authoritative source endpoint configured.'));
+    }
+
+    start();
+    timer = Timer.periodic(const Duration(milliseconds: 300), (t) {
+      if (c.isCompleted) {
+        t.cancel();
+        return;
+      }
+      if (next < jobs.length) start();
+      if (next >= jobs.length) {
+        t.cancel();
+        finishIfDone();
+      }
+    });
+    return c.future;
+  }
+
   bool _live(Map<String, dynamic> m) {
     if (_stale(m)) return false;
 
@@ -319,26 +381,44 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadMatches() async {
+    Object? authoritativeError;
+    StackTrace? authoritativeStack;
+
+    final workerJobs =
+        bases.map<Future<List<Map<String, dynamic>>> Function()>(
+          (base) => () => _loadFrom(base),
+        ).toList();
+
     try {
-      final workerJobs =
-          bases.map<Future<List<Map<String, dynamic>>> Function()>(
-            (base) => () => _loadFrom(base),
-          ).toList();
-      final rows = await _hedged(
-        [
-          if (workerJobs.isNotEmpty) workerJobs.first,
-          () => _loadFromMirror(),
-          () => _loadFromMirror(_rawSourceMirrorBase),
-          () => _loadFromSupabase(),
-          ...workerJobs.skip(1),
-        ],
-      );
+      // Live source endpoints are authoritative. A successful empty response
+      // means the provider currently has no matches, so return [] rather than
+      // reviving rows from an older GitHub mirror.
+      final rows = await _authoritativeHedged([
+        ...workerJobs,
+        () => _loadFromSupabase(),
+      ]);
       unawaited(_saveLastGood(rows));
       return rows;
     } catch (error, stack) {
+      authoritativeError = error;
+      authoritativeStack = stack;
+    }
+
+    try {
+      // Mirrors are connectivity fallbacks only (VPN/DNS/backend outage).
+      final rows = await _hedged([
+        () => _loadFromMirror(),
+        () => _loadFromMirror(_rawSourceMirrorBase),
+      ]);
+      unawaited(_saveLastGood(rows));
+      return rows;
+    } catch (_) {
       final cached = await _loadLastGood();
-      if (cached != null && cached.isNotEmpty) return cached;
-      Error.throwWithStackTrace(error, stack);
+      if (cached != null) return cached;
+      Error.throwWithStackTrace(
+        authoritativeError ?? Exception('Source list unavailable.'),
+        authoritativeStack ?? StackTrace.current,
+      );
     }
   }
 
