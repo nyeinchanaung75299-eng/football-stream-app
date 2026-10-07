@@ -1,0 +1,60 @@
+name: Review regression checks
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: review-regressions-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regressions:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: football_backend_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/football_backend_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Check shared player asset
+        run: python3 scripts/generate_embedded_player.py --check
+
+      - name: Player and gateway regression checks
+        run: |
+          node scripts/test_web_player.mjs
+          node scripts/test_protected_dash_proxy.mjs
+          node scripts/test_supabase_relay.mjs
+          node scripts/test_public_gateway.mjs
+          node scripts/test_backend_regressions.mjs
+
+      - name: Validate Worker bundle without deploying
+        working-directory: cloudflare/public-api
+        run: npx --yes wrangler@4.148.0 deploy --dry-run --outdir /tmp/football-worker
+
+      - name: Verify atomic publication and authorization
+        run: |
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/test_atomic_publish.sql
+          python3 scripts/test_atomic_publish_concurrency.py

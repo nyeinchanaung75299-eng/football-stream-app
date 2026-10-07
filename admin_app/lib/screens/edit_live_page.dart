@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'live_links_page.dart';
 import '../analytics_service.dart';
+import '../services/admin_match_rules.dart';
 
 class EditLivePage extends StatefulWidget {
   const EditLivePage({super.key});
@@ -305,28 +306,9 @@ class _EditLivePageState extends State<EditLivePage> {
           if (rows.isEmpty) return const Center(child: Text('No matches yet.'));
 
           final now = DateTime.now();
-          final visibleRows = rows.where((m) {
-            // Admin "All" is the recovery/edit view: keep every non-deleted
-            // match visible even if it was made inactive, unfeatured or draft.
-            if (view == 'all') return m['deleted_at'] == null;
-
-            final current =
-                m['deleted_at'] == null &&
-                m['is_active'] == true &&
-                m['is_featured'] != false &&
-                (m['publish_state'] ?? 'published') == 'published';
-            if (!current) return false;
-
-            if (view == 'live') return m['is_live'] == true;
-            if (view == 'upcoming') {
-              final kickoff =
-                  DateTime.tryParse(m['kickoff_at']?.toString() ?? '')
-                      ?.toLocal();
-              return m['is_live'] == true ||
-                  (kickoff != null && !kickoff.isBefore(now));
-            }
-            return true;
-          }).toList();
+          final visibleRows = rows
+              .where((m) => isVisibleAdminMatch(m, view: view, now: now))
+              .toList();
 
           return Column(
             children: [

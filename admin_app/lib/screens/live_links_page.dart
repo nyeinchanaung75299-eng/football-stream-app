@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
 import '../services/function_gateway.dart';
+import '../services/admin_match_rules.dart';
+import '../widgets/stream_links_list.dart';
 import 'soco_import_page.dart';
 
 class LiveLinksPage extends StatefulWidget {
@@ -129,11 +131,12 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
               now.difference(kickoff) > staleKickoffGrace;
 
           return row['deleted_at'] == null &&
-              row['is_active'] == true &&
-              row['is_finished'] != true &&
-              row['is_featured'] != false &&
-              (row['publish_state'] ?? 'published') == 'published' &&
-              !stale;
+              (row['id'] == matchId ||
+                  (row['is_active'] == true &&
+                      row['is_finished'] != true &&
+                      row['is_featured'] != false &&
+                      (row['publish_state'] ?? 'published') == 'published' &&
+                      !stale));
         })
         .toList();
   }
@@ -155,13 +158,14 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       return;
     }
 
-    if (!useWebView && link.text.trim().isEmpty) {
-      message('Paste a stream URL.');
-      return;
-    }
-
-    if (useWebView && webViewUrl.text.trim().isEmpty) {
-      message('Paste a WebView URL.');
+    final urlError = activeStreamUrlError(
+      isActive: true,
+      useWebView: useWebView,
+      streamUrl: link.text,
+      webViewUrl: webViewUrl.text,
+    );
+    if (urlError != null) {
+      message(urlError);
       return;
     }
 
@@ -398,6 +402,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     String type = (row['stream_type'] ?? 'auto').toString();
     if (!streamTypes.containsKey(type)) type = 'auto';
     bool web = row['use_webview'] == true;
+    String? urlError;
 
     final save = await showModalBottomSheet<bool>(
       context: context,
@@ -545,11 +550,32 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                         ],
                       ],
                     ),
+                    if (urlError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        urlError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 14),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
-                        onPressed: () => Navigator.pop(sheetContext, true),
+                        onPressed: () {
+                          final error = activeStreamUrlError(
+                            isActive: row['is_active'] == true,
+                            useWebView: web,
+                            streamUrl: url.text,
+                            webViewUrl: webUrl.text,
+                          );
+                          if (error != null) {
+                            setSheetState(() => urlError = error);
+                            return;
+                          }
+                          Navigator.pop(sheetContext, true);
+                        },
                         icon: const Icon(Icons.save_rounded),
                         label: const Text('SAVE CHANGES'),
                       ),
@@ -1091,41 +1117,10 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                FutureBuilder<List<Map<String, dynamic>>>(
+                StreamLinksList(
                   key: ValueKey(matchId),
                   future: _linksFuture ??= loadLinks(),
-                  builder: (context, linkSnapshot) {
-                    if (linkSnapshot.connectionState != ConnectionState.done ||
-                        !linkSnapshot.hasData) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(20),
-                          child: CircularProgressIndicator(),
-                        ),
-                      );
-                    }
-
-                    final rows = linkSnapshot.data!;
-                    if (rows.isEmpty) {
-                      return Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(18),
-                          child: Text(
-                            'No servers added yet.',
-                            style: TextStyle(
-                              color: colors.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-
-                    return Column(
-                      children: rows
-                          .map((row) => _serverCard(row, colors))
-                          .toList(),
-                    );
-                  },
+                  rowBuilder: (row) => _serverCard(row, colors),
                 ),
               ],
             ],

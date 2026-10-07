@@ -2,6 +2,8 @@ name: Build Android V9.8 APKs
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [ "main" ]
   push:
     branches: [ "main", "master" ]
     paths:
@@ -16,10 +18,41 @@ permissions:
   actions: write
 
 concurrency:
-  group: nca-android-release
+  group: nca-android-release-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  regressions:
+    uses: ./.github/workflows/review-regressions.yml
+    permissions:
+      contents: read
+
+  verify-web:
+    name: Verify Web Viewer build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Compile Web Viewer without publishing
+        working-directory: user_app
+        run: |
+          python3 ../scripts/generate_embedded_player.py --check
+          flutter pub get
+          flutter build web --release
+
+      - name: Upload Web build
+        uses: actions/upload-artifact@v7
+        with:
+          name: NCA-Web-Review
+          path: user_app/build/web/
+
   verify-ios:
     name: Verify iOS Viewer simulator build
     runs-on: macos-latest
@@ -232,6 +265,7 @@ jobs:
           PY2
 
       - name: Configure stable Viewer signing
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         working-directory: user_app
         env:
           NCA_KEYSTORE_B64: ${{ secrets.NCA_KEYSTORE_B64 }}
@@ -317,6 +351,7 @@ jobs:
           flutter analyze --no-fatal-infos
           if find test -type f -name '*_test.dart' -print -quit 2>/dev/null | grep -q .; then
             flutter test
+            flutter test --dart-define=ENABLE_NO_VPN_FALLBACK=1 test/home_stream_availability_test.dart
           else
             echo "No Viewer tests found; analyze gate passed."
           fi
@@ -345,7 +380,7 @@ jobs:
           path: user_app/build/app/outputs/flutter-apk/*-release.apk
 
       - name: Publish in-app updater release
-        if: env.NCA_SIGNING_READY == 'true'
+        if: env.NCA_SIGNING_READY == 'true' && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         run: |
           set -e
           git config user.name "github-actions[bot]"
@@ -395,7 +430,7 @@ jobs:
           exit 1
 
       - name: Refresh GitHub Pages release files
-        if: env.NCA_SIGNING_READY == 'true'
+        if: env.NCA_SIGNING_READY == 'true' && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy-web.yml --ref "${GITHUB_REF_NAME}"

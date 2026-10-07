@@ -19,6 +19,7 @@ create table if not exists public.matches (
   sort_order int not null default 0,
   is_live boolean not null default false,
   is_active boolean not null default true,
+  deleted_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

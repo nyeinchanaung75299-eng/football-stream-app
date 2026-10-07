@@ -9,4 +9,3 @@ GITHUB_MIRROR_URL = "https://raw.githubusercontent.com/nyeinchanaung75299-eng/fo
 [[routes]]
 pattern = "football-api.nyeinchanaung.us.ci"
 custom_domain = true
-

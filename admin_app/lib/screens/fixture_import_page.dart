@@ -7,6 +7,7 @@ import 'live_links_page.dart';
 import 'soco_import_page.dart';
 import '../analytics_service.dart';
 import '../services/function_gateway.dart';
+import '../services/fixture_publish_result.dart';
 
 class FixtureImportPage extends StatefulWidget {
   const FixtureImportPage({super.key});
@@ -308,48 +309,23 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     setState(() => importing = true);
 
     try {
-      final payload = chosen
-          .map(
-            (f) => <String, dynamic>{
-              'fixture_id': f['fixture_id'],
-              'provider': (f['provider'] ?? 'api_football').toString(),
-              'league_name': f['league_name'],
-              'home_name': f['home_name'],
-              'away_name': f['away_name'],
-              'home_logo': f['home_logo'],
-              'away_logo': f['away_logo'],
-              'kickoff_at': f['kickoff_at'],
-              'status_short': f['status_short'] ?? 'NS',
-              'is_live': f['is_live'] == true,
-            },
-          )
-          .toList();
-
-      // One RPC appends the selected matches to the featured set. Existing
-      // unfinished/current featured matches stay published instead of being
-      // replaced when a new Big Match is added.
-      final result = await Supabase.instance.client.rpc(
-        'publish_featured_matches',
-        params: {'p_fixtures': payload},
+      // The RPC adds this batch atomically and preserves existing published
+      // matches. A failure or entirely tombstoned selection changes nothing.
+      final response = await Supabase.instance.client.rpc(
+        'publish_featured_fixtures',
+        params: {
+          'p_fixtures': chosen.map(fixturePublishInput).toList(),
+        },
       );
-
-      final resultMap = result is Map
-          ? Map<String, dynamic>.from(result)
-          : const <String, dynamic>{};
-      final savedIds = (resultMap['saved_ids'] as List? ?? const [])
-          .map((id) => id.toString())
-          .where((id) => id.isNotEmpty)
-          .toList();
-      final skippedDeleted =
-          (resultMap['skipped_deleted'] as num?)?.toInt() ??
-          (chosen.length - savedIds.length).clamp(0, chosen.length);
+      final result = FixturePublishResult.fromResponse(response);
+      final savedIds = result.publishedIds;
+      final skippedDeleted = result.skippedDeleted;
 
       await AnalyticsService.capture(
         'matches published',
         properties: {
           'requested_count': chosen.length,
-          'published_count':
-              (resultMap['published_count'] as num?)?.toInt() ?? savedIds.length,
+          'published_count': savedIds.length,
           'skipped_deleted': skippedDeleted,
         },
       );
@@ -357,6 +333,18 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       if (!mounted) return;
 
       setState(() => selectedIds.clear());
+
+      if (savedIds.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'No new matches published. Current featured matches were kept.'
+              '${skippedDeleted > 0 ? ' $skippedDeleted deleted match(es) were skipped.' : ''}',
+            ),
+          ),
+        );
+        return;
+      }
 
       if (skippedDeleted > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -448,7 +436,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${chosen.length} matches published. Open Soco / YYZB / Fawa / ColaTV Links or Stream Servers to add links.',
+              '${savedIds.length} matches published. Open Soco / YYZB / Fawa / ColaTV Links or Stream Servers to add links.',
             ),
           ),
         );

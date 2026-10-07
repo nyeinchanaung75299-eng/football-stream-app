@@ -337,12 +337,19 @@ function sourceFixtureDedupKey(fixture: any) {
     return [minute, "logos", homeLogo, awayLogo].join("|");
   }
 
-  return [
-    minute,
-    "names",
-    canonicalTeamName(fixture?.home_name),
-    canonicalTeamName(fixture?.away_name),
-  ].join("|");
+  const homeName = canonicalTeamName(fixture?.home_name);
+  const awayName = canonicalTeamName(fixture?.away_name);
+  if (!homeName || !awayName) {
+    // Missing names cannot establish that two providers describe one match.
+    return [
+      minute,
+      "fixture",
+      fixture?.provider ?? "",
+      fixture?.provider_fixture_id ?? fixture?.fixture_id ?? "",
+    ].join("|");
+  }
+
+  return [minute, "names", homeName, awayName].join("|");
 }
 
 function canonicalLogoKey(value: unknown) {
@@ -367,16 +374,13 @@ function canonicalTeamName(value: unknown) {
     .replace(/越南/g, "vietnam")
     .replace(/哈萨克斯坦/g, "kazakhstan");
 
-  // Some feeds partially translate a name, producing strings such as
-  // "Uzbekistan斯坦". If Latin text is already present, remove leftover Han
-  // suffixes so the translated and untranslated provider rows collapse.
-  if (/[a-z]/.test(text)) {
-    text = text.replace(/[\u3400-\u9fff]+/g, " ");
-  }
+  // These known partial translations leave a duplicated country suffix.
+  // Preserve other Han text, including club names preceded by "FC".
+  text = text.replace(/\b(uzbekistan|kazakhstan)(?:斯坦)+/g, "$1");
 
   const latinKey = text
     .replace(/\b(?:fc|cf|sc|afc)\b/g, " ")
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 
