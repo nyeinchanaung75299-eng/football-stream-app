@@ -112,7 +112,7 @@
     let activePlayingHandler=null;
     let playbackTeardown=Promise.resolve();
     let manualRotation=0;
-    let iosLastPlaybackTime=NaN;
+    let lastPlaybackTime=NaN;
     const iosRecoveryAttempts=new Map();
     const startupTimeoutMs=20000, stallTimeoutMs=15000;
     const scriptLoads=new Map();
@@ -329,8 +329,8 @@
       stallTimer=setTimeout(()=>{
         stallTimer=null;
         if(isCurrentPlayback(token) && !video.paused){
-          if(isIOS() && (document.hidden || video.seeking ||
-              Number(video.currentTime)>stalledAt+0.05))return;
+          if(document.hidden || video.seeking ||
+              Number(video.currentTime)>stalledAt+0.05)return;
           if(retryIOSSource(index,token))return;
           fallbackToNextLine(index,'This line stopped responding',token,'stall_timeout');
         }
@@ -689,7 +689,7 @@
       const onPlaying=()=>{
         if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
         clearPlaybackWatchdogs();awaitingPlayToken=-1;showMessage('');
-        if(isIOS())iosLastPlaybackTime=Number(video.currentTime);
+        lastPlaybackTime=Number(video.currentTime);
         armProgressWatchdog(index,token);
         if(playbackStartedToken===token)return;
         playbackStartedToken=token;
@@ -731,12 +731,10 @@
               autoCleanupMinBackwardDuration:10
             }
           );
-          if(isIOS()){
-            mpegtsPlayer.on(mpegts.Events.ERROR,()=>{
-              if(retryIOSSource(index,token))return;
-              fallbackToNextLine(index,'FLV line stopped responding',token,'flv_error');
-            });
-          }
+          mpegtsPlayer.on(mpegts.Events.ERROR,()=>{
+            if(retryIOSSource(index,token))return;
+            fallbackToNextLine(index,'FLV line stopped responding',token,'flv_error');
+          });
           mpegtsPlayer.attachMediaElement(video);
           mpegtsPlayer.load();
           video.defaultPlaybackRate=1;
@@ -859,6 +857,7 @@
             player.configure({drm:drmConfig});
           }
           player.addEventListener('error',event=>{
+            if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
             const detail=event&&event.detail?event.detail:{};
             const recoverable=
               detail.handled===true ||
@@ -1045,13 +1044,13 @@
     });
     video.addEventListener('stalled',armStallWatchdog);
     video.addEventListener('timeupdate',()=>{
-      if(!isIOS() || !isCurrentPlayback(playbackToken) ||
+      if(!isCurrentPlayback(playbackToken) ||
           playbackStartedToken!==playbackToken || video.paused)return;
       const now=Number(video.currentTime);
-      if(now>iosLastPlaybackTime+0.05 && stallTimer!==null){
+      if(now>lastPlaybackTime+0.05 && stallTimer!==null){
         clearTimeout(stallTimer);stallTimer=null;
       }
-      iosLastPlaybackTime=now;
+      lastPlaybackTime=now;
     });
     video.addEventListener('pause',()=>{
       if(stallTimer!==null)clearTimeout(stallTimer);

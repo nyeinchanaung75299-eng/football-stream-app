@@ -17,6 +17,7 @@ import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import androidx.media3.common.C
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -351,6 +352,8 @@ class NativePlayerActivity : Activity() {
             val exo = ExoPlayer.Builder(this)
                 .setTrackSelector(selector)
                 .setMediaSourceFactory(mediaSourceFactory)
+                .setAudioAttributes(AudioAttributes.DEFAULT, true)
+                .setHandleAudioBecomingNoisy(true)
                 .build()
 
             exo.addListener(object : Player.Listener {
@@ -482,12 +485,16 @@ class NativePlayerActivity : Activity() {
 
     private fun showQualityMenu() {
         val selector = trackSelector ?: return
+        val generation = playbackGeneration
         val popup = PopupMenu(this, qualityButton)
         popup.menu.add(0, 9000, 0, "Auto").apply { isChecked = forcedQualityLabel == null }
         qualityOptions.forEachIndexed { index, option ->
             popup.menu.add(0, 9100 + index, index + 1, option.label).apply { isChecked = forcedQualityLabel == option.label }
         }
         popup.setOnMenuItemClickListener { item ->
+            if (generation != playbackGeneration || isFinishing || isDestroyed) {
+                return@setOnMenuItemClickListener false
+            }
             if (item.itemId == 9000) {
                 selector.parameters = selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_VIDEO).build()
                 forcedQualityLabel = null
