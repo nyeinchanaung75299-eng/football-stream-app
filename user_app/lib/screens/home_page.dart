@@ -1624,7 +1624,10 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
         onDestinationSelected: (index) async {
-          if (index == 0) return;
+          if (index == 0) {
+            await refresh(silent: true);
+            return;
+          }
           final source = switch (index) {
             2 => 'yyzb',
             3 => 'fawa',
@@ -1636,6 +1639,8 @@ class _HomePageState extends State<HomePage> {
               builder: (_) => SourceBrowserPage(source: source),
             ),
           );
+          // Returning via the Live tab must immediately resync the home feed.
+          if (mounted) await refresh(silent: true);
         },
       ),
     );
