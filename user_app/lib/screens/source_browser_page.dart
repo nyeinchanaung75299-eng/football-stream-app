@@ -3,10 +3,11 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../native_player.dart';
+import '../widgets/premium_bottom_nav.dart';
+import '../widgets/premium_match_card.dart';
 
 class SourceBrowserPage extends StatefulWidget {
   const SourceBrowserPage({super.key, required this.source});
@@ -848,287 +849,326 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          title + ' Live',
-          style: const TextStyle(fontWeight: FontWeight.w900),
+        toolbarHeight: 68,
+        titleSpacing: 12,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -.3,
+              ),
+            ),
+            Text(
+              'Direct live source • auto refresh',
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+          ],
         ),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: 'Refresh source',
             onPressed: _refresh,
             icon: const Icon(Icons.refresh_rounded),
           ),
+          const SizedBox(width: 5),
         ],
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _future,
         builder: (_, snap) {
           if (snap.connectionState != ConnectionState.done && !snap.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return _SourceLoading(title: title);
           }
           if (snap.hasError && !snap.hasData) {
             return _StateView(
-              text: 'Could not load ' + title,
+              title: title + ' unavailable',
+              text: 'Connect VPN, then refresh the live source.',
               onRefresh: _refresh,
             );
           }
+
           final matches = snap.data ?? const <Map<String, dynamic>>[];
           if (matches.isEmpty) {
             return _StateView(
-              text: 'No ' + title + ' matches now',
+              title: 'No ' + title + ' matches',
+              text: 'The source is online but has no football matches now.',
               onRefresh: _refresh,
             );
           }
+
+          final liveCount = matches.where(_live).length;
 
           return RefreshIndicator(
             onRefresh: _refresh,
             child: ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 28),
-              itemCount: matches.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (_, i) {
-                final m = matches[i];
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
+              itemCount: matches.length + 1,
+              separatorBuilder: (_, index) =>
+                  SizedBox(height: index == 0 ? 14 : 12),
+              itemBuilder: (_, index) {
+                if (index == 0) {
+                  return _SourceHeader(
+                    title: title,
+                    count: matches.length,
+                    liveCount: liveCount,
+                  );
+                }
+
+                final m = matches[index - 1];
                 final live = _live(m);
-                final ready = _anchors(m).isNotEmpty;
+                final anchors = _anchors(m);
+                final ready = anchors.isNotEmpty;
                 final time = DateTime.tryParse(
                   m['match_time']?.toString() ?? '',
                 )?.toLocal();
 
-                return Card(
-                  margin: EdgeInsets.zero,
-                  elevation: live ? 2 : 0,
-                  surfaceTintColor: Colors.transparent,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    side: BorderSide(
-                      color: live
-                          ? Colors.redAccent.withValues(alpha: .35)
-                          : colors.outlineVariant.withValues(alpha: .45),
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                (m['league'] ?? 'Football').toString(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  color: colors.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                            if (live)
-                              const _Pill(
-                                text: 'LIVE',
-                                color: Colors.redAccent,
-                              )
-                            else if (time != null)
-                              _Pill(
-                                text: DateFormat('HH:mm').format(time),
-                                color: colors.primary,
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _Team(
-                                name: (m['home_team'] ?? 'Home').toString(),
-                                logo: (m['home_logo'] ?? m['home_logo_url'])
-                                    ?.toString(),
-                              ),
-                            ),
-                            SizedBox(
-                              width: 72,
-                              child: Column(
-                                children: [
-                                  const Text(
-                                    'VS',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                  if (time != null)
-                                    Text(
-                                      DateFormat('dd MMM').format(time),
-                                      style: TextStyle(
-                                        color: colors.onSurfaceVariant,
-                                        fontSize: 10.5,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              child: _Team(
-                                name: (m['away_team'] ?? 'Away').toString(),
-                                logo: (m['away_logo'] ?? m['away_logo_url'])
-                                    ?.toString(),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 44,
-                          child: FilledButton.icon(
-                            onPressed: ready ? () => _watch(m) : null,
-                            icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                            label: Text(
-                              ready ? 'WATCH LIVE • AUTO LINES' : 'NOT READY',
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                return PremiumMatchCard(
+                  league: (m['league'] ?? 'Football').toString(),
+                  homeName: (m['home_team'] ?? 'Home').toString(),
+                  awayName: (m['away_team'] ?? 'Away').toString(),
+                  homeLogo:
+                      (m['home_logo'] ?? m['home_logo_url'])?.toString(),
+                  awayLogo:
+                      (m['away_logo'] ?? m['away_logo_url'])?.toString(),
+                  kickoff: time,
+                  isLive: live,
+                  canWatch: ready,
+                  metaLabel: ready
+                      ? anchors.length.toString() +
+                          ' ' +
+                          (anchors.length == 1 ? 'streamer' : 'streamers') +
+                          ' available'
+                      : null,
+                  actionLabel: ready ? 'WATCH  •  AUTO LINES' : 'NOT READY',
+                  onWatch: () => _watch(m),
                 );
               },
             ),
           );
         },
       ),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: PremiumBottomNav(
         selectedIndex: navIndex,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.live_tv_outlined),
-            selectedIcon: Icon(Icons.live_tv_rounded),
-            label: 'Live',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.sports_soccer_outlined),
-            selectedIcon: Icon(Icons.sports_soccer_rounded),
-            label: 'Soco',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.sensors_outlined),
-            selectedIcon: Icon(Icons.sensors_rounded),
-            label: 'YYZB',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.language_outlined),
-            selectedIcon: Icon(Icons.language_rounded),
-            label: 'Fawa',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.tv_outlined),
-            selectedIcon: Icon(Icons.tv_rounded),
-            label: 'ColaTV',
-          ),
-        ],
-        onDestinationSelected: _select,
+        onSelected: _select,
       ),
     );
   }
 }
 
-class _Team extends StatelessWidget {
-  const _Team({required this.name, required this.logo});
-  final String name;
-  final String? logo;
+class _SourceHeader extends StatelessWidget {
+  const _SourceHeader({
+    required this.title,
+    required this.count,
+    required this.liveCount,
+  });
+
+  final String title;
+  final int count;
+  final int liveCount;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final hasLogo = logo != null && logo!.trim().isNotEmpty;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: colors.surfaceContainerHighest.withValues(alpha: .5),
-            borderRadius: BorderRadius.circular(15),
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 3, 2, 0),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: colors.primary.withValues(alpha: .10),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              Icons.sensors_rounded,
+              color: colors.primary,
+              size: 23,
+            ),
           ),
-          child: hasLogo
-              ? Image.network(
-                  logo!,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) =>
-                      const Icon(Icons.shield_outlined, size: 26),
-                )
-              : const Icon(Icons.shield_outlined, size: 26),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w800,
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title + ' matches',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  liveCount > 0
+                      ? liveCount.toString() +
+                          ' live • ' +
+                          count.toString() +
+                          ' available'
+                      : count.toString() + ' scheduled • auto refresh',
+                  style: TextStyle(
+                    color: colors.onSurfaceVariant,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: colors.primary.withValues(alpha: .09),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: colors.primary.withValues(alpha: .16),
+              ),
+            ),
+            child: Text(
+              'DIRECT',
+              style: TextStyle(
+                color: colors.primary,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                letterSpacing: .3,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _Pill extends StatelessWidget {
-  const _Pill({required this.text, required this.color});
-  final String text;
-  final Color color;
+class _SourceLoading extends StatelessWidget {
+  const _SourceLoading({required this.title});
+
+  final String title;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: .10),
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Text(
-          text,
-          style: TextStyle(
-            color: color,
-            fontSize: 11,
-            fontWeight: FontWeight.w900,
+          color: colors.surfaceContainerHighest.withValues(alpha: .55),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: colors.outlineVariant.withValues(alpha: .24),
           ),
         ),
-      );
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.4,
+                color: colors.primary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Loading ' + title + '…',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _StateView extends StatelessWidget {
-  const _StateView({required this.text, required this.onRefresh});
+  const _StateView({
+    required this.title,
+    required this.text,
+    required this.onRefresh,
+  });
+
+  final String title;
   final String text;
   final Future<void> Function() onRefresh;
 
   @override
-  Widget build(BuildContext context) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.sports_soccer_outlined, size: 54),
-            const SizedBox(height: 12),
-            Text(
-              text,
-              style: const TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.w900,
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          padding: const EdgeInsets.fromLTRB(24, 26, 24, 22),
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: colors.outlineVariant.withValues(alpha: .28),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: colors.primary.withValues(alpha: .09),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Icon(
+                  Icons.sports_soccer_outlined,
+                  size: 29,
+                  color: colors.primary,
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: () => onRefresh(),
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('REFRESH'),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                text,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: colors.onSurfaceVariant,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: () => onRefresh(),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('REFRESH'),
+              ),
+            ],
+          ),
         ),
-      );
+      ),
+    );
+  }
 }
