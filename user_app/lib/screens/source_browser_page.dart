@@ -33,6 +33,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       'football-stream-app/feed/public/sources';
 
   late Future<List<Map<String, dynamic>>> _future;
+  Timer? _sourceRefreshTimer;
+  bool _sourceRefreshBusy = false;
 
   String get source => widget.source.toLowerCase();
   String get title => switch (source) {
@@ -58,6 +60,30 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   void initState() {
     super.initState();
     _future = _loadMatches();
+    _sourceRefreshTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => unawaited(_silentSourceRefresh()),
+    );
+  }
+
+  @override
+  void dispose() {
+    _sourceRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _silentSourceRefresh() async {
+    if (!mounted || _sourceRefreshBusy) return;
+    _sourceRefreshBusy = true;
+    try {
+      final next = _loadMatches();
+      if (mounted) setState(() => _future = next);
+      await next;
+    } catch (_) {
+      // Keep the last visible list when a background refresh fails.
+    } finally {
+      _sourceRefreshBusy = false;
+    }
   }
 
   Future<List<Map<String, dynamic>>> _hedged(
@@ -129,7 +155,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   }
 
   static const _staleAfter = Duration(hours: 4);
-  static const _liveWindow = Duration(hours: 3, minutes: 30);
 
   DateTime? _kickoff(Map<String, dynamic> m) {
     final parsed = DateTime.tryParse(m['match_time']?.toString() ?? '');
@@ -206,20 +231,19 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
   bool _live(Map<String, dynamic> m) {
     if (_stale(m)) return false;
+    if (m['is_live'] == true) return true;
 
-    final status =
-        (m['status'] ?? m['match_status'] ?? '').toString().toUpperCase();
-    if (status == 'LIVE' || status == 'INPLAY' || status == 'IN_PLAY') {
-      return true;
+    // Soco's numeric status/hot fields are availability/featured flags, not a
+    // trustworthy match clock. Only explicit live-state text may mark a card
+    // LIVE; otherwise show the provider kickoff time.
+    for (final value in [m['match_status'], m['status']]) {
+      final status = value?.toString().trim().toUpperCase() ?? '';
+      if (const {'LIVE', 'INPLAY', 'IN_PLAY', '1H', '2H', 'HT'}
+          .contains(status)) {
+        return true;
+      }
     }
-
-    // Provider "hot" means featured/popular, not necessarily currently live.
-    // When explicit live state is unavailable, infer only from kickoff time.
-    final kickoff = _kickoff(m);
-    if (kickoff == null) return false;
-    final now = DateTime.now().toUtc();
-    if (now.isBefore(kickoff)) return false;
-    return now.difference(kickoff) <= _liveWindow;
+    return false;
   }
 
   String _matchName(Map<String, dynamic> m) =>
