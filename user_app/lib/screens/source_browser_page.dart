@@ -416,8 +416,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       final cached = await _loadLastGood();
       if (cached != null) return cached;
       Error.throwWithStackTrace(
-        authoritativeError ?? Exception('Source list unavailable.'),
-        authoritativeStack ?? StackTrace.current,
+        authoritativeError,
+        authoritativeStack,
       );
     }
   }
