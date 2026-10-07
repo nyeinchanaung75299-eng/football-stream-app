@@ -61,7 +61,7 @@ class PremiumBottomNav extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 72,
+          height: 64,
           child: Row(
             children: List.generate(_items.length, (index) {
               final item = _items[index];
@@ -82,30 +82,30 @@ class PremiumBottomNav extends StatelessWidget {
                         curve: Curves.easeOutCubic,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 10,
-                          vertical: 8,
+                          vertical: 6,
                         ),
                         decoration: BoxDecoration(
                           color: selected
                               ? colors.primary.withValues(alpha: .13)
                               : Colors.transparent,
-                          borderRadius: BorderRadius.circular(18),
+                          borderRadius: BorderRadius.circular(15),
                         ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
                               selected ? item.selected : item.icon,
-                              size: 23,
+                              size: 21,
                               color: selected
                                   ? colors.primary
                                   : colors.onSurfaceVariant,
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 3),
                             Text(
                               item.label,
                               maxLines: 1,
                               style: TextStyle(
-                                fontSize: 11.5,
+                                fontSize: 10.5,
                                 fontWeight:
                                     selected ? FontWeight.w800 : FontWeight.w600,
                                 color: selected
