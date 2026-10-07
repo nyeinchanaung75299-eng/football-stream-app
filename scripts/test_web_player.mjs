@@ -416,6 +416,78 @@ test('Android Chromium uses Shaka for live HLS even when canPlayType claims nati
   assert.equal(h.loads[0].url, line.url);
 });
 
+test('Android recoverable errors never replace a stream whose playback keeps advancing', async () => {
+  const dash = source('dash'), backup = source('hls', 'backup');
+  const h = createHarness({ ios: false });
+  h.video.currentTime = 0;
+  await h.open([dash, backup]);
+  h.players[0].listeners.get('error')({ detail: { severity: 1, category: 1, code: 1001 } });
+  await h.tick(10000);
+  h.video.currentTime = 10;
+  await h.tick(10000);
+  assert.equal(failures(h).length, 0);
+  assert.deepEqual(h.plays, [dash.url]);
+});
+
+test('Android playback progress cancels an old stall timer before a later true freeze', async () => {
+  const dash = source('dash'), backup = source('hls', 'backup');
+  const h = createHarness({ ios: false });
+  h.video.currentTime = 0;
+  await h.open([dash, backup]);
+  h.video.emit('waiting');
+  await h.tick(5000);
+  h.video.currentTime = 5;
+  h.video.emit('timeupdate');
+  h.video.emit('waiting');
+  await h.tick(10000);
+  assert.equal(failures(h).length, 0, 'The second stall must get its own recovery period');
+  await h.tick(6000);
+  assert.equal(failures(h).length, 1);
+  assert.equal(failures(h)[0].properties.reason, 'stall_timeout');
+  assert.deepEqual(h.plays, [dash.url, backup.url]);
+});
+
+test('Android FLV errors select a backup once and ignore errors from an obsolete player', async () => {
+  const flv = source('flv'), backup = source('hls', 'backup');
+  const h = createHarness({ ios: false });
+  await h.open([flv, backup]);
+  const error = h.flvPlayers[0].listeners.get('error');
+  assert.equal(typeof error, 'function', 'Android FLV must observe network and decoder errors');
+  error('NetworkError', 'UnrecoverableEarlyEof');
+  error('NetworkError', 'UnrecoverableEarlyEof');
+  await h.tick(1000);
+  assert.equal(failures(h).length, 1);
+  assert.deepEqual(h.plays, [flv.url, backup.url]);
+  const count = h.events.length;
+  error('NetworkError', 'UnrecoverableEarlyEof');
+  await h.tick(20000);
+  assert.equal(h.events.length, count);
+  assert.deepEqual(h.plays, [flv.url, backup.url]);
+
+  const manual = source('hls', 'manual');
+  const selected = createHarness({ ios: false });
+  await selected.open([flv, backup, manual]);
+  selected.flvPlayers[0].listeners.get('error')('NetworkError', 'UnrecoverableEarlyEof');
+  await selected.choose(2);
+  await selected.tick(1000);
+  assert.deepEqual(selected.plays, [flv.url, manual.url]);
+});
+
+test('Android ignores recoverable errors from a Shaka player after changing lines', async () => {
+  const old = source('dash', 'old'), manual = source('hls', 'manual');
+  const h = createHarness({ ios: false });
+  h.video.currentTime = 0;
+  await h.open([old, manual]);
+  const oldError = h.players[0].listeners.get('error');
+  await h.choose(1);
+  const count = h.events.length;
+  oldError({ detail: { severity: 1, category: 1, code: 1001 } });
+  await h.tick(20000);
+  assert.equal(h.events.length, count);
+  assert.deepEqual(h.plays, [old.url, manual.url]);
+  assert.equal(h.overlay.classList.contains('open'), true);
+});
+
 test('non-native HLS uses the same engine with explicit HLS MIME', async () => {
   const line = source('m3u8'), h = createHarness({ nativeHls: false, ios: false });
   await h.open([line]);
