@@ -47,7 +47,7 @@ class PremiumMatchCard extends StatelessWidget {
               colors.surfaceContainerHighest.withValues(alpha: dark ? .64 : .42),
             ],
           ),
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: accent.withValues(alpha: isLive ? .34 : .16),
           ),
@@ -62,7 +62,7 @@ class PremiumMatchCard extends StatelessWidget {
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
           child: Column(
             children: [
               Row(
@@ -73,7 +73,7 @@ class PremiumMatchCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: 12.5,
                         fontWeight: FontWeight.w800,
                         color: colors.onSurfaceVariant,
                         letterSpacing: .1,
@@ -86,7 +86,7 @@ class PremiumMatchCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -97,14 +97,14 @@ class PremiumMatchCard extends StatelessWidget {
                     ),
                   ),
                   SizedBox(
-                    width: 72,
+                    width: 58,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           'VS',
                           style: TextStyle(
-                            fontSize: 15,
+                            fontSize: 12.5,
                             fontWeight: FontWeight.w900,
                             color: colors.onSurface,
                           ),
@@ -132,7 +132,7 @@ class PremiumMatchCard extends StatelessWidget {
                 ],
               ),
               if ((metaLabel ?? '').trim().isNotEmpty) ...[
-                const SizedBox(height: 13),
+                const SizedBox(height: 5),
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Container(
@@ -155,7 +155,7 @@ class PremiumMatchCard extends StatelessWidget {
                   ),
                 ),
               ],
-              const SizedBox(height: 14),
+              const SizedBox(height: 9),
               _PremiumAction(
                 enabled: canWatch,
                 label: actionLabel,
@@ -242,9 +242,9 @@ class _Team extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 58,
-          height: 58,
-          padding: const EdgeInsets.all(8),
+          width: 46,
+          height: 46,
+          padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
             color: colors.surfaceContainerHighest.withValues(alpha: .72),
             borderRadius: BorderRadius.circular(18),
@@ -260,7 +260,7 @@ class _Team extends StatelessWidget {
                   errorBuilder: (_, __, ___) => Icon(
                     Icons.shield_outlined,
                     color: colors.onSurfaceVariant,
-                    size: 28,
+                    size: 23,
                   ),
                 )
               : Icon(
@@ -307,9 +307,9 @@ class _PremiumAction extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: enabled ? onTap : null,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(13),
           child: Ink(
-            height: 50,
+            height: 44,
             decoration: BoxDecoration(
               gradient: enabled
                   ? LinearGradient(
@@ -338,7 +338,7 @@ class _PremiumAction extends StatelessWidget {
               children: [
                 Icon(
                   enabled ? Icons.play_arrow_rounded : Icons.schedule_rounded,
-                  size: 22,
+                  size: 20,
                   color: enabled
                       ? colors.onPrimary
                       : colors.onSurfaceVariant,
