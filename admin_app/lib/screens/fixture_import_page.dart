@@ -20,6 +20,13 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources/cola.json';
   static const _rawColaMirror =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/sources/cola.json';
+
+  static final bool _enableNoVpnFallback =
+      const String.fromEnvironment(
+        'ENABLE_NO_VPN_FALLBACK',
+        defaultValue: '0',
+      ).trim() ==
+      '1';
   DateTime selectedDate = DateTime.now();
   String mode = 'date';
   bool loading = false;
