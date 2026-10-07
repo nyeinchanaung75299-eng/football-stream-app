@@ -66,7 +66,7 @@
       <div id="football-player-menu-items"></div>
     </div>
     <div id="football-player-video-wrap">
-      <video id="football-player-video" controls controlslist="nodownload nofullscreen noremoteplayback" disablepictureinpicture playsinline webkit-playsinline preload="metadata"></video>
+      <video id="football-player-video" controls controlslist="nodownload nofullscreen noremoteplayback" disablepictureinpicture playsinline webkit-playsinline preload="auto"></video>
       <div id="football-player-message"></div>
     </div>
   </div>
@@ -210,12 +210,13 @@
 
     function armStartupWatchdog(index,token){
       if(startupTimer!==null)clearTimeout(startupTimer);
+      const timeoutMs=isIOS()?12000:startupTimeoutMs;
       startupTimer=setTimeout(()=>{
         startupTimer=null;
         if(isCurrentPlayback(token) && awaitingPlayToken!==token){
           fallbackToNextLine(index,'This line did not start in time',token,'startup_timeout');
         }
-      },startupTimeoutMs);
+      },timeoutMs);
     }
 
     function isIOSRecoverableSource(index){
@@ -655,34 +656,37 @@
           const shakaConfig={
             manifest:{
               retryParameters:{
-                maxAttempts:iosDash?7:5,
-                baseDelay:iosDash?450:300,
-                backoffFactor:1.5,
+                maxAttempts:iosDash?5:5,
+                baseDelay:iosDash?250:300,
+                backoffFactor:1.45,
                 fuzzFactor:.2,
-                timeout:iosDash?12000:8000
+                timeout:iosDash?8000:8000
               },
               dash:{
                 autoCorrectDrift:true
               }
             },
             streaming:{
-              rebufferingGoal:iosDash?8:2,
-              bufferingGoal:iosDash?36:12,
-              bufferBehind:iosDash?30:10,
-              segmentPrefetchLimit:iosDash?3:1,
-              updateIntervalSeconds:iosDash?2:1,
-              safeSeekEndOffset:iosDash?5:0,
+              // Mobile Safari should start quickly and keep a modest buffer.
+              // The previous 36s/8s iOS goals delayed recovery and could make
+              // VPN jitter look like slow-motion playback.
+              rebufferingGoal:iosDash?2:2,
+              bufferingGoal:iosDash?12:12,
+              bufferBehind:iosDash?8:10,
+              segmentPrefetchLimit:iosDash?2:1,
+              updateIntervalSeconds:1,
+              safeSeekEndOffset:iosDash?3:0,
               stallEnabled:true,
-              stallThreshold:iosDash?3:1,
+              stallThreshold:iosDash?2:1,
               stallSkip:.1,
               allowMediaSourceRecoveries:true,
-              minTimeBetweenRecoveries:iosDash?3:5,
+              minTimeBetweenRecoveries:iosDash?2:5,
               retryParameters:{
-                maxAttempts:iosDash?7:5,
-                baseDelay:iosDash?450:300,
-                backoffFactor:1.5,
+                maxAttempts:iosDash?5:5,
+                baseDelay:iosDash?250:300,
+                backoffFactor:1.45,
                 fuzzFactor:.2,
-                timeout:iosDash?12000:8000
+                timeout:iosDash?8000:8000
               }
             }
           };
@@ -690,9 +694,9 @@
             shakaConfig.abr={
               enabled:true,
               useNetworkInformation:false,
-              defaultBandwidthEstimate:450000,
-              switchInterval:15,
-              restrictions:{maxHeight:576}
+              defaultBandwidthEstimate:900000,
+              switchInterval:6,
+              restrictions:{maxHeight:720}
             };
           }
           player.configure(shakaConfig);
@@ -869,6 +873,17 @@
       if(manualRotation)applyManualRotation();
     });
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&overlay.classList.contains('open')&&!document.fullscreenElement)closeButton.click()});
+    function normalizeIOSPlaybackRate(){
+      if(!isIOS())return;
+      if(!Number.isFinite(video.playbackRate) || Math.abs(video.playbackRate-1)>0.005){
+        video.defaultPlaybackRate=1;
+        video.playbackRate=1;
+      }
+    }
+    video.addEventListener('ratechange',normalizeIOSPlaybackRate);
+    video.addEventListener('playing',normalizeIOSPlaybackRate);
+    video.addEventListener('loadedmetadata',normalizeIOSPlaybackRate);
+
     video.addEventListener('waiting',()=>{
       if(!overlay.classList.contains('open'))return;
       armStallWatchdog();
