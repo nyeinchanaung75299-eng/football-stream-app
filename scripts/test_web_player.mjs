@@ -18,10 +18,10 @@ async function flush() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
 
-function createHarness({ ios = true, streaming = true, nativeHls = true, plans = {}, attachGate, engineLoads } = {}) {
+function createHarness({ ios = true, streaming = true, webCrypto = true, nativeHls = true, plans = {}, attachGate, engineLoads } = {}) {
   let clock = 0, nextTimer = 1;
   const timers = new Map(), elements = new Map();
-  const events = [], loads = [], plays = [], players = [], logs = [], scripts = [];
+  const events = [], loads = [], plays = [], players = [], flvPlayers = [], logs = [], scripts = [];
 
   class Element {
     constructor(id = '') {
@@ -83,6 +83,7 @@ function createHarness({ ios = true, streaming = true, nativeHls = true, plans =
     plays.push(url);
     const plan = plans[url] || {};
     if (plan.playError) return Promise.reject(plan.playError);
+    video.ended = false;
     video.paused = false;
     if (!plan.noPlaying) video.emit('playing');
     return Promise.resolve();
@@ -90,12 +91,12 @@ function createHarness({ ios = true, streaming = true, nativeHls = true, plans =
 
   class Player {
     static isBrowserSupported() { return streaming; }
-    constructor() { this.listeners = new Map(); this.destroyed = false; players.push(this); }
+    constructor() { this.listeners = new Map(); this.configurations = []; this.destroyed = false; players.push(this); }
     async attach(media) {
       this.video = media;
       if (attachGate && players.length === 1) await attachGate.promise;
     }
-    configure(config) { this.config = config; }
+    configure(config) { this.config = config; this.configurations.push(config); }
     addEventListener(name, fn) { this.listeners.set(name, fn); }
     async load(url, start, mime) {
       this.url = url; loads.push({ url, start, mime });
@@ -111,6 +112,21 @@ function createHarness({ ios = true, streaming = true, nativeHls = true, plans =
     async destroy() { this.destroyed = true; }
   }
   const shaka = { Player, polyfill: { installAll() {} } };
+  const mpegts = {
+    Events: { ERROR: 'error' },
+    isSupported: () => streaming,
+    createPlayer(source, config) {
+      const player = {
+        source, config, listeners: new Map(),
+        on(name, fn) { this.listeners.set(name, fn); },
+        attachMediaElement(media) { this.video = media; },
+        load() { this.video.playUrl = source.url; },
+        pause() {}, unload() {}, detachMediaElement() {}, destroy() {},
+      };
+      flvPlayers.push(player);
+      return player;
+    },
+  };
   const document = new Element('document');
   document.getElementById = id => elements.get(id);
   document.createElement = () => new Element();
@@ -124,11 +140,12 @@ function createHarness({ ios = true, streaming = true, nativeHls = true, plans =
     document.fullscreenElement = overlay;
     document.emit('fullscreenchange');
   };
-  const window = { crypto: { subtle: {} }, posthog: { capture(name, properties) { events.push({ name, properties }); } } };
+  const window = { crypto: webCrypto ? { subtle: {} } : {}, posthog: { capture(name, properties) { events.push({ name, properties }); } } };
   if (!engineLoads) window.shaka = shaka;
+  window.mpegts = mpegts;
   if (streaming) window.ManagedMediaSource = class {};
   const context = vm.createContext({
-    window, document, shaka,
+    window, document, shaka, mpegts,
     navigator: { userAgent: ios ? 'iPhone Safari' : 'Chrome Android', platform: ios ? 'iPhone' : 'Linux', maxTouchPoints: 1 },
     console: { error: (...args) => logs.push(args) },
     setTimeout(fn, delay = 0) { const id = nextTimer++; timers.set(id, { at: clock + delay, fn }); return id; },
@@ -145,7 +162,7 @@ function createHarness({ ios = true, streaming = true, nativeHls = true, plans =
   vm.runInContext(playerScript, context, { filename: htmlPath });
 
   return {
-    video, overlay, message, elements, events, loads, plays, players, logs, scripts, document,
+    video, overlay, message, elements, events, loads, plays, players, flvPlayers, logs, scripts, document,
     async open(sources, index = 0, match = 'test-match') {
       await window.openFootballPlayer(JSON.stringify(sources), index, 'Test match', match);
       await flush();
@@ -197,7 +214,7 @@ test('modern iOS preserves the chosen DASH line and supplies MPD MIME to Shaka',
   }
 });
 
-test('modern iOS skips unsupported ClearKey DASH and starts a compatible backup', async () => {
+test('modern iOS attempts the selected ClearKey DASH with Shaka WebCrypto', async () => {
   const dash = {
     ...source('dash', 'clearkey'),
     keyId: '00112233445566778899aabbccddeeff',
@@ -207,6 +224,16 @@ test('modern iOS skips unsupported ClearKey DASH and starts a compatible backup'
   const h = createHarness();
   await h.open([dash, hls]);
   assert.equal(failures(h).length, 0);
+  assert.equal(h.loads[0].url, dash.url);
+  const drm = h.players[0].configurations.find(config => config.drm)?.drm;
+  assert.equal(drm.clearKeys[dash.keyId], dash.keyData);
+  assert.deepEqual(h.plays, [dash.url]);
+});
+
+test('iOS without WebCrypto selects a playable backup for ClearKey DASH', async () => {
+  const dash = { ...source('dash'), keyId: '00112233445566778899aabbccddeeff', keyData: 'ffeeddccbbaa99887766554433221100' };
+  const hls = source('hls'), h = createHarness({ webCrypto: false });
+  await h.open([dash, hls]);
   assert.equal(h.loads.length, 0);
   assert.deepEqual(h.plays, [hls.url]);
 });
@@ -222,6 +249,91 @@ test('recoverable Shaka errors keep the active line playing', async () => {
   assert.equal(failures(h).length, 0);
   assert.equal(h.video.paused, false);
   assert.deepEqual(h.plays, [dash.url]);
+});
+
+test('a recoverable iOS Shaka error never reconnects a line that keeps advancing', async () => {
+  const dash = source('dash'), backup = source('hls'), h = createHarness();
+  h.video.currentTime = 0; h.video.readyState = 4;
+  await h.open([dash, backup]);
+  h.players[0].listeners.get('error')({ detail: { severity: 1, category: 1, code: 1001 } });
+  for (let second = 1; second <= 25; second++) {
+    h.video.currentTime = second;
+    h.video.emit('timeupdate');
+    await h.tick(1000);
+  }
+  assert.deepEqual(h.plays, [dash.url]);
+  assert.equal(failures(h).length, 0);
+});
+
+test('iOS HLS resumes after waiting without an old timer restarting it', async () => {
+  const hls = source('hls'), h = createHarness();
+  h.video.currentTime = 0; h.video.readyState = 4;
+  await h.open([hls]);
+  h.video.emit('waiting');
+  for (let second = 1; second <= 25; second++) {
+    h.video.currentTime = second;
+    h.video.emit('timeupdate');
+    await h.tick(1000);
+  }
+  assert.deepEqual(h.plays, [hls.url]);
+  assert.equal(failures(h).length, 0);
+});
+
+test('iOS tolerates a five second segment delay and detects a true empty-buffer freeze', async () => {
+  const hls = source('hls'), backup = source('hls', 'backup'), h = createHarness();
+  h.video.currentTime = 0; h.video.readyState = 4;
+  await h.open([hls, backup]);
+  h.video.readyState = 1;
+  h.video.emit('waiting');
+  await h.tick(5500);
+  assert.deepEqual(h.plays, [hls.url]);
+  h.video.currentTime = 6; h.video.readyState = 4;
+  h.video.emit('timeupdate');
+  await h.tick(1500);
+  assert.deepEqual(h.plays, [hls.url], 'A brief segment delay must not restart playback');
+  h.video.readyState = 1;
+  // Safari can freeze without sending another waiting/playing event.
+  await h.tick(20000);
+  assert.deepEqual(h.plays, [hls.url, hls.url]);
+});
+
+test('iOS FLV reconnects once after an early network EOF without duplicate fallback', async () => {
+  const flv = source('flv'), hls = source('hls'), h = createHarness();
+  await h.open([flv, hls]);
+  const error = h.flvPlayers[0].listeners.get('error');
+  error('NetworkError', 'UnrecoverableEarlyEof', { url: 'https://upstream.invalid/?key=SECRET' });
+  error('NetworkError', 'UnrecoverableEarlyEof');
+  await h.tick(1000);
+  assert.deepEqual(h.plays, [flv.url, flv.url]);
+  assert.equal(failures(h).length, 0);
+  h.flvPlayers[1].listeners.get('error')('NetworkError', 'UnrecoverableEarlyEof');
+  await h.tick(1000);
+  assert.deepEqual(h.plays, [flv.url, flv.url, hls.url]);
+  assert.equal(failures(h).length, 1);
+  assert.ok(!JSON.stringify(h.events).includes('SECRET'));
+});
+
+test('iOS reconnects an unexpectedly ended live stream and then falls back', async () => {
+  const primary = source('hls'), backup = source('hls', 'backup'), h = createHarness();
+  await h.open([primary, backup]);
+  h.video.currentTime = 5; h.video.ended = true; h.video.emit('ended');
+  await h.tick(1000);
+  assert.deepEqual(h.plays, [primary.url, primary.url]);
+  h.video.ended = true; h.video.emit('ended');
+  await h.tick(1000);
+  assert.deepEqual(h.plays, [primary.url, primary.url, backup.url]);
+  assert.equal(failures(h)[0].properties.reason, 'stream_ended');
+});
+
+test('manual line selection and Back cancel a pending iOS reconnect', async () => {
+  const primary = source('hls'), manual = source('hls', 'manual'), h = createHarness();
+  await h.open([primary, manual]);
+  h.video.emit('ended');
+  await h.choose(1); await h.tick(1000);
+  assert.deepEqual(h.plays, [primary.url, manual.url]);
+  h.video.emit('ended');
+  await h.close(); await h.tick(1000);
+  assert.deepEqual(h.plays, [primary.url, manual.url]);
 });
 
 test('Back exits overlay fullscreen before hiding the player', async () => {
@@ -288,18 +400,18 @@ test('startup stalls fall back to HLS and ignore a late old load completion', as
   assert.deepEqual(h.plays, [hls.url], 'Stale load must not play the old source');
 });
 
-test('iOS live streams recover once then fall back quickly, while user pause stays safe', async () => {
+test('iOS live streams give segment retries time, recover once, then use backup while respecting pause', async () => {
   const primary = source('hls', 'primary'), backup = source('hls', 'backup');
   const h = createHarness();
   await h.open([primary, backup]);
 
   h.video.emit('waiting');
-  await h.tick(9000);
+  await h.tick(17000);
   assert.deepEqual(h.plays, [primary.url, primary.url]);
   assert.equal(failures(h).length, 0);
 
   h.video.emit('waiting');
-  await h.tick(9000);
+  await h.tick(17000);
   assert.equal(failures(h)[0].properties.reason, 'stall_timeout');
   await h.tick(1000);
   assert.deepEqual(h.plays, [
