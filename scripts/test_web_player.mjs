@@ -250,13 +250,12 @@ test('non-native HLS uses the same engine with explicit HLS MIME', async () => {
   assert.equal(h.loads[0].url, line.url);
 });
 
-test('older iOS reports unsupported DASH and falls back to supplied HLS', async () => {
+test('older iOS skips unsupported DASH and starts supplied HLS directly', async () => {
   const dash = source('dash'), mp4 = source('mp4'), hls = source('hls');
   const h = createHarness({ streaming: false });
   await h.open([dash, mp4, hls]);
   assert.equal(h.loads.length, 0);
-  assert.equal(failures(h)[0].properties.reason, 'unsupported_browser');
-  await h.tick(1000);
+  assert.equal(failures(h).length, 0);
   assert.deepEqual(h.plays, [hls.url]);
 });
 
