@@ -40,6 +40,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
   int _anchorStatusEpoch = 0;
   String? _extractingAnchorKey;
   late Future<List<Map<String, dynamic>>> _targetMatchesFuture;
+  Timer? _sourceRefreshTimer;
+  bool _backgroundRefreshBusy = false;
 
   @override
   void initState() {
@@ -53,6 +55,26 @@ class _SocoImportPageState extends State<SocoImportPage> {
     dayFilter =
         (source == 'fawa' || source == 'cola') ? 'all' : 'today';
     _loadSoco();
+    _sourceRefreshTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => unawaited(_refreshSourceInBackground()),
+    );
+  }
+
+  @override
+  void dispose() {
+    _sourceRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshSourceInBackground() async {
+    if (!mounted || _backgroundRefreshBusy) return;
+    _backgroundRefreshBusy = true;
+    try {
+      await _loadSoco(silent: true);
+    } finally {
+      _backgroundRefreshBusy = false;
+    }
   }
 
   void message(String text) {
@@ -144,11 +166,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
         const Duration(hours: 4);
   }
 
-  Future<void> _loadSoco() async {
-    setState(() {
-      loading = true;
-      errorText = null;
-    });
+  Future<void> _loadSoco({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        loading = true;
+        errorText = null;
+      });
+    }
 
     try {
       dynamic data;
@@ -223,14 +247,16 @@ class _SocoImportPageState extends State<SocoImportPage> {
         properties: {'source': source},
       );
       if (!mounted) return;
-      final detail = e.toString().replaceFirst('Exception: ', '');
-      setState(() {
-        sourceMatches = const [];
-        errorText =
-            'Could not load ${_sourceLabel(source)} sources. $detail';
-      });
+      if (!silent) {
+        final detail = e.toString().replaceFirst('Exception: ', '');
+        setState(() {
+          sourceMatches = const [];
+          errorText =
+              'Could not load ${_sourceLabel(source)} sources. $detail';
+        });
+      }
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (!silent && mounted) setState(() => loading = false);
     }
   }
 
@@ -261,24 +287,16 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
   bool _matchLooksLive(Map<String, dynamic> match) {
     if (_staleSourceMatch(match)) return false;
-    final status =
-        (match['status'] ?? match['match_status'] ?? '')
-            .toString()
-            .trim()
-            .toUpperCase();
-    if (const {'LIVE', 'INPLAY', 'IN_PLAY', '1H', '2H', 'HT'}
-        .contains(status)) {
-      return true;
-    }
+    if (match['is_live'] == true) return true;
 
-    final kickoff = DateTime.tryParse(
-      match['match_time']?.toString() ?? '',
-    )?.toUtc();
-    if (kickoff == null) return false;
-    final now = DateTime.now().toUtc();
-    if (now.isBefore(kickoff)) return false;
-    return now.difference(kickoff) <=
-        const Duration(hours: 3, minutes: 30);
+    for (final value in [match['match_status'], match['status']]) {
+      final status = value?.toString().trim().toUpperCase() ?? '';
+      if (const {'LIVE', 'INPLAY', 'IN_PLAY', '1H', '2H', 'HT'}
+          .contains(status)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _probeVisibleAnchorStatuses() async {
