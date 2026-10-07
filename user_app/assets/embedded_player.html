@@ -94,7 +94,7 @@
     let playbackToken=0;
     let playbackStartedToken=-1;
     let bufferingReportedToken=-1;
-    let startupTimer=null, stallTimer=null, fallbackTimer=null;
+    let startupTimer=null, stallTimer=null, fallbackTimer=null, progressTimer=null;
     let fallbackScheduledToken=-1, awaitingPlayToken=-1;
     let activePlayingHandler=null;
     let playbackTeardown=Promise.resolve();
@@ -202,8 +202,14 @@
       startupTimer=null;stallTimer=null;
     }
 
+    function clearProgressWatchdog(){
+      if(progressTimer!==null)clearTimeout(progressTimer);
+      progressTimer=null;
+    }
+
     function cancelPlaybackTimers(){
       clearPlaybackWatchdogs();
+      clearProgressWatchdog();
       if(fallbackTimer!==null)clearTimeout(fallbackTimer);
       fallbackTimer=null;fallbackScheduledToken=-1;
     }
@@ -236,7 +242,7 @@
     function retryIOSSource(index,token){
       if(!isCurrentPlayback(token) || !isIOSRecoverableSource(index))return false;
       const attempts=iosRecoveryAttempts.get(index)||0;
-      if(attempts>=2)return false;
+      if(attempts>=1)return false;
       iosRecoveryAttempts.set(index,attempts+1);
       clearPlaybackWatchdogs();
       showMessage('Stream paused • reconnecting…');
@@ -247,15 +253,56 @@
       return true;
     }
 
+    function armProgressWatchdog(index,token){
+      if(!isIOS())return;
+      clearProgressWatchdog();
+      let lastTime=Number(video.currentTime)||0;
+      let stuckTicks=0;
+
+      const check=()=>{
+        progressTimer=null;
+        if(!isCurrentPlayback(token) || video.paused || video.ended)return;
+
+        const now=Number(video.currentTime)||0;
+        if(video.seeking || video.readyState<2){
+          stuckTicks=0;
+          lastTime=now;
+        }else if(now>lastTime+0.05){
+          stuckTicks=0;
+          lastTime=now;
+        }else{
+          stuckTicks+=1;
+        }
+
+        if(stuckTicks>=3){
+          capturePlayerEvent('playback buffering',{
+            selected_index:index,
+            line_count:sources.length,
+            stream_type:sourceType(sources[index]||{})
+          });
+          if(retryIOSSource(index,token))return;
+          fallbackToNextLine(
+            index,
+            'This line stopped advancing',
+            token,
+            'stall_timeout'
+          );
+          return;
+        }
+        progressTimer=setTimeout(check,2000);
+      };
+      progressTimer=setTimeout(check,2500);
+    }
+
     function armStallWatchdog(){
       const token=playbackToken, index=currentSourceIndex;
       if(!isCurrentPlayback(token) || playbackStartedToken!==token ||
           awaitingPlayToken===token || stallTimer!==null || video.paused)return;
       const currentType=sourceType(sources[index]||{});
       const watchdogMs=isIOS() && currentType==='dash'
-        ? 25000
+        ? 8000
         : isIOS()
-          ? 12000
+          ? 6000
           : stallTimeoutMs;
       stallTimer=setTimeout(()=>{
         stallTimer=null;
@@ -599,6 +646,7 @@
       const onPlaying=()=>{
         if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
         clearPlaybackWatchdogs();awaitingPlayToken=-1;showMessage('');
+        armProgressWatchdog(index,token);
         if(playbackStartedToken===token)return;
         playbackStartedToken=token;
         capturePlayerEvent('playback started',{
@@ -640,7 +688,10 @@
               safeErrorDetails(video.error)
             );
           };
+          video.defaultPlaybackRate=1;
+          video.playbackRate=1;
           video.src=url;
+          video.load();
           await requestVideoPlay(index,token);
           return;
         }
@@ -898,6 +949,7 @@
     video.addEventListener('pause',()=>{
       if(stallTimer!==null)clearTimeout(stallTimer);
       stallTimer=null;
+      clearProgressWatchdog();
     });
     video.addEventListener('ended',()=>{
       capturePlayerEvent('playback ended',{
