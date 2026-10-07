@@ -32,6 +32,15 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/sources';
 
+  // VPN-only is the default now. The old mirror/cache workaround can still be
+  // re-enabled explicitly for a special build with ENABLE_NO_VPN_FALLBACK=1.
+  static final bool _enableNoVpnFallback =
+      const String.fromEnvironment(
+        'ENABLE_NO_VPN_FALLBACK',
+        defaultValue: '0',
+      ).trim() ==
+      '1';
+
   late Future<List<Map<String, dynamic>>> _future;
   Timer? _sourceRefreshTimer;
   bool _sourceRefreshBusy = false;
@@ -405,6 +414,13 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadMatches() async {
+    if (!_enableNoVpnFallback) {
+      if (bases.isEmpty) {
+        throw StateError('No live source API is configured.');
+      }
+      return _loadFrom(bases.first);
+    }
+
     Object? authoritativeError;
     StackTrace? authoritativeStack;
 
@@ -580,16 +596,24 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   Future<List<Map<String, dynamic>>> _anchor(
     Map<String, dynamic> m,
     Map<String, dynamic> anchor,
-  ) =>
-      _hedged(
-        [
-          if (bases.isNotEmpty) () => _anchorFrom(bases.first, m, anchor),
-          () => _anchorFromSupabase(m, anchor),
-          ...bases.skip(1).map<Future<List<Map<String, dynamic>>> Function()>(
-            (base) => () => _anchorFrom(base, m, anchor),
-          ),
-        ],
-      );
+  ) {
+    if (!_enableNoVpnFallback) {
+      if (bases.isEmpty) {
+        return Future.error(StateError('No live source API is configured.'));
+      }
+      return _anchorFrom(bases.first, m, anchor);
+    }
+
+    return _hedged(
+      [
+        if (bases.isNotEmpty) () => _anchorFrom(bases.first, m, anchor),
+        () => _anchorFromSupabase(m, anchor),
+        ...bases.skip(1).map<Future<List<Map<String, dynamic>>> Function()>(
+          (base) => () => _anchorFrom(base, m, anchor),
+        ),
+      ],
+    );
+  }
 
   Future<List<Map<String, dynamic>>> _streams(
     Map<String, dynamic> m,
