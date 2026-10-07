@@ -281,30 +281,11 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _visibleMatches(
     List<Map<String, dynamic>> rows,
   ) {
-    final now = DateTime.now();
-    const staleKickoffGrace = Duration(hours: 5);
-
-    return rows.where((row) {
-      final kickoff = DateTime.tryParse(
-        row['kickoff_at']?.toString() ?? '',
-      )?.toLocal();
-      final streamCount = (row['stream_count'] as num?)?.toInt() ?? 0;
-
-      if (row['is_live'] != true &&
-          kickoff != null &&
-          streamCount <= 0 &&
-          now.difference(kickoff) > const Duration(minutes: 30)) {
-        return false;
-      }
-
-      if (row['is_live'] != true &&
-          kickoff != null &&
-          now.difference(kickoff) > staleKickoffGrace) {
-        return false;
-      }
-
-      return true;
-    }).toList();
+    // The Admin owns Viewer visibility. Do not auto-hide a featured match
+    // because kickoff time passed, live status is stale, or no stream is
+    // attached yet. A card leaves Live only when Admin deletes, unpublishes,
+    // deactivates, or explicitly removes it from the featured set.
+    return rows;
   }
 
   List<Map<String, dynamic>> _decodeMatches(String body) {
