@@ -197,7 +197,7 @@ test('modern iOS preserves the chosen DASH line and supplies MPD MIME to Shaka',
   }
 });
 
-test('modern iOS attempts keyed DASH instead of rejecting it up front', async () => {
+test('modern iOS skips unsupported ClearKey DASH and starts a compatible backup', async () => {
   const dash = {
     ...source('dash', 'clearkey'),
     keyId: '00112233445566778899aabbccddeeff',
@@ -207,9 +207,8 @@ test('modern iOS attempts keyed DASH instead of rejecting it up front', async ()
   const h = createHarness();
   await h.open([dash, hls]);
   assert.equal(failures(h).length, 0);
-  assert.equal(h.loads.length, 1);
-  assert.equal(h.loads[0].url, dash.url);
-  assert.deepEqual(h.plays, [dash.url]);
+  assert.equal(h.loads.length, 0);
+  assert.deepEqual(h.plays, [hls.url]);
 });
 
 test('recoverable Shaka errors keep the active line playing', async () => {
