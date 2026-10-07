@@ -326,8 +326,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         'matches published',
         properties: {
           'requested_count': chosen.length,
-          'published_count':
-              (resultMap['published_count'] as num?)?.toInt() ?? savedIds.length,
+          'published_count': savedIds.length,
           'skipped_deleted': skippedDeleted,
         },
       );
