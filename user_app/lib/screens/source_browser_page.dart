@@ -800,7 +800,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   }
 
   void _select(int index) {
-    if (index == navIndex) return;
+    if (index == navIndex) {
+      unawaited(_refresh());
+      return;
+    }
     if (index == 0) {
       Navigator.of(context).popUntil((route) => route.isFirst);
       return;
