@@ -128,11 +128,36 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return c.future;
   }
 
+  static const _staleAfter = Duration(hours: 4);
+  static const _liveWindow = Duration(hours: 3, minutes: 30);
+
+  DateTime? _kickoff(Map<String, dynamic> m) {
+    final parsed = DateTime.tryParse(m['match_time']?.toString() ?? '');
+    return parsed?.toUtc();
+  }
+
+  bool _stale(Map<String, dynamic> m) {
+    final kickoff = _kickoff(m);
+    if (kickoff == null) return false;
+    return DateTime.now().toUtc().difference(kickoff) > _staleAfter;
+  }
+
   bool _live(Map<String, dynamic> m) {
-    if (m['hot'] == true) return true;
+    if (_stale(m)) return false;
+
     final status =
         (m['status'] ?? m['match_status'] ?? '').toString().toUpperCase();
-    return status == 'LIVE' || status == 'INPLAY' || status == 'IN_PLAY';
+    if (status == 'LIVE' || status == 'INPLAY' || status == 'IN_PLAY') {
+      return true;
+    }
+
+    // Provider "hot" means featured/popular, not necessarily currently live.
+    // When explicit live state is unavailable, infer only from kickoff time.
+    final kickoff = _kickoff(m);
+    if (kickoff == null) return false;
+    final now = DateTime.now().toUtc();
+    if (now.isBefore(kickoff)) return false;
+    return now.difference(kickoff) <= _liveWindow;
   }
 
   String _matchName(Map<String, dynamic> m) =>
@@ -159,8 +184,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final decoded = jsonDecode(response.body);
     final raw = decoded is Map ? decoded['matches'] : null;
     if (raw is! List) throw const FormatException('Invalid source matches.');
-    final rows =
-        raw.map((x) => Map<String, dynamic>.from(x as Map)).toList();
+    final rows = raw
+        .map((x) => Map<String, dynamic>.from(x as Map))
+        .where((row) => !_stale(row))
+        .toList();
     rows.sort((a, b) {
       if (_live(a) != _live(b)) return _live(a) ? -1 : 1;
       final at = DateTime.tryParse(a['match_time']?.toString() ?? '');
@@ -196,8 +223,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     if (raw is! List) {
       throw const FormatException('Invalid GitHub source mirror.');
     }
-    final rows =
-        raw.map((x) => Map<String, dynamic>.from(x as Map)).toList();
+    final rows = raw
+        .map((x) => Map<String, dynamic>.from(x as Map))
+        .where((row) => !_stale(row))
+        .toList();
     rows.sort((a, b) {
       if (_live(a) != _live(b)) return _live(a) ? -1 : 1;
       final at = DateTime.tryParse(a['match_time']?.toString() ?? '');
@@ -234,8 +263,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final decoded = jsonDecode(response.body);
     final raw = decoded is Map ? decoded['matches'] : null;
     if (raw is! List) throw const FormatException('Invalid direct source list.');
-    final rows =
-        raw.map((x) => Map<String, dynamic>.from(x as Map)).toList();
+    final rows = raw
+        .map((x) => Map<String, dynamic>.from(x as Map))
+        .where((row) => !_stale(row))
+        .toList();
     rows.sort((a, b) {
       if (_live(a) != _live(b)) return _live(a) ? -1 : 1;
       final at = DateTime.tryParse(a['match_time']?.toString() ?? '');
