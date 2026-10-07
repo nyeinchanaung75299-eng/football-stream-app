@@ -135,6 +135,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
     throw Exception(lastError ?? 'Source mirror is unavailable.');
   }
 
+  bool _staleSourceMatch(Map<String, dynamic> row) {
+    final kickoff = DateTime.tryParse(
+      row['match_time']?.toString() ?? '',
+    )?.toUtc();
+    if (kickoff == null) return false;
+    return DateTime.now().toUtc().difference(kickoff) >
+        const Duration(hours: 4);
+  }
+
   Future<void> _loadSoco() async {
     setState(() {
       loading = true;
@@ -181,6 +190,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
       final parsed = rows
           .map((row) => Map<String, dynamic>.from(row as Map))
+          .where((row) => !_staleSourceMatch(row))
           .toList();
 
       parsed.sort((a, b) {
