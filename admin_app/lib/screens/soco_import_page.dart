@@ -28,6 +28,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
       'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources';
   static const _rawMirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/sources';
+
+  static final bool _enableNoVpnFallback =
+      const String.fromEnvironment(
+        'ENABLE_NO_VPN_FALLBACK',
+        defaultValue: '0',
+      ).trim() ==
+      '1';
   String? targetMatchId;
   bool loading = false;
   bool availableOnly = true;
@@ -176,23 +183,28 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     try {
       dynamic data;
-      try {
-        // The live source is authoritative. If it successfully returns an
-        // empty list, keep that empty list so matches removed by Soco/YYZB do
-        // not reappear from an older mirror.
+      if (!_enableNoVpnFallback) {
         data = await FunctionGateway.invoke(
           'source-match-list',
-          body: {
-            'source': source,
-          },
+          body: {'source': source},
         );
         final liveRows = data is Map ? data['matches'] : null;
         if (liveRows is! List) {
           throw const FormatException('Live source match list is invalid.');
         }
-      } catch (_) {
-        // GitHub is connectivity fallback only (VPN/backend unreachable).
-        data = await _loadSourceMirror();
+      } else {
+        try {
+          data = await FunctionGateway.invoke(
+            'source-match-list',
+            body: {'source': source},
+          );
+          final liveRows = data is Map ? data['matches'] : null;
+          if (liveRows is! List) {
+            throw const FormatException('Live source match list is invalid.');
+          }
+        } catch (_) {
+          data = await _loadSourceMirror();
+        }
       }
 
       final rows = data is Map ? data['matches'] : null;
