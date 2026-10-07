@@ -941,6 +941,19 @@
     });
     function clearManualRotation(){
       manualRotation=0;
+
+      // Manual iOS fallback rotates the whole player canvas, not only the
+      // <video>. Reset every temporary viewport override here.
+      overlay.style.inset='';
+      overlay.style.top='';
+      overlay.style.left='';
+      overlay.style.right='';
+      overlay.style.bottom='';
+      overlay.style.width='';
+      overlay.style.height='';
+      overlay.style.transform='';
+      overlay.style.transformOrigin='';
+
       video.style.transform='';
       video.style.width='100%';
       video.style.height='100%';
@@ -949,16 +962,48 @@
 
     function applyManualRotation(){
       const angle=((manualRotation%360)+360)%360;
-      video.style.transform='rotate('+angle+'deg)';
-      if(angle===90||angle===270){
-        const w=videoWrap.clientWidth||window.innerWidth||1;
-        const h=videoWrap.clientHeight||window.innerHeight||1;
-        video.style.width=h+'px';
-        video.style.height=w+'px';
+
+      // iPhone Safari usually cannot lock screen.orientation. Rotating only
+      // the <video> leaves the toolbar & player canvas in portrait, producing
+      // a sideways oversized image. Rotate the complete overlay and swap its
+      // viewport dimensions instead.
+      video.style.transform='';
+      video.style.width='100%';
+      video.style.height='100%';
+
+      if(!angle){
+        overlay.style.inset='';
+        overlay.style.top='';
+        overlay.style.left='';
+        overlay.style.right='';
+        overlay.style.bottom='';
+        overlay.style.width='';
+        overlay.style.height='';
+        overlay.style.transform='';
+        overlay.style.transformOrigin='';
       }else{
-        video.style.width='100%';
-        video.style.height='100%';
+        const viewport=window.visualViewport;
+        const w=Math.max(
+          1,
+          Math.round(viewport?.width||document.documentElement.clientWidth||window.innerWidth||1)
+        );
+        const h=Math.max(
+          1,
+          Math.round(viewport?.height||document.documentElement.clientHeight||window.innerHeight||1)
+        );
+        const quarterTurn=angle===90||angle===270;
+
+        overlay.style.inset='auto';
+        overlay.style.top='50%';
+        overlay.style.left='50%';
+        overlay.style.right='auto';
+        overlay.style.bottom='auto';
+        overlay.style.width=(quarterTurn?h:w)+'px';
+        overlay.style.height=(quarterTurn?w:h)+'px';
+        overlay.style.transformOrigin='center center';
+        overlay.style.transform='translate(-50%,-50%) rotate('+angle+'deg)';
       }
+
       rotateButton.textContent=angle?'↻ '+angle+'°':'↻ Rotate';
     }
 
