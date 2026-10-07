@@ -10,8 +10,9 @@ dependencies:
   flutter:
     sdk: flutter
   supabase_flutter: ^2.8.0
-  webview_flutter: ^4.14.1
-  webview_flutter_wkwebview: ^3.27.0
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_ios_video: ^1.1.4
   intl: ^0.20.0
   shared_preferences: ^2.5.3
   http: ^1.2.2
