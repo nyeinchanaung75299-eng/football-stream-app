@@ -290,27 +290,21 @@ test('startup stalls fall back to HLS and ignore a late old load completion', as
   assert.deepEqual(h.plays, [hls.url], 'Stale load must not play the old source');
 });
 
-test('iOS live streams retry the same line before falling back, while user pause stays safe', async () => {
+test('iOS live streams recover once then fall back quickly, while user pause stays safe', async () => {
   const primary = source('hls', 'primary'), backup = source('hls', 'backup');
   const h = createHarness();
   await h.open([primary, backup]);
 
   h.video.emit('waiting');
-  await h.tick(13000);
+  await h.tick(9000);
   assert.deepEqual(h.plays, [primary.url, primary.url]);
   assert.equal(failures(h).length, 0);
 
   h.video.emit('waiting');
-  await h.tick(13000);
-  assert.deepEqual(h.plays, [primary.url, primary.url, primary.url]);
-  assert.equal(failures(h).length, 0);
-
-  h.video.emit('waiting');
-  await h.tick(13000);
+  await h.tick(9000);
   assert.equal(failures(h)[0].properties.reason, 'stall_timeout');
   await h.tick(1000);
   assert.deepEqual(h.plays, [
-    primary.url,
     primary.url,
     primary.url,
     backup.url,
