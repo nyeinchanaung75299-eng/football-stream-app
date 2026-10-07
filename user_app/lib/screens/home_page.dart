@@ -1549,57 +1549,17 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 68,
-        titleSpacing: 16,
-        title: Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: colors.primary.withValues(alpha: .10),
-                borderRadius: BorderRadius.circular(13),
-                border: Border.all(
-                  color: colors.primary.withValues(alpha: .18),
-                ),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(9),
-                child: Image.asset(
-                  'assets/nca_icon.png',
-                  fit: BoxFit.cover,
-                ),
-              ),
-            ),
-            const SizedBox(width: 11),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'NCA',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -.4,
-                  ),
-                ),
-                Text(
-                  'Premium live football',
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ],
+        toolbarHeight: 52,
+        titleSpacing: 14,
+        title: const Text(
+          'Live',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -.25,
+          ),
         ),
         actions: [
           IconButton(
@@ -1612,7 +1572,7 @@ class _HomePageState extends State<HomePage> {
             onPressed: _openAppMenu,
             icon: const Icon(Icons.tune_rounded),
           ),
-          const SizedBox(width: 5),
+          const SizedBox(width: 3),
         ],
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
@@ -1635,32 +1595,21 @@ class _HomePageState extends State<HomePage> {
           if (matches.isEmpty) {
             return _StateMessage(
               icon: Icons.sports_soccer_outlined,
-              title: 'No featured matches',
-              subtitle: 'New live picks will appear here automatically.',
+              title: 'No matches now',
+              subtitle: 'New matches will appear here automatically.',
               onPressed: refresh,
             );
           }
-
-          final liveCount =
-              matches.where((m) => m['is_live'] == true).length;
 
           return RefreshIndicator(
             onRefresh: refresh,
             child: ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
-              itemCount: matches.length + 1,
-              separatorBuilder: (_, index) =>
-                  SizedBox(height: index == 0 ? 14 : 12),
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 16),
+              itemCount: matches.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
-                if (index == 0) {
-                  return _FeedHeader(
-                    totalCount: matches.length,
-                    liveCount: liveCount,
-                  );
-                }
-
-                final m = matches[index - 1];
+                final m = matches[index];
                 final links = playableLinks(m['stream_links']);
                 final nativeLinkCount = links.where((x) {
                   if (x['use_webview'] == true) return false;
@@ -1687,11 +1636,6 @@ class _HomePageState extends State<HomePage> {
                   kickoff: kickoff,
                   isLive: m['is_live'] == true,
                   canWatch: canWatch,
-                  metaLabel: canWatch
-                      ? displayCount.toString() +
-                          ' available ' +
-                          (displayCount == 1 ? 'line' : 'lines')
-                      : null,
                   actionLabel: canWatch
                       ? (displayCount > 1
                           ? 'WATCH LIVE  •  ' +
@@ -1726,106 +1670,6 @@ class _HomePageState extends State<HomePage> {
           );
           if (mounted) await refresh(silent: true);
         },
-      ),
-    );
-  }
-}
-
-class _FeedHeader extends StatelessWidget {
-  const _FeedHeader({
-    required this.totalCount,
-    required this.liveCount,
-  });
-
-  final int totalCount;
-  final int liveCount;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(2, 3, 2, 0),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: Colors.redAccent.withValues(alpha: .10),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(
-              Icons.bolt_rounded,
-              color: Colors.redAccent,
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Live & featured',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -.2,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  liveCount > 0
-                      ? liveCount.toString() +
-                          ' live • ' +
-                          totalCount.toString() +
-                          ' selected matches'
-                      : totalCount.toString() +
-                          ' selected matches • auto refresh',
-                  style: TextStyle(
-                    color: colors.onSurfaceVariant,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-            decoration: BoxDecoration(
-              color: colors.primary.withValues(alpha: .09),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: colors.primary.withValues(alpha: .16),
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: colors.primary,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'VPN LIVE',
-                  style: TextStyle(
-                    color: colors.primary,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: .25,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
