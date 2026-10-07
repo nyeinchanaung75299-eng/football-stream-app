@@ -411,45 +411,63 @@ test('Back exits overlay fullscreen before hiding the player', async () => {
   assert.equal(h.overlay.classList.contains('open'), false);
 });
 
-test('iOS fullscreen keeps line and quality controls in the website player', async () => {
+test('iOS fullscreen uses native video fullscreen so Safari chrome can disappear', async () => {
   const dash = source('dash'), backup = source('hls', 'backup');
   const tracks = [{ id: 1, height: 720, bandwidth: 1000000 }];
   const h = createHarness({ plans: { [dash.url]: { tracks } } });
   let nativeFullscreenCalls = 0;
-  h.video.webkitEnterFullscreen = () => { nativeFullscreenCalls++; };
+  h.video.webkitEnterFullscreen = () => {
+    nativeFullscreenCalls++;
+    h.video.webkitDisplayingFullscreen = true;
+    h.video.emit('webkitbeginfullscreen');
+  };
   await h.open([dash, backup]);
   h.elements.get('football-player-fullscreen').click(); await flush();
-  assert.equal(nativeFullscreenCalls, 0, 'Native video fullscreen hides the website controls');
-  assert.equal(h.document.fullscreenElement, h.overlay);
+
+  assert.equal(nativeFullscreenCalls, 1);
+  assert.equal(h.document.fullscreenElement, null);
+  assert.equal(h.elements.get('football-player-fullscreen').textContent, 'Exit');
+
+  h.video.webkitDisplayingFullscreen = false;
+  h.video.emit('webkitendfullscreen');
+  assert.equal(h.elements.get('football-player-fullscreen').textContent, 'Fullscreen');
+
   h.elements.get('football-player-quality').click();
   h.elements.get('football-player-menu-items').children[1].click(); await flush();
   assert.equal(h.players[0].selectedTrack.height, 720);
   await h.choose(1);
   assert.deepEqual(h.plays, [dash.url, backup.url]);
-  assert.equal(h.document.fullscreenElement, h.overlay);
   await h.close();
-  assert.equal(h.document.fullscreenElement, null);
+  assert.equal(h.overlay.classList.contains('open'), false);
 });
 
-test('iOS fullscreen without container support keeps inline line and quality controls', async () => {
+test('iOS native fullscreen does not depend on container fullscreen support', async () => {
   for (const support of ['missing', 'denied']) {
     const dash = source('dash'), backup = source('hls', 'backup');
     const h = createHarness({ plans: { [dash.url]: { tracks: [{ id: 1, height: 720, bandwidth: 1000000 }] } } });
     let nativeFullscreenCalls = 0;
-    h.video.webkitEnterFullscreen = () => { nativeFullscreenCalls++; };
+    h.video.webkitEnterFullscreen = () => {
+      nativeFullscreenCalls++;
+      h.video.webkitDisplayingFullscreen = true;
+      h.video.emit('webkitbeginfullscreen');
+    };
     if (support === 'missing') delete h.overlay.requestFullscreen;
     else h.overlay.requestFullscreen = async () => { throw new Error('Fullscreen unavailable'); };
+
     await h.open([dash, backup]);
     h.elements.get('football-player-fullscreen').click(); await flush();
-    assert.equal(nativeFullscreenCalls, 0);
+
+    assert.equal(nativeFullscreenCalls, 1);
     assert.equal(h.document.fullscreenElement, null);
-    assert.equal(h.elements.get('football-player-topbar').classList.contains('controls-hidden'), false);
+    assert.equal(h.overlay.classList.contains('open'), true);
+
+    h.video.webkitDisplayingFullscreen = false;
+    h.video.emit('webkitendfullscreen');
     h.elements.get('football-player-quality').click();
     h.elements.get('football-player-menu-items').children[1].click(); await flush();
     assert.equal(h.players[0].selectedTrack.height, 720);
     await h.choose(1);
     assert.deepEqual(h.plays, [dash.url, backup.url]);
-    assert.equal(h.overlay.classList.contains('open'), true);
   }
 });
 
