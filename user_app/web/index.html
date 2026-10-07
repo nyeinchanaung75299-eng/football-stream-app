@@ -570,12 +570,6 @@
       return 'auto';
     }
 
-    function browserHeaderWarning(source){
-      return (source.referer||source.origin)
-        ? 'This line requires Referer/Origin. Chrome may block it unless the stream server allows browser CORS/referrer access.'
-        : '';
-    }
-
     function updateServerButton(index){
       const source=sources[index]||{};
       serverButton.textContent=String(
@@ -730,6 +724,9 @@
           }
           player.addEventListener('error',event=>{
             const detail=event&&event.detail?event.detail:{};
+            // Shaka can recover by retrying or switching variants on this line.
+            // Keep the watchdog armed if recovery never resumes playback.
+            if(detail.severity===shaka.util.Error.Severity.RECOVERABLE || detail.handled)return;
             playbackFailure(detail,index,token);
           });
           const manifestMime=type==='dash'?'application/dash+xml':'application/vnd.apple.mpegurl';
@@ -756,7 +753,28 @@
       if(menuPanel.classList.contains('hidden')) openQualityMenu();
       else closePlayerMenu();
     });
+    async function exitPlayerFullscreen(){
+      try{
+        if(video.webkitDisplayingFullscreen && typeof video.webkitExitFullscreen==='function'){
+          video.webkitExitFullscreen();
+        }
+      }catch(_){}
+      try{
+        const element=document.fullscreenElement||document.webkitFullscreenElement;
+        if(element===overlay||element===video){
+          const exit=document.exitFullscreen||document.webkitExitFullscreen;
+          if(typeof exit==='function')await exit.call(document);
+        }
+      }catch(_){}
+      try{
+        if(typeof screen!=='undefined' && typeof screen.orientation?.unlock==='function'){
+          screen.orientation.unlock();
+        }
+      }catch(_){}
+    }
+
     closeButton.addEventListener('click',async()=>{
+      const fullscreenExit=exitPlayerFullscreen();
       capturePlayerEvent('playback closed',{
         selected_index:currentSourceIndex,
         line_count:sources.length
@@ -765,7 +783,7 @@
       if(controlsTimer)clearTimeout(controlsTimer);
       overlay.classList.remove('open');
       overlay.setAttribute('aria-hidden','true');
-      await destroyPlayback();
+      await Promise.all([fullscreenExit,destroyPlayback()]);
     });
     overlay.addEventListener('pointermove',()=>{if(overlay.classList.contains('open'))revealControls()});
     overlay.addEventListener('pointerup',event=>{

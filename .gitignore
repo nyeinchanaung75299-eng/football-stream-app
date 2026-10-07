@@ -8,3 +8,5 @@ build/
 *.iml
 android/.gradle/
 **/android/.gradle/
+supabase/.temp/
+**/.wrangler/

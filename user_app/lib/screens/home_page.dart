@@ -43,13 +43,16 @@ class _PersistedMatchCache {
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  const HomePage({super.key, this.httpClient});
+
+  final http.Client? httpClient;
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
+  late final http.Client _httpClient;
   late Future<List<Map<String, dynamic>>> _future;
   RealtimeChannel? _channel;
   Timer? _debounce;
@@ -164,6 +167,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    _httpClient = widget.httpClient ?? http.Client();
     _future = loadMatches();
     _versionLabel = _loadVersionLabel();
     _updateVersionLabel = AppUpdateService.versionSummary();
@@ -319,7 +323,7 @@ class _HomePageState extends State<HomePage> {
   Future<List<Map<String, dynamic>>> _loadPublicApiFrom(
     String base,
   ) async {
-    final response = await http
+    final response = await _httpClient
         .get(
           Uri.parse('$base/matches').replace(
             queryParameters: {
@@ -370,7 +374,7 @@ class _HomePageState extends State<HomePage> {
       },
     );
 
-    final response = await http
+    final response = await _httpClient
         .get(
           uri,
           headers: const {
@@ -411,9 +415,6 @@ class _HomePageState extends State<HomePage> {
       rows.addAll(blocked);
     }
 
-    if (rows.isEmpty) {
-      throw const FormatException('No stream lines returned.');
-    }
     return rows;
   }
 
@@ -444,6 +445,11 @@ class _HomePageState extends State<HomePage> {
     final cached = _streamLinkCache[matchId];
     final advertisedCount =
         (match['stream_count'] as num?)?.toInt() ?? 0;
+    if (match['stream_count'] is num && advertisedCount == 0) {
+      _streamLinkCache.remove(matchId);
+      match['stream_links'] = const <Map<String, dynamic>>[];
+      return const [];
+    }
     final cachedRows =
         cached?.rows ?? const <Map<String, dynamic>>[];
     final cacheIsFresh = cached != null &&
@@ -469,10 +475,17 @@ class _HomePageState extends State<HomePage> {
 
       Future<_ProtectedStreamResult> loadProtected() async {
         try {
-          return _ProtectedStreamResult(
-            true,
-            playableLinks(await _loadPublicApiStreams(matchId)),
-          );
+          final rows = playableLinks(await _loadPublicApiStreams(matchId));
+          if (rows.isEmpty) {
+            // An empty successful response revokes the old mirror/cache lines.
+            // Keep that state on the match so another WATCH cannot revive them.
+            match['stream_count'] = 0;
+            match['stream_links'] = const <Map<String, dynamic>>[];
+            _streamLinkCache.remove(matchId);
+            await _revokePersistedStreams(matchId);
+            if (mounted) setState(() {});
+          }
+          return _ProtectedStreamResult(true, rows);
         } catch (_) {
           return const _ProtectedStreamResult(
             false,
@@ -481,54 +494,10 @@ class _HomePageState extends State<HomePage> {
         }
       }
 
-      List<Map<String, dynamic>> rows;
-      if (mirrorRows.isNotEmpty) {
-        final protectedFuture = loadProtected();
-        final mirrorLooksIncomplete =
-            advertisedCount > 0 && mirrorRows.length < advertisedCount;
-
-        // A successful protected API response is authoritative. Do not union
-        // it with an older mirror, otherwise a server deleted/disabled in
-        // Admin can remain visible until the mirror refreshes.
-        final first = await Future.any<_ProtectedStreamResult>([
-          protectedFuture,
-          Future<_ProtectedStreamResult>.delayed(
-            Duration(
-              milliseconds: kIsWeb
-                  ? (mirrorLooksIncomplete ? 4200 : 3200)
-                  : (mirrorLooksIncomplete ? 3800 : 3000),
-            ),
-            () => const _ProtectedStreamResult(
-              false,
-              <Map<String, dynamic>>[],
-            ),
-          ),
-        ]);
-
-        rows = first.ok ? first.rows : mirrorRows;
-
-        // If the protected endpoint answers after the initial timeout, replace
-        // the fallback cache with its exact authoritative set (including an
-        // empty set after every Admin line was removed).
-        if (!first.ok) {
-          unawaited(
-            protectedFuture.then((protected) {
-              if (!protected.ok) return;
-              if (protected.rows.isEmpty) {
-                _streamLinkCache.remove(matchId);
-                return;
-              }
-              _streamLinkCache[matchId] = _StreamCacheEntry(
-                protected.rows,
-                DateTime.now(),
-              );
-            }),
-          );
-        }
-      } else {
-        final protected = await loadProtected();
-        rows = protected.ok ? protected.rows : const <Map<String, dynamic>>[];
-      }
+      // Requests already have bounded timeouts. Wait for their outcome rather
+      // than letting an older mirror beat a valid (possibly empty) response.
+      final protected = await loadProtected();
+      final rows = protected.ok ? protected.rows : mirrorRows;
 
       try {
         if (rows.isNotEmpty) {
@@ -622,6 +591,27 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _revokePersistedStreams(String matchId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_authoritativeCacheKey);
+      if (raw == null) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return;
+      for (final row in decoded.whereType<Map>()) {
+        if (row['id']?.toString() != matchId) continue;
+        row['stream_count'] = 0;
+        row['stream_links'] = const <Map<String, dynamic>>[];
+        row['public_stream_count'] = 0;
+      }
+      // Keep the feed timestamp: revoking lines does not make old match
+      // metadata fresh. A restart must not restore a line already removed.
+      await prefs.setString(_authoritativeCacheKey, jsonEncode(decoded));
+    } catch (_) {
+      // Live revocation must still work if local storage is unavailable.
+    }
+  }
+
   Future<DateTime?> _loadMirrorUpdatedAt() async {
     final bucket = DateTime.now().millisecondsSinceEpoch ~/ 15000;
     final uri = _mirrorStatusUri().replace(
@@ -629,7 +619,7 @@ class _HomePageState extends State<HomePage> {
     );
 
     try {
-      final response = await http
+      final response = await _httpClient
           .get(
             uri,
             headers: const {
@@ -659,7 +649,7 @@ class _HomePageState extends State<HomePage> {
       queryParameters: {'v': bucket.toString()},
     );
 
-    final response = await http
+    final response = await _httpClient
         .get(
           uri,
           headers: const {
@@ -738,6 +728,15 @@ class _HomePageState extends State<HomePage> {
       final id = row['id']?.toString().trim() ?? '';
       if (id.isEmpty) return row;
 
+      final authoritativeCount =
+          (row['stream_count'] as num?)?.toInt();
+      if (authoritativeCount == 0) {
+        _streamLinkCache.remove(id);
+        row['stream_links'] = const <Map<String, dynamic>>[];
+        row['public_stream_count'] = 0;
+        return row;
+      }
+
       final backup = mirrorById[id];
       if (backup == null) return row;
 
@@ -763,14 +762,6 @@ class _HomePageState extends State<HomePage> {
       if (mergedLinks.isNotEmpty) {
         row['stream_links'] = mergedLinks;
         row['public_stream_count'] = mergedLinks.length;
-      }
-
-      final authoritativeCount =
-          (row['stream_count'] as num?)?.toInt() ?? 0;
-      final mirrorCount =
-          (backup['stream_count'] as num?)?.toInt() ?? 0;
-      if (authoritativeCount <= 0 && mirrorCount > 0) {
-        row['stream_count'] = mirrorCount;
       }
 
       return row;
@@ -805,6 +796,12 @@ class _HomePageState extends State<HomePage> {
         authoritative,
         delay: const Duration(milliseconds: 500),
       );
+      for (final row in result.rows) {
+        if ((row['stream_count'] as num?)?.toInt() == 0) {
+          _streamLinkCache.remove(row['id']?.toString());
+          row['stream_links'] = const <Map<String, dynamic>>[];
+        }
+      }
 
       // Save the latest authoritative match list before any mirror enrichment.
       // If VPN/API routing later fails, this prevents an older GitHub snapshot
@@ -1497,6 +1494,7 @@ class _HomePageState extends State<HomePage> {
     final c = _channel;
     final supabase = _supabaseClientOrNull();
     if (c != null && supabase != null) supabase.removeChannel(c);
+    if (widget.httpClient == null) _httpClient.close();
     super.dispose();
   }
 

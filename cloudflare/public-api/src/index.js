@@ -9,13 +9,6 @@ const MATCH_FIELDS = [
   "status_short", "is_featured", "publish_state", "updated_at",
 ];
 
-const LINK_FIELDS = [
-  "id", "label", "resolution", "stream_type", "stream_url",
-  "referer", "origin", "key_id", "key_data", "use_webview",
-  "webview_url", "is_active", "priority", "available_from",
-  "expires_at", "health_status",
-];
-
 const SOFT_RATE_LIMITS = new Map();
 const PLAYBACK_SESSION_AAD = new TextEncoder().encode(
   "nca-playback-session-v1",
@@ -605,7 +598,9 @@ async function loadMatchRows(env) {
         countsUrl.searchParams.set("select", "match_id,stream_count");
 
         const countsResponse = await fetch(countsUrl, { headers });
-        const counts = countsResponse.ok ? await countsResponse.json() : [];
+        if (!countsResponse.ok) throw new Error("Stream counts upstream unavailable.");
+        const counts = await countsResponse.json();
+        if (!Array.isArray(counts)) throw new Error("Invalid stream counts response.");
 
         if (Array.isArray(matches)) {
           const byMatch = new Map();
@@ -882,6 +877,27 @@ async function handleProtectedPlayback(request, sessionToken, childPath, env) {
     path.endsWith(".mpd") ||
     (isRootRequest && (sessionType === "dash" || sessionType === "mpd"));
 
+  if (request.method === "GET" && response.ok && childPath?.startsWith("d/")) {
+    try {
+      const rewritten = await rewriteDashManifest(
+        await response.text(), finalUrl, sessionToken, session.k,
+        new URL(request.url).origin, true,
+      );
+      return new Response(rewritten, {
+        status: response.status,
+        headers: {
+          ...corsHeaders(),
+          "Content-Type": "application/xml",
+          "Cache-Control": "no-store, max-age=0",
+        },
+      });
+    } catch (_) {
+      return json({ error: "Unsupported DASH linked document." }, 502, {
+        "Cache-Control": "no-store",
+      });
+    }
+  }
+
   if (request.method === "GET" && response.ok && isDash) {
     const manifest = await response.text();
     const rewritten = await rewriteDashManifest(
@@ -944,20 +960,54 @@ async function resolveProtectedTarget(childPath, session, requestUrl) {
     return decryptTarget(direct[1], session.k);
   }
 
+  const document = childPath.match(/^d\/([A-Za-z0-9_-]+)$/);
+  if (document) {
+    const value = await decryptTarget(document[1], session.k);
+    if (!value.startsWith("dash-document:")) {
+      throw new Error("Invalid protected DASH document reference.");
+    }
+    return value.slice("dash-document:".length);
+  }
+
   const base = childPath.match(
     /^b\/([A-Za-z0-9_-]+)(?:\/(.*))?$/,
   );
   if (!base) throw new Error("Unsupported protected media path.");
 
   const rawBase = await decryptTarget(base[1], session.k);
-  const anchor = new URL(rawBase);
+  let anchor = new URL(rawBase);
   if (anchor.protocol !== "http:" && anchor.protocol !== "https:") {
     throw new Error("Unsupported protected base URL.");
   }
 
-  const tail = base[2] || "";
-  if (!tail) return anchor.toString();
+  let tail = base[2] || "";
+  // Authenticated relative references retain the BaseURL selected by the
+  // player, including CDN alternatives and nested relative BaseURL elements.
+  // Resolving them here also keeps ../ and / paths inside the session route.
+  const referencePattern = /(?:^|\/)~r\/([A-Za-z0-9_-]+)(?:\/|$)/;
+  let reference;
+  while ((reference = referencePattern.exec(tail)) !== null) {
+    const prefixEnd = reference.index + (tail[reference.index] === "/" ? 1 : 0);
+    const prefix = tail.slice(0, prefixEnd);
+    if (prefix) anchor = resolveProtectedPath(anchor, prefix);
+    const value = await decryptTarget(reference[1], session.k);
+    if (!value.startsWith("dash-relative:")) {
+      throw new Error("Invalid protected relative reference.");
+    }
+    anchor = new URL(value.slice("dash-relative:".length), anchor);
+    if (anchor.protocol !== "http:" && anchor.protocol !== "https:") {
+      throw new Error("Unsupported protected relative URL.");
+    }
+    tail = tail.slice(reference.index + reference[0].length);
+  }
 
+  const target = tail ? resolveProtectedPath(anchor, tail) : anchor;
+  const incoming = new URL(requestUrl);
+  if (incoming.search) target.search = incoming.search;
+  return target.toString();
+}
+
+function resolveProtectedPath(anchor, tail) {
   const target = new URL(tail, anchor);
   if (target.origin !== anchor.origin) {
     throw new Error("Protected media origin mismatch.");
@@ -970,9 +1020,7 @@ async function resolveProtectedTarget(childPath, session, requestUrl) {
     throw new Error("Protected media path escaped its base.");
   }
 
-  const incoming = new URL(requestUrl);
-  if (incoming.search) target.search = incoming.search;
-  return target.toString();
+  return target;
 }
 
 async function rewriteHlsPlaylist(
@@ -1032,89 +1080,190 @@ async function rewriteDashManifest(
   sessionToken,
   sessionKey,
   publicOrigin,
+  requireDashDocument = false,
 ) {
   const origin = publicOrigin.replace(/\/+$/, "");
-  let rewritten = text;
-  const hadRootBaseUrl = hasRootDashBaseUrl(text);
-
-  rewritten = await replaceAsync(
-    rewritten,
-    /<BaseURL(\b[^>]*)>([\s\S]*?)<\/BaseURL>/gi,
-    async (match, attributes, rawValue) => {
-      const value = decodeXmlText(stripXmlText(rawValue));
-      if (!value || value.startsWith("#") || /^urn:/i.test(value)) {
-        return match;
-      }
-      const protectedValue = await protectDashBaseReference(
-        value,
-        manifestUrl,
-        sessionToken,
-        sessionKey,
-        origin,
-      );
-      return "<BaseURL" + (attributes || "") + ">" +
-        escapeXmlText(protectedValue) + "</BaseURL>";
-    },
+  const elements = parseDashElements(text);
+  const root = elements.find((element) => !element.parent);
+  if (!root) {
+    if (requireDashDocument) throw new Error("Invalid DASH linked document.");
+    return text;
+  }
+  const isManifest = root.localName === "mpd";
+  if (requireDashDocument && ![
+    "mpd", "period", "adaptationset", "representation", "segmentlist",
+  ].includes(root.localName)) {
+    throw new Error("Unsupported DASH linked document root.");
+  }
+  const edits = [];
+  const protectRelative = (value) => protectDashRelativeReference(
+    value, sessionKey,
   );
 
-  // A manifest can have BaseURL only inside one Representation/AdaptationSet.
-  // Other siblings would then resolve relative media directly against the
-  // protected manifest URL and miss the session route. Inject a protected
-  // MPD-level base whenever the original manifest had no root-level BaseURL.
-  if (!hadRootBaseUrl) {
-    const manifestDirectory = new URL(".", manifestUrl).toString();
-    const protectedBase = await protectDashBaseReference(
-      manifestDirectory,
-      manifestUrl,
-      sessionToken,
-      sessionKey,
-      origin,
+  // The XML element stack distinguishes an MPD-level BaseURL from bases in
+  // Period/AdaptationSet/Representation. Relative child bases stay relative
+  // to the player's selected parent, so multiple CDN alternatives still work.
+  for (const element of elements) {
+    const name = element.localName;
+    if (name === "baseurl") {
+      const value = dashElementText(text, element);
+      if (value.startsWith("#") || /^urn:/i.test(value)) continue;
+      const protectedValue = (isManifest && element.parent === root) || /^https?:\/\//i.test(value)
+        ? await protectDashBaseReference(
+          value, manifestUrl, sessionToken, sessionKey, origin,
+        )
+        : await protectRelative(value);
+      edits.push({
+        start: element.start,
+        end: element.end,
+        value: element.openTag.replace(/\/\s*>$/, ">") + escapeXmlText(protectedValue) +
+          (element.end === element.startTagEnd
+            ? "</" + element.name + ">"
+            : text.slice(element.endTagStart, element.end)),
+      });
+      continue;
+    }
+
+    if (name === "location" || name === "patchlocation") {
+      const value = dashElementText(text, element);
+      if (!value || value.startsWith("#") || /^urn:/i.test(value)) continue;
+      const protectedValue = await protectDashReference(
+        value, manifestUrl, sessionToken, sessionKey, origin,
+      );
+      edits.push({
+        start: element.start,
+        end: element.end,
+        value: element.openTag + escapeXmlText(protectedValue) +
+          text.slice(element.endTagStart, element.end),
+      });
+      continue;
+    }
+
+    const rewrittenTag = await replaceAsync(
+      element.openTag,
+      /(\s)(media|initialization|sourceURL|index|href|xlink:href|value)(\s*=\s*)(["'])([^"']+)\4/gi,
+      async (match, spacing, attribute, equals, quote, rawValue) => {
+        const value = decodeXmlText(rawValue.trim());
+        let protectedValue;
+        const documentReference = /^(?:xlink:)?href$/i.test(attribute);
+        if (documentReference && !value.startsWith("#") &&
+          (!/^[a-z][a-z0-9+.-]*:/i.test(value) || /^https?:\/\//i.test(value))) {
+          const target = new URL(value, manifestUrl).toString();
+          const sealed = await encryptTarget("dash-document:" + target, sessionKey);
+          protectedValue = origin + "/p/" + sessionToken + "/d/" + sealed;
+        } else if (/^https?:\/\//i.test(value)) {
+          protectedValue = await protectDashReference(
+            value, manifestUrl, sessionToken, sessionKey, origin,
+          );
+        } else if (
+          attribute.toLowerCase() !== "value" &&
+          !/^[a-z][a-z0-9+.-]*:/i.test(value) &&
+          !value.startsWith("#")
+        ) {
+          protectedValue = await protectRelative(value);
+        } else if (/^\/\//.test(value)) {
+          protectedValue = await protectRelative(value);
+        } else {
+          return match;
+        }
+        return spacing + attribute + equals + quote +
+          escapeXmlAttribute(protectedValue, quote) + quote;
+      },
     );
-    rewritten = rewritten.replace(
-      /<MPD\b[^>]*>/i,
-      (rootTag) =>
-        rootTag + "<BaseURL>" + escapeXmlText(protectedBase) + "</BaseURL>",
-    );
+    if (rewrittenTag !== element.openTag) {
+      edits.push({
+        start: element.start, end: element.startTagEnd, value: rewrittenTag,
+      });
+    }
   }
 
-  rewritten = await replaceAsync(
-    rewritten,
-    /\b(media|initialization|sourceURL|index|href|xlink:href|value)\s*=\s*(["'])([^"']+)\2/gi,
-    async (match, name, quote, rawValue) => {
-      const value = decodeXmlText(rawValue.trim());
-      if (!isAbsoluteHttpReference(value)) return match;
-      const protectedValue = await protectDashReference(
-        value,
-        manifestUrl,
-        sessionToken,
-        sessionKey,
-        origin,
-      );
-      return name + "=" + quote + escapeXmlAttribute(protectedValue, quote) + quote;
-    },
-  );
+  if (isManifest && !root.children.some((child) => child.localName === "baseurl")) {
+    const protectedBase = await protectDashBaseReference(
+      new URL(".", manifestUrl).toString(),
+      manifestUrl, sessionToken, sessionKey, origin,
+    );
+    const prefix = root.name.includes(":")
+      ? root.name.slice(0, root.name.indexOf(":") + 1)
+      : "";
+    edits.push({
+      start: root.startTagEnd,
+      end: root.startTagEnd,
+      value: "<" + prefix + "BaseURL>" + escapeXmlText(protectedBase) +
+        "</" + prefix + "BaseURL>",
+    });
+  }
 
-  rewritten = await replaceAsync(
-    rewritten,
-    /<(Location|PatchLocation)(\b[^>]*)>([\s\S]*?)<\/\1>/gi,
-    async (match, tagName, attributes, rawValue) => {
-      const value = decodeXmlText(stripXmlText(rawValue));
-      if (!value || value.startsWith("#") || /^urn:/i.test(value)) {
-        return match;
-      }
-      const protectedValue = await protectDashReference(
-        value,
-        manifestUrl,
-        sessionToken,
-        sessionKey,
-        origin,
-      );
-      return "<" + tagName + (attributes || "") + ">" +
-        escapeXmlText(protectedValue) + "</" + tagName + ">";
-    },
-  );
-
+  let rewritten = text;
+  for (const edit of edits.sort((a, b) => b.start - a.start || b.end - a.end)) {
+    rewritten = rewritten.slice(0, edit.start) + edit.value +
+      rewritten.slice(edit.end);
+  }
   return rewritten;
+}
+
+// Tokenize XML markup without interpreting DTDs or fetching external entities.
+// Attribute quotes, namespaces, comments and CDATA do not disturb the stack.
+function parseDashElements(text) {
+  const markup = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<!DOCTYPE(?:[^>"'\[]|"[^"]*"|'[^']*'|\[[\s\S]*?\])*>|<\/?[A-Za-z_][\w:.-]*(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
+  const elements = [];
+  const stack = [];
+  let match;
+  while ((match = markup.exec(text)) !== null) {
+    const tag = match[0];
+    const named = /^<(\/?)([A-Za-z_][\w:.-]*)/.exec(tag);
+    if (!named) continue;
+    if (named[1]) {
+      const element = stack.pop();
+      if (!element || element.name !== named[2]) {
+        throw new Error("Invalid DASH XML element hierarchy.");
+      }
+      element.endTagStart = match.index;
+      element.end = markup.lastIndex;
+      continue;
+    }
+    const parent = stack[stack.length - 1] || null;
+    const element = {
+      name: named[2],
+      localName: named[2].split(":").pop().toLowerCase(),
+      parent,
+      children: [],
+      start: match.index,
+      startTagEnd: markup.lastIndex,
+      endTagStart: markup.lastIndex,
+      end: markup.lastIndex,
+      openTag: tag,
+    };
+    elements.push(element);
+    if (parent) parent.children.push(element);
+    if (!/\/\s*>$/.test(tag)) stack.push(element);
+  }
+  if (stack.length) throw new Error("Unclosed DASH XML element.");
+  return elements;
+}
+
+function dashElementText(text, element) {
+  const raw = text.slice(element.startTagEnd, element.endTagStart);
+  const parts = /<!\[CDATA\[([\s\S]*?)\]\]>|<!--[\s\S]*?-->|([^<]+)/g;
+  let value = "";
+  let match;
+  while ((match = parts.exec(raw)) !== null) {
+    if (match[1] !== undefined) value += match[1];
+    else if (match[2] !== undefined) value += decodeXmlText(match[2]);
+  }
+  return value.trim();
+}
+
+async function protectDashRelativeReference(value, sessionKey) {
+  const marker = value.indexOf("$");
+  const query = value.indexOf("?");
+  const prefixEnd = marker < 0 ? -1 : Math.min(
+    marker, query < 0 ? marker : query,
+  );
+  const slash = prefixEnd < 0 ? -1 : value.lastIndexOf("/", prefixEnd - 1);
+  const base = marker < 0 ? value : value.slice(0, slash + 1);
+  const tail = marker < 0 ? "" : value.slice(slash + 1);
+  const sealed = await encryptTarget("dash-relative:" + base, sessionKey);
+  return "~r/" + sealed + "/" + tail;
 }
 
 async function protectDashBaseReference(
@@ -1156,7 +1305,8 @@ function splitDashTemplateBase(absolute) {
   }
 
   const parsed = new URL(absolute);
-  const prefix = absolute.slice(0, marker);
+  const query = absolute.indexOf("?");
+  const prefix = absolute.slice(0, Math.min(marker, query < 0 ? marker : query));
   const slash = prefix.lastIndexOf("/");
   const minimum = parsed.origin.length;
   if (slash < minimum) {
@@ -1169,36 +1319,16 @@ function splitDashTemplateBase(absolute) {
   };
 }
 
-function hasRootDashBaseUrl(text) {
-  const source = String(text || "");
-  const root = /<MPD\b[^>]*>/i.exec(source);
-  if (!root) return false;
-
-  const start = (root.index || 0) + root[0].length;
-  const remainder = source.slice(start);
-  const firstPeriod = /<Period\b/i.exec(remainder);
-  const rootChildren = firstPeriod
-    ? remainder.slice(0, firstPeriod.index)
-    : remainder;
-
-  return /<BaseURL\b/i.test(rootChildren);
-}
-
-function isAbsoluteHttpReference(value) {
-  return /^https?:\/\//i.test(value) || /^\/\//.test(value);
-}
-
-function stripXmlText(value) {
-  return String(value || "").replace(/<[^>]*>/g, "").trim();
-}
-
 function decodeXmlText(value) {
   return String(value || "")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&apos;/gi, "'")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">");
+    .replace(/&(#x[0-9a-f]+|#[0-9]+|amp|quot|apos|lt|gt);/gi, (entity, name) => {
+      if (name.startsWith("#")) {
+        const hexadecimal = name[1].toLowerCase() === "x";
+        const codePoint = parseInt(name.slice(hexadecimal ? 2 : 1), hexadecimal ? 16 : 10);
+        return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity;
+      }
+      return { amp: "&", quot: '"', apos: "'", lt: "<", gt: ">" }[name.toLowerCase()];
+    });
 }
 
 function escapeXmlText(value) {
@@ -1318,10 +1448,6 @@ async function decryptTarget(token, sessionKey) {
     { name: "AES-GCM", iv }, key, ciphertext,
   );
   return new TextDecoder().decode(plain);
-}
-
-function randomToken() {
-  return bytesToBase64Url(crypto.getRandomValues(new Uint8Array(24)));
 }
 
 function bytesToBase64Url(bytes) {

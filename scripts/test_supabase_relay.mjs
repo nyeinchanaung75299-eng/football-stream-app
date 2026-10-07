@@ -18,6 +18,16 @@ const env = {
 };
 
 const originalFetch = globalThis.fetch;
+const originalRequest = globalThis.Request;
+// Workers accepts streaming request bodies without Node's duplex option.
+// Adapt only the Node harness so production relay code stays platform-native.
+globalThis.Request = class extends originalRequest {
+  constructor(input, init) {
+    super(input, init?.body instanceof ReadableStream
+      ? { ...init, duplex: 'half' }
+      : init);
+  }
+};
 const calls = [];
 
 globalThis.fetch = async (input, init) => {
@@ -140,4 +150,5 @@ try {
   console.log('5 Supabase relay regression checks passed.');
 } finally {
   globalThis.fetch = originalFetch;
+  globalThis.Request = originalRequest;
 }

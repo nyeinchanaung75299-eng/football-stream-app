@@ -33,6 +33,12 @@ Open Supabase SQL Editor and run:
 
 `supabase/schema.sql`
 
+For a fresh database, also apply the files in `supabase/migrations/` in filename
+order. For an existing database, apply only migrations not already recorded as
+applied. The updated Admin app requires
+`20261006194419_publish_featured_fixtures_atomically.sql` before release; it adds
+the atomic publication RPC and ensures `matches.deleted_at` exists.
+
 Then create an Auth user with email/password.
 
 After the user exists, promote it to admin:
@@ -63,6 +69,10 @@ Supabase URL and publishable key are already configured in `user_app/lib/main.da
 cd user_app
 flutter pub get
 flutter run
+```
+
+To override the configured Supabase connection:
+
 ```bash
 cd user_app
 flutter pub get
@@ -75,7 +85,7 @@ flutter run \
 
 - Do NOT put the Supabase service-role key in either app.
 - RLS allows only users with `profiles.role = 'admin'` to create/update/delete content.
-- Anonymous users can read active matches and active stream links.
+- Anonymous users can read published match metadata and safe stream counts. Protected playback uses the gateway and the policies in the current migrations.
 - This starter targets the common Android use case. Test your exact HLS/DASH streams on the target devices.
 - DRM-protected streams require the proper licensed DRM integration and cannot be handled by merely pasting a URL.
 
@@ -95,3 +105,5 @@ If this Supabase project already used the original schema, run:
 `supabase/upgrade_stream_links_v2.sql`
 
 ClearKey is client-side DRM and is not strong key secrecy. For stronger protection use a licensed DRM system and license server.
+
+See [review fixes and release order](docs/REVIEW_FIXES.md) for the current regression checks and migration requirements.

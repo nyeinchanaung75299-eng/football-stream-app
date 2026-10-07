@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -12,6 +13,7 @@ class AppUpdateService {
   AppUpdateService._();
 
   static bool _checked = false;
+  static bool _downloading = false;
 
   static const _manifestUrls = <String>[
     'https://nyeinchanaung75299-eng.github.io/'
@@ -259,50 +261,67 @@ class AppUpdateService {
     String apkUrl,
     String apkSha256,
   ) async {
+    if (_downloading || !context.mounted) return;
+    _downloading = true;
     final progress = ValueNotifier<double>(0);
+    final cancellation = ApkDownloadCancellation();
+    final navigator = Navigator.of(context, rootNavigator: true);
+    DialogRoute<void>? downloadRoute;
+    String? failureMessage;
 
-    await AnalyticsService.capture('update download started');
-
-    if (context.mounted) {
-      showDialog<void>(
+    try {
+      await AnalyticsService.capture('update download started');
+      if (!context.mounted) return;
+      downloadRoute = DialogRoute<void>(
         context: context,
         barrierDismissible: false,
-        builder: (dialogContext) => ValueListenableBuilder<double>(
-          valueListenable: progress,
-          builder: (context, value, _) => AlertDialog(
-            title: const Text('Downloading NCA update'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                LinearProgressIndicator(
-                  value: value > 0 && value < 1 ? value : null,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  value > 0
-                      ? '${(value * 100).clamp(0, 100).toStringAsFixed(0)}%'
-                      : 'Starting download…',
+        builder: (_) => PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) cancellation.cancel();
+          },
+          child: ValueListenableBuilder<double>(
+            valueListenable: progress,
+            builder: (context, value, _) => AlertDialog(
+              title: const Text('Downloading NCA update'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  LinearProgressIndicator(
+                    value: value > 0 && value < 1 ? value : null,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    value > 0
+                        ? '${(value * 100).clamp(0, 100).toStringAsFixed(0)}%'
+                        : 'Starting download…',
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: cancellation.cancel,
+                  child: const Text('Cancel'),
                 ),
               ],
             ),
           ),
         ),
       );
-    }
-
-    try {
+      final dialogClosed = navigator.push(downloadRoute);
+      unawaited(dialogClosed.then((_) => cancellation.cancel()));
       await downloadAndInstallApk(
         apkUrl,
         expectedSha256: apkSha256,
         onProgress: (value) => progress.value = value,
+        cancellation: cancellation,
       );
       await AnalyticsService.capture(
         'update download completed',
         properties: {'sha256_verified': true},
       );
-      if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).maybePop();
-      }
+    } on ApkDownloadCancelled {
+      await AnalyticsService.capture('update download canceled');
     } catch (error) {
       final verificationFailure =
           error.toString().toLowerCase().contains('sha-256') ||
@@ -315,20 +334,21 @@ class AppUpdateService {
               : 'download_or_installer_failed',
         },
       );
-      if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).maybePop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              verificationFailure
-                  ? 'Update verification failed. The APK was not installed.'
-                  : 'Update download failed. Check your connection and try again.',
-            ),
-          ),
-        );
-      }
+      failureMessage = verificationFailure
+          ? 'Update verification failed. The APK was not installed.'
+          : 'Update download failed. Check your connection and try again.';
     } finally {
+      if (downloadRoute != null && downloadRoute.isActive && navigator.mounted) {
+        // Remove only this dialog, including if another route is now above it.
+        navigator.removeRoute(downloadRoute);
+      }
       progress.dispose();
+      _downloading = false;
+    }
+    if (failureMessage != null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(failureMessage)),
+      );
     }
   }
 }

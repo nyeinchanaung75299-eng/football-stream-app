@@ -5,6 +5,7 @@ import 'live_links_page.dart';
 import 'soco_import_page.dart';
 import '../analytics_service.dart';
 import '../services/function_gateway.dart';
+import '../services/fixture_publish_result.dart';
 
 class FixtureImportPage extends StatefulWidget {
   const FixtureImportPage({super.key});
@@ -244,56 +245,18 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     setState(() => importing = true);
 
     try {
-      final savedIds = <String>[];
-
-      // Big Match selection is authoritative: clear the previous featured
-      // set first so old cards do not remain in the Viewer after publishing
-      // a new selection. Historical rows stay in the database; only their
-      // featured flag is removed.
-      await Supabase.instance.client
-          .from('matches')
-          .update({'is_featured': false})
-          .eq('is_featured', true);
-
-      var skippedDeleted = 0;
-      for (final f in chosen) {
-        final fixtureId = f['fixture_id'];
-        final existing = await Supabase.instance.client
-            .from('matches')
-            .select('id,deleted_at')
-            .eq('external_fixture_id', fixtureId)
-            .maybeSingle();
-
-        if (existing != null && existing['deleted_at'] != null) {
-          skippedDeleted += 1;
-          continue;
-        }
-
-        final saved = await Supabase.instance.client
-            .from('matches')
-            .upsert(
-              {
-                'external_fixture_id': f['fixture_id'],
-                'source': (f['provider'] ?? 'api_football').toString(),
-                'league': f['league_name'],
-                'home_team': f['home_name'],
-                'away_team': f['away_name'],
-                'home_logo_url': f['home_logo'],
-                'away_logo_url': f['away_logo'],
-                'kickoff_at': f['kickoff_at'],
-                'status_short': f['status_short'] ?? 'NS',
-                'is_live': f['is_live'] == true,
-                'is_active': true,
-                'is_featured': true,
-                'publish_state': 'published',
-              },
-              onConflict: 'external_fixture_id',
-            )
-            .select('id')
-            .single();
-
-        savedIds.add(saved['id'].toString());
-      }
+      // The RPC saves the replacement and clears old featured flags in one
+      // transaction. A failure or an entirely tombstoned selection preserves
+      // the current featured matches.
+      final response = await Supabase.instance.client.rpc(
+        'publish_featured_fixtures',
+        params: {
+          'p_fixtures': chosen.map(fixturePublishInput).toList(),
+        },
+      );
+      final result = FixturePublishResult.fromResponse(response);
+      final savedIds = result.publishedIds;
+      final skippedDeleted = result.skippedDeleted;
 
       await AnalyticsService.capture(
         'matches published',
@@ -307,6 +270,18 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       if (!mounted) return;
 
       setState(() => selectedIds.clear());
+
+      if (savedIds.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'No replacements published. Current featured matches were kept.'
+              '${skippedDeleted > 0 ? ' $skippedDeleted deleted match(es) were skipped.' : ''}',
+            ),
+          ),
+        );
+        return;
+      }
 
       if (skippedDeleted > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -398,7 +373,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${chosen.length} matches published. Open Soco / YYZB / Fawa / ColaTV Links or Stream Servers to add links.',
+              '${savedIds.length} matches published. Open Soco / YYZB / Fawa / ColaTV Links or Stream Servers to add links.',
             ),
           ),
         );

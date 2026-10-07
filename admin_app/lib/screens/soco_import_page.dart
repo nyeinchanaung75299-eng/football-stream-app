@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../analytics_service.dart';
 import '../services/function_gateway.dart';
+import '../widgets/source_destination_picker.dart';
 
 class SocoImportPage extends StatefulWidget {
   const SocoImportPage({
@@ -23,6 +24,7 @@ class SocoImportPage extends StatefulWidget {
 
 class _SocoImportPageState extends State<SocoImportPage> {
   String? targetMatchId;
+  late Future<List<Map<String, dynamic>>> _targetMatchesFuture;
   bool loading = false;
   bool availableOnly = true;
   String source = 'soco';
@@ -38,6 +40,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   void initState() {
     super.initState();
     targetMatchId = widget.initialMatchId;
+    _targetMatchesFuture = _loadTargetMatches();
     final requested = widget.initialSource.trim().toLowerCase();
     source = const {'soco', 'yyzb', 'fawa', 'cola'}.contains(requested)
         ? requested
@@ -69,7 +72,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final now = DateTime.now();
     const staleKickoffGrace = Duration(hours: 5);
 
-    return List<Map<String, dynamic>>.from(data)
+    final targets = List<Map<String, dynamic>>.from(data)
         .where((row) {
           final kickoff = DateTime.tryParse(
             row['kickoff_at']?.toString() ?? '',
@@ -86,6 +89,20 @@ class _SocoImportPageState extends State<SocoImportPage> {
               !stale;
         })
         .toList();
+
+    // Only a successful response can invalidate the preset. Empty loading
+    // snapshots and failed requests must leave it available for confirmation.
+    if (mounted &&
+        targetMatchId != null &&
+        !targets.any((row) => row['id'] == targetMatchId)) {
+      setState(() => targetMatchId = null);
+    }
+    return targets;
+  }
+
+  Future<void> _refreshSourcesAndTargets() async {
+    setState(() => _targetMatchesFuture = _loadTargetMatches());
+    await _loadSoco();
   }
 
   Future<void> _loadSoco() async {
@@ -955,295 +972,257 @@ class _SocoImportPageState extends State<SocoImportPage> {
         actions: [
           IconButton(
             tooltip: 'Refresh source',
-            onPressed: loading ? null : _loadSoco,
+            onPressed: loading ? null : _refreshSourcesAndTargets,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _loadTargetMatches(),
-        builder: (context, targetSnapshot) {
-          final targets =
-              targetSnapshot.data ?? const <Map<String, dynamic>>[];
-
-          if (targetMatchId != null &&
-              !targets.any((row) => row['id'] == targetMatchId)) {
-            targetMatchId = null;
-          }
-
-          return RefreshIndicator(
-            onRefresh: _loadSoco,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
+      body: RefreshIndicator(
+        onRefresh: _refreshSourcesAndTargets,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
+          children: [
+            SourceDestinationPicker(
+              future: _targetMatchesFuture,
+              selectedId: targetMatchId,
+              onChanged: (value) => setState(() => targetMatchId = value),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: DropdownButtonFormField<String>(
-                      value: targetMatchId,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Suggested destination (ADD confirms)',
-                        prefixIcon: Icon(Icons.sports_soccer_rounded),
-                      ),
-                      items: targets.map((m) {
-                        final kickoff = DateTime.tryParse(
-                          m['kickoff_at']?.toString() ?? '',
-                        )?.toLocal();
-                        final when = kickoff == null
-                            ? '--:--'
-                            : DateFormat('dd MMM • HH:mm').format(kickoff);
-                        return DropdownMenuItem(
-                          value: m['id'] as String,
-                          child: Text(
-                            '$when · ${m['home_team']} vs ${m['away_team']}',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (value) =>
-                          setState(() => targetMatchId = value),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _sourceButton('soco', 'Soco'),
-                    _sourceButton('yyzb', 'YYZB'),
-                    _sourceButton('fawa', 'Fawa'),
-                    _sourceButton('cola', 'ColaTV'),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Source: ${_sourceLabel(source)}',
-                  style: TextStyle(
-                    color: colors.onSurfaceVariant,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                SwitchListTile.adaptive(
-                  value: availableOnly,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text(
-                    'Available only',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  subtitle: const Text(
-                    'Hide matches that have no source yet.',
-                  ),
-                  onChanged: (value) =>
-                      setState(() => availableOnly = value),
-                ),
-                const SizedBox(height: 4),
-                if (source != 'fawa' && source != 'cola')
-                  Row(
-                    children: [
-                      _dayButton('today', 'Today'),
-                    const SizedBox(width: 4),
-                    _dayButton('tomorrow', 'Tomorrow'),
-                    const SizedBox(width: 4),
-                    _dayButton('all', 'All'),
-                    const Spacer(),
-                      if (loading)
-                        const SizedBox(
-                          width: 19,
-                          height: 19,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                    ],
-                  )
-                else if (loading)
-                  const Align(
-                    alignment: Alignment.centerRight,
-                    child: SizedBox(
+                _sourceButton('soco', 'Soco'),
+                _sourceButton('yyzb', 'YYZB'),
+                _sourceButton('fawa', 'Fawa'),
+                _sourceButton('cola', 'ColaTV'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Source: ${_sourceLabel(source)}',
+              style: TextStyle(
+                color: colors.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SwitchListTile.adaptive(
+              value: availableOnly,
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text(
+                'Available only',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: const Text(
+                'Hide matches that have no source yet.',
+              ),
+              onChanged: (value) =>
+                  setState(() => availableOnly = value),
+            ),
+            const SizedBox(height: 4),
+            if (source != 'fawa' && source != 'cola')
+              Row(
+                children: [
+                  _dayButton('today', 'Today'),
+                const SizedBox(width: 4),
+                _dayButton('tomorrow', 'Tomorrow'),
+                const SizedBox(width: 4),
+                _dayButton('all', 'All'),
+                const Spacer(),
+                  if (loading)
+                    const SizedBox(
                       width: 19,
                       height: 19,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
+                ],
+              )
+            else if (loading)
+              const Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(
+                  width: 19,
+                  height: 19,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            const SizedBox(height: 8),
+            if (errorText != null)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    errorText!,
+                    style: TextStyle(color: colors.error),
                   ),
-                const SizedBox(height: 8),
-                if (errorText != null)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Text(
-                        errorText!,
-                        style: TextStyle(color: colors.error),
-                      ),
-                    ),
-                  ),
-                if (!loading && visible.isEmpty && errorText == null)
-                  const Card(
-                    child: Padding(
-                      padding: EdgeInsets.all(18),
-                      child: Text('No football matches in this source section.'),
-                    ),
-                  ),
-                ...visible.map((match) {
-                  final kickoff = DateTime.tryParse(
-                    match['match_time']?.toString() ?? '',
-                  )?.toLocal();
-                  final anchors = List<Map<String, dynamic>>.from(
-                    match['anchors'] ?? const [],
-                  )..sort((a, b) {
-                      final aStatus = _anchorStatuses[
-                          _anchorKey(match, a)
-                      ];
-                      final bStatus = _anchorStatuses[
-                          _anchorKey(match, b)
-                      ];
-                      return _anchorStatusRank(aStatus)
-                          .compareTo(_anchorStatusRank(bStatus));
-                    });
+                ),
+              ),
+            if (!loading && visible.isEmpty && errorText == null)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(18),
+                  child: Text('No football matches in this source section.'),
+                ),
+              ),
+            ...visible.map((match) {
+              final kickoff = DateTime.tryParse(
+                match['match_time']?.toString() ?? '',
+              )?.toLocal();
+              final anchors = List<Map<String, dynamic>>.from(
+                match['anchors'] ?? const [],
+              )..sort((a, b) {
+                  final aStatus = _anchorStatuses[
+                      _anchorKey(match, a)
+                  ];
+                  final bStatus = _anchorStatuses[
+                      _anchorKey(match, b)
+                  ];
+                  return _anchorStatusRank(aStatus)
+                      .compareTo(_anchorStatusRank(bStatus));
+                });
 
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+              return Card(
+                margin: const EdgeInsets.only(bottom: 10),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  (match['league'] ?? 'Football').toString(),
-                                  style: TextStyle(
-                                    color: colors.onSurfaceVariant,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                              if (match['hot'] == true)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.withValues(alpha: .1),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: const Text(
-                                    'HOT',
-                                    style: TextStyle(
-                                      color: Colors.redAccent,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '${match['home_team']} vs ${match['away_team']}',
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            kickoff == null
-                                ? 'Unknown time'
-                                : DateFormat('dd MMM • HH:mm').format(kickoff),
-                            style: TextStyle(
-                              color: colors.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          if (anchors.isEmpty)
-                            Text(
-                              'No streamer is listed yet.',
+                          Expanded(
+                            child: Text(
+                              (match['league'] ?? 'Football').toString(),
                               style: TextStyle(
                                 color: colors.onSurfaceVariant,
+                                fontWeight: FontWeight.w800,
                               ),
-                            )
-                          else
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: anchors.map((anchor) {
-                                final name =
-                                    (anchor['nick_name'] ?? 'Streamer')
-                                        .toString();
-                                final key = _anchorKey(match, anchor);
-                                final status =
-                                    _anchorStatuses[key] ?? 'unknown';
-                                final lineCount =
-                                    _anchorLineCounts[key] ?? 0;
-
-                                final icon = switch (status) {
-                                  'live' => Icons.sensors_rounded,
-                                  'ready' => Icons.check_circle_rounded,
-                                  'offline' => Icons.cloud_off_rounded,
-                                  'checking' => Icons.sync_rounded,
-                                  _ => Icons.help_outline_rounded,
-                                };
-                                final suffix = switch (status) {
-                                  'live' => ' • LIVE',
-                                  'ready' => lineCount > 0
-                                      ? ' • READY ($lineCount)'
-                                      : ' • READY',
-                                  'offline' => ' • OFFLINE',
-                                  'checking' => ' • CHECKING',
-                                  _ => ' • UNKNOWN',
-                                };
-                                final color = switch (status) {
-                                  'live' => Colors.redAccent,
-                                  'ready' => Colors.green,
-                                  'offline' => Colors.blueGrey,
-                                  'checking' => Colors.orange,
-                                  _ => colors.onSurfaceVariant,
-                                };
-
-                                final extracting =
-                                    _extractingAnchorKey == key;
-
-                                return OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: color,
-                                    side: BorderSide(
-                                      color: color.withValues(alpha: .55),
-                                    ),
-                                  ),
-                                  onPressed: status == 'checking' ||
-                                          _extractingAnchorKey != null
-                                      ? null
-                                      : () => _openAnchor(match, anchor),
-                                  icon: extracting
-                                      ? SizedBox(
-                                          width: 17,
-                                          height: 17,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: color,
-                                          ),
-                                        )
-                                      : Icon(icon, size: 17),
-                                  label: Text(
-                                    extracting
-                                        ? '$name • LOADING'
-                                        : '$name$suffix',
-                                  ),
-                                );
-                              }).toList(),
+                            ),
+                          ),
+                          if (match['hot'] == true)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: .1),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Text(
+                                'HOT',
+                                style: TextStyle(
+                                  color: Colors.redAccent,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
                             ),
                         ],
                       ),
-                    ),
-                  );
-                }),
-              ],
-            ),
-          );
-        },
+                      const SizedBox(height: 8),
+                      Text(
+                        '${match['home_team']} vs ${match['away_team']}',
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        kickoff == null
+                            ? 'Unknown time'
+                            : DateFormat('dd MMM • HH:mm').format(kickoff),
+                        style: TextStyle(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (anchors.isEmpty)
+                        Text(
+                          'No streamer is listed yet.',
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
+                          ),
+                        )
+                      else
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: anchors.map((anchor) {
+                            final name =
+                                (anchor['nick_name'] ?? 'Streamer')
+                                    .toString();
+                            final key = _anchorKey(match, anchor);
+                            final status =
+                                _anchorStatuses[key] ?? 'unknown';
+                            final lineCount =
+                                _anchorLineCounts[key] ?? 0;
+
+                            final icon = switch (status) {
+                              'live' => Icons.sensors_rounded,
+                              'ready' => Icons.check_circle_rounded,
+                              'offline' => Icons.cloud_off_rounded,
+                              'checking' => Icons.sync_rounded,
+                              _ => Icons.help_outline_rounded,
+                            };
+                            final suffix = switch (status) {
+                              'live' => ' • LIVE',
+                              'ready' => lineCount > 0
+                                  ? ' • READY ($lineCount)'
+                                  : ' • READY',
+                              'offline' => ' • OFFLINE',
+                              'checking' => ' • CHECKING',
+                              _ => ' • UNKNOWN',
+                            };
+                            final color = switch (status) {
+                              'live' => Colors.redAccent,
+                              'ready' => Colors.green,
+                              'offline' => Colors.blueGrey,
+                              'checking' => Colors.orange,
+                              _ => colors.onSurfaceVariant,
+                            };
+
+                            final extracting =
+                                _extractingAnchorKey == key;
+
+                            return OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: color,
+                                side: BorderSide(
+                                  color: color.withValues(alpha: .55),
+                                ),
+                              ),
+                              onPressed: status == 'checking' ||
+                                      _extractingAnchorKey != null
+                                  ? null
+                                  : () => _openAnchor(match, anchor),
+                              icon: extracting
+                                  ? SizedBox(
+                                      width: 17,
+                                      height: 17,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: color,
+                                      ),
+                                    )
+                                  : Icon(icon, size: 17),
+                              label: Text(
+                                extracting
+                                    ? '$name • LOADING'
+                                    : '$name$suffix',
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
       ),
     );
   }

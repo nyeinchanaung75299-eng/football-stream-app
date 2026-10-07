@@ -136,49 +136,35 @@ async function syncStreamHealth(
   now: Date,
   force: boolean,
 ) {
-  const { data: matches, error: matchError } = await client
-    .from("matches")
-    .select("id")
-    .eq("is_active", true)
-    .eq("publish_state", "published")
-    .eq("is_featured", true)
-    .limit(200);
-
-  if (matchError) {
-    console.error("Health match query failed:", matchError);
-    return { checked: 0, healthy: 0, slow: 0, failed: 0, unknown: 0 };
-  }
-
-  const matchIds = (matches ?? [])
-    .map((row: any) => row.id)
-    .filter(Boolean);
-
-  if (matchIds.length === 0) {
-    return { checked: 0, healthy: 0, slow: 0, failed: 0, unknown: 0 };
-  }
-
-  const { data: links, error: linkError } = await client
+  const minAgeMs = 10 * 60 * 1000;
+  const dueBefore = new Date(now.getTime() - minAgeMs).toISOString();
+  let query = client
     .from("stream_links")
     .select(
-      "id,match_id,stream_url,referer,origin,use_webview,webview_url,last_checked_at",
+      "id,match_id,stream_url,referer,origin,use_webview,webview_url,last_checked_at,matches!inner(id)",
     )
     .eq("is_active", true)
-    .in("match_id", matchIds)
-    .limit(60);
+    .eq("matches.is_active", true)
+    .eq("matches.publish_state", "published")
+    .eq("matches.is_featured", true);
+
+  if (!force) {
+    query = query.or(`last_checked_at.is.null,last_checked_at.lte.${dueBefore}`);
+  }
+
+  // Filter due rows before limiting, and check the oldest rows first so later
+  // links and matches cannot be permanently excluded from maintenance.
+  const { data: links, error: linkError } = await query
+    .order("last_checked_at", { ascending: true, nullsFirst: true })
+    .order("id", { ascending: true })
+    .limit(16);
 
   if (linkError) {
     console.error("Health link query failed:", linkError);
     return { checked: 0, healthy: 0, slow: 0, failed: 0, unknown: 0 };
   }
 
-  const minAgeMs = 10 * 60 * 1000;
-  const due = (links ?? [])
-    .filter((link: any) => {
-      if (force || !link.last_checked_at) return true;
-      const checked = new Date(link.last_checked_at).getTime();
-      return !Number.isFinite(checked) || now.getTime() - checked >= minAgeMs;
-    })
-    .slice(0, 16);
+  const due = links ?? [];
 
   const totals = {
     checked: 0,

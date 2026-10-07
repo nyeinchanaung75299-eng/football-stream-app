@@ -9,7 +9,3 @@ GITHUB_MIRROR_URL = "https://raw.githubusercontent.com/nyeinchanaung75299-eng/fo
 [[routes]]
 pattern = "football-api.nyeinchanaung.us.ci"
 custom_domain = true
-
-[[kv_namespaces]]
-binding = "PLAYBACK_TOKENS"
-id = "4e5d5b8740e74ead94aba90285076d2a"

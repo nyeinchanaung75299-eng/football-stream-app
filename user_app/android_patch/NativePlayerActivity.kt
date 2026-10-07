@@ -53,6 +53,9 @@ class NativePlayerActivity : Activity() {
     private var autoFallbackTried = mutableSetOf<Int>()
     private var playbackStartedServers = mutableSetOf<Int>()
     private var bufferingReportedServers = mutableSetOf<Int>()
+    private var pendingFallback: Runnable? = null
+    private var playbackGeneration = 0
+    private var activityDestroyed = false
 
     private data class QualityOption(
         val label: String,
@@ -286,16 +289,31 @@ class NativePlayerActivity : Activity() {
         if (hasFocus) safeHideSystemBars()
     }
 
+    private fun cancelPendingFallback() {
+        pendingFallback?.let { callback ->
+            if (::playerView.isInitialized) playerView.removeCallbacks(callback)
+        }
+        pendingFallback = null
+    }
+
+    private fun isCurrentPlayback(generation: Int): Boolean {
+        return !activityDestroyed && !isFinishing && !isDestroyed &&
+            generation == playbackGeneration
+    }
+
     private fun playServer(index: Int) {
+        if (!isCurrentPlayback(playbackGeneration)) return
         if (index !in 0 until sources.length()) return
         val source = sources.optJSONObject(index) ?: return
+        cancelPendingFallback()
+        val generation = ++playbackGeneration
+        selectedServerIndex = index
         val url = source.optString("url").trim()
         if (url.isBlank()) {
             tryNextServer("Empty stream URL")
             return
         }
 
-        selectedServerIndex = index
         forcedQualityLabel = null
         qualityOptions.clear()
         qualityButton.text = "Auto"
@@ -350,10 +368,12 @@ class NativePlayerActivity : Activity() {
 
             exo.addListener(object : Player.Listener {
                 override fun onTracksChanged(tracks: Tracks) {
+                    if (!isCurrentPlayback(generation) || player !== exo) return
                     rebuildQualityOptions(tracks)
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (!isCurrentPlayback(generation) || player !== exo) return
                     when (playbackState) {
                         Player.STATE_READY -> {
                             hideStatus()
@@ -375,6 +395,7 @@ class NativePlayerActivity : Activity() {
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    if (!isCurrentPlayback(generation) || player !== exo) return
                     emitPlaybackEvent(
                         "playback line failed",
                         mapOf("error_code" to error.errorCode)
@@ -398,6 +419,8 @@ class NativePlayerActivity : Activity() {
     }
 
     private fun tryNextServer(message: String) {
+        val generation = playbackGeneration
+        if (!isCurrentPlayback(generation) || pendingFallback != null) return
         autoFallbackTried.add(selectedServerIndex)
         for (i in 0 until sources.length()) {
             if (!autoFallbackTried.contains(i)) {
@@ -410,7 +433,13 @@ class NativePlayerActivity : Activity() {
                     )
                 )
                 showStatus("$message • trying backup…")
-                playerView.postDelayed({ playServer(i) }, 550)
+                val callback = Runnable {
+                    if (!isCurrentPlayback(generation)) return@Runnable
+                    pendingFallback = null
+                    playServer(i)
+                }
+                pendingFallback = callback
+                playerView.postDelayed(callback, 550)
                 return
             }
         }
@@ -584,6 +613,9 @@ class NativePlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        activityDestroyed = true
+        ++playbackGeneration
+        cancelPendingFallback()
         if (::playerView.isInitialized) playerView.player = null
         player?.release()
         player = null

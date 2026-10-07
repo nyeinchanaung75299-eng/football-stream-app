@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
 import '../services/function_gateway.dart';
+import '../services/admin_match_rules.dart';
+import '../widgets/stream_links_list.dart';
 import 'soco_import_page.dart';
 
 class LiveLinksPage extends StatefulWidget {
@@ -27,7 +29,6 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   String? matchId;
   bool useWebView = false;
   bool loading = false;
-  bool checkingAll = false;
   final Set<String> checkingLinks = <String>{};
   bool testingHealth = false;
   late Future<List<Map<String, dynamic>>> _matchesFuture;
@@ -49,11 +50,6 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     if (matchId != null) {
       _linksFuture = loadLinks();
     }
-  }
-
-  void reloadMatches() {
-    if (!mounted) return;
-    setState(() => _matchesFuture = loadMatches());
   }
 
   void reloadLinks() {
@@ -135,11 +131,12 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
               now.difference(kickoff) > staleKickoffGrace;
 
           return row['deleted_at'] == null &&
-              row['is_active'] == true &&
-              row['is_finished'] != true &&
-              row['is_featured'] != false &&
-              (row['publish_state'] ?? 'published') == 'published' &&
-              !stale;
+              (row['id'] == matchId ||
+                  (row['is_active'] == true &&
+                      row['is_finished'] != true &&
+                      row['is_featured'] != false &&
+                      (row['publish_state'] ?? 'published') == 'published' &&
+                      !stale));
         })
         .toList();
   }
@@ -161,13 +158,14 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       return;
     }
 
-    if (!useWebView && link.text.trim().isEmpty) {
-      message('Paste a stream URL.');
-      return;
-    }
-
-    if (useWebView && webViewUrl.text.trim().isEmpty) {
-      message('Paste a WebView URL.');
+    final urlError = activeStreamUrlError(
+      isActive: true,
+      useWebView: useWebView,
+      streamUrl: link.text,
+      webViewUrl: webViewUrl.text,
+    );
+    if (urlError != null) {
+      message(urlError);
       return;
     }
 
@@ -243,29 +241,22 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     }
   }
 
-  Future<void> testHealth({String? linkId}) async {
-    if (linkId == null && matchId == null) {
+  Future<void> testHealth() async {
+    if (matchId == null) {
       message('Select a match first.');
       return;
     }
 
     setState(() => testingHealth = true);
     try {
-      final body = <String, dynamic>{};
-      if (linkId != null) {
-        body['link_id'] = linkId;
-      } else {
-        body['match_id'] = matchId;
-      }
-
       final data = await FunctionGateway.invoke(
         'stream-health',
-        body: body,
+        body: {'match_id': matchId},
       );
       await AnalyticsService.capture(
         'stream health checked',
         properties: {
-          'scope': linkId != null ? 'link' : 'match',
+          'scope': 'match',
           if (data is Map && data['health_status'] != null)
             'health_status': data['health_status'].toString(),
         },
@@ -292,7 +283,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     } catch (e) {
       await AnalyticsService.capture(
         'stream health check failed',
-        properties: {'scope': linkId != null ? 'link' : 'match'},
+        properties: {'scope': 'match'},
       );
       if (mounted) message('Health check failed: $e');
     } finally {
@@ -358,7 +349,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     reloadLinks();
   }
 
-  Future<void> checkHealth(String id, {bool quiet = false}) async {
+  Future<void> checkHealth(String id) async {
     if (checkingLinks.contains(id)) return;
 
     setState(() => checkingLinks.add(id));
@@ -377,7 +368,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         },
       );
 
-      if (!quiet && mounted) {
+      if (mounted) {
         reloadLinks();
         if (data is Map) {
           final status = data['health_status'] ?? 'unknown';
@@ -394,47 +385,11 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         'stream health check failed',
         properties: {'scope': 'link'},
       );
-      if (!quiet && mounted) message('Health check failed: $e');
+      if (mounted) message('Health check failed: $e');
     } finally {
       if (mounted) {
         setState(() => checkingLinks.remove(id));
       }
-    }
-  }
-
-  Future<void> checkAllHealth(List<Map<String, dynamic>> rows) async {
-    if (checkingAll) return;
-    setState(() => checkingAll = true);
-
-    try {
-      final activeRows =
-          rows.where((item) => item['is_active'] == true).toList();
-      for (final row in activeRows) {
-        await checkHealth(row['id'].toString(), quiet: true);
-      }
-      await AnalyticsService.capture(
-        'stream health batch completed',
-        properties: {'link_count': activeRows.length},
-      );
-      if (mounted) {
-        reloadLinks();
-        message('Health check finished.');
-      }
-    } finally {
-      if (mounted) setState(() => checkingAll = false);
-    }
-  }
-
-  Color healthColor(String status) {
-    switch (status) {
-      case 'healthy':
-        return Colors.green;
-      case 'slow':
-        return Colors.orange;
-      case 'failed':
-        return Colors.redAccent;
-      default:
-        return Colors.blueGrey;
     }
   }
 
@@ -452,6 +407,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     String type = (row['stream_type'] ?? 'auto').toString();
     if (!streamTypes.containsKey(type)) type = 'auto';
     bool web = row['use_webview'] == true;
+    String? urlError;
 
     final save = await showModalBottomSheet<bool>(
       context: context,
@@ -599,11 +555,32 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                         ],
                       ],
                     ),
+                    if (urlError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        urlError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 14),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
-                        onPressed: () => Navigator.pop(sheetContext, true),
+                        onPressed: () {
+                          final error = activeStreamUrlError(
+                            isActive: row['is_active'] == true,
+                            useWebView: web,
+                            streamUrl: url.text,
+                            webViewUrl: webUrl.text,
+                          );
+                          if (error != null) {
+                            setSheetState(() => urlError = error);
+                            return;
+                          }
+                          Navigator.pop(sheetContext, true);
+                        },
                         icon: const Icon(Icons.save_rounded),
                         label: const Text('SAVE CHANGES'),
                       ),
@@ -1136,39 +1113,10 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                FutureBuilder<List<Map<String, dynamic>>>(
+                StreamLinksList(
+                  key: ValueKey(matchId),
                   future: _linksFuture ??= loadLinks(),
-                  builder: (context, linkSnapshot) {
-                    if (!linkSnapshot.hasData) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(20),
-                          child: CircularProgressIndicator(),
-                        ),
-                      );
-                    }
-
-                    final rows = linkSnapshot.data!;
-                    if (rows.isEmpty) {
-                      return Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(18),
-                          child: Text(
-                            'No servers added yet.',
-                            style: TextStyle(
-                              color: colors.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-
-                    return Column(
-                      children: rows
-                          .map((row) => _serverCard(row, colors))
-                          .toList(),
-                    );
-                  },
+                  rowBuilder: (row) => _serverCard(row, colors),
                 ),
               ],
             ],

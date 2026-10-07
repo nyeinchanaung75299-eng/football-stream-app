@@ -1,22 +1,40 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
+import '../services/admin_auth_service.dart';
 import '../widgets/theme_mode_button.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({super.key, this.auth, this.accessMessage});
+
+  final AdminAuthService? auth;
+  final String? accessMessage;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
 class _LoginPageState extends State<LoginPage> {
+  late final AdminAuthService _auth;
   final email = TextEditingController();
   final password = TextEditingController();
   bool loading = false;
   bool hidePassword = true;
 
+  @override
+  void initState() {
+    super.initState();
+    _auth = widget.auth ?? SupabaseAdminAuthService();
+  }
+
+  @override
+  void dispose() {
+    email.dispose();
+    password.dispose();
+    super.dispose();
+  }
+
   Future<void> login() async {
+    if (loading) return;
     if (email.text.trim().isEmpty || password.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter your admin email and password.')),
@@ -27,42 +45,31 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => loading = true);
     await AnalyticsService.capture('admin login attempted');
     try {
-      await Supabase.instance.client.auth.signInWithPassword(
+      await _auth.signInWithPassword(
         email: email.text.trim(),
         password: password.text,
       );
-
-      final uid = Supabase.instance.client.auth.currentUser!.id;
-      final row = await Supabase.instance.client
-          .from('profiles')
-          .select('role')
-          .eq('id', uid)
-          .maybeSingle();
-
-      if (row == null || row['role'] != 'admin') {
-        await Supabase.instance.client.auth.signOut();
-        throw Exception('This account is not an admin.');
-      }
-
-      await AnalyticsService.capture('admin login succeeded');
     } catch (e) {
       if (!mounted) return;
       final raw = e.toString().toLowerCase();
       final networkProblem = raw.contains('socketexception') ||
           raw.contains('network is unreachable') ||
           raw.contains('connection failed') ||
-          raw.contains('failed host lookup');
+          raw.contains('failed host lookup') ||
+          raw.contains('timed out') ||
+          raw.contains('clientexception');
       await AnalyticsService.capture(
         'admin login failed',
         properties: {
-          'reason': networkProblem ? 'network' : 'credentials_or_role',
+          'reason': networkProblem ? 'network' : 'credentials',
         },
       );
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             networkProblem
-                ? 'Can’t reach Supabase. Turn on VPN, then try again.'
+                ? 'Can’t reach the sign-in service. Check your connection and try again.'
                 : 'Login failed. Check your email and password.',
           ),
         ),
@@ -141,6 +148,14 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                           ),
                           const SizedBox(height: 28),
+                          if (widget.accessMessage != null) ...[
+                            Text(
+                              widget.accessMessage!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: colors.error),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
                           TextField(
                             controller: email,
                             keyboardType: TextInputType.emailAddress,

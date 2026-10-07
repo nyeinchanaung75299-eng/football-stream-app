@@ -22,6 +22,7 @@ function createHarness({ ios = true, streaming = true, nativeHls = true, plans =
   let clock = 0, nextTimer = 1;
   const timers = new Map(), elements = new Map();
   const events = [], loads = [], plays = [], players = [], logs = [], scripts = [];
+  const fullscreen = { exits: 0, unlocks: 0 };
 
   class Element {
     constructor(id = '') {
@@ -110,17 +111,33 @@ function createHarness({ ios = true, streaming = true, nativeHls = true, plans =
     getVariantTracks() { return []; }
     async destroy() { this.destroyed = true; }
   }
-  const shaka = { Player, polyfill: { installAll() {} } };
+  const shaka = {
+    Player,
+    polyfill: { installAll() {} },
+    util: { Error: { Severity: { RECOVERABLE: 1, CRITICAL: 2 } } },
+  };
   const document = new Element('document');
   document.getElementById = id => elements.get(id);
   document.createElement = () => new Element();
   document.head = new Element('head');
   document.fullscreenElement = null;
+  overlay.requestFullscreen = async () => {
+    document.fullscreenElement = overlay;
+    document.emit('fullscreenchange');
+  };
+  document.exitFullscreen = async () => {
+    fullscreen.exits++;
+    document.fullscreenElement = null;
+    document.emit('fullscreenchange');
+  };
+  const screen = {
+    orientation: { unlock() { fullscreen.unlocks++; } },
+  };
   const window = { crypto: { subtle: {} }, posthog: { capture(name, properties) { events.push({ name, properties }); } } };
   if (!engineLoads) window.shaka = shaka;
   if (streaming) window.ManagedMediaSource = class {};
   const context = vm.createContext({
-    window, document, shaka,
+    window, document, shaka, screen,
     navigator: { userAgent: ios ? 'iPhone Safari' : 'Chrome Android', platform: ios ? 'iPhone' : 'Linux', maxTouchPoints: 1 },
     console: { error: (...args) => logs.push(args) },
     setTimeout(fn, delay = 0) { const id = nextTimer++; timers.set(id, { at: clock + delay, fn }); return id; },
@@ -138,6 +155,7 @@ function createHarness({ ios = true, streaming = true, nativeHls = true, plans =
 
   return {
     video, overlay, message, elements, events, loads, plays, players, logs, scripts,
+    document, screen, fullscreen,
     async open(sources, index = 0, match = 'test-match') {
       await window.openFootballPlayer(JSON.stringify(sources), index, 'Test match', match);
       await flush();
@@ -245,6 +263,44 @@ test('DASH DRM errors fall back once without leaking error messages or keys', as
   assert.equal(h.logs.length, 0);
 });
 
+test('recoverable or handled Shaka errors keep the chosen live line playing', async () => {
+  for (const detail of [
+    { severity: 1, category: 1, code: 1002 },
+    { severity: 2, category: 3, code: 3014, handled: true },
+  ]) {
+    const primary = source('dash'), backup = source('hls', 'backup');
+    const h = createHarness();
+    await h.open([primary, backup]);
+    h.players[0].listeners.get('error')({ detail });
+    await h.tick(1000);
+    assert.equal(h.video.paused, false);
+    assert.equal(failures(h).length, 0);
+    assert.deepEqual(h.plays, [primary.url]);
+  }
+});
+
+test('a recoverable Shaka error still falls back when playback stays stalled', async () => {
+  const primary = source('dash'), backup = source('hls', 'backup');
+  const h = createHarness({ ios: false });
+  await h.open([primary, backup]);
+  h.video.emit('waiting');
+  h.players[0].listeners.get('error')({ detail: { severity: 1, category: 1, code: 1002 } });
+  await h.tick(16000);
+  assert.equal(failures(h).length, 1);
+  assert.equal(failures(h)[0].properties.reason, 'stall_timeout');
+  assert.deepEqual(h.plays, [primary.url, backup.url]);
+});
+
+test('critical Shaka errors still select the backup line', async () => {
+  const primary = source('dash'), backup = source('hls', 'backup');
+  const h = createHarness();
+  await h.open([primary, backup]);
+  h.players[0].listeners.get('error')({ detail: { severity: 2, category: 3, code: 3016 } });
+  await h.tick(1000);
+  assert.equal(failures(h).length, 1);
+  assert.deepEqual(h.plays, [primary.url, backup.url]);
+});
+
 test('startup stalls fall back to HLS and ignore a late old load completion', async () => {
   const dash = source('dash'), hls = source('hls'), gate = deferred();
   const h = createHarness({ plans: { [dash.url]: { loadGate: gate } } });
@@ -325,6 +381,18 @@ test('manual selection cancels an already scheduled automatic fallback', async (
   assert.deepEqual(h.plays, [manual.url]);
 });
 
+test('a late error from the old Shaka player cannot replace a manually chosen line', async () => {
+  const old = source('dash', 'old'), manual = source('hls', 'manual');
+  const h = createHarness();
+  await h.open([old, manual]);
+  const oldPlayer = h.players[0];
+  await h.choose(1);
+  oldPlayer.listeners.get('error')({ detail: { severity: 2, category: 3, code: 3016 } });
+  await h.tick(1000);
+  assert.equal(failures(h).length, 0);
+  assert.deepEqual(h.plays, [old.url, manual.url]);
+});
+
 test('new match cancels prior fallback and keeps telemetry attached to the new match', async () => {
   const bad = source('dash'), oldBackup = source('hls', 'old'), fresh = source('hls', 'new');
   const h = createHarness({ plans: { [bad.url]: { loadError: { code: 3016 } } } });
@@ -349,6 +417,47 @@ test('closing cancels fallback and prevents a late pending load from playing or 
   await queued.open([bad, backup]); await queued.close(); await queued.tick(60000);
   assert.deepEqual(queued.plays, []);
   assert.equal(queued.overlay.classList.contains('open'), false);
+});
+
+test('Back leaves overlay fullscreen and releases orientation', async () => {
+  const h = createHarness({ ios: false });
+  await h.open([source('mp4')]);
+  h.elements.get('football-player-fullscreen').click(); await flush();
+  assert.equal(h.document.fullscreenElement, h.overlay);
+  await h.close();
+  assert.equal(h.document.fullscreenElement, null);
+  assert.equal(h.fullscreen.exits, 1);
+  assert.ok(h.fullscreen.unlocks > 0);
+  assert.equal(h.overlay.classList.contains('open'), false);
+  assert.equal(h.video.paused, true);
+});
+
+test('Back closes the iOS native video fullscreen presentation', async () => {
+  const h = createHarness();
+  await h.open([source('hls')]);
+  let exits = 0;
+  h.video.webkitDisplayingFullscreen = true;
+  h.video.webkitExitFullscreen = () => {
+    exits++;
+    h.video.webkitDisplayingFullscreen = false;
+  };
+  await h.close();
+  assert.equal(exits, 1);
+  assert.equal(h.video.webkitDisplayingFullscreen, false);
+  assert.equal(h.video.paused, true);
+  assert.equal(h.overlay.classList.contains('open'), false);
+});
+
+test('a fullscreen exit failure still tears down playback and releases orientation', async () => {
+  const line = source('dash'), h = createHarness();
+  await h.open([line]);
+  h.document.fullscreenElement = h.overlay;
+  h.document.exitFullscreen = async () => { throw new Error('Fullscreen exit unavailable'); };
+  await h.close();
+  assert.equal(h.video.paused, true);
+  assert.equal(h.players[0].destroyed, true);
+  assert.ok(h.fullscreen.unlocks > 0);
+  assert.equal(h.overlay.classList.contains('open'), false);
 });
 
 test('a source change while attachment is pending never starts the stale DASH load', async () => {
