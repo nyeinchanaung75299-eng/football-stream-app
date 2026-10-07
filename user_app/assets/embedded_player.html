@@ -1017,15 +1017,41 @@
     rotateButton.addEventListener('click',rotatePlayer);
     fullscreenButton.addEventListener('click',async()=>{
       try{
-        // Fullscreen the whole player, including Line and Quality controls.
-        // iPhone native video fullscreen cannot display the website toolbar;
-        // keep the inline overlay when container fullscreen is unavailable.
+        if(isIOS()){
+          // iPhone Safari cannot fullscreen the custom player container.
+          // Enter native <video> fullscreen so Safari's address bar and
+          // bottom browser toolbar are actually removed.
+          if(video.webkitDisplayingFullscreen &&
+              typeof video.webkitExitFullscreen==='function'){
+            video.webkitExitFullscreen();
+            return;
+          }
+
+          const enterNativeFullscreen=
+            video.webkitEnterFullscreen||video.webkitEnterFullScreen;
+          if(typeof enterNativeFullscreen==='function'){
+            clearManualRotation();
+            enterNativeFullscreen.call(video);
+            return;
+          }
+        }
+
+        // Other browsers can fullscreen the whole NCA player so custom line
+        // and quality controls remain available.
         if(!document.fullscreenElement){
           if(overlay.requestFullscreen)await overlay.requestFullscreen();
         }else if(document.exitFullscreen){
           await document.exitFullscreen();
         }
       }catch(_){}
+      revealControls();
+    });
+
+    video.addEventListener('webkitbeginfullscreen',()=>{
+      fullscreenButton.textContent='Exit';
+    });
+    video.addEventListener('webkitendfullscreen',()=>{
+      fullscreenButton.textContent='Fullscreen';
       revealControls();
     });
     document.addEventListener('fullscreenchange',()=>{
