@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,6 +11,8 @@ import '../native_player.dart';
 import 'source_browser_page.dart';
 import 'network_diagnostics_page.dart';
 import '../widgets/theme_mode_button.dart';
+import '../widgets/premium_bottom_nav.dart';
+import '../widgets/premium_match_card.dart';
 import '../app_update_service.dart';
 
 class _MatchLoadResult {
@@ -1548,134 +1549,166 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     return Scaffold(
       appBar: AppBar(
+        toolbarHeight: 68,
         titleSpacing: 16,
         title: Row(
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.asset(
-                'assets/nca_icon.png',
-                width: 30,
-                height: 30,
-                fit: BoxFit.cover,
+            Container(
+              width: 38,
+              height: 38,
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: colors.primary.withValues(alpha: .10),
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(
+                  color: colors.primary.withValues(alpha: .18),
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(9),
+                child: Image.asset(
+                  'assets/nca_icon.png',
+                  fit: BoxFit.cover,
+                ),
               ),
             ),
-            const SizedBox(width: 10),
-            const Text(
-              'NCA',
-              style: TextStyle(fontWeight: FontWeight.w900),
+            const SizedBox(width: 11),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'NCA',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -.4,
+                  ),
+                ),
+                Text(
+                  'Premium live football',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
         actions: [
           IconButton(
+            tooltip: 'Refresh',
+            onPressed: () => refresh(silent: true),
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
             tooltip: 'Settings',
             onPressed: _openAppMenu,
-            icon: const Icon(Icons.settings_outlined),
+            icon: const Icon(Icons.tune_rounded),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 5),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-                    future: _future,
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState != ConnectionState.done &&
-                          !snapshot.hasData) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      if (snapshot.hasError && !snapshot.hasData) {
-                        return _StateMessage(
-                          icon: Icons.wifi_off_rounded,
-                          title: 'Couldn’t load matches',
-                          subtitle: 'Check the connection and try again.',
-                          onPressed: refresh,
-                        );
-                      }
-                      final matches = snapshot.data ?? const [];
-                      if (matches.isEmpty) {
-                        return _StateMessage(
-                          icon: Icons.sports_soccer_outlined,
-                          title: 'No matches now',
-                          subtitle: 'Selected big matches will appear here.',
-                          onPressed: refresh,
-                        );
-                      }
-                      return RefreshIndicator(
-                        onRefresh: refresh,
-                        child: ListView.separated(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(14, 10, 14, 28),
-                          itemCount: matches.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 12),
-                          itemBuilder: (context, index) {
-                            final m = matches[index];
-                            final links = playableLinks(m['stream_links']);
-                            final nativeLinkCount = links.where((x) {
-                              if (x['use_webview'] == true) return false;
-                              return (x['stream_url']?.toString() ?? '')
-                                  .trim()
-                                  .isNotEmpty;
-                            }).length;
-                            final fallbackCount =
-                                (m['stream_count'] as num?)?.toInt() ?? 0;
-                            // The embedded mirror can intentionally
-                            // omit protected/keyed lines. Never let its
-                            // partial count hide the authoritative Admin
-                            // stream_count shown on the match card.
-                            final displayCount = nativeLinkCount > fallbackCount
-                                ? nativeLinkCount
-                                : fallbackCount;
-                            return _MatchCard(
-                              match: m,
-                              canWatch: displayCount > 0,
-                              linkCount: displayCount,
-                              onWatch: () => openPlayer(m),
-                            );
-                          },
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done &&
+              !snapshot.hasData) {
+            return const _PremiumLoading();
+          }
+          if (snapshot.hasError && !snapshot.hasData) {
+            return _StateMessage(
+              icon: Icons.vpn_key_off_outlined,
+              title: 'Live feed unavailable',
+              subtitle: 'Connect VPN, then tap refresh.',
+              onPressed: refresh,
+            );
+          }
+
+          final matches = snapshot.data ?? const <Map<String, dynamic>>[];
+          if (matches.isEmpty) {
+            return _StateMessage(
+              icon: Icons.sports_soccer_outlined,
+              title: 'No featured matches',
+              subtitle: 'New live picks will appear here automatically.',
+              onPressed: refresh,
+            );
+          }
+
+          final liveCount =
+              matches.where((m) => m['is_live'] == true).length;
+
+          return RefreshIndicator(
+            onRefresh: refresh,
+            child: ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
+              itemCount: matches.length + 1,
+              separatorBuilder: (_, index) =>
+                  SizedBox(height: index == 0 ? 14 : 12),
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return _FeedHeader(
+                    totalCount: matches.length,
+                    liveCount: liveCount,
+                  );
+                }
+
+                final m = matches[index - 1];
+                final links = playableLinks(m['stream_links']);
+                final nativeLinkCount = links.where((x) {
+                  if (x['use_webview'] == true) return false;
+                  return (x['stream_url']?.toString() ?? '')
+                      .trim()
+                      .isNotEmpty;
+                }).length;
+                final fallbackCount =
+                    (m['stream_count'] as num?)?.toInt() ?? 0;
+                final displayCount = nativeLinkCount > fallbackCount
+                    ? nativeLinkCount
+                    : fallbackCount;
+                final kickoff = DateTime.tryParse(
+                  m['kickoff_at']?.toString() ?? '',
+                )?.toLocal();
+                final canWatch = displayCount > 0;
+
+                return PremiumMatchCard(
+                  league: (m['league'] ?? 'Football').toString(),
+                  homeName: (m['home_team'] ?? 'Home').toString(),
+                  awayName: (m['away_team'] ?? 'Away').toString(),
+                  homeLogo: m['home_logo_url']?.toString(),
+                  awayLogo: m['away_logo_url']?.toString(),
+                  kickoff: kickoff,
+                  isLive: m['is_live'] == true,
+                  canWatch: canWatch,
+                  metaLabel: canWatch
+                      ? displayCount.toString() +
+                          ' available ' +
+                          (displayCount == 1 ? 'line' : 'lines')
+                      : null,
+                  actionLabel: canWatch
+                      ? (displayCount > 1
+                          ? 'WATCH LIVE  •  ' +
+                              displayCount.toString() +
+                              ' LINES'
+                          : 'WATCH LIVE')
+                      : 'NOT READY',
+                  onWatch: () => openPlayer(m),
+                );
+              },
+            ),
+          );
+        },
       ),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: PremiumBottomNav(
         selectedIndex: 0,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.live_tv_outlined),
-            selectedIcon: Icon(Icons.live_tv_rounded),
-            label: 'Live',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.sports_soccer_outlined),
-            selectedIcon: Icon(Icons.sports_soccer_rounded),
-            label: 'Soco',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.sensors_outlined),
-            selectedIcon: Icon(Icons.sensors_rounded),
-            label: 'YYZB',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.language_outlined),
-            selectedIcon: Icon(Icons.language_rounded),
-            label: 'Fawa',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.tv_outlined),
-            selectedIcon: Icon(Icons.tv_rounded),
-            label: 'ColaTV',
-          ),
-        ],
-        onDestinationSelected: (index) async {
+        onSelected: (index) async {
           if (index == 0) {
             await refresh(silent: true);
             return;
@@ -1691,7 +1724,6 @@ class _HomePageState extends State<HomePage> {
               builder: (_) => SourceBrowserPage(source: source),
             ),
           );
-          // Returning via the Live tab must immediately resync the home feed.
           if (mounted) await refresh(silent: true);
         },
       ),
@@ -1699,223 +1731,214 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class _MatchCard extends StatelessWidget {
-  const _MatchCard({
-    required this.match,
-    required this.canWatch,
-    required this.linkCount,
-    required this.onWatch,
+class _FeedHeader extends StatelessWidget {
+  const _FeedHeader({
+    required this.totalCount,
+    required this.liveCount,
   });
 
-  final Map<String, dynamic> match;
-  final bool canWatch;
-  final int linkCount;
-  final VoidCallback onWatch;
+  final int totalCount;
+  final int liveCount;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final kickoff = DateTime.parse(match['kickoff_at']).toLocal();
-    final live = match['is_live'] == true;
 
-    return Card(
-      margin: EdgeInsets.zero,
-      elevation: live ? 2 : 0,
-      shadowColor: colors.primary.withValues(alpha: .10),
-      surfaceTintColor: Colors.transparent,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(
-          color: live
-              ? Colors.redAccent.withValues(alpha: .35)
-              : colors.outlineVariant.withValues(alpha: .4),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    (match['league'] ?? '').toString(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: colors.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                if (live)
-                  const _Pill(
-                    text: 'LIVE',
-                    color: Colors.redAccent,
-                  )
-                else
-                  _Pill(
-                    text: DateFormat('HH:mm').format(kickoff),
-                    color: colors.primary,
-                  ),
-              ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 3, 2, 0),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: Colors.redAccent.withValues(alpha: .10),
+              borderRadius: BorderRadius.circular(14),
             ),
-            const SizedBox(height: 9),
-            Row(
+            child: const Icon(
+              Icons.bolt_rounded,
+              color: Colors.redAccent,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: _Team(
-                    name: '${match['home_team']}',
-                    logo: match['home_logo_url']?.toString(),
+                const Text(
+                  'Live & featured',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -.2,
                   ),
                 ),
-                SizedBox(
-                  width: 78,
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'VS',
-                          style: TextStyle(
-                            color: colors.onSurfaceVariant,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          DateFormat('dd MMM').format(kickoff),
-                          style: TextStyle(
-                            color: colors.onSurfaceVariant,
-                            fontSize: 10.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: _Team(
-                    name: '${match['away_team']}',
-                    logo: match['away_logo_url']?.toString(),
+                const SizedBox(height: 2),
+                Text(
+                  liveCount > 0
+                      ? liveCount.toString() +
+                          ' live • ' +
+                          totalCount.toString() +
+                          ' selected matches'
+                      : totalCount.toString() +
+                          ' selected matches • auto refresh',
+                  style: TextStyle(
+                    color: colors.onSurfaceVariant,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 9),
-            SizedBox(
-              width: double.infinity,
-              height: 44,
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                onPressed: canWatch ? onWatch : null,
-                icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                label: Text(
-                  canWatch
-                      ? (linkCount > 1
-                          ? 'WATCH LIVE  •  $linkCount LINES'
-                          : 'WATCH LIVE')
-                      : 'NOT READY',
-                ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: colors.primary.withValues(alpha: .09),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: colors.primary.withValues(alpha: .16),
               ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: colors.primary,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'VPN LIVE',
+                  style: TextStyle(
+                    color: colors.primary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: .25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PremiumLoading extends StatelessWidget {
+  const _PremiumLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerHighest.withValues(alpha: .55),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: colors.outlineVariant.withValues(alpha: .24),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.4,
+                color: colors.primary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'Loading live feed…',
+              style: TextStyle(fontWeight: FontWeight.w700),
             ),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _Team extends StatelessWidget {
-  const _Team({required this.name, required this.logo});
-
-  final String name;
-  final String? logo;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final hasLogo = logo != null && logo!.trim().isNotEmpty;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: colors.surfaceContainerHighest.withValues(alpha: .5),
-            borderRadius: BorderRadius.circular(15),
-          ),
-          child: hasLogo
-              ? Image.network(
-                  logo!,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) =>
-                      const Icon(Icons.shield_outlined, size: 26),
-                )
-              : const Icon(Icons.shield_outlined, size: 26),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          name,
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  const _Pill({required this.text, required this.color});
-  final String text;
-  final Color color;
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(color: color.withValues(alpha: .10), borderRadius: BorderRadius.circular(999)),
-      child: Text(text, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w900)),
     );
   }
 }
 
 class _StateMessage extends StatelessWidget {
-  const _StateMessage({required this.icon, required this.title, required this.subtitle, required this.onPressed});
+  const _StateMessage({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onPressed,
+  });
+
   final IconData icon;
   final String title;
   final String subtitle;
   final Future<void> Function() onPressed;
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 60, color: colors.onSurfaceVariant),
-            const SizedBox(height: 14),
-            Text(title, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 8),
-            Text(subtitle, textAlign: TextAlign.center, style: TextStyle(color: colors.onSurfaceVariant)),
-            const SizedBox(height: 18),
-            FilledButton(onPressed: () => onPressed(), child: const Text('REFRESH')),
-          ],
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          padding: const EdgeInsets.fromLTRB(24, 26, 24, 22),
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: colors.outlineVariant.withValues(alpha: .28),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: colors.primary.withValues(alpha: .09),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Icon(icon, size: 29, color: colors.primary),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: colors.onSurfaceVariant,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: () => onPressed(),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('REFRESH'),
+              ),
+            ],
+          ),
         ),
       ),
     );
