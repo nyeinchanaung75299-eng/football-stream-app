@@ -116,24 +116,16 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         .order('sort_order', ascending: true)
         .order('home_team', ascending: true);
 
-    final now = DateTime.now();
-    const staleKickoffGrace = Duration(hours: 5);
-
     return List<Map<String, dynamic>>.from(data)
         .where((row) {
-          final kickoff = DateTime.tryParse(
-            row['kickoff_at']?.toString() ?? '',
-          )?.toLocal();
-          final stale = row['is_live'] != true &&
-              kickoff != null &&
-              now.difference(kickoff) > staleKickoffGrace;
-
+          // Live matches are Admin-controlled. Do not hide them from the
+          // stream editor just because kickoff passed or an automated status
+          // says finished; Admin must still be able to edit/delete the match
+          // and its individual stream lines.
           return row['deleted_at'] == null &&
               row['is_active'] == true &&
-              row['is_finished'] != true &&
               row['is_featured'] != false &&
-              (row['publish_state'] ?? 'published') == 'published' &&
-              !stale;
+              (row['publish_state'] ?? 'published') == 'published';
         })
         .toList();
   }
