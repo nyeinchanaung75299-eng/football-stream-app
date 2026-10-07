@@ -99,30 +99,20 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 
   Future<List<Map<String, dynamic>>> _loadColaFixtures() async {
     dynamic data;
-    try {
-      // Pick Big Matches is read-only at this stage, so prefer the GitHub
-      // mirror when Cloudflare/Supabase is blocked without VPN.
-      data = await _loadColaMirror();
-      final mirrorRows = data is Map ? data['matches'] : null;
-      if (mirrorRows is List && mirrorRows.isEmpty) {
-        try {
-          final liveData = await FunctionGateway.invoke(
-            'source-match-list',
-            body: const {'source': 'cola'},
-          );
-          final liveRows = liveData is Map ? liveData['matches'] : null;
-          if (liveRows is List && liveRows.isNotEmpty) {
-            data = liveData;
-          }
-        } catch (_) {
-          // Keep a valid empty ColaTV mirror as the no-VPN last resort.
-        }
-      }
-    } catch (_) {
+    if (!_enableNoVpnFallback) {
       data = await FunctionGateway.invoke(
         'source-match-list',
         body: const {'source': 'cola'},
       );
+    } else {
+      try {
+        data = await FunctionGateway.invoke(
+          'source-match-list',
+          body: const {'source': 'cola'},
+        );
+      } catch (_) {
+        data = await _loadColaMirror();
+      }
     }
     final raw = data is Map ? data['matches'] : null;
     if (raw is! List) {
