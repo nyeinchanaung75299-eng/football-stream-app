@@ -231,7 +231,9 @@
 
     function armStartupWatchdog(index,token){
       if(startupTimer!==null)clearTimeout(startupTimer);
-      const timeoutMs=isIOS()?12000:startupTimeoutMs;
+      const timeoutMs=isIOS()
+        ? (sourceType(sources[index]||{})==='dash'?30000:12000)
+        : startupTimeoutMs;
       startupTimer=setTimeout(()=>{
         startupTimer=null;
         if(isCurrentPlayback(token) && awaitingPlayToken!==token){
@@ -808,6 +810,13 @@
             }
           };
           if(iosDash){
+            // A 2s MPD live delay leaves too little data ahead of Safari's
+            // playhead when a segment or its WebCrypto decryption is delayed.
+            shakaConfig.manifest.defaultPresentationDelay=20;
+            shakaConfig.manifest.dash.ignoreSuggestedPresentationDelay=true;
+            shakaConfig.streaming.rebufferingGoal=4;
+            shakaConfig.streaming.bufferingGoal=20;
+            shakaConfig.streaming.segmentPrefetchLimit=3;
             shakaConfig.abr={
               enabled:true,
               useNetworkInformation:false,

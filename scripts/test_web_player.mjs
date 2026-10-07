@@ -454,11 +454,26 @@ test('startup stalls fall back to HLS and ignore a late old load completion', as
   const opening = h.open([dash, hls]);
   await flush();
   assert.equal(h.loads.length, 1);
-  await h.tick(30000);
+  await h.tick(32000);
   assert.equal(failures(h)[0].properties.reason, 'startup_timeout');
   assert.deepEqual(h.plays, [hls.url]);
   gate.resolve(); await opening;
   assert.deepEqual(h.plays, [hls.url], 'Stale load must not play the old source');
+});
+
+test('iOS DASH allows a slow buffered startup without replacing the chosen line', async () => {
+  const dash = source('dash'), backup = source('hls'), gate = deferred();
+  const h = createHarness({ plans: { [dash.url]: { loadGate: gate } } });
+  const opening = h.open([dash, backup]);
+  await flush();
+  await h.tick(20000);
+  assert.equal(failures(h).length, 0);
+  assert.deepEqual(h.plays, []);
+  gate.resolve();
+  await opening;
+  await h.tick(15000);
+  assert.deepEqual(h.plays, [dash.url]);
+  assert.equal(h.overlay.classList.contains('open'), true);
 });
 
 test('iOS live streams give segment retries time, recover once, then use backup while respecting pause', async () => {
