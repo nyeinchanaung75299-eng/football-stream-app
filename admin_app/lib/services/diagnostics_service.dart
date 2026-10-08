@@ -42,9 +42,17 @@ class DiagnosticsService {
   void close() => _client.close();
 
   Future<dynamic> _getJson(String url) async {
-    final response = await _client.get(Uri.parse(url), headers: const {
+    final uri = Uri.parse(url);
+    // GitHub's raw-file endpoint does not allow a Cache-Control preflight.
+    // Use a fresh URL and a CORS-safe request instead, including on iOS Web.
+    final target = uri.host == 'raw.githubusercontent.com'
+        ? uri.replace(queryParameters: {
+            ...uri.queryParameters,
+            '_check': DateTime.now().millisecondsSinceEpoch.toString(),
+          })
+        : uri;
+    final response = await _client.get(target, headers: const {
       'Accept': 'application/json',
-      'Cache-Control': 'no-cache',
     }).timeout(const Duration(seconds: 8));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw StateError('HTTP ${response.statusCode}');
