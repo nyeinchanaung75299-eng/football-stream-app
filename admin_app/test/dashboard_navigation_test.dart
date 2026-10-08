@@ -42,6 +42,10 @@ void main() {
     final methods = <String>[];
     final service = DiagnosticsService(client: MockClient((request) async {
       methods.add(request.method);
+      expect(request.headers.containsKey('cache-control'), isFalse);
+      if (request.url.host == 'raw.githubusercontent.com') {
+        expect(request.url.queryParameters.containsKey('_check'), isTrue);
+      }
       final path = request.url.path;
       if (path == '/service-health') {
         return http.Response('''{"results":[
