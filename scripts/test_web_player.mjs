@@ -478,8 +478,17 @@ test('iOS keeps native controls plus compact line and quality strip during rotat
   assert.equal(h.overlay.classList.contains('ios-native-mode'), true);
   assert.equal(h.video.controls, true);
   assert.equal(h.video.classList.contains('nca-custom-fullscreen'), false);
-  assert.equal(h.elements.get('football-player-server').disabled, false);
-  assert.equal(h.elements.get('football-player-quality').disabled, false);
+
+  const menu = h.elements.get('football-player-menu');
+  h.elements.get('football-player-server').click(); await flush();
+  assert.equal(menu.classList.contains('hidden'), false);
+  h.elements.get('football-player-server').click(); await flush();
+  assert.equal(menu.classList.contains('hidden'), true);
+
+  h.elements.get('football-player-quality').click(); await flush();
+  assert.equal(menu.classList.contains('hidden'), false);
+  h.elements.get('football-player-quality').click(); await flush();
+  assert.equal(menu.classList.contains('hidden'), true);
 
   h.window.emit('resize'); await flush();
 
