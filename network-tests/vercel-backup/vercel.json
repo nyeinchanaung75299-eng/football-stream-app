@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "regions": ["sin1"],
+  "functions": { "api/proxy.js": { "maxDuration": 60 } },
+  "rewrites": [
+    { "source": "/", "destination": "/api/proxy?route=" },
+    { "source": "/health", "destination": "/api/proxy?route=health" },
+    { "source": "/matches", "destination": "/api/proxy?route=matches" },
+    { "source": "/backend-health", "destination": "/api/proxy?route=backend-health" },
+    { "source": "/matches/:id/streams", "destination": "/api/proxy?route=matches/:id/streams" },
+    { "source": "/p/:path*", "destination": "/api/proxy?route=p/:path*" }
+  ]
+}

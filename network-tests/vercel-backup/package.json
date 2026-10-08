@@ -1,0 +1,6 @@
+{
+  "name": "nca-vercel-network-backup-test",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.x" }
+}
