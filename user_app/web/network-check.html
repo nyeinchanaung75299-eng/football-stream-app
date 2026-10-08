@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="my">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>NCA Network Route Test</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#071510;color:#edf6f1;font:16px/1.7 system-ui,-apple-system,sans-serif}main{max-width:720px;margin:auto;padding:20px 16px 40px}h1{font-size:24px;margin:8px 0}p{color:#bbc9c1}label{display:block;margin:12px 0 4px}input,select,button{font:inherit;border-radius:9px;padding:10px 12px;border:1px solid #385044;background:#10271c;color:#fff}input,select{width:100%}button{cursor:pointer;min-height:44px}button:disabled{opacity:.5;cursor:default}.actions{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}.primary{background:#167449}.card{margin:12px 0;padding:14px;background:#102219;border:1px solid #294032;border-radius:12px}.card h2{font-size:16px;margin:0;overflow-wrap:anywhere}.detail{font-size:14px;color:#bcc8c1;margin-top:8px;overflow-wrap:anywhere}.ok{border-color:#48c78e}.partial{border-color:#ddb44b}.fail{border-color:#d88787}.host{font-size:12px;color:#9caea3;overflow-wrap:anywhere}#status{min-height:28px}textarea{width:100%;min-height:160px;background:#0b1c13;color:#d7e9df;border:1px solid #385044;border-radius:9px;padding:12px;font:12px/1.6 monospace}a{color:#89dbb3}:focus-visible{outline:2px solid #8ee1b9;outline-offset:3px}
+  </style>
+  <style>
+    select{-webkit-appearance:none;appearance:none;color-scheme:dark;background-color:#10271c;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M3 5l4 4 4-4' fill='none' stroke='%23d7e9df' stroke-width='2'/%3E%3C/svg%3E");background-position:right 12px center;background-repeat:no-repeat;background-size:14px;padding-right:36px}
+  </style>
+</head>
+<body>
+<main>
+  <a href="./">← NCA Website</a>
+  <h1>Network Route Test</h1>
+  <p>ATOM mobile data မှာ VPN ပိတ်ပြီး စမ်းပါ။ API၊ stream manifest နဲ့ video data အနည်းငယ်ကို စစ်ပေးမယ်။</p>
+  <label for="provider">Internet provider</label>
+  <input id="provider" value="ATOM" maxlength="60">
+  <label for="vpn">VPN အခြေအနေ — ကိုယ်တိုင်ရွေးရန်</label>
+  <select id="vpn"><option value="off">VPN ပိတ်ထားပါတယ်</option><option value="on">VPN ဖွင့်ထားပါတယ်</option></select>
+  <div class="actions"><button id="run" class="primary" type="button">စစ်မယ်</button><button id="copy" type="button" disabled>ရလဒ် Copy</button></div>
+  <div id="status" role="status" aria-live="polite">စစ်မယ် ခလုတ်နှိပ်ပါ။ စမ်းသပ်ချိန် ၃၀–၆၀ စက္ကန့်ခန့်ပါ။</div>
+  <div id="results"></div>
+  <p>အစိမ်းရောင်က စစ်ထားတဲ့ request တွေ အောင်တာကို ပြပါတယ်။ တောက်လျှောက် video ကြည့်နိုင်မှုကိုတော့ သီးခြားစမ်းရပါမယ်။</p>
+  <textarea id="summary" readonly hidden aria-label="Network test results"></textarea>
+</main>
+<script>
+(() => {
+  const routes=[
+    {label:'Pages backup',base:'https://nca-network-backup.pages.dev',kind:'api'},
+    {label:'Current API • us.ci',base:'https://football-api.nyeinchanaung.us.ci',kind:'api'},
+    {label:'Current API • ccwu.cc',base:'https://football-api.nyeinchanaung.ccwu.cc',kind:'api'},
+    {label:'Worker domain',base:'https://football-public-api.nyeinchanaung75299-eng.workers.dev',kind:'api'},
+    {label:'Supabase relay • us.ci',base:'https://supabase-api.nyeinchanaung.us.ci',kind:'backend'},
+    {label:'Supabase relay • ccwu.cc',base:'https://supabase-api.nyeinchanaung.ccwu.cc',kind:'backend'},
+  ];
+  const run=document.getElementById('run'),copy=document.getElementById('copy');
+  const status=document.getElementById('status'),list=document.getElementById('results');
+  const summary=document.getElementById('summary');
+  let report=null;
+
+  async function request(url,{sample=false,limit=2*1024*1024}={}){
+    const controller=new AbortController(),start=performance.now();
+    const timer=setTimeout(()=>controller.abort(),12000);
+    let reader;
+    try{
+      const response=await fetch(url,{signal:controller.signal,credentials:'omit',cache:'no-store',
+        headers:sample?{Range:'bytes=0-1023',Accept:'*/*'}:{Accept:'application/json,application/dash+xml,application/vnd.apple.mpegurl,*/*'}});
+      if(!response.ok)throw new Error('HTTP '+response.status);
+      reader=response.body.getReader();
+      const chunks=[];let bytes=0;
+      for(;;){
+        const part=await reader.read();
+        if(part.done)break;
+        bytes+=part.value.byteLength;
+        if(bytes>limit)throw new Error('Response too large for this test');
+        chunks.push(part.value);
+        if(sample && bytes>0)break;
+      }
+      const buffer=new Uint8Array(bytes);let offset=0;
+      for(const part of chunks){buffer.set(part,offset);offset+=part.byteLength;}
+      return {text:sample?'':new TextDecoder().decode(buffer),bytes,ms:Math.round(performance.now()-start),status:response.status};
+    }catch(error){
+      if(error.name==='AbortError')throw new Error('Timeout • 12 seconds');
+      if(error.name==='TypeError')throw new Error('Browser connection failed • CORS / DNS / network');
+      throw error;
+    }finally{
+      clearTimeout(timer);
+      try{await reader?.cancel();}catch(_){}
+      controller.abort();
+    }
+  }
+
+  function mediaUrl(text,manifestUrl){
+    if(text.trimStart().startsWith('#EXTM3U')){
+      const map=text.match(/#EXT-X-MAP:.*?URI="([^"]+)"/);
+      const line=map?.[1] || text.split(/\r?\n/).map(x=>x.trim()).find(x=>x && !x.startsWith('#'));
+      return line?new URL(line,manifestUrl):null;
+    }
+    const doc=new DOMParser().parseFromString(text,'application/xml');
+    if(doc.getElementsByTagName('parsererror').length)return null;
+    const templates=[...doc.getElementsByTagNameNS('*','SegmentTemplate')];
+    const node=templates.find(x=>x.hasAttribute('initialization')) ||
+      doc.getElementsByTagNameNS('*','Initialization')[0] || doc.getElementsByTagNameNS('*','SegmentURL')[0];
+    if(!node)return null;
+    let rep=node.parentElement.closest('Representation');
+    if(!rep)rep=node.parentElement.getElementsByTagNameNS('*','Representation')[0];
+    const parents=[];for(let parent=rep || node.parentElement;parent;parent=parent.parentElement)parents.unshift(parent);
+    let base=new URL(manifestUrl);
+    for(const parent of parents){
+      const child=[...parent.children].find(x=>x.localName==='BaseURL');
+      if(child?.textContent.trim())base=new URL(child.textContent.trim(),base);
+    }
+    const path=(node.getAttribute('initialization') || node.getAttribute('sourceURL') || node.getAttribute('media') || '')
+      .replaceAll('$RepresentationID$',rep?.getAttribute('id') || '0')
+      .replaceAll('$Bandwidth$',rep?.getAttribute('bandwidth') || '0');
+    return path && !path.includes('$')?new URL(path,base):null;
+  }
+
+  async function check(route,row){
+    const result={route:route.label,host:new URL(route.base).host,status:'fail',steps:[]};
+    const detail=row.querySelector('.detail');
+    const step=async(name,url,options)=>{
+      detail.textContent=name+' စစ်နေပါတယ်…';
+      const response=await request(url,options);
+      result.steps.push({test:name,http:response.status,ms:response.ms,bytes:response.bytes});
+      return response;
+    };
+    try{
+      const health=JSON.parse((await step('Health',route.base+'/health')).text);
+      const expectedService=route.kind==='backend'?'supabase-relay':'football-public-api';
+      if(health.ok!==true || health.service!==expectedService)throw new Error('Unexpected health response');
+      if(route.kind==='backend'){
+        result.status='ok';detail.textContent='Backend health ရပါတယ်';return result;
+      }
+      const matches=JSON.parse((await step('Match list',route.base+'/matches')).text);
+      const rows=Array.isArray(matches)?matches:matches.matches;
+      if(!Array.isArray(rows))throw new Error('Invalid match list');
+      result.api=true;
+      const match=rows.find(x=>x.id && Number(x.stream_count)>0);
+      if(!match)throw new Error('API OK • လက်ရှိ စမ်းဖို့ stream မရှိပါ');
+      const streams=JSON.parse((await step('Stream API',route.base+'/matches/'+encodeURIComponent(match.id)+'/streams')).text);
+      const line=streams.streams?.find(x=>['dash','mpd','hls','m3u8'].includes(String(x.stream_type).toLowerCase()) && x.stream_url);
+      if(!line)throw new Error('API OK • HLS/DASH စမ်းဖို့ line မရှိပါ');
+      result.line=String(line.label || 'Line').slice(0,80);
+      const manifestUrl=new URL(line.stream_url);
+      if(manifestUrl.origin!==route.base)throw new Error('Stream points to a different API host');
+      let manifest=(await step('Manifest',manifestUrl)).text;
+      let next=mediaUrl(manifest,manifestUrl);
+      result.manifest=manifest.trimStart().startsWith('#EXTM3U') || /<(?:[A-Za-z_][\w.-]*:)?MPD[\s>]/.test(manifest);
+      if(!result.manifest || !next)throw new Error('Manifest ရပေမယ့် media URL ကို မစမ်းနိုင်သေးပါ');
+      if(next.origin!==route.base)throw new Error('Media points to a different API host');
+      // A master HLS playlist may point to a child playlist. Resolve one
+      // level before sampling a media chunk, without downloading full video.
+      if(manifest.trimStart().startsWith('#EXTM3U') && !manifest.includes('#EXTINF') && !manifest.includes('#EXT-X-MAP')){
+        const child=(await step('HLS playlist',next)).text;
+        next=mediaUrl(child,next);
+        if(!next || next.origin!==route.base)throw new Error('No media URL on this route');
+      }
+      const media=await step('Video data',next,{sample:true});
+      if(!media.bytes)throw new Error('Media response was empty');
+      result.media=true;result.status='ok';detail.textContent='API + manifest + video data ရပါတယ် • '+result.line;
+    }catch(error){
+      result.status=result.api?'partial':'fail';
+      result.error=error.name==='SyntaxError'?'Invalid JSON response':String(error.message).replace(/https?:\/\/\S+/g,'[URL]').slice(0,160);
+      detail.textContent=(result.api?'API ရပါတယ် • ':'')+result.error;
+    }finally{row.className='card '+result.status;}
+    return result;
+  }
+
+  run.addEventListener('click',async()=>{
+    run.disabled=true;copy.disabled=true;list.replaceChildren();summary.hidden=true;
+    const provider=document.getElementById('provider').value.trim() || 'Unknown';
+    const vpn=document.getElementById('vpn').value;
+    document.getElementById('provider').disabled=true;document.getElementById('vpn').disabled=true;
+    status.textContent='စစ်နေပါတယ်…';
+    report={version:1,provider,vpn,time:new Date().toISOString(),results:[]};
+    const pending=routes.map(route=>{
+      const row=document.createElement('section');row.className='card';
+      const heading=document.createElement('h2');heading.textContent=route.label;
+      const host=document.createElement('div');host.className='host';host.textContent=new URL(route.base).host;
+      const detail=document.createElement('div');detail.className='detail';
+      row.append(heading,host,detail);list.append(row);return check(route,row);
+    });
+    const mirror=document.createElement('section');mirror.className='card';mirror.textContent='GitHub mirror စစ်နေပါတယ်…';list.prepend(mirror);
+    pending.push((async()=>{
+      try{
+        const response=await request(new URL('matches.json',location.href));
+        const data=JSON.parse(response.text);
+        if(!Array.isArray(data))throw new Error('Invalid feed');
+        mirror.className='card ok';mirror.textContent='GitHub mirror ရပါတယ် • '+response.ms+' ms';
+        return {route:'GitHub mirror',status:'ok',ms:response.ms,http:response.status};
+      }catch(error){mirror.className='card fail';mirror.textContent='GitHub mirror မရပါ';return {route:'GitHub mirror',status:'fail',error:error.message};}
+    })());
+    report.results=await Promise.all(pending);
+    const good=report.results.filter(x=>x.media).map(x=>x.route);
+    status.textContent=good.length?'Video data ရတဲ့ route: '+good.join(', '):'ပြီးပါပြီ။ ရလဒ်ကို Copy လုပ်ပြီး ပြန်ပို့ပါ။';
+    summary.value=JSON.stringify(report,null,2);summary.hidden=false;
+    run.disabled=false;copy.disabled=false;
+    document.getElementById('provider').disabled=false;document.getElementById('vpn').disabled=false;
+  });
+  copy.addEventListener('click',async()=>{
+    try{await navigator.clipboard.writeText(summary.value);status.textContent='ရလဒ် Copy လုပ်ပြီးပါပြီ';}
+    catch(_){summary.focus();summary.select();status.textContent='အောက်ကစာကို ရွေးပြီး Copy လုပ်ပါ';}
+  });
+})();
+</script>
+</body>
+</html>
