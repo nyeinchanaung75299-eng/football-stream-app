@@ -19,6 +19,31 @@
        removes this class at runtime so the native iOS fullscreen control is
        available and system portrait/landscape rotation owns the video. */
     #football-player-video.nca-custom-fullscreen::-webkit-media-controls-fullscreen-button{display:none!important}
+
+    /* iPhone keeps Apple's native video UI, plus only the NCA controls that
+       iOS does not provide: Back, stream line, and adaptive quality. Keep the
+       strip in normal layout so it never covers Apple's fullscreen controls. */
+    #football-player-overlay.ios-native-mode #football-player-topbar{
+      position:relative;top:auto;left:auto;right:auto;z-index:4;
+      min-height:44px;flex:0 0 auto;display:flex;align-items:center;
+      gap:6px;padding:4px 8px;background:#000;flex-wrap:nowrap;
+      opacity:1!important;pointer-events:auto!important;transition:none
+    }
+    #football-player-overlay.ios-native-mode #football-player-title,
+    #football-player-overlay.ios-native-mode #football-player-fit,
+    #football-player-overlay.ios-native-mode #football-player-rotate,
+    #football-player-overlay.ios-native-mode #football-player-fullscreen{
+      display:none!important
+    }
+    #football-player-overlay.ios-native-mode #football-player-close,
+    #football-player-overlay.ios-native-mode #football-player-server,
+    #football-player-overlay.ios-native-mode #football-player-quality{
+      display:inline-flex!important;align-items:center;justify-content:center;
+      min-height:36px;padding:0 10px;font-size:12px;max-width:132px
+    }
+    #football-player-overlay.ios-native-mode #football-player-menu{
+      top:48px;left:8px;right:8px;width:auto;max-height:56vh
+    }
     #football-player-message{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);max-width:min(680px,88vw);padding:12px 16px;border-radius:12px;background:rgba(0,0,0,.72);color:#fff;text-align:center;line-height:1.4;display:none}
     .football-control{min-height:38px;padding:0 12px;border:1px solid rgba(255,255,255,.22);border-radius:10px;color:#fff;background:#171717;font-weight:800}
     button.football-control{cursor:pointer}
@@ -199,15 +224,13 @@
       const systemRotationOnly=isIOS();
       const topbar=document.getElementById('football-player-topbar');
 
-      rotateButton.style.display=systemRotationOnly?'none':'';
-      fullscreenButton.style.display=systemRotationOnly?'none':'';
-
       if(systemRotationOnly){
-        // iPhone uses only Apple's native video controls. The website toolbar
-        // must not cover the inline native controls before fullscreen.
+        // Keep Apple's native player/fullscreen/system rotation, and retain
+        // only Back + Line + Quality as a compact strip outside the video.
         clearManualRotation();
         closePlayerMenu();
-        if(topbar)topbar.style.display='none';
+        overlay.classList.add('ios-native-mode');
+        topbar?.classList.remove('controls-hidden');
 
         video.controls=true;
         video.classList.remove('nca-custom-fullscreen');
@@ -216,6 +239,7 @@
         video.removeAttribute('disableremoteplayback');
         video.setAttribute('x-webkit-airplay','allow');
       }else{
+        overlay.classList.remove('ios-native-mode');
         if(topbar)topbar.style.display='';
         video.classList.add('nca-custom-fullscreen');
         video.setAttribute(
