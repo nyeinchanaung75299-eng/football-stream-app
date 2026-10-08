@@ -23,7 +23,7 @@ class _EditLivePageState extends State<EditLivePage> {
 
   void reloadMatches() {
     if (!mounted) return;
-    setState(() => _matchesFuture = load());
+    setState(() { _matchesFuture = load(); });
   }
 
   String sectionLabel(DateTime value) {
@@ -45,7 +45,8 @@ class _EditLivePageState extends State<EditLivePage> {
           'id,league,home_team,away_team,home_logo_url,away_logo_url,'
           'kickoff_at,sort_order,is_live,is_active,is_featured,publish_state,'
           'deleted_at',
-        );
+        )
+        .timeout(const Duration(seconds: 8));
 
     final rows = List<Map<String, dynamic>>.from(data)
         .where((row) => row['deleted_at'] == null)
@@ -300,6 +301,13 @@ class _EditLivePageState extends State<EditLivePage> {
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _matchesFuture,
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Could not load matches. Check your connection and retry.'),
+              const SizedBox(height: 12),
+              FilledButton(onPressed: reloadMatches, child: const Text('Retry')),
+            ]));
+          }
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
           final rows = snapshot.data!;
           if (rows.isEmpty) return const Center(child: Text('No matches yet.'));

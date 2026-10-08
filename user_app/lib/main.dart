@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,6 +10,15 @@ import 'theme_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final backendReady = _initializeBackend();
+  runApp(FootballViewerApp(backendReady: backendReady));
+
+  // Render the app before optional network/storage setup finishes.
+  unawaited(_loadTheme());
+  unawaited(AnalyticsService.initialize());
+}
+
+Future<void> _initializeBackend() async {
   const directUrl = 'https://woggzixprvyjnfjzsglz.supabase.co';
   const anonKey = 'sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O';
 
@@ -22,16 +32,18 @@ Future<void> main() async {
     // Supabase is optional for Viewer startup. Cloudflare/GitHub fallbacks
     // keep the public match list usable on restricted networks.
   }
+}
+
+Future<void> _loadTheme() async {
   try {
     await AppThemeController.instance.load();
   } catch (_) {}
-  await AnalyticsService.initialize();
-
-  runApp(const FootballViewerApp());
 }
 
 class FootballViewerApp extends StatelessWidget {
-  const FootballViewerApp({super.key});
+  const FootballViewerApp({super.key, this.backendReady});
+
+  final Future<void>? backendReady;
 
   @override
   Widget build(BuildContext context) {
@@ -45,7 +57,7 @@ class FootballViewerApp extends StatelessWidget {
           darkTheme: AppTheme.dark(),
           themeMode: AppThemeController.instance.mode,
           navigatorObservers: [PosthogObserver()],
-          home: const HomePage(),
+          home: HomePage(backendReady: backendReady),
         );
       },
     );

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -12,6 +13,7 @@ class AppUpdateService {
   AppUpdateService._();
 
   static bool _checked = false;
+  static bool _downloading = false;
 
   static const _manifestUrls = <String>[
     'https://nyeinchanaung75299-eng.github.io/'
@@ -58,8 +60,7 @@ class AppUpdateService {
 
           final latestVersion =
               decoded['version_name']?.toString().trim() ?? '';
-          final latestBuild =
-              decoded['build_number']?.toString().trim() ?? '';
+          final latestBuild = decoded['build_number']?.toString().trim() ?? '';
           if (latestVersion.isEmpty && latestBuild.isEmpty) {
             return 'Installed $installed';
           }
@@ -77,10 +78,7 @@ class AppUpdateService {
     }
   }
 
-  static Future<void> check(
-    BuildContext context, {
-    bool force = false,
-  }) async {
+  static Future<void> check(BuildContext context, {bool force = false}) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
       return;
     }
@@ -160,17 +158,14 @@ class AppUpdateService {
         return;
       }
 
-      final version =
-          data['version_name']?.toString().trim().isNotEmpty == true
-              ? data['version_name'].toString()
-              : 'new version';
+      final version = data['version_name']?.toString().trim().isNotEmpty == true
+          ? data['version_name'].toString()
+          : 'new version';
       final apkUrl = data['apk_url']?.toString().trim() ?? '';
-      final apkSha256 =
-          data['sha256']?.toString().trim().toLowerCase() ?? '';
+      final apkSha256 = data['sha256']?.toString().trim().toLowerCase() ?? '';
       final notes = data['notes']?.toString().trim() ?? '';
       final mandatory = data['mandatory'] == true;
-      final validHash =
-          RegExp(r'^[0-9a-f]{64}$').hasMatch(apkSha256);
+      final validHash = RegExp(r'^[0-9a-f]{64}$').hasMatch(apkSha256);
 
       if (apkUrl.isEmpty || !validHash) {
         await AnalyticsService.capture(
@@ -225,10 +220,7 @@ class AppUpdateService {
               onPressed: () {
                 AnalyticsService.capture(
                   'update accepted',
-                  properties: {
-                    'latest_build': latestBuild,
-                    'version': version,
-                  },
+                  properties: {'latest_build': latestBuild, 'version': version},
                 );
                 Navigator.pop(dialogContext);
                 _download(context, apkUrl, apkSha256);
@@ -259,15 +251,16 @@ class AppUpdateService {
     String apkUrl,
     String apkSha256,
   ) async {
+    if (_downloading || !context.mounted) return;
+    _downloading = true;
     final progress = ValueNotifier<double>(0);
-
-    await AnalyticsService.capture('update download started');
-
-    if (context.mounted) {
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => ValueListenableBuilder<double>(
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final route = DialogRoute<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => PopScope(
+        canPop: false,
+        child: ValueListenableBuilder<double>(
           valueListenable: progress,
           builder: (context, value, _) => AlertDialog(
             title: const Text('Downloading NCA update'),
@@ -287,10 +280,12 @@ class AppUpdateService {
             ),
           ),
         ),
-      );
-    }
+      ),
+    );
+    unawaited(navigator.push(route));
 
     try {
+      await AnalyticsService.capture('update download started');
       await downloadAndInstallApk(
         apkUrl,
         expectedSha256: apkSha256,
@@ -300,9 +295,6 @@ class AppUpdateService {
         'update download completed',
         properties: {'sha256_verified': true},
       );
-      if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).maybePop();
-      }
     } catch (error) {
       final verificationFailure =
           error.toString().toLowerCase().contains('sha-256') ||
@@ -316,7 +308,6 @@ class AppUpdateService {
         },
       );
       if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).maybePop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -328,7 +319,10 @@ class AppUpdateService {
         );
       }
     } finally {
+      // Close only this progress dialog, even if the app navigated meanwhile.
+      if (route.isActive) navigator.removeRoute(route);
       progress.dispose();
+      _downloading = false;
     }
   }
 }

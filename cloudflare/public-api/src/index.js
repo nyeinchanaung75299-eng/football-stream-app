@@ -135,21 +135,23 @@ async function handleSupabaseRelay(request, env) {
     }
 
     try {
-      const upstream = new URL(base.replace(/\/+$/, "") + "/rest/v1/");
-      const response = await fetch(upstream, {
+      // The REST root is an OpenAPI endpoint and can return 401 for a valid
+      // publishable key. Probe Auth health instead of declaring that healthy.
+      const upstream = new URL(base.replace(/\/+$/, "") + "/auth/v1/health");
+      const { status } = await fetchJsonWithTimeout(upstream, {
         method: "GET",
         headers: {
           apikey: publishableKey,
           Accept: "application/json",
         },
         redirect: "follow",
-      });
+      }, 2500);
       return json({
-        ok: response.status >= 200 && response.status < 500,
+        ok: true,
         service: "supabase-relay",
-        upstream_status: response.status,
+        upstream_status: status,
         now: new Date().toISOString(),
-      }, response.status >= 200 && response.status < 500 ? 200 : 502, {
+      }, 200, {
         "Cache-Control": "no-store",
       });
     } catch (error) {
@@ -588,19 +590,25 @@ async function loadMatchRows(env) {
       matchesUrl.searchParams.set("is_featured", "eq.true");
       matchesUrl.searchParams.set("order", "kickoff_at.asc,sort_order.asc");
 
-      const matchesResponse = await fetch(matchesUrl, { headers });
-      if (matchesResponse.ok) {
-        const matches = await matchesResponse.json();
+      const countsUrl = new URL(
+        base.replace(/\/+$/, "") + "/rest/v1/match_stream_counts",
+      );
+      countsUrl.searchParams.set("select", "match_id,stream_count");
 
-        const countsUrl = new URL(
-          base.replace(/\/+$/, "") + "/rest/v1/match_stream_counts",
-        );
-        countsUrl.searchParams.set("select", "match_id,stream_count");
-
-        const countsResponse = await fetch(countsUrl, { headers });
-        const counts = countsResponse.ok ? await countsResponse.json() : [];
-
+      const [matchResult, countResult] = await Promise.allSettled([
+        fetchJsonWithTimeout(matchesUrl, { headers }),
+        fetchJsonWithTimeout(countsUrl, { headers }),
+      ]);
+      if (matchResult.status === "fulfilled") {
+        const matches = matchResult.value.data;
         if (Array.isArray(matches)) {
+          // No matches remains authoritative even if counts are unavailable.
+          if (matches.length === 0) return { source: "supabase", rows: [] };
+          if (countResult.status !== "fulfilled" ||
+              !Array.isArray(countResult.value.data)) {
+            throw new Error("Match availability counts are unavailable.");
+          }
+          const counts = countResult.value.data;
           const byMatch = new Map();
           if (Array.isArray(counts)) {
             for (const raw of counts) {
@@ -625,13 +633,30 @@ async function loadMatchRows(env) {
   }
 
   const mirror = env.GITHUB_MIRROR_URL?.trim() || DEFAULT_MIRROR;
-  const response = await fetch(mirror, {
+  const { data: rows } = await fetchJsonWithTimeout(mirror, {
     headers: { Accept: "application/json", "Cache-Control": "no-cache" },
   });
-  if (!response.ok) throw new Error("Public match mirror unavailable.");
-  const rows = await response.json();
   if (!Array.isArray(rows)) throw new Error("Invalid mirror response.");
   return { rows, source: "github" };
+}
+
+// Keep JSON metadata deadlines active through response-body parsing, rather
+// than only until headers arrive. Media segment streaming uses its own path.
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 4000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    if (!response.ok) {
+      const error = new Error("Backend returned HTTP " + response.status);
+      error.status = response.status;
+      controller.abort();
+      throw error;
+    }
+    return { status: response.status, data: await response.json() };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function sanitizeMatchMetadata(raw) {

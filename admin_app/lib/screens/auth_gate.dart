@@ -23,7 +23,8 @@ class _AuthGateState extends State<AuthGate> {
           .from('profiles')
           .select('role')
           .eq('id', userId)
-          .maybeSingle();
+          .maybeSingle()
+          .timeout(const Duration(seconds: 8));
       return profile?['role'] == 'admin'
           ? _AdminAccess.allowed
           : _AdminAccess.denied;

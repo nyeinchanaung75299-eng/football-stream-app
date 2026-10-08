@@ -6,6 +6,7 @@ on:
     branches: [ "main" ]
     paths:
       - "cloudflare/public-api/**"
+      - "scripts/test_public_match_feed.mjs"
       - ".github/workflows/deploy-cloudflare-public-api.yml"
 
 permissions:
@@ -45,10 +46,13 @@ jobs:
       - name: Test Supabase relay
         run: node scripts/test_supabase_relay.mjs
 
+      - name: Test public match feed
+        run: node --test scripts/test_public_match_feed.mjs
+
       - name: Deploy Worker
         if: steps.cloudflare.outputs.ready == 'true'
         working-directory: cloudflare/public-api
-        run: npx --yes wrangler@4 deploy
+        run: npx --yes wrangler@4 deploy --keep-vars
 
       - name: Add Supabase publishable key to Worker
         if: steps.cloudflare.outputs.ready == 'true' && env.SUPABASE_PUBLISHABLE_KEY != ''
