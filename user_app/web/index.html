@@ -210,26 +210,33 @@
 
     function syncIOSSystemRotationControls(){
       const systemRotationOnly=isIOS();
+      const topbar=document.getElementById('football-player-topbar');
+
       rotateButton.style.display=systemRotationOnly?'none':'';
       fullscreenButton.style.display=systemRotationOnly?'none':'';
 
       if(systemRotationOnly){
-        // Use the real iPhone video player. Its native fullscreen button
-        // enters Apple's fullscreen UI, where physical device rotation owns
-        // portrait/landscape exactly like the system player.
+        // iPhone uses only Apple's native video controls. The website toolbar
+        // must not cover the inline native controls before fullscreen.
         clearManualRotation();
+        closePlayerMenu();
+        if(topbar)topbar.style.display='none';
+
         video.controls=true;
         video.classList.remove('nca-custom-fullscreen');
         video.removeAttribute('controlslist');
         video.removeAttribute('disablepictureinpicture');
         video.removeAttribute('disableremoteplayback');
+        video.setAttribute('x-webkit-airplay','allow');
       }else{
+        if(topbar)topbar.style.display='';
         video.classList.add('nca-custom-fullscreen');
         video.setAttribute(
           'controlslist',
           'nodownload nofullscreen noremoteplayback'
         );
         video.setAttribute('disablepictureinpicture','');
+        video.removeAttribute('x-webkit-airplay');
       }
     }
 
@@ -954,11 +961,13 @@
       overlay.setAttribute('aria-hidden','true');
       await destroyPlayback();
     });
-    overlay.addEventListener('pointermove',()=>{if(overlay.classList.contains('open'))revealControls()});
+    overlay.addEventListener('pointermove',()=>{
+      if(overlay.classList.contains('open')&&!isIOS())revealControls();
+    });
     overlay.addEventListener('pointerup',event=>{
       if(event.target===video||event.target===document.getElementById('football-player-video-wrap')){
         closePlayerMenu();
-        revealControls();
+        if(!isIOS())revealControls();
       }
     });
     fitButton.addEventListener('click',()=>{
@@ -1112,7 +1121,6 @@
     }
     window.addEventListener?.('resize',()=>{
       if(manualRotation)applyManualRotation();
-      if(isIOS() && overlay.classList.contains('open'))revealControls();
     });
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&overlay.classList.contains('open')&&!document.fullscreenElement)closeButton.click()});
     function normalizeIOSPlaybackRate(){
@@ -1204,7 +1212,7 @@
       clearManualRotation();
       syncIOSSystemRotationControls();
       overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');
-      hideControls();
+      if(!isIOS())hideControls();
       await loadSource(startIndex);
     };
   })();
