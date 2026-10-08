@@ -9,6 +9,7 @@ class AnalyticsService {
   static const _host = 'https://us.i.posthog.com';
 
   static bool _ready = false;
+  static bool get isReady => _ready;
 
   static Future<void> initialize() async {
     try {
@@ -20,7 +21,7 @@ class AnalyticsService {
       config.sessionReplay = false;
       config.errorTrackingConfig.captureFlutterErrors = true;
       config.errorTrackingConfig.capturePlatformDispatcherErrors = true;
-      await Posthog().setup(config);
+      await Posthog().setup(config).timeout(const Duration(seconds: 3));
       _ready = true;
       await capture('admin app opened');
     } catch (_) {
@@ -41,7 +42,7 @@ class AnalyticsService {
           'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
           ...?properties,
         },
-      );
+      ).timeout(const Duration(seconds: 1));
     } catch (_) {
       // Admin workflows must never depend on analytics delivery.
     }

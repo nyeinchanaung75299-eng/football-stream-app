@@ -20,7 +20,7 @@ class AnalyticsService {
       config.sessionReplay = false;
       config.errorTrackingConfig.captureFlutterErrors = true;
       config.errorTrackingConfig.capturePlatformDispatcherErrors = true;
-      await Posthog().setup(config);
+      await Posthog().setup(config).timeout(const Duration(seconds: 3));
       _ready = true;
       await capture('app opened');
     } catch (_) {
@@ -34,14 +34,16 @@ class AnalyticsService {
   }) async {
     if (!_ready) return;
     try {
-      await Posthog().capture(
-        eventName: eventName,
-        properties: <String, Object>{
-          'app': 'nca_viewer',
-          'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
-          ...?properties,
-        },
-      );
+      await Posthog()
+          .capture(
+            eventName: eventName,
+            properties: <String, Object>{
+              'app': 'nca_viewer',
+              'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
+              ...?properties,
+            },
+          )
+          .timeout(const Duration(seconds: 1));
     } catch (_) {
       // Analytics is best-effort only.
     }

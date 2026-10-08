@@ -7,6 +7,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../analytics_service.dart';
+import '../backend_endpoint.dart';
+import '../network_endpoints.dart';
 import '../native_player.dart';
 import 'source_browser_page.dart';
 import 'network_diagnostics_page.dart';
@@ -69,16 +71,8 @@ class _HomePageState extends State<HomePage> {
     'PUBLIC_API_BASE',
     defaultValue: 'https://football-api.nyeinchanaung.us.ci',
   );
-  static const _publicApiFallback =
-      'https://football-api.nyeinchanaung.ccwu.cc';
-  static const _publicApiBackup =
-      'https://football-public-api.nyeinchanaung75299-eng.workers.dev';
-
-  List<String> get _publicApiBases => <String>{
-        _publicApiBase.trim().replaceAll(RegExp(r'/+$'), ''),
-        _publicApiFallback,
-        _publicApiBackup,
-      }.where((base) => base.isNotEmpty).toList();
+  List<String> get _publicApiBases => publicApiBases(
+        primary: _publicApiBase, preferVercel: usesVercelBackend);
 
   static const _mirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
@@ -91,8 +85,8 @@ class _HomePageState extends State<HomePage> {
   static const _authoritativeCacheFetchedAtKey =
       'viewer_authoritative_matches_fetched_at_v1';
 
-  // Default to the fast VPN-only path. The former restricted-network
-  // mirror/cache fallback is opt-in for special builds only.
+  // Live APIs, including the Vercel transport, are authoritative. The former
+  // mirror/cache fallback remains opt-in for special builds only.
   static final bool _enableNoVpnFallback =
       const String.fromEnvironment(
         'ENABLE_NO_VPN_FALLBACK',
@@ -202,7 +196,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _subscribeToUpdates() {
-    if (_channel != null || !mounted) return;
+    // The HTTP backup cannot relay WebSockets; the existing 60-second poll
+    // keeps matches and stream metadata fresh on this route.
+    if (usesVercelBackend || _channel != null || !mounted) return;
     final supabase = _supabaseClientOrNull();
     if (supabase != null) {
       void scheduleRefresh({bool clearStreams = false}) {
@@ -822,7 +818,7 @@ class _HomePageState extends State<HomePage> {
       return rows;
     }
 
-    // Cloudflare and direct Supabase are authoritative. Race those first.
+    // Cloudflare, Vercel and Supabase are authoritative. Race those first.
     // Only fall back to GitHub after both fail, otherwise an older mirror can
     // win the race and resurrect deleted matches or stale LIVE state.
     final authoritative = <Future<_MatchLoadResult> Function()>[

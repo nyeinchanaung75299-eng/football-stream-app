@@ -1,0 +1,6 @@
+{
+  "name": "nca-network-backup",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.x" }
+}

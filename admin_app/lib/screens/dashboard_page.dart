@@ -7,9 +7,17 @@ import 'fixture_import_page.dart';
 import 'live_links_page.dart';
 import 'live_upload_page.dart';
 import 'soco_import_page.dart';
+import 'diagnostics_page.dart';
 
-class DashboardPage extends StatelessWidget {
+class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
+
+  @override
+  State<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<DashboardPage> {
+  int _tab = 0;
 
   void open(
     BuildContext context,
@@ -47,7 +55,33 @@ class DashboardPage extends StatelessWidget {
           const SizedBox(width: 6),
         ],
       ),
-      body: ListView(
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (index) => setState(() => _tab = index),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard_rounded),
+            label: 'Controls',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.network_check_rounded),
+            label: 'Diagnostics',
+          ),
+        ],
+      ),
+      body: IndexedStack(
+        index: _tab,
+        children: [
+          _controls(context, colors),
+          const DiagnosticsPage(),
+        ],
+      ),
+    );
+  }
+
+  Widget _controls(BuildContext context, ColorScheme colors) => ListView(
+        key: const PageStorageKey('admin-controls'),
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
         children: [
           Text(
@@ -66,7 +100,8 @@ class DashboardPage extends StatelessWidget {
           _ActionCard(
             icon: Icons.star_rounded,
             title: 'Pick Big Matches',
-            subtitle: 'Choose fixtures from the API and publish only selected games.',
+            subtitle:
+                'Choose fixtures from the API and publish only selected games.',
             iconColor: const Color(0xFFF59E0B),
             onTap: () => open(
               context,
@@ -114,7 +149,8 @@ class DashboardPage extends StatelessWidget {
           _ActionCard(
             icon: Icons.podcasts_rounded,
             title: 'Soco / YYZB / Fawa / ColaTV Links',
-            subtitle: 'Extract M3U8 / MPD / FLV / MP4 source links and add them to a match.',
+            subtitle:
+                'Extract M3U8 / MPD / FLV / MP4 source links and add them to a match.',
             iconColor: const Color(0xFFDC2626),
             onTap: () => open(
               context,
@@ -123,9 +159,7 @@ class DashboardPage extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
+      );
 }
 
 class _ActionCard extends StatelessWidget {

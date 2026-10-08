@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "regions": ["sin1"],
+  "functions": { "api/proxy.js": { "maxDuration": 300, "supportsCancellation": true } },
+  "rewrites": [
+    { "source": "/", "destination": "/api/proxy?route=" },
+    { "source": "/health", "destination": "/api/proxy?route=health" },
+    { "source": "/matches", "destination": "/api/proxy?route=matches" },
+    { "source": "/backend-health", "destination": "/api/proxy?route=backend-health" },
+    { "source": "/service-health", "destination": "/api/proxy?route=service-health" },
+    { "source": "/matches/:ncaId/streams", "destination": "/api/proxy?route=matches/:ncaId/streams" },
+    { "source": "/sources/:ncaSource/:ncaAction", "destination": "/api/proxy?route=sources/:ncaSource/:ncaAction" },
+    { "source": "/admin/functions/:ncaFunction", "destination": "/api/proxy?route=admin/functions/:ncaFunction" },
+    { "source": "/p/:ncaPath*", "destination": "/api/proxy?route=p/:ncaPath*" },
+    { "source": "/auth/v1/:ncaPath*", "destination": "/api/proxy?route=auth/v1/:ncaPath*" },
+    { "source": "/rest/v1/:ncaPath*", "destination": "/api/proxy?route=rest/v1/:ncaPath*" },
+    { "source": "/functions/v1/:ncaPath*", "destination": "/api/proxy?route=functions/v1/:ncaPath*" },
+    { "source": "/storage/v1/:ncaPath*", "destination": "/api/proxy?route=storage/v1/:ncaPath*" }
+  ]
+}

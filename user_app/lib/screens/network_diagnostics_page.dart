@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app_update_service.dart';
+import '../backend_endpoint.dart';
+import '../network_endpoints.dart';
 
 class NetworkDiagnosticsPage extends StatefulWidget {
   const NetworkDiagnosticsPage({super.key});
@@ -18,6 +20,7 @@ class NetworkDiagnosticsPage extends StatefulWidget {
 class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
   static const _socoUrl = 'https://m.sutbongtv.com/match.html';
   static const _publicApiUrls = <String>[
+    vercelBackupBase,
     'https://football-api.nyeinchanaung.us.ci',
     'https://football-api.nyeinchanaung.ccwu.cc',
     'https://football-public-api.nyeinchanaung75299-eng.workers.dev',
@@ -45,11 +48,13 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
       _results.clear();
     });
 
-    await _checkSupabase();
-    await _checkPublicApi();
-    await _checkMirror();
-    await _checkSoco();
-    await _checkStreams();
+    await Future.wait([
+      _checkSupabase(),
+      _checkPublicApi(),
+      _checkMirror(),
+      _checkSoco(),
+      _checkStreams(),
+    ]);
 
     if (mounted) setState(() => _running = false);
   }
@@ -71,7 +76,10 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
       _add(
         _DiagResult(
           title: 'Supabase',
-          detail: 'Direct connection OK • ${_ms(started)} ms',
+          detail:
+              'Database connection OK • '
+              '${Uri.tryParse(selectedBackend ?? '')?.host ?? 'current backend'} • '
+              '${_ms(started)} ms',
           status: _DiagStatus.ok,
         ),
       );
@@ -79,7 +87,8 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
       _add(
         const _DiagResult(
           title: 'Supabase',
-          detail: 'Timed out. This network may be blocking or delaying the API.',
+          detail:
+              'Timed out. This network may be blocking or delaying the API.',
           status: _DiagStatus.fail,
         ),
       );
@@ -110,9 +119,9 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
         if (response.statusCode >= 200 && response.statusCode < 300) {
           _add(
             _DiagResult(
-              title: 'Cloudflare public API',
+              title: 'Public API / Vercel backup',
               detail:
-                  'VPN-free fallback OK • ${Uri.parse(base).host} • '
+                  'API connection OK • ${Uri.parse(base).host} • '
                   'HTTP ${response.statusCode} • ${_ms(started)} ms',
               status: _DiagStatus.ok,
             ),
@@ -129,8 +138,9 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
 
     _add(
       _DiagResult(
-        title: 'Cloudflare public API',
-        detail: 'All API endpoints failed: ${_shortError(lastError ?? 'unavailable')}',
+        title: 'Public API / Vercel backup',
+        detail:
+            'All API endpoints failed: ${_shortError(lastError ?? 'unavailable')}',
         status: _DiagStatus.fail,
       ),
     );
@@ -150,7 +160,8 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
           )
           .timeout(const Duration(seconds: 8));
 
-      final ok = response.statusCode >= 200 &&
+      final ok =
+          response.statusCode >= 200 &&
           response.statusCode < 300 &&
           response.body.trim().startsWith('[');
 
@@ -172,8 +183,8 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
         _DiagResult(
           title: 'GitHub match mirror',
           detail: ok
-              ? 'VPN-free fallback OK • $backupLines direct backup line(s) • '
-                  'HTTP ${response.statusCode} • ${_ms(started)} ms'
+              ? 'Mirror reachable • $backupLines direct backup line(s) • '
+                    'HTTP ${response.statusCode} • ${_ms(started)} ms'
               : 'Mirror reached but feed is unavailable • HTTP ${response.statusCode}',
           status: ok ? _DiagStatus.ok : _DiagStatus.fail,
         ),
@@ -204,10 +215,7 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
     final client = http.Client();
     try {
       final response = await client
-          .get(
-            Uri.parse(_socoUrl),
-            headers: const {'Accept': 'text/html,*/*'},
-          )
+          .get(Uri.parse(_socoUrl), headers: const {'Accept': 'text/html,*/*'})
           .timeout(const Duration(seconds: 8));
 
       final ok = response.statusCode >= 200 && response.statusCode < 400;
@@ -224,7 +232,7 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
       _add(
         const _DiagResult(
           title: 'Soco source',
-          detail: 'Timed out without VPN on this network.',
+          detail: 'Timed out on this network.',
           status: _DiagStatus.fail,
         ),
       );
@@ -303,7 +311,8 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
       _add(
         const _DiagResult(
           title: 'Protected stream API',
-          detail: 'No active match with a configured stream is available to test.',
+          detail:
+              'No active match with a configured stream is available to test.',
           status: _DiagStatus.warning,
         ),
       );
@@ -333,14 +342,17 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
         final decoded = jsonDecode(response.body);
         final raw = decoded is Map ? decoded['streams'] : null;
         if (raw is! List || raw.isEmpty) {
-          lastError = const FormatException('No protected stream lines returned.');
+          lastError = const FormatException(
+            'No protected stream lines returned.',
+          );
           continue;
         }
 
         final samples = raw
             .map((row) => Map<String, dynamic>.from(row as Map))
-            .where((row) =>
-                (row['stream_url'] ?? '').toString().trim().isNotEmpty)
+            .where(
+              (row) => (row['stream_url'] ?? '').toString().trim().isNotEmpty,
+            )
             .take(3)
             .toList();
 
@@ -368,7 +380,8 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
     _add(
       _DiagResult(
         title: 'Protected stream API',
-        detail: 'Could not load protected playback URLs: '
+        detail:
+            'Could not load protected playback URLs: '
             '${_shortError(lastError ?? 'unavailable')}',
         status: mirrorBackup.isNotEmpty
             ? _DiagStatus.warning
@@ -380,7 +393,8 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
       _add(
         _DiagResult(
           title: 'GitHub stream backup',
-          detail: '${mirrorBackup.length} direct backup line(s) available '
+          detail:
+              '${mirrorBackup.length} direct backup line(s) available '
               'without the protected API.',
           status: _DiagStatus.ok,
         ),
@@ -436,8 +450,8 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
           status: ok
               ? _DiagStatus.ok
               : (code == 401 || code == 403
-                  ? _DiagStatus.warning
-                  : _DiagStatus.fail),
+                    ? _DiagStatus.warning
+                    : _DiagStatus.fail),
         ),
       );
     } on TimeoutException {
@@ -464,8 +478,7 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
   }
 
   String _streamType(Map<String, dynamic> row) {
-    final declared =
-        (row['stream_type'] ?? 'auto').toString().toLowerCase();
+    final declared = (row['stream_type'] ?? 'auto').toString().toLowerCase();
     final url = (row['stream_url'] ?? '').toString().toLowerCase();
 
     if (declared == 'hls' || declared == 'm3u8' || url.contains('.m3u8')) {
@@ -489,10 +502,10 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final okCount =
-        _results.where((x) => x.status == _DiagStatus.ok).length;
-    final failCount =
-        _results.where((x) => x.status == _DiagStatus.fail).length;
+    final okCount = _results.where((x) => x.status == _DiagStatus.ok).length;
+    final failCount = _results
+        .where((x) => x.status == _DiagStatus.fail)
+        .length;
 
     return Scaffold(
       appBar: AppBar(
@@ -527,10 +540,10 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
                       children: [
                         Text(
                           _running
-                              ? 'Testing direct connections…'
+                              ? 'Testing app connections…'
                               : (failCount == 0
-                                  ? 'Direct connection looks usable'
-                                  : 'Some endpoints need attention'),
+                                    ? 'Tested connections look usable'
+                                    : 'Some endpoints need attention'),
                           style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w900,
@@ -539,8 +552,8 @@ class _NetworkDiagnosticsPageState extends State<NetworkDiagnosticsPage> {
                         const SizedBox(height: 5),
                         Text(
                           kIsWeb
-                              ? 'Web tests also reflect browser CORS rules.'
-                              : 'Tests use the phone network directly. No VPN bypass is performed.',
+                              ? 'Turn VPN off before a VPN-free test. Browser CORS can affect results.'
+                              : 'Turn VPN off before a VPN-free test. Tests use the current phone connection.',
                         ),
                       ],
                     ),
