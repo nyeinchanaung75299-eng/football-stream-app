@@ -471,18 +471,19 @@ test('iOS native fullscreen does not depend on container fullscreen support', as
   }
 });
 
-test('iOS phone rotation keeps only native controls without restarting playback', async () => {
+test('iOS keeps native controls plus compact line and quality strip during rotation', async () => {
   const dash = source('dash'), h = createHarness();
   await h.open([dash]);
 
-  const topbar = h.elements.get('football-player-topbar');
-  assert.equal(topbar.style.display, 'none');
+  assert.equal(h.overlay.classList.contains('ios-native-mode'), true);
   assert.equal(h.video.controls, true);
   assert.equal(h.video.classList.contains('nca-custom-fullscreen'), false);
+  assert.equal(h.elements.get('football-player-server').disabled, false);
+  assert.equal(h.elements.get('football-player-quality').disabled, false);
 
   h.window.emit('resize'); await flush();
 
-  assert.equal(topbar.style.display, 'none');
+  assert.equal(h.overlay.classList.contains('ios-native-mode'), true);
   assert.deepEqual(h.plays, [dash.url]);
   assert.equal(failures(h).length, 0);
 });
