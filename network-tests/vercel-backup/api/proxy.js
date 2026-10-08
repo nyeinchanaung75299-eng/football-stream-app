@@ -24,6 +24,9 @@ async function proxy(request) {
   if (routes.length > 1) return failure("Invalid route.", 400);
   const path = routes.length ? "/" + routes[0].replace(/^\/+/, "") : incoming.pathname;
   incoming.searchParams.delete("route");
+  if (path === "/" && request.method === "HEAD") {
+    return new Response(null, { headers: { ...cors, "Content-Type": "application/json" } });
+  }
   if (path === "/" && request.method === "GET") {
     return Response.json({ service: "nca-vercel-network-backup", experimental: true }, { headers: cors });
   }
@@ -45,7 +48,10 @@ async function proxy(request) {
   // stream, and cancellation from the client propagates to the upstream fetch.
   const signal = AbortSignal.any([request.signal, AbortSignal.timeout(20000)]);
   try {
-    const response = await fetch(upstream, { method: request.method, headers, signal, redirect: "manual" });
+    // The original public metadata API accepts GET only. Answer a metadata
+    // HEAD probe using GET upstream, then cancel its body before returning.
+    const method = request.method === "HEAD" && !path.startsWith("/p/") ? "GET" : request.method;
+    const response = await fetch(upstream, { method, headers, signal, redirect: "manual" });
     const outputHeaders = new Headers(cors);
     for (const name of ["Content-Type", "Content-Range", "Accept-Ranges"]) {
       if (response.headers.has(name)) outputHeaders.set(name, response.headers.get(name));
@@ -55,6 +61,7 @@ async function proxy(request) {
       return failure("Unexpected upstream redirect.", 502);
     }
     if (request.method === "HEAD" || [204, 304].includes(response.status)) {
+      await response.body?.cancel();
       return new Response(null, { status: response.status, headers: outputHeaders });
     }
     const type = response.headers.get("Content-Type") || "";
