@@ -1,0 +1,18 @@
+{
+  "name": "nca-network-backup",
+  "production_branch": "network-test",
+  "deployment_configs": {
+    "preview": {
+      "compatibility_date": "2026-10-08",
+      "services": {
+        "PUBLIC_API": { "service": "football-public-api" }
+      }
+    },
+    "production": {
+      "compatibility_date": "2026-10-08",
+      "services": {
+        "PUBLIC_API": { "service": "football-public-api" }
+      }
+    }
+  }
+}
