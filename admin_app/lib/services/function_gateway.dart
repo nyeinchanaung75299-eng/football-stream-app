@@ -4,6 +4,8 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../analytics_service.dart';
+import '../backend_endpoint.dart';
+import '../network_endpoints.dart';
 
 class FunctionGateway {
   static const _publicApiBase = String.fromEnvironment(
@@ -11,13 +13,8 @@ class FunctionGateway {
     defaultValue: 'https://football-api.nyeinchanaung.us.ci',
   );
 
-  static const _publicApiBackup =
-      'https://football-public-api.nyeinchanaung75299-eng.workers.dev';
-
-  static List<String> get _gatewayBases => <String>{
-        _publicApiBase.trim().replaceAll(RegExp(r'/+$'), ''),
-        _publicApiBackup,
-      }.where((base) => base.isNotEmpty).toList();
+  static List<String> get _gatewayBases =>
+      publicApiBases(primary: _publicApiBase, preferVercel: usesVercelBackend);
 
   static Future<dynamic> invoke(
     String functionName, {
@@ -109,9 +106,11 @@ class FunctionGateway {
           'admin function completed',
           properties: {
             'function': functionName,
-            'transport': index == 0
-                ? 'cloudflare_custom_domain'
-                : 'cloudflare_workers_dev',
+            'transport': base == vercelBackupBase
+                ? 'vercel_backup'
+                : (Uri.parse(base).host.endsWith('.workers.dev')
+                    ? 'cloudflare_workers_dev'
+                    : 'cloudflare_custom_domain'),
             'status_code': response.statusCode,
           },
         );

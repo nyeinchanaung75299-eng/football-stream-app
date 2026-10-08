@@ -29,7 +29,7 @@ Future<void> _initializeBackend() async {
     );
     await Supabase.initialize(url: url, anonKey: anonKey);
   } catch (_) {
-    // Supabase is optional for Viewer startup. Cloudflare/GitHub fallbacks
+    // Supabase is optional for Viewer startup. Cloudflare/Vercel fallbacks
     // keep the public match list usable on restricted networks.
   }
 }

@@ -27,17 +27,20 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => loading = true);
     await AnalyticsService.capture('admin login attempted');
     try {
-      await Supabase.instance.client.auth.signInWithPassword(
-        email: email.text.trim(),
-        password: password.text,
-      );
+      await Supabase.instance.client.auth
+          .signInWithPassword(
+            email: email.text.trim(),
+            password: password.text,
+          )
+          .timeout(const Duration(seconds: 12));
 
       final uid = Supabase.instance.client.auth.currentUser!.id;
       final row = await Supabase.instance.client
           .from('profiles')
           .select('role')
           .eq('id', uid)
-          .maybeSingle();
+          .maybeSingle()
+          .timeout(const Duration(seconds: 8));
 
       if (row == null || row['role'] != 'admin') {
         await Supabase.instance.client.auth.signOut();
@@ -49,6 +52,9 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       final raw = e.toString().toLowerCase();
       final networkProblem = raw.contains('socketexception') ||
+          raw.contains('timeoutexception') ||
+          raw.contains('failed to fetch') ||
+          raw.contains('clientexception') ||
           raw.contains('network is unreachable') ||
           raw.contains('connection failed') ||
           raw.contains('failed host lookup');
@@ -58,11 +64,12 @@ class _LoginPageState extends State<LoginPage> {
           'reason': networkProblem ? 'network' : 'credentials_or_role',
         },
       );
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             networkProblem
-                ? 'Can’t reach Supabase. Turn on VPN, then try again.'
+                ? 'Can’t reach the sign-in server. Check your connection and try again.'
                 : 'Login failed. Check your email and password.',
           ),
         ),
@@ -157,7 +164,8 @@ class _LoginPageState extends State<LoginPage> {
                             onSubmitted: (_) => loading ? null : login(),
                             decoration: InputDecoration(
                               labelText: 'Password',
-                              prefixIcon: const Icon(Icons.lock_outline_rounded),
+                              prefixIcon:
+                                  const Icon(Icons.lock_outline_rounded),
                               suffixIcon: IconButton(
                                 onPressed: () => setState(
                                   () => hidePassword = !hidePassword,

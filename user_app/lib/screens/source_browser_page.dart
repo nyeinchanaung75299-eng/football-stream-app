@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../backend_endpoint.dart';
+import '../network_endpoints.dart';
 import '../native_player.dart';
 import '../live_feed_controller.dart';
 import '../player_loading.dart';
@@ -24,9 +26,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     'PUBLIC_API_BASE',
     defaultValue: 'https://football-api.nyeinchanaung.us.ci',
   );
-  static const _fallback = 'https://football-api.nyeinchanaung.ccwu.cc';
-  static const _backup =
-      'https://football-public-api.nyeinchanaung75299-eng.workers.dev';
   static const _supabaseFunction =
       'https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links';
   static const _sourceMirrorBase =
@@ -35,8 +34,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/sources';
 
-  // VPN-only is the default now. The old mirror/cache workaround can still be
-  // re-enabled explicitly for a special build with ENABLE_NO_VPN_FALLBACK=1.
+  // Vercel is a live API route. The old mirror/cache fallback remains opt-in
+  // for a special build with ENABLE_NO_VPN_FALLBACK=1.
   static final bool _enableNoVpnFallback =
       const String.fromEnvironment(
         'ENABLE_NO_VPN_FALLBACK',
@@ -62,11 +61,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         'cola' => 4,
         _ => 1,
       };
-  List<String> get bases => <String>{
-        _primary.trim().replaceAll(RegExp(r'/+$'), ''),
-        _fallback,
-        _backup,
-      }.where((x) => x.isNotEmpty).toList();
+  List<String> get bases => publicApiBases(
+        primary: _primary, preferVercel: usesVercelBackend);
 
   @override
   void initState() {
