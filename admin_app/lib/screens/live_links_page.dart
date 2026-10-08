@@ -52,7 +52,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
   void reloadLinks() {
     if (!mounted || matchId == null) return;
-    setState(() => _linksFuture = loadLinks());
+    setState(() { _linksFuture = loadLinks(); });
   }
 
   void selectMatch(String? value) {

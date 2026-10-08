@@ -8,11 +8,14 @@ class AppThemeController extends ChangeNotifier {
 
   static const _storageKey = 'theme_mode';
   ThemeMode _mode = ThemeMode.system;
+  int _modeVersion = 0;
 
   ThemeMode get mode => _mode;
 
   Future<void> load() async {
+    final version = _modeVersion;
     final prefs = await SharedPreferences.getInstance();
+    if (version != _modeVersion) return;
     final saved = prefs.getString(_storageKey);
     _mode = switch (saved) {
       'light' => ThemeMode.light,
@@ -23,18 +26,17 @@ class AppThemeController extends ChangeNotifier {
   }
 
   Future<void> setMode(ThemeMode mode) async {
-    if (_mode == mode) return;
-    _mode = mode;
-    notifyListeners();
+    _modeVersion += 1;
+    if (_mode != mode) {
+      _mode = mode;
+      notifyListeners();
+    }
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _storageKey,
-      switch (mode) {
-        ThemeMode.light => 'light',
-        ThemeMode.dark => 'dark',
-        ThemeMode.system => 'system',
-      },
-    );
+    await prefs.setString(_storageKey, switch (mode) {
+      ThemeMode.light => 'light',
+      ThemeMode.dark => 'dark',
+      ThemeMode.system => 'system',
+    });
   }
 }

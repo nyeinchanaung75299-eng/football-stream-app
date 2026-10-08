@@ -14,6 +14,8 @@ import '../widgets/theme_mode_button.dart';
 import '../widgets/premium_bottom_nav.dart';
 import '../widgets/premium_match_card.dart';
 import '../app_update_service.dart';
+import '../live_feed_controller.dart';
+import '../player_loading.dart';
 
 class _MatchLoadResult {
   const _MatchLoadResult(this.rows, this.label);
@@ -44,17 +46,20 @@ class _PersistedMatchCache {
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  const HomePage({super.key, this.backendReady});
+
+  final Future<void>? backendReady;
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
-  late Future<List<Map<String, dynamic>>> _future;
+  late final LiveFeedController<List<Map<String, dynamic>>> _feed;
   RealtimeChannel? _channel;
   Timer? _debounce;
   Timer? _feedRefresh;
+  bool _openingPlayer = false;
   late Future<String> _versionLabel;
   late Future<String> _updateVersionLabel;
   final Map<String, _StreamCacheEntry> _streamLinkCache = {};
@@ -174,12 +179,30 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _future = loadMatches();
+    _feed = LiveFeedController(loadMatches);
+    unawaited(_feed.refresh());
     _versionLabel = _loadVersionLabel();
     _updateVersionLabel = AppUpdateService.versionSummary();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) AppUpdateService.check(context);
     });
+    final backendReady = widget.backendReady;
+    if (backendReady == null) {
+      _subscribeToUpdates();
+    } else {
+      unawaited(backendReady.then((_) {
+        if (mounted) _subscribeToUpdates();
+      }));
+    }
+
+    // Keep metadata fresh even when Realtime is unavailable.
+    _feedRefresh = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (mounted) unawaited(refresh(silent: true));
+    });
+  }
+
+  void _subscribeToUpdates() {
+    if (_channel != null || !mounted) return;
     final supabase = _supabaseClientOrNull();
     if (supabase != null) {
       void scheduleRefresh({bool clearStreams = false}) {
@@ -207,10 +230,6 @@ class _HomePageState extends State<HomePage> {
           .subscribe();
     }
 
-    // Keep match/stream metadata fresh even where Realtime is blocked.
-    _feedRefresh = Timer.periodic(const Duration(seconds: 60), (_) {
-      if (mounted) refresh(silent: true);
-    });
   }
 
   Future<String> _loadVersionLabel() async {
@@ -339,10 +358,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadPublicApi() {
-    if (!_enableNoVpnFallback) {
-      final base = _publicApiBases.first;
-      return _loadPublicApiFrom(base);
-    }
+    // These are aliases of the live API. DNS failures should not strand the
+    // Viewer on one hostname, even when mirror fallbacks are disabled.
     return _hedged(
       _publicApiBases
           .map<Future<List<Map<String, dynamic>>> Function()>(
@@ -414,10 +431,6 @@ class _HomePageState extends State<HomePage> {
   Future<List<Map<String, dynamic>>> _loadPublicApiStreams(
     String matchId,
   ) {
-    if (!_enableNoVpnFallback) {
-      final base = _publicApiBases.first;
-      return _loadPublicApiStreamsFrom(base, matchId);
-    }
 
     return _hedged(
       _publicApiBases
@@ -454,14 +467,8 @@ class _HomePageState extends State<HomePage> {
 
     final request = () async {
       if (!_enableNoVpnFallback) {
-        List<Map<String, dynamic>> rows;
         try {
-          rows = playableLinks(await _loadPublicApiStreams(matchId));
-        } catch (_) {
-          rows = const <Map<String, dynamic>>[];
-        }
-
-        try {
+          final rows = playableLinks(await _loadPublicApiStreams(matchId));
           if (rows.isNotEmpty) {
             _streamLinkCache[matchId] = _StreamCacheEntry(
               rows,
@@ -580,7 +587,14 @@ class _HomePageState extends State<HomePage> {
 
     if (candidates.isEmpty) return;
     await Future.wait(
-      candidates.map(_resolveLinks),
+      candidates.map((match) async {
+        try {
+          await _resolveLinks(match);
+        } catch (_) {
+          // A failed prefetch must not become an unhandled background error.
+          // WATCH retries the live request with visible error feedback.
+        }
+      }),
       eagerError: false,
     );
   }
@@ -902,12 +916,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> refresh({bool silent = false}) async {
-    final next = loadMatches();
-    if (mounted) setState(() => _future = next);
-    try {
-      await next;
-    } catch (_) {
-      if (!silent) rethrow;
+    await _feed.refresh();
+    if (!silent && mounted && _feed.hasData && _feed.error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not refresh. Showing the previous results.')),
+      );
     }
   }
 
@@ -1011,6 +1024,16 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> openPlayer(Map<String, dynamic> match) async {
+    if (_openingPlayer || !mounted) return;
+    _openingPlayer = true;
+    try {
+      await _openPlayer(match);
+    } finally {
+      _openingPlayer = false;
+    }
+  }
+
+  Future<void> _openPlayer(Map<String, dynamic> match) async {
     final matchId = match['id']?.toString() ?? '';
     unawaited(AnalyticsService.capture(
       'watch tapped',
@@ -1022,14 +1045,17 @@ class _HomePageState extends State<HomePage> {
       },
     ));
 
-    final links = await _resolveLinks(match);
+    final links = await loadPlayerSources(context, () => _resolveLinks(match));
+    if (links == null || !mounted) return;
 
     // Keep the visible count synchronized after link resolution. The protected
     // API path now replaces stale mirror rows, so this can correct both added
     // and removed Admin servers.
     final currentCount = (match['stream_count'] as num?)?.toInt() ?? 0;
-    if (links.isNotEmpty && links.length != currentCount) {
+    if (links.length != currentCount) {
       match['stream_count'] = links.length;
+      match['stream_links'] = links;
+      match['public_stream_count'] = links.length;
       if (mounted) setState(() {});
     }
 
@@ -1526,6 +1552,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    _feed.dispose();
     _debounce?.cancel();
     _feedRefresh?.cancel();
     final c = _channel;
@@ -1562,14 +1589,13 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(width: 3),
         ],
       ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done &&
-              !snapshot.hasData) {
+      body: AnimatedBuilder(
+        animation: _feed,
+        builder: (context, _) {
+          if (_feed.loading && !_feed.hasData) {
             return const _PremiumLoading();
           }
-          if (snapshot.hasError && !snapshot.hasData) {
+          if (_feed.error != null && !_feed.hasData) {
             return _StateMessage(
               icon: Icons.vpn_key_off_outlined,
               title: 'Live feed unavailable',
@@ -1578,7 +1604,7 @@ class _HomePageState extends State<HomePage> {
             );
           }
 
-          final matches = snapshot.data ?? const <Map<String, dynamic>>[];
+          final matches = _feed.data ?? const <Map<String, dynamic>>[];
           if (matches.isEmpty) {
             return _StateMessage(
               icon: Icons.sports_soccer_outlined,

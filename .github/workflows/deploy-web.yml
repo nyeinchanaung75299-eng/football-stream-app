@@ -64,7 +64,7 @@ jobs:
       - name: Build Viewer Web
         working-directory: user_app
         run: |
-          flutter build web --release --base-href "/football-stream-app/" --pwa-strategy=none
+          flutter build web --release --base-href "/football-stream-app/" --pwa-strategy=none --no-web-resources-cdn
           # GitHub Pages controls response cache headers, so stamp the
           # bootstrap URL on every deploy. This prevents an old Flutter shell
           # from surviving a new release while still allowing heavy assets to
@@ -103,14 +103,18 @@ jobs:
 
       - name: Verify Admin Web source
         working-directory: admin_app
-        run: flutter analyze --no-fatal-infos
+        run: |
+          flutter analyze --no-fatal-infos
+          if find test -type f -name '*_test.dart' -print -quit 2>/dev/null | grep -q .; then
+            flutter test
+          fi
 
       - name: Build Admin Web under /admin/
         working-directory: admin_app
         run: |
           flutter build web --release \
             --base-href "/football-stream-app/admin/" \
-            --pwa-strategy=none
+            --pwa-strategy=none --no-web-resources-cdn
 
           BUILD_ID="${GITHUB_SHA::12}-${GITHUB_RUN_NUMBER}"
           python3 - "$BUILD_ID" <<'PY'

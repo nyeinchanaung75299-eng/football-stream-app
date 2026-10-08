@@ -44,7 +44,7 @@ Future<String> resolveSupabaseUrl({
 
         if (!completer.isCompleted &&
             response.statusCode >= 200 &&
-            response.statusCode < 500) {
+            response.statusCode < 300) {
           completer.complete(candidate.base);
         }
       } catch (_) {

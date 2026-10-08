@@ -88,8 +88,53 @@
       #football-player-menu-items{max-height:calc(100vh - 105px)}
     }
   </style>
+  <style>
+    #nca-app-loading{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;background:#f6f8f7;color:#123e32;font-family:system-ui,-apple-system,sans-serif;text-align:center}
+    #nca-app-loading .nca-logo{font-size:34px;font-weight:900;letter-spacing:3px}
+    #nca-app-loading p{margin:16px 20px;font-size:15px}
+    #nca-app-loading .nca-spinner{width:26px;height:26px;margin:20px auto;border:3px solid #dbe8e1;border-top-color:#167449;border-radius:50%;animation:nca-loading-spin .9s linear infinite}
+    #nca-app-loading button{border:0;border-radius:10px;padding:12px 24px;color:white;background:#167449;font:600 15px system-ui;cursor:pointer}
+    @keyframes nca-loading-spin{to{transform:rotate(360deg)}}
+    @media(prefers-reduced-motion:reduce){#nca-app-loading .nca-spinner{animation:none}}
+  </style>
 </head>
 <body>
+  <!-- Web shell start -->
+  <div id="nca-app-loading" role="status" aria-live="polite">
+    <div>
+      <div class="nca-logo">NCA</div>
+      <div class="nca-spinner" aria-hidden="true"></div>
+      <p id="nca-loading-text">Loading NCA…</p>
+      <button id="nca-loading-retry" type="button" hidden>Retry</button>
+    </div>
+  </div>
+  <script id="nca-app-startup">
+  (() => {
+    const shell=document.getElementById('nca-app-loading');
+    const retry=document.getElementById('nca-loading-retry');
+    window.ncaAppBoot={
+      fail(){
+        if(!shell.isConnected)return;
+        document.getElementById('nca-loading-text').textContent='Could not finish loading. Check your connection and retry.';
+        retry.hidden=false;
+      }
+    };
+    const slow=setTimeout(()=>{
+      if(!shell.isConnected)return;
+      document.getElementById('nca-loading-text').textContent='Loading is taking longer. Check your connection or retry.';
+      retry.hidden=false;
+    },30000);
+    retry.addEventListener('click',()=>{
+      const url=new URL(location.href);
+      url.searchParams.set('reload',Date.now().toString());
+      location.replace(url.href);
+    });
+    window.addEventListener('flutter-first-frame',()=>{
+      clearTimeout(slow);shell.remove();
+    },{once:true});
+  })();
+  </script>
+  <!-- Web shell end -->
   <div id="football-player-overlay" aria-hidden="true">
     <div id="football-player-topbar">
       <button id="football-player-close" class="football-control" type="button">← Back</button>
@@ -1241,6 +1286,6 @@
     };
   })();
   </script>
-  <script src="flutter_bootstrap.js" async></script>
+  <script src="flutter_bootstrap.js" async onerror="window.ncaAppBoot.fail()"></script>
 </body>
 </html>

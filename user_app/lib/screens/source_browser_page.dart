@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../native_player.dart';
+import '../live_feed_controller.dart';
+import '../player_loading.dart';
 import '../widgets/premium_bottom_nav.dart';
 import '../widgets/premium_match_card.dart';
 
@@ -42,9 +44,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       ).trim() ==
       '1';
 
-  late Future<List<Map<String, dynamic>>> _future;
+  late final LiveFeedController<List<Map<String, dynamic>>> _feed;
   Timer? _sourceRefreshTimer;
-  bool _sourceRefreshBusy = false;
+  bool _openingPlayer = false;
 
   String get source => widget.source.toLowerCase();
   String get title => switch (source) {
@@ -69,31 +71,19 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   @override
   void initState() {
     super.initState();
-    _future = _loadMatches();
+    _feed = LiveFeedController(_loadMatches);
+    unawaited(_feed.refresh());
     _sourceRefreshTimer = Timer.periodic(
       const Duration(minutes: 1),
-      (_) => unawaited(_silentSourceRefresh()),
+      (_) => unawaited(_refresh(silent: true)),
     );
   }
 
   @override
   void dispose() {
     _sourceRefreshTimer?.cancel();
+    _feed.dispose();
     super.dispose();
-  }
-
-  Future<void> _silentSourceRefresh() async {
-    if (!mounted || _sourceRefreshBusy) return;
-    _sourceRefreshBusy = true;
-    try {
-      final next = _loadMatches();
-      if (mounted) setState(() => _future = next);
-      await next;
-    } catch (_) {
-      // Keep the last visible list when a background refresh fails.
-    } finally {
-      _sourceRefreshBusy = false;
-    }
   }
 
   Future<List<Map<String, dynamic>>> _hedged(
@@ -419,7 +409,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       if (bases.isEmpty) {
         throw StateError('No live source API is configured.');
       }
-      return _loadFrom(bases.first);
+      return _authoritativeHedged(
+        bases.map<Future<List<Map<String, dynamic>>> Function()>(
+          (base) => () => _loadFrom(base),
+        ).toList(),
+      );
     }
 
     Object? authoritativeError;
@@ -463,10 +457,14 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
   }
 
-  Future<void> _refresh() async {
-    final next = _loadMatches();
-    setState(() => _future = next);
-    await next;
+  Future<void> _refresh({bool silent = false}) async {
+    if (!mounted) return;
+    await _feed.refresh();
+    if (!silent && mounted && _feed.hasData && _feed.error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not refresh. Showing the previous results.')),
+      );
+    }
   }
 
   List<Map<String, dynamic>> _anchors(Map<String, dynamic> m) {
@@ -602,7 +600,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       if (bases.isEmpty) {
         return Future.error(StateError('No live source API is configured.'));
       }
-      return _anchorFrom(bases.first, m, anchor);
+      return _hedged(bases.map<Future<List<Map<String, dynamic>>> Function()>(
+        (base) => () => _anchorFrom(base, m, anchor),
+      ).toList());
     }
 
     return _hedged(
@@ -619,16 +619,26 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   Future<List<Map<String, dynamic>>> _streams(
     Map<String, dynamic> m,
   ) async {
+    var succeeded = false;
+    Object? lastError;
+    StackTrace? lastStack;
     final groups = await Future.wait(
       _anchors(m).map((a) async {
         try {
-          return await _anchor(m, a);
-        } catch (_) {
+          final rows = await _anchor(m, a);
+          succeeded = true;
+          return rows;
+        } catch (error, stack) {
+          lastError = error;
+          lastStack = stack;
           return const <Map<String, dynamic>>[];
         }
       }),
       eagerError: false,
     );
+    if (!succeeded && lastError != null) {
+      Error.throwWithStackTrace(lastError!, lastStack!);
+    }
     final seen = <String>{};
     final out = <Map<String, dynamic>>[];
     for (final group in groups) {
@@ -673,20 +683,19 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   }
 
   Future<void> _watch(Map<String, dynamic> m) async {
-    if (_anchors(m).isEmpty) return;
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
-
-    List<Map<String, dynamic>> rows = const [];
+    if (_openingPlayer || !mounted) return;
+    _openingPlayer = true;
     try {
-      rows = await _streams(m);
+      await _openSourcePlayer(m);
     } finally {
-      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      _openingPlayer = false;
     }
-    if (!mounted) return;
+  }
+
+  Future<void> _openSourcePlayer(Map<String, dynamic> m) async {
+    if (_anchors(m).isEmpty) return;
+    final rows = await loadPlayerSources(context, () => _streams(m));
+    if (rows == null || !mounted) return;
 
     if (rows.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -869,13 +878,13 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           const SizedBox(width: 3),
         ],
       ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _future,
-        builder: (_, snap) {
-          if (snap.connectionState != ConnectionState.done && !snap.hasData) {
+      body: AnimatedBuilder(
+        animation: _feed,
+        builder: (_, _) {
+          if (_feed.loading && !_feed.hasData) {
             return _SourceLoading(title: title);
           }
-          if (snap.hasError && !snap.hasData) {
+          if (_feed.error != null && !_feed.hasData) {
             return _StateView(
               title: title + ' unavailable',
               text: 'Connect VPN, then refresh.',
@@ -883,7 +892,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             );
           }
 
-          final matches = snap.data ?? const <Map<String, dynamic>>[];
+          final matches = _feed.data ?? const <Map<String, dynamic>>[];
           if (matches.isEmpty) {
             return _StateView(
               title: 'No ' + title + ' matches',

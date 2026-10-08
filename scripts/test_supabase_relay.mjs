@@ -73,7 +73,7 @@ try {
   const healthJson = await health.json();
   assert.equal(healthJson.ok, true);
   assert.equal(healthJson.service, 'supabase-relay');
-  assert.equal(calls.at(-1).url, 'https://project.supabase.co/rest/v1/');
+  assert.equal(calls.at(-1).url, 'https://project.supabase.co/auth/v1/health');
   assert.equal(calls.at(-1).headers.apikey, 'publishable-test-key');
 
   const rest = await handleSupabaseRelay(
@@ -146,12 +146,22 @@ try {
   );
   assert.equal(denied.status, 404);
 
-  console.log('PASS Supabase relay health uses upstream REST endpoint');
+  const healthyFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('{}', { status: 401 });
+  const rejectedHealth = await handleSupabaseRelay(
+    new Request('https://supabase-api.example/health'), env,
+  );
+  assert.equal(rejectedHealth.status, 502);
+  assert.equal((await rejectedHealth.json()).ok, false);
+  globalThis.fetch = healthyFetch;
+
+  console.log('PASS Supabase relay health uses the Auth health endpoint');
+  console.log('PASS Rejected backend health is not reported healthy');
   console.log('PASS REST path/query and auth headers are preserved');
   console.log('PASS Auth POST bodies are proxied');
   console.log('PASS Browser CORS preflight supports Supabase methods');
   console.log('PASS Unknown relay routes are rejected');
-  console.log('5 Supabase relay regression checks passed.');
+  console.log('6 Supabase relay regression checks passed.');
 } finally {
   globalThis.fetch = originalFetch;
   globalThis.Request = OriginalRequest;

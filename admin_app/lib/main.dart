@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,6 +8,7 @@ import 'analytics_service.dart';
 import 'backend_endpoint.dart';
 import 'app_theme.dart';
 import 'screens/auth_gate.dart';
+import 'screens/startup_gate.dart';
 import 'theme_controller.dart';
 
 class _StableAdminSessionStorage extends LocalStorage {
@@ -45,8 +47,7 @@ class _StableAdminSessionStorage extends LocalStorage {
   }
 
   @override
-  Future<String?> accessToken() async =>
-      _preferences.getString(_sessionKey);
+  Future<String?> accessToken() async => _preferences.getString(_sessionKey);
 
   @override
   Future<void> persistSession(String persistSessionString) async {
@@ -64,7 +65,18 @@ class _StableAdminSessionStorage extends LocalStorage {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  runApp(const FootballAdminApp());
+  unawaited(_loadTheme());
+  unawaited(AnalyticsService.initialize());
+}
 
+Future<void> _loadTheme() async {
+  try {
+    await AppThemeController.instance.load();
+  } catch (_) {}
+}
+
+Future<void> _initializeBackend() async {
   const directUrl = 'https://woggzixprvyjnfjzsglz.supabase.co';
   const anonKey = 'sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O';
 
@@ -73,19 +85,13 @@ Future<void> main() async {
     publishableKey: anonKey,
   );
 
-  await Future.wait([
-    Supabase.initialize(
-      url: url,
-      anonKey: anonKey,
-      authOptions: FlutterAuthClientOptions(
-        localStorage: _StableAdminSessionStorage(),
-      ),
+  await Supabase.initialize(
+    url: url,
+    anonKey: anonKey,
+    authOptions: FlutterAuthClientOptions(
+      localStorage: _StableAdminSessionStorage(),
     ),
-    AppThemeController.instance.load(),
-  ]);
-  await AnalyticsService.initialize();
-
-  runApp(const FootballAdminApp());
+  );
 }
 
 class FootballAdminApp extends StatelessWidget {
@@ -103,7 +109,8 @@ class FootballAdminApp extends StatelessWidget {
           darkTheme: AppTheme.dark(),
           themeMode: AppThemeController.instance.mode,
           navigatorObservers: [PosthogObserver()],
-          home: const AuthGate(),
+          home: const StartupGate(
+              initialize: _initializeBackend, child: AuthGate()),
         );
       },
     );
