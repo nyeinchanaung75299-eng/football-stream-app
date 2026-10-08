@@ -471,12 +471,18 @@ test('iOS native fullscreen does not depend on container fullscreen support', as
   }
 });
 
-test('iOS phone rotation reveals the toolbar without restarting playback', async () => {
+test('iOS phone rotation keeps only native controls without restarting playback', async () => {
   const dash = source('dash'), h = createHarness();
   await h.open([dash]);
-  assert.equal(h.elements.get('football-player-topbar').classList.contains('controls-hidden'), true);
+
+  const topbar = h.elements.get('football-player-topbar');
+  assert.equal(topbar.style.display, 'none');
+  assert.equal(h.video.controls, true);
+  assert.equal(h.video.classList.contains('nca-custom-fullscreen'), false);
+
   h.window.emit('resize'); await flush();
-  assert.equal(h.elements.get('football-player-topbar').classList.contains('controls-hidden'), false);
+
+  assert.equal(topbar.style.display, 'none');
   assert.deepEqual(h.plays, [dash.url]);
   assert.equal(failures(h).length, 0);
 });
