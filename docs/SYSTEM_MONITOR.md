@@ -41,7 +41,7 @@ tested before the connection is saved.
   The issue link opens available PostHog event context.
 - **Cloudflare**: account **a072aef61b3053983e84755527ef8f39**,
   Worker **football-public-api**. Create an account-scoped API token with
-  **Workers Analytics: Read**. Requests, runtime errors, subrequests and CPU/
+  **Account Analytics: Read**. Requests, runtime errors, subrequests and CPU/
   wall-time p50/p99 are fetched from GraphQL. CPU and wall time are converted
   from microseconds to milliseconds. Runtime errors are not HTTP 4xx/5xx counts.
   HTTP status/endpoint/upstream logs require Workers Logs and remain in the

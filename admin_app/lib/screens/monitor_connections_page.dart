@@ -114,7 +114,7 @@ class _MonitorConnectionsPageState extends State<MonitorConnectionsPage> {
             'Use the US region for the current NCA project. The public phc_ SDK token '
             'cannot read errors. Recording is currently off.',
       'cloudflare' => 'Create a custom read token for this account with '
-          'Account → Workers Analytics → Read. This loads invocation metrics. '
+          'Account → Account Analytics → Read. This loads invocation metrics. '
           'Detailed HTTP/endpoint logs remain in the Worker dashboard.',
       'vercel' =>
         'Optional: use a token with access to the NCA team and this project. '
