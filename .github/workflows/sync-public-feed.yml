@@ -14,6 +14,7 @@ on:
       - "admin_app/lib/screens/fixture_import_page.dart"
       - "supabase/functions/source-match-list/index.ts"
       - "supabase/functions/soco-links/index.ts"
+      - "supabase/functions/_shared/football_names.mjs"
   schedule:
     # GitHub scheduled workflows have a practical 5-minute minimum. Offset
     # the run from the busiest :00/:05 boundaries to reduce delayed/dropped

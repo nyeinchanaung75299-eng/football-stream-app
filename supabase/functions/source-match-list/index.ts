@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { englishFootballName, firstFootballName, providerEnglishName } from "../_shared/football_names.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -120,18 +121,18 @@ async function jsonpMatches(args: {
         source: args.source,
         source_id: String(scheduleId ?? ""),
         schedule_id: scheduleId,
-        league: sourceText(
-          args.source,
-          row.subCateName ?? row.leagueName ?? row.categoryName ?? "Football",
-        ),
-        home_team: sourceText(
-          args.source,
-          row.hostName ?? row.homeName ?? row.home_team ?? "Home",
-        ),
-        away_team: sourceText(
-          args.source,
-          row.guestName ?? row.awayName ?? row.away_team ?? "Away",
-        ),
+        league: englishFootballName(firstFootballName(
+          row.subCateNameEn, row.leagueNameEn, row.subCateName,
+          row.leagueName, row.categoryName, "Football",
+        ), "league"),
+        home_team: englishFootballName(firstFootballName(
+          row.hostNameEn, row.homeNameEn, row.hostName, row.homeName,
+          row.home_team, "Home",
+        )),
+        away_team: englishFootballName(firstFootballName(
+          row.guestNameEn, row.awayNameEn, row.guestName, row.awayName,
+          row.away_team, "Away",
+        )),
         home_logo: sourceLogo(row, "home", args.source),
         away_logo: sourceLogo(row, "away", args.source),
         match_time: normalizeMatchTime(
@@ -368,18 +369,19 @@ function colaMatchRow(slug: string, row: any) {
   ).trim();
   if (!matchId) return null;
 
-  const home = colaEnglishText(
-    homeNode?.name ?? row?.homeTeamName ?? row?.home_team?.name ?? "Home",
-  );
-  const away = colaEnglishText(
-    awayNode?.name ?? row?.awayTeamName ?? row?.away_team?.name ?? "Away",
-  );
-  const league = colaEnglishText(
-    competitionNode?.name ??
-      row?.competitionName ??
-      row?.competition?.name ??
-      "Football",
-  );
+  const home = englishFootballName(firstFootballName(
+    providerEnglishName(homeNode), row?.homeTeamNameEn,
+    homeNode, row?.homeTeamName, row?.home_team, "Home",
+  ));
+  const away = englishFootballName(firstFootballName(
+    providerEnglishName(awayNode), row?.awayTeamNameEn,
+    awayNode, row?.awayTeamName, row?.away_team, "Away",
+  ));
+  const league = englishFootballName(firstFootballName(
+    providerEnglishName(competitionNode), row?.competitionNameEn,
+    competitionNode, row?.competitionName,
+    row?.competition, "Football",
+  ), "league");
   const statusNum = Number(
     row?.matchStatus ?? row?.match_status_num ?? node?.status_id ?? 1,
   );
@@ -460,68 +462,6 @@ function colaMediaUrl(value: unknown) {
   } catch (_) {
     return null;
   }
-}
-
-function colaEnglishText(value: unknown) {
-  let text = String(value ?? "").trim();
-  const replacements: Array<[string, string]> = [
-    ["Hàn Quốc", "South Korea"],
-    ["Trung Quốc", "China"],
-    ["Cộng hòa Tajikistan", "Tajikistan"],
-    ["ĐTQG Kazakhstan", "Kazakhstan"],
-    ["Quần đảo Faroe", "Faroe Islands"],
-    ["Đội tuyển quốc gia Ấn Độ", "India"],
-    ["Giao hữu Quốc tế", "International Friendly"],
-    ["Cúp Quốc gia", "Vietnam National Cup"],
-    ["Giải vô địch bóng đá các quốc gia châu Âu", "UEFA Nations League"],
-    ["Đội tuyển quốc gia Bắc Macedonia", "North Macedonia"],
-    ["Đội tuyển QG Bắc Macedonia", "North Macedonia"],
-    ["Bắc Macedonia", "North Macedonia"],
-    ["Cộng hòa Séc", "Czechia"],
-    ["Tây Ban Nha", "Spain"],
-    ["Thụy Sĩ", "Switzerland"],
-    ["Chilê", "Chile"],
-    ["Mỹ", "USA"],
-    ["ĐTQG Anh", "England"],
-    ["ĐTQG Scotland", "Scotland"],
-    ["ĐTQG Iceland", "Iceland"],
-    ["Cúp Liên đoàn Bóng đá Ai Cập", "Egypt League Cup"],
-    ["Cúp Liên đoàn Bolivia", "Bolivia League Cup"],
-    ["Cúp liên đoàn UAE", "UAE League Cup"],
-    ["Cúp Chile", "Chile Cup"],
-    ["Giải bóng đá Hạng nhất Brasil", "Brazil Serie A"],
-    ["Giải bóng đá Hạng nhì Colombia", "Colombia Second Division"],
-    ["Giải Bóng đá Vô địch Quốc gia Phần Lan", "Finland Veikkausliiga"],
-    ["Giải vô địch quốc gia Qatar", "Qatar Stars League"],
-    ["Giải vô địch quốc gia Việt Nam", "Vietnam V.League 1"],
-    ["Đại học Kyoto Sangyo", "Kyoto Sangyo University"],
-    ["Thể Công - Viettel", "The Cong - Viettel"],
-    ["Hồng Lĩnh Hà Tĩnh", "Hong Linh Ha Tinh"],
-    ["Phong Phú Hà Nam Nữ", "Phong Phu Ha Nam Women"],
-    ["Hà Nội Nữ", "Ha Noi Women"],
-    ["Huế", "Hue"],
-    ["Bình Phước", "Binh Phuoc"],
-    ["Đồng Tháp", "Dong Thap"],
-  ];
-  for (const [from, to] of replacements) {
-    text = text.replaceAll(from, to);
-  }
-
-  text = text
-    .replace(/\b(?:Đội tuyển quốc gia|Đội tuyển QG|ĐTQG|CLB)\b/gi, " ")
-    .replace(/\bNữ\b/gi, " Women ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  // Proper names that remain Vietnamese are safer as Latin transliterations
-  // than mixed accented/provider-language labels across Viewer/Admin.
-  text = text
-    .normalize("NFD")
-    .replace(/\p{M}+/gu, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D");
-
-  return friendlyText(text).replace(/\s+/g, " ").trim();
 }
 
 function collectMatchRows(value: any, depth = 0, output: any[] = []) {
@@ -667,12 +607,6 @@ function normalizeLogoUrl(value: unknown, source: "soco" | "yyzb") {
   return null;
 }
 
-function sourceText(_source: "soco" | "yyzb", value: unknown) {
-  // Both source families can return Chinese display names. Keep Latin text
-  // unchanged while translating the common football labels we know.
-  return friendlyText(value);
-}
-
 function staleKickoff(value: unknown) {
   const normalized = normalizeMatchTime(value);
   if (!normalized) return false;
@@ -705,117 +639,6 @@ function roomNumber(anchor: any) {
       anchor?.roomId ??
       "",
   ).trim();
-}
-
-function friendlyText(value: unknown) {
-  let text = String(value ?? "").trim();
-  const replacements: Array<[string, string]> = [
-    ["欧国联", "UEFA Nations League"],
-    ["北爱尔兰", "Northern Ireland"],
-    ["格鲁吉亚", "Georgia"],
-    ["意大利", "Italy"],
-    ["土耳其", "Türkiye"],
-    ["法国", "France"],
-    ["罗马尼亚", "Romania"],
-    ["瑞典", "Sweden"],
-    ["乌克兰", "Ukraine"],
-    ["匈牙利", "Hungary"],
-    ["黑山", "Montenegro"],
-    ["亚美尼亚", "Armenia"],
-    ["德国", "Germany"],
-    ["西班牙", "Spain"],
-    ["葡萄牙", "Portugal"],
-    ["荷兰", "Netherlands"],
-    ["克罗地亚", "Croatia"],
-    ["波兰", "Poland"],
-    ["丹麦", "Denmark"],
-    ["挪威", "Norway"],
-    ["芬兰", "Finland"],
-    ["瑞士", "Switzerland"],
-    ["奥地利", "Austria"],
-    ["希腊", "Greece"],
-    ["捷克", "Czechia"],
-    ["塞尔维亚", "Serbia"],
-    ["苏格兰", "Scotland"],
-    ["爱尔兰", "Ireland"],
-    ["中国台北", "Chinese Taipei"],
-    ["北马其顿", "North Macedonia"],
-    ["斯洛文尼亚", "Slovenia"],
-    ["卢森堡", "Luxembourg"],
-    ["保加利亚", "Bulgaria"],
-    ["摩尔多瓦", "Moldova"],
-    ["斯洛伐克", "Slovakia"],
-    ["爱沙尼亚", "Estonia"],
-    ["冰岛", "Iceland"],
-    ["白俄罗斯", "Belarus"],
-    ["白Russia", "Belarus"],
-    ["阿尔巴尼亚", "Albania"],
-    ["圣马力诺", "San Marino"],
-    ["安哥拉", "Angola"],
-    ["马拉维", "Malawi"],
-    ["圣文森特和格林纳丁斯", "Saint Vincent and the Grenadines"],
-    ["荷属圣马丁岛", "Sint Maarten"],
-    ["安提瓜和巴布达", "Antigua and Barbuda"],
-    ["阿鲁巴", "Aruba"],
-    ["阿根廷", "Argentina"],
-    ["贝宁", "Benin"],
-    ["哥伦比亚", "Colombia"],
-    ["秘鲁", "Peru"],
-    ["美国", "USA"],
-    ["加拿大", "Canada"],
-    ["法属圭亚那", "French Guiana"],
-    ["伯利兹", "Belize"],
-    ["墨西哥", "Mexico"],
-    ["智利", "Chile"],
-    ["印度", "India"],
-    ["中国", "China"],
-    ["波黑", "Bosnia and Herzegovina"],
-    ["中北美国联", "CONCACAF Nations League"],
-    ["女欧U19", "UEFA Women's U19"],
-    ["女欧U17", "UEFA Women's U17"],
-    ["日皇杯", "Emperor's Cup"],
-    ["美职业", "MLS"],
-    ["非洲杯", "Africa Cup of Nations"],
-    ["英足总杯", "FA Cup"],
-    ["英锦赛", "EFL Trophy"],
-    ["巴西乙", "Brazil Serie B"],
-    ["智利杯", "Chile Cup"],
-    ["乌兹别克斯坦", "Uzbekistan"],
-    ["乌兹别克", "Uzbekistan"],
-    ["菲律宾", "Philippines"],
-    ["哈萨克斯坦", "Kazakhstan"],
-    ["俄罗斯", "Russia"],
-    ["英格兰", "England"],
-    ["比利时", "Belgium"],
-    ["柬埔寨", "Cambodia"],
-    ["马来西亚", "Malaysia"],
-    ["印度尼西亚", "Indonesia"],
-    ["新西兰", "New Zealand"],
-    ["澳大利亚", "Australia"],
-    ["韩国", "South Korea"],
-    ["越南杯", "Vietnam Cup"],
-    ["越南", "Vietnam"],
-    ["泰国", "Thailand"],
-    ["日本", "Japan"],
-    ["缅甸", "Myanmar"],
-    ["老挝", "Laos"],
-    ["新加坡", "Singapore"],
-    ["伊朗", "Iran"],
-    ["伊拉克", "Iraq"],
-    ["国际友谊", "International Friendly"],
-    ["中亚女", "Central Asia Women "],
-    ["女足", " Women "],
-    ["后备队", " Reserves"],
-    ["足球", "Football"],
-  ];
-
-  for (const [from, to] of replacements) {
-    text = text.replaceAll(from, to);
-  }
-
-  text = text.replace(/\s+/g, " ").trim();
-  if (/^INTERF$/i.test(text)) return "International Friendly";
-  return text;
 }
 
 function compareMatches(a: any, b: any) {
