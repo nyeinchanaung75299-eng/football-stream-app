@@ -53,13 +53,19 @@ class GatewayRequest {
     final elapsed = Stopwatch()..start();
     String accessToken = token;
     bool refreshed = false;
+    bool phaseUsesRemainingBudget = false;
 
     Duration remaining([Duration? maximum]) {
       final left = limit - elapsed.elapsed;
       if (left <= Duration.zero) {
         throw TimeoutException('Connection timed out. Please retry.');
       }
-      return maximum != null && maximum < left ? maximum : left;
+      if (maximum != null && maximum < left) {
+        phaseUsesRemainingBudget = false;
+        return maximum;
+      }
+      phaseUsesRemainingBudget = true;
+      return left;
     }
 
     for (final base in bases) {
@@ -79,11 +85,15 @@ class GatewayRequest {
             response = await send(uri, accessToken, timeout).timeout(timeout);
           }
         }
-      } catch (_) {
+      } catch (error) {
         if (!repeatable) {
           throw StateError(
               'Could not confirm the result. Refresh before trying again.');
         }
+        // The phase timeout already consumed the final request budget. A
+        // timer can fire just before Stopwatch reports the exact deadline;
+        // that tiny remainder must not permit another route or auth error.
+        if (error is TimeoutException && phaseUsesRemainingBudget) rethrow;
         onFallback?.call('gateway_network_error');
         remaining();
         continue;
