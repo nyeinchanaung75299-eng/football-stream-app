@@ -733,7 +733,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                                 ),
                                 const SizedBox(height: 5),
                                 Text(
-                                  '${DateFormat('dd MMM • HH:mm').format(kickoff)}'
+                                  '${DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff)}'
                                   '${f['status_short'] == null ? '' : ' • ${f['status_short']}'}',
                                   style: TextStyle(
                                     fontSize: 12.5,

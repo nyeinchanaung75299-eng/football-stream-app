@@ -933,7 +933,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                                     DateTime.tryParse(rawKickoff)?.toLocal();
                                 final when = kickoff == null
                                     ? '--:--'
-                                    : DateFormat('dd MMM • HH:mm')
+                                    : DateFormat('dd MMM • h:mm a', 'en_US')
                                         .format(kickoff);
                                 return DropdownMenuItem(
                                   value: m['id'] as String,

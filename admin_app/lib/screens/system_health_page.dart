@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/system_monitor_service.dart';
@@ -189,7 +190,9 @@ class _ChecksAppBar extends StatelessWidget implements PreferredSizeWidget {
 
 String _time(Object? value) {
   final date = DateTime.tryParse(value?.toString() ?? '');
-  return date?.toLocal().toString().split('.').first ?? 'Not available';
+  return date == null
+      ? 'Not available'
+      : DateFormat('yyyy-MM-dd h:mm:ss a', 'en_US').format(date.toLocal());
 }
 
 Future<void> openMonitorLink(String raw, BuildContext context) async {

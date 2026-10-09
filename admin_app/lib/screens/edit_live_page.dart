@@ -171,6 +171,11 @@ class _EditLivePageState extends State<EditLivePage> {
               final result = await showTimePicker(
                 context: context,
                 initialTime: TimeOfDay.fromDateTime(kickoff),
+                builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(context)
+                      .copyWith(alwaysUse24HourFormat: false),
+                  child: child!,
+                ),
               );
               if (result != null) {
                 setSheetState(() {
@@ -211,7 +216,7 @@ class _EditLivePageState extends State<EditLivePage> {
                       children: [
                         Expanded(child: OutlinedButton.icon(onPressed: pickDate, icon: const Icon(Icons.calendar_month_rounded), label: Text(DateFormat('dd MMM yyyy').format(kickoff)))),
                         const SizedBox(width: 10),
-                        Expanded(child: OutlinedButton.icon(onPressed: pickTime, icon: const Icon(Icons.schedule_rounded), label: Text(DateFormat('HH:mm').format(kickoff)))),
+                        Expanded(child: OutlinedButton.icon(onPressed: pickTime, icon: const Icon(Icons.schedule_rounded), label: Text(DateFormat('h:mm a', 'en_US').format(kickoff)))),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -461,7 +466,7 @@ class _EditLivePageState extends State<EditLivePage> {
                                 Text('${m['home_team']} vs ${m['away_team']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
                                 const SizedBox(height: 4),
                                 Text(
-                                  '${m['league']} • ${DateFormat('dd MMM, HH:mm').format(kickoff)}',
+                                  '${m['league']} • ${DateFormat('dd MMM, h:mm a', 'en_US').format(kickoff)}',
                                   style: TextStyle(fontSize: 12.5, color: colors.onSurfaceVariant),
                                 ),
                               ],
