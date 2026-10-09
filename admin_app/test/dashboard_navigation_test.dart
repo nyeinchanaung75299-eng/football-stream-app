@@ -18,10 +18,10 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
       expect(find.byType(NavigationDestination), findsNWidgets(2));
       expect(find.text('Pick Big Matches'), findsOneWidget);
-      expect(find.text('App & service checks'), findsNothing);
-      await tester.tap(find.text('Diagnostics'));
+      expect(find.text('Refresh monitor'), findsNothing);
+      await tester.tap(find.text('System Health').last);
       await tester.pumpAndSettle();
-      expect(find.text('App & service checks'), findsOneWidget);
+      expect(find.text('Connect services'), findsOneWidget);
       expect(find.text('Pick Big Matches'), findsNothing);
       expect(requests, 0);
       await tester.tap(find.text('Controls'));

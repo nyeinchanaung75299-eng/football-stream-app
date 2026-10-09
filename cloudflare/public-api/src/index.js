@@ -27,7 +27,7 @@ export default {
     }
 
     const adminFunctionRoute = url.pathname.match(
-      /^\/admin\/functions\/(football-fixtures|stream-health|soco-links|source-match-list)$/,
+      /^\/admin\/functions\/(football-fixtures|stream-health|soco-links|source-match-list|system-monitor)$/,
     );
     if (adminFunctionRoute && request.method === "POST") {
       return handleAdminFunction(request, adminFunctionRoute[1], env);

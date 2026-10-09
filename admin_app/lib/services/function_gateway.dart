@@ -62,7 +62,8 @@ class FunctionGateway {
               },
               body: jsonEncode(body ?? const <String, dynamic>{}),
             )
-            .timeout(const Duration(seconds: 9));
+            .timeout(
+                Duration(seconds: functionName == 'system-monitor' ? 20 : 9));
       }
 
       http.Response response;
