@@ -38,6 +38,11 @@ class SystemMonitorService {
               'collectedAt': s['collectedAt'],
               if (s['metrics'] != null) 'metrics': s['metrics'],
               if (s['events'] != null) 'events': s['events'],
+              if (s['timing'] != null)
+                'timing': {
+                  'state': s['timing']['state'],
+                  'rows': s['timing']['rows'],
+                },
               if (s['runs'] != null)
                 'builds': [
                   for (final r in s['runs'])
@@ -61,14 +66,20 @@ class SystemMonitorService {
       const JsonEncoder.withIndent('  ').convert(exportSummary(data));
 
   static String reportCsv(Map<String, dynamic> data) {
-    String cell(Object? v) =>
-        '"${(v ?? '').toString().replaceAll('"', '""')}"';
+    String cell(Object? v) => '"${(v ?? '').toString().replaceAll('"', '""')}"';
     final lines = <String>['service,state,metric,value,collected_at'];
     for (final s in exportSummary(data)['services'] as List) {
       final metrics = Map<String, dynamic>.from(s['metrics'] ?? {});
       for (final e in (s['events'] as List? ?? const [])) {
         metrics[e['event'].toString()] = e['count'];
         metrics['${e['event']} affected users'] = e['affectedUsers'];
+      }
+      for (final t in (s['timing']?['rows'] as List? ?? const [])) {
+        final label =
+            '${t['event']} ${t['phase']} ${t['app']} ${t['platform']}';
+        metrics['$label samples'] = t['samples'];
+        metrics['$label p50 ms'] = t['p50Ms'];
+        metrics['$label p95 ms'] = t['p95Ms'];
       }
       if (metrics.isEmpty) metrics['status'] = s['state'];
       for (final entry in metrics.entries) {

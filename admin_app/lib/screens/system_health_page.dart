@@ -240,6 +240,18 @@ const _eventLabels = {
   'admin function failed': 'Admin API failures'
 };
 
+String _timingLabel(Map row) => switch (row['event']) {
+      'playback started' => 'Video startup',
+      'playback buffering ended' => row['phase'] == 'startup'
+          ? 'Startup buffering'
+          : row['phase'] == 'rebuffer'
+              ? 'Buffering during playback'
+              : 'Buffering duration',
+      'stream sources loaded' => 'Line list loading',
+      'admin function completed' => 'Admin request',
+      _ => 'Measured duration',
+    };
+
 class _ServiceCard extends StatelessWidget {
   const _ServiceCard({required this.service});
   final Map<String, dynamic> service;
@@ -305,6 +317,26 @@ class _ServiceCard extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 10),
                     child: Text(
                         '${_eventLabels[e['event']] ?? e['event'].toString()}: ${e['count']}${e['event'] == 'playback buffering' ? '' : ' · affected users: ${e['affectedUsers']}'}')),
+              if (service['timing'] is Map) ...[
+                const SizedBox(height: 10),
+                Text(service['timing']['note']?.toString() ?? ''),
+                if ((service['timing']['rows'] as List? ?? const []).isNotEmpty)
+                  ExpansionTile(
+                    key: PageStorageKey('monitor-timing-${service['id']}'),
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('Loading / playback timing'),
+                    children: [
+                      for (final t in service['timing']['rows'])
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(_timingLabel(t)),
+                          subtitle: Text(
+                              '${t['app']} · ${t['platform']} · ${t['samples']} samples\n'
+                              'Median: ${t['p50Ms']} ms · p95: ${t['p95Ms']} ms'),
+                        ),
+                    ],
+                  ),
+              ],
               for (final r in service['runs'] as List? ?? const [])
                 ListTile(
                     contentPadding: EdgeInsets.zero,

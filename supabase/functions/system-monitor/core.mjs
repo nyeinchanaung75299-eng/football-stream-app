@@ -34,6 +34,47 @@ export function endpointName(raw) {
   if (/^\/sources\/(soco|yyzb|fawa|cola)\/(matches|streams)$/.test(path)) return path;
   return ["/health", "/matches", "/backend-health"].includes(path) ? path : "/other";
 }
+export function playbackTimingQuery(range = "timestamp >= now() - INTERVAL 1 DAY") {
+  // Old clients have no duration properties. Exclude them explicitly instead
+  // of allowing numeric conversion to turn a missing value into zero.
+  return `SELECT event, phase, app, platform, count(), quantile(0.5)(duration_ms), quantile(0.95)(duration_ms)
+FROM (
+  SELECT event,
+    coalesce(nullIf(toString(properties.phase), ''), 'unclassified') AS phase,
+    coalesce(nullIf(toString(properties.app), ''), 'unknown') AS app,
+    coalesce(nullIf(toString(properties.platform), ''), 'unknown') AS platform,
+    CASE
+      WHEN event = 'playback started' THEN toFloat(properties.startup_ms)
+      WHEN event = 'playback buffering ended' THEN toFloat(properties.buffering_ms)
+      WHEN event = 'stream sources loaded' THEN toFloat(properties.resolution_ms)
+      ELSE toFloat(properties.duration_ms)
+    END AS duration_ms
+  FROM events
+  WHERE ${range}
+    AND (
+      (event = 'playback started' AND properties.startup_ms IS NOT NULL)
+      OR (event = 'playback buffering ended' AND properties.buffering_ms IS NOT NULL)
+      OR (event = 'stream sources loaded' AND properties.resolution_ms IS NOT NULL)
+      OR (event = 'admin function completed' AND properties.duration_ms IS NOT NULL)
+    )
+)
+WHERE duration_ms >= 0 AND duration_ms <= 600000
+GROUP BY event, phase, app, platform
+ORDER BY count() DESC
+LIMIT 40`;
+}
+export function playbackTimingRows(result) {
+  if (!Array.isArray(result?.results)) throw new Error("Timing query incomplete");
+  const allowed = new Set(['playback started', 'playback buffering ended', 'stream sources loaded', 'admin function completed']);
+  return result.results.filter(r => Array.isArray(r) && allowed.has(r[0]) &&
+    Number.isFinite(Number(r[4])) && Number(r[4]) > 0 &&
+    r[5] !== null && r[6] !== null &&
+    Number.isFinite(Number(r[5])) && Number.isFinite(Number(r[6])) &&
+    Number(r[5]) >= 0 && Number(r[6]) >= Number(r[5]) && Number(r[6]) <= 600000)
+    .map(r => ({event:r[0],phase:['startup','rebuffer'].includes(r[1]) ? r[1] : 'unclassified',
+      app:redact(r[2],80),platform:redact(r[3],40),samples:Number(r[4]),
+      p50Ms:Math.round(Number(r[5])),p95Ms:Math.round(Number(r[6]))}));
+}
 export function lineSummary(rows, total = rows.length, now = Date.now()) {
   const counts = { healthy: 0, slow: 0, failed: 0, unknown: 0, stale: 0, alerts: 0 };
   const lines = rows.map(row => {
@@ -134,12 +175,14 @@ export function createMonitor(env, { fetcher = fetch } = {}) {
       method: "POST", headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
       body: JSON.stringify({ query: { kind: "HogQLQuery", query: sql } }) })).data;
     const range = " timestamp >= now() - INTERVAL 1 DAY ";
-    const [summary, breakdown, issues] = await Promise.all([
+    const [summary, breakdown, issues, timing] = await Promise.all([
       query("SELECT event, count(), uniqExact(person_id) FROM events WHERE " + range +
         " AND event IN ('$exception','playback line failed','playback buffering','admin function failed') GROUP BY event"),
       query("SELECT event, coalesce(nullIf(toString(properties.app),''),toString(properties.$app_name),'unknown'), coalesce(nullIf(toString(properties.platform),''),toString(properties.$os_name),'unknown'), count(),uniqExact(person_id) FROM events WHERE " + range +
         " AND event IN ('$exception','playback line failed','admin function failed') GROUP BY event,2,3 ORDER BY count() DESC LIMIT 20"),
       query("SELECT coalesce(nullIf(toString(properties.$exception_issue_id),''),nullIf(toString(properties.$exception_fingerprint),''),'ungrouped'), any(toString(properties.$exception_types)),any(toString(properties.$exception_values)),count(),uniqExact(person_id),max(timestamp),argMax(properties.$exception_list,timestamp),argMax(toString(properties.$screen_name),timestamp) FROM events WHERE event='$exception' AND " + range + " GROUP BY 1 ORDER BY count() DESC LIMIT 10"),
+      query(playbackTimingQuery(range)).then(data => ({state:'ok',rows:playbackTimingRows(data)}))
+        .catch(() => ({state:'unavailable',rows:[]})),
     ]);
     if (![summary,breakdown,issues].every(q => Array.isArray(q.results))) throw new Error("Query incomplete");
     const events = ['$exception','playback line failed','playback buffering','admin function failed'].map(event => {
@@ -148,7 +191,11 @@ export function createMonitor(env, { fetcher = fetch } = {}) {
     });
     return card("posthog", events.some(e => e.event !== "playback buffering" && e.count > 0) ? "warning" : "ok",
       "Captured events in the last 24 hours. Anonymous devices can count separately; missing telemetry is not proof of no crashes.",
-      { events, breakdown: breakdown.results.map(r => ({ event:r[0], app:redact(r[1],80), platform:redact(r[2],40), count:number(r[3]), affectedUsers:number(r[4]) })),
+      { events, timing:{...timing,state:timing.state === 'ok' && !timing.rows.length ? 'no_data' : timing.state,
+          note:timing.state === 'unavailable' ? 'Playback timing could not be read. Other event counts are still available.' :
+            timing.rows.length ? 'Measured durations · last 24 hours. Initial startup buffering is separate from buffering during playback.' :
+            'No measured playback durations yet. Play a stream with the latest app or website to collect timing.'},
+        breakdown: breakdown.results.map(r => ({ event:r[0], app:redact(r[1],80), platform:redact(r[2],40), count:number(r[3]), affectedUsers:number(r[4]) })),
         issues: issues.results.map(r => ({ issue:redact(r[0],100), title:redact(r[1] + ": " + r[2],300), count:number(r[3]),
           affectedUsers:number(r[4]), lastSeen:r[5], stack:redact(JSON.stringify(r[6] ?? []),6000), screen:redact(r[7],80),
           url: /^[a-f0-9-]{36}$/i.test(r[0]) ? host + "/project/" + config.projectId + "/error_tracking/" + r[0] : null })),

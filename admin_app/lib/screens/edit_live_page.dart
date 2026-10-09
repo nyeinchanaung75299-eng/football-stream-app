@@ -140,6 +140,12 @@ class _EditLivePageState extends State<EditLivePage> {
     bool featured = m['is_featured'] != false;
     bool published = (m['publish_state'] ?? 'published') == 'published';
 
+    void disposeEditors() {
+      for (final controller in [league, home, away, homeLogo, awayLogo, order]) {
+        controller.dispose();
+      }
+    }
+
     final save = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -244,9 +250,13 @@ class _EditLivePageState extends State<EditLivePage> {
       },
     );
 
-    if (save != true) return;
+    if (save != true) {
+      disposeEditors();
+      return;
+    }
     if (league.text.trim().isEmpty || home.text.trim().isEmpty || away.text.trim().isEmpty) {
       message('League and team names cannot be empty.');
+      disposeEditors();
       return;
     }
 
@@ -288,6 +298,8 @@ class _EditLivePageState extends State<EditLivePage> {
         properties: {'match_id': m['id'].toString()},
       );
       if (mounted) message('Match update failed: $e');
+    } finally {
+      disposeEditors();
     }
   }
 

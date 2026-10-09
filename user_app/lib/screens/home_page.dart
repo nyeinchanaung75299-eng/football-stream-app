@@ -293,16 +293,6 @@ class _HomePageState extends State<HomePage> {
     return primary;
   }
 
-  List<Map<String, dynamic>> _visibleMatches(
-    List<Map<String, dynamic>> rows,
-  ) {
-    // The Admin owns Viewer visibility. Do not auto-hide a featured match
-    // because kickoff time passed, live status is stale, or no stream is
-    // attached yet. A card leaves Live only when Admin deletes, unpublishes,
-    // deactivates, or explicitly removes it from the featured set.
-    return rows;
-  }
-
   List<Map<String, dynamic>> _decodeMatches(String body) {
     final decoded = jsonDecode(body);
     final raw = decoded is Map<String, dynamic>
@@ -313,13 +303,10 @@ class _HomePageState extends State<HomePage> {
       throw const FormatException('Match feed is invalid.');
     }
 
+    // Admin owns Viewer visibility; sorting never auto-hides featured games.
     return _sortMatchesChronologically(
-        _visibleMatches(
-          raw
-              .map((row) => Map<String, dynamic>.from(row as Map))
-              .toList(),
-        ),
-      );
+      raw.map((row) => Map<String, dynamic>.from(row as Map)).toList(),
+    );
   }
 
   Future<List<Map<String, dynamic>>> _loadPublicApiFrom(
@@ -641,7 +628,7 @@ class _HomePageState extends State<HomePage> {
           .whereType<Map>()
           .map((row) => Map<String, dynamic>.from(row))
           .toList();
-      final visible = _sortMatchesChronologically(_visibleMatches(rows));
+      final visible = _sortMatchesChronologically(rows);
       if (visible.isEmpty) return null;
       return _PersistedMatchCache(visible, fetchedAt);
     } catch (_) {
@@ -747,7 +734,7 @@ class _HomePageState extends State<HomePage> {
             })
         .toList();
     return _sortMatchesChronologically(
-      _visibleMatches(_mergeAvailability(rows, counts)),
+      _mergeAvailability(rows, counts),
     );
   }
 

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Base64
 import android.view.Gravity
 import android.view.MotionEvent
@@ -35,9 +36,85 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import org.json.JSONArray
+import java.net.URI
+import java.lang.ref.WeakReference
+import java.util.Locale
+
+// Uses elapsed time only while playback is expected. Seeking, pausing and
+// backgrounding reset the progress baseline rather than consuming a deadline.
+internal class PlaybackProgressWatchdog(
+    private val startupTimeoutMs: Long = 20000L,
+    private val progressTimeoutMs: Long = 25000L
+) {
+    var started = false
+        private set
+    private var lastProgressAt = 0L
+    private var lastPosition = 0L
+    private var initialized = false
+
+    fun resetBaseline(now: Long, position: Long) {
+        initialized = true
+        lastProgressAt = now
+        lastPosition = position
+    }
+
+    fun rendered(now: Long, position: Long) {
+        started = true
+        resetBaseline(now, position)
+    }
+
+    fun stalledForMs(now: Long): Long = (now - lastProgressAt).coerceAtLeast(0L)
+
+    // Positive position changes are progress only after discontinuity listeners
+    // have reset the baseline; a seek itself must never count as a first frame.
+    fun sample(now: Long, position: Long, active: Boolean): Boolean {
+        if (!initialized || !active) {
+            resetBaseline(now, position)
+            return false
+        }
+        if (position > lastPosition) {
+            started = true
+            lastProgressAt = now
+        } else if (position < lastPosition) {
+            lastProgressAt = now
+        }
+        lastPosition = position
+        val timeout = if (started) progressTimeoutMs else startupTimeoutMs
+        return now - lastProgressAt >= timeout
+    }
+}
 
 @UnstableApi
 class NativePlayerActivity : Activity() {
+    companion object {
+        private var activePlayer = WeakReference<NativePlayerActivity>(null)
+        private val sourceSessions = PlaybackSourceSessions()
+
+        fun prepareOpeningSession(sessionId: String) {
+            sourceSessions.begin(sessionId)
+        }
+
+        fun cancelOpeningSession(sessionId: String) {
+            sourceSessions.close(sessionId)
+        }
+
+        fun appendSources(sessionId: String, json: String): Boolean {
+            if (sessionId.isBlank() || json.isBlank() || !sourceSessions.isCurrent(sessionId)) return false
+            val activity = activePlayer.get()
+            if (activity == null || sessionId != activity.sessionId ||
+                activity.isFinishing || activity.isDestroyed) {
+                return sourceSessions.enqueueIfOpening(sessionId, json)
+            }
+            activity.runOnUiThread {
+                if (activePlayer.get() === activity && sessionId == activity.sessionId &&
+                    sourceSessions.isCurrent(sessionId) && !activity.isFinishing && !activity.isDestroyed) {
+                    activity.appendSessionSources(json)
+                }
+            }
+            return true
+        }
+    }
+
     private var player: ExoPlayer? = null
     private var trackSelector: DefaultTrackSelector? = null
     private lateinit var playerView: PlayerView
@@ -49,13 +126,21 @@ class NativePlayerActivity : Activity() {
     private var sources = JSONArray()
     private var selectedServerIndex = 0
     private var matchId = ""
+    private var sessionId = ""
     private var qualityOptions = mutableListOf<QualityOption>()
     private var forcedQualityLabel: String? = null
     private var autoFallbackTried = mutableSetOf<Int>()
-    private var playbackStartedServers = mutableSetOf<Int>()
-    private var bufferingReportedServers = mutableSetOf<Int>()
     private var pendingFallback: Runnable? = null
+    private var progressCheck: Runnable? = null
     private var playbackGeneration = 0
+    private var activityResumed = false
+    private var progressWatchdog = PlaybackProgressWatchdog()
+    private var sameLineRecoveryUsed = false
+    private var openingStartedAt = 0L
+    private var startedReported = false
+    private var bufferingStartedAt: Long? = null
+    private var bufferingPhase = "startup"
+    private var suspendedAt: Long? = null
 
     private data class QualityOption(
         val label: String,
@@ -90,16 +175,37 @@ class NativePlayerActivity : Activity() {
         extra: Map<String, Any?> = emptyMap()
     ) {
         val source = sources.optJSONObject(selectedServerIndex)
+        val streamType = when (source?.optString("streamType").orEmpty().lowercase(Locale.ROOT)) {
+            "m3u8", "hls" -> "hls"
+            "mpd", "dash" -> "dash"
+            "mp4" -> "mp4"
+            "flv" -> "flv"
+            "auto", "" -> "auto"
+            else -> "unknown"
+        }
+        val resolution = source?.optString("resolution").orEmpty().lowercase(Locale.ROOT)
+        val healthStatus = source?.optString("healthStatus").orEmpty().lowercase(Locale.ROOT)
         val base = mutableMapOf<String, Any?>(
             "selected_index" to selectedServerIndex,
             "line_count" to sources.length(),
-            "stream_type" to (source?.optString("streamType", "auto") ?: "auto"),
-            "resolution" to (source?.optString("resolution", "") ?: ""),
-            "health_status" to (source?.optString("healthStatus", "unknown") ?: "unknown")
+            "stream_type" to streamType,
+            "resolution" to if (resolution.matches(Regex("^(\\d{3,4}p|auto|hd|sd|fhd|uhd|4k)$"))) resolution else "unknown",
+            "health_status" to if (healthStatus in setOf("healthy", "unknown", "slow", "failed")) healthStatus else "unknown"
         )
-        if (matchId.isNotBlank()) {
+        if (matchId.matches(Regex("^[a-zA-Z0-9_:-]{1,128}$"))) {
             base["match_id"] = matchId
         }
+        val lineId = sequenceOf("id", "lineId", "linkId")
+            .map { source?.optString(it).orEmpty() }
+            .firstOrNull { it.matches(Regex("^[a-zA-Z0-9_:-]{1,128}$")) }
+        if (lineId != null) base["line_id"] = lineId
+        // Never send protected paths, query tokens, headers or ClearKey values.
+        val routeHost = try {
+            URI(source?.optString("url").orEmpty())
+                .takeIf { it.scheme?.lowercase(Locale.ROOT) in setOf("http", "https") }
+                ?.host?.lowercase(Locale.ROOT)
+        } catch (_: Exception) { null }
+        if (!routeHost.isNullOrBlank()) base["route"] = routeHost
         base.putAll(extra)
         MainActivity.emitPlayerEvent(event, base)
     }
@@ -107,6 +213,7 @@ class NativePlayerActivity : Activity() {
     private fun createPlayerScreen() {
         // Parse the payload before doing any ExoPlayer work.
         matchId = intent.getStringExtra("matchId").orEmpty()
+        sessionId = intent.getStringExtra("sessionId").orEmpty()
         val json = intent.getStringExtra("sourcesJson").orEmpty()
         if (json.isBlank()) {
             showFatalError("No stream source")
@@ -124,6 +231,12 @@ class NativePlayerActivity : Activity() {
             showFatalError("No stream source")
             return
         }
+        if (sessionId.isNotBlank() && !sourceSessions.isCurrent(sessionId)) {
+            finish()
+            return
+        }
+        activePlayer = WeakReference(this)
+        sourceSessions.register(sessionId)?.let { appendSessionSources(it) }
 
         selectedServerIndex = intent.getIntExtra("selectedIndex", 0)
             .coerceIn(0, sources.length() - 1)
@@ -289,11 +402,13 @@ class NativePlayerActivity : Activity() {
         if (hasFocus) safeHideSystemBars()
     }
 
-    private fun playServer(index: Int) {
+    private fun playServer(index: Int, recoveringSameLine: Boolean = false) {
         if (index !in 0 until sources.length()) return
         pendingFallback?.let { if (::playerView.isInitialized) playerView.removeCallbacks(it) }
         pendingFallback = null
+        stopProgressCheck()
         playbackGeneration += 1
+        selectedServerIndex = index
         val source = sources.optJSONObject(index) ?: return
         val url = source.optString("url").trim()
         if (url.isBlank()) {
@@ -301,7 +416,13 @@ class NativePlayerActivity : Activity() {
             return
         }
 
-        selectedServerIndex = index
+        sameLineRecoveryUsed = recoveringSameLine
+        progressWatchdog = PlaybackProgressWatchdog()
+        openingStartedAt = SystemClock.elapsedRealtime()
+        progressWatchdog.resetBaseline(openingStartedAt, 0L)
+        startedReported = false
+        bufferingStartedAt = null
+        suspendedAt = if (activityResumed) null else openingStartedAt
         forcedQualityLabel = null
         qualityOptions.clear()
         qualityButton.text = "Auto"
@@ -356,33 +477,66 @@ class NativePlayerActivity : Activity() {
                 .setHandleAudioBecomingNoisy(true)
                 .build()
 
+            val generation = playbackGeneration
+            fun currentPlayback() = generation == playbackGeneration && player === exo && pendingFallback == null &&
+                !isFinishing && !isDestroyed
+
             exo.addListener(object : Player.Listener {
                 override fun onTracksChanged(tracks: Tracks) {
+                    if (!currentPlayback()) return
                     rebuildQualityOptions(tracks)
                 }
 
+                override fun onRenderedFirstFrame() {
+                    if (!currentPlayback()) return
+                    val active = activityResumed && exo.playWhenReady &&
+                        exo.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE
+                    updatePlaybackTiming(active)
+                    progressWatchdog.rendered(SystemClock.elapsedRealtime(), exo.currentPosition)
+                    if (active) reportPlaybackProgress()
+                }
+
+                override fun onPositionDiscontinuity(
+                    oldPosition: Player.PositionInfo,
+                    newPosition: Player.PositionInfo,
+                    reason: Int
+                ) {
+                    if (!currentPlayback()) return
+                    progressWatchdog.resetBaseline(SystemClock.elapsedRealtime(), exo.currentPosition)
+                    lastSamplePosition = exo.currentPosition
+                }
+
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    if (!currentPlayback()) return
+                    updatePlaybackTiming(activityResumed && playWhenReady)
+                    progressWatchdog.resetBaseline(SystemClock.elapsedRealtime(), exo.currentPosition)
+                }
+
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (!currentPlayback()) return
                     when (playbackState) {
                         Player.STATE_READY -> {
-                            hideStatus()
-                            if (playbackStartedServers.add(selectedServerIndex)) {
-                                emitPlaybackEvent("playback started")
-                            }
+                            if (progressWatchdog.started) hideStatus()
                         }
                         Player.STATE_BUFFERING -> {
                             showStatus("Buffering…")
-                            if (bufferingReportedServers.add(selectedServerIndex)) {
-                                emitPlaybackEvent("playback buffering")
-                            }
+                            beginBuffering()
                         }
                         Player.STATE_ENDED -> {
                             showStatus("Stream ended")
                             emitPlaybackEvent("playback ended")
+                            stopProgressCheck()
+                            // Finite videos may end normally. Only a confirmed
+                            // live timeline is recovered automatically.
+                            if (activityResumed && exo.playWhenReady && exo.isCurrentMediaItemLive) {
+                                recoverOrFallback("Live stream ended")
+                            }
                         }
                     }
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    if (!currentPlayback()) return
                     emitPlaybackEvent(
                         "playback line failed",
                         mapOf("error_code" to error.errorCode)
@@ -396,6 +550,7 @@ class NativePlayerActivity : Activity() {
             exo.setMediaItem(itemBuilder.build())
             exo.prepare()
             exo.playWhenReady = true
+            startProgressCheck(exo, generation)
         } catch (t: Throwable) {
             emitPlaybackEvent(
                 "playback line failed",
@@ -405,7 +560,122 @@ class NativePlayerActivity : Activity() {
         }
     }
 
+    private fun beginBuffering() {
+        if (!activityResumed || player?.playWhenReady != true || bufferingStartedAt != null) return
+        bufferingStartedAt = SystemClock.elapsedRealtime()
+        bufferingPhase = if (startedReported) "rebuffer" else "startup"
+        emitPlaybackEvent("playback buffering", mapOf("phase" to bufferingPhase))
+    }
+
+    private fun appendSessionSources(json: String) {
+        val updated = try { JSONArray(json) } catch (_: Exception) { return }
+        if (updated.length() <= sources.length()) return
+        // Late backups can extend the chooser only. Keep the current player,
+        // selection and existing source credentials unchanged.
+        val identityFields = arrayOf("id", "lineId", "linkId", "url", "streamType", "referer", "origin", "keyId", "keyData")
+        for (i in 0 until sources.length()) {
+            val before = sources.optJSONObject(i) ?: return
+            val after = updated.optJSONObject(i) ?: return
+            if (identityFields.any { before.optString(it) != after.optString(it) }) return
+        }
+        val additions = mutableListOf<org.json.JSONObject>()
+        for (i in sources.length() until updated.length()) {
+            val source = updated.optJSONObject(i) ?: return
+            if (source.optString("url").isBlank()) return
+            additions.add(source)
+        }
+        additions.forEach { sources.put(it) }
+    }
+
+    private fun reportPlaybackProgress() {
+        val now = SystemClock.elapsedRealtime()
+        if (!startedReported) {
+            startedReported = true
+            emitPlaybackEvent("playback started", mapOf("startup_ms" to (now - openingStartedAt).coerceAtLeast(0L)))
+        }
+        bufferingStartedAt?.let {
+            emitPlaybackEvent("playback buffering ended", mapOf(
+                "phase" to bufferingPhase,
+                "buffering_ms" to (now - it).coerceAtLeast(0L)
+            ))
+            bufferingStartedAt = null
+        }
+        hideStatus()
+    }
+
+    private fun updatePlaybackTiming(active: Boolean) {
+        val now = SystemClock.elapsedRealtime()
+        if (!active) {
+            if (suspendedAt == null) suspendedAt = now
+        } else {
+            suspendedAt?.let {
+                val inactiveMs = (now - it).coerceAtLeast(0L)
+                openingStartedAt += inactiveMs
+                bufferingStartedAt = bufferingStartedAt?.plus(inactiveMs)
+            }
+            suspendedAt = null
+        }
+    }
+
+    private fun startProgressCheck(exo: ExoPlayer, generation: Int) {
+        stopProgressCheck()
+        val check = object : Runnable {
+            override fun run() {
+                if (generation != playbackGeneration || player !== exo || isFinishing || isDestroyed) return
+                val active = activityResumed && exo.playWhenReady &&
+                    exo.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE
+                updatePlaybackTiming(active)
+                val position = exo.currentPosition
+                val beforeStarted = progressWatchdog.started
+                val progressed = position > lastSamplePosition
+                val timedOut = progressWatchdog.sample(SystemClock.elapsedRealtime(), position, active)
+                lastSamplePosition = position
+                if (active && progressWatchdog.started && (!beforeStarted || progressed)) reportPlaybackProgress()
+                if (active && exo.playbackState == Player.STATE_BUFFERING) beginBuffering()
+                if (active && progressWatchdog.started && progressWatchdog.stalledForMs(SystemClock.elapsedRealtime()) >= 2000L) {
+                    beginBuffering()
+                }
+                if (active && timedOut) {
+                    beginBuffering()
+                    recoverOrFallback(if (startedReported) "Playback stalled" else "Stream startup timed out")
+                    return
+                }
+                playerView.postDelayed(this, 1000L)
+            }
+        }
+        lastSamplePosition = exo.currentPosition
+        progressCheck = check
+        playerView.postDelayed(check, 1000L)
+    }
+
+    private var lastSamplePosition = 0L
+
+    private fun stopProgressCheck() {
+        progressCheck?.let { if (::playerView.isInitialized) playerView.removeCallbacks(it) }
+        progressCheck = null
+    }
+
+    private fun recoverOrFallback(reason: String) {
+        stopProgressCheck()
+        if (!sameLineRecoveryUsed) {
+            emitPlaybackEvent("playback recovery", mapOf(
+                "reason" to reason,
+                "phase" to if (startedReported) "rebuffer" else "startup",
+                "attempt" to 1
+            ))
+            showStatus("$reason • reconnecting…")
+            playServer(selectedServerIndex, recoveringSameLine = true)
+        } else {
+            emitPlaybackEvent("playback line failed", mapOf(
+                "error_code" to if (reason == "Live stream ended") "LIVE_STREAM_ENDED" else "PLAYBACK_PROGRESS_TIMEOUT",
+                "phase" to if (startedReported) "rebuffer" else "startup"
+            ))
+            tryNextServer(reason)
+        }
+    }
+
     private fun tryNextServer(message: String) {
+        stopProgressCheck()
         autoFallbackTried.add(selectedServerIndex)
         for (i in 0 until sources.length()) {
             if (!autoFallbackTried.contains(i)) {
@@ -419,12 +689,16 @@ class NativePlayerActivity : Activity() {
                 )
                 showStatus("$message • trying backup…")
                 val generation = playbackGeneration
-                val fallback = Runnable {
-                    if (generation != playbackGeneration || isFinishing || isDestroyed) {
-                        return@Runnable
+                val fallback = object : Runnable {
+                    override fun run() {
+                        if (generation != playbackGeneration || isFinishing || isDestroyed) return
+                        if (!activityResumed || player?.playWhenReady == false) {
+                            playerView.postDelayed(this, 1000L)
+                            return
+                        }
+                        pendingFallback = null
+                        playServer(i)
                     }
-                    pendingFallback = null
-                    playServer(i)
                 }
                 pendingFallback?.let { playerView.removeCallbacks(it) }
                 pendingFallback = fallback
@@ -550,6 +824,8 @@ class NativePlayerActivity : Activity() {
     }
 
     private fun showFatalError(text: String) {
+        sourceSessions.close(sessionId)
+        if (activePlayer.get() === this) activePlayer.clear()
         MainActivity.emitPlayerEvent(
             "playback fatal error",
             mapOf("reason" to text.lineSequence().firstOrNull().orEmpty().take(80))
@@ -606,6 +882,9 @@ class NativePlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        sourceSessions.close(sessionId)
+        if (activePlayer.get() === this) activePlayer.clear()
+        stopProgressCheck()
         pendingFallback?.let { if (::playerView.isInitialized) playerView.removeCallbacks(it) }
         pendingFallback = null
         playbackGeneration += 1
@@ -614,6 +893,32 @@ class NativePlayerActivity : Activity() {
         player = null
         trackSelector = null
         super.onDestroy()
+    }
+
+    override fun onPause() {
+        activityResumed = false
+        updatePlaybackTiming(false)
+        stopProgressCheck()
+        pendingFallback?.let { if (::playerView.isInitialized) playerView.removeCallbacks(it) }
+        player?.let { progressWatchdog.resetBaseline(SystemClock.elapsedRealtime(), it.currentPosition) }
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        activityResumed = true
+        val exo = player ?: return
+        updatePlaybackTiming(exo.playWhenReady)
+        progressWatchdog.resetBaseline(SystemClock.elapsedRealtime(), exo.currentPosition)
+        val fallback = pendingFallback
+        if (fallback != null) {
+            playerView.removeCallbacks(fallback)
+            playerView.postDelayed(fallback, 550L)
+        } else if (exo.playbackState == Player.STATE_ENDED) {
+            if (exo.playWhenReady && exo.isCurrentMediaItemLive) recoverOrFallback("Live stream ended")
+        } else {
+            startProgressCheck(exo, playbackGeneration)
+        }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()

@@ -18,7 +18,7 @@ async function flush() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
 
-function createHarness({ ios = true, streaming = true, webCrypto = true, nativeHls = true, plans = {}, attachGate, engineLoads } = {}) {
+function createHarness({ ios = true, streaming = true, webCrypto = true, nativeHls = true, plans = {}, attachGate, engineLoads, pageBase } = {}) {
   let clock = 0, nextTimer = 1;
   const timers = new Map(), elements = new Map();
   const events = [], loads = [], plays = [], players = [], flvPlayers = [], logs = [], scripts = [];
@@ -47,6 +47,7 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
     set src(value) { this._src = value; this.playUrl = value; }
     get src() { return this._src; }
     appendChild(child) { this.children.push(child); return child; }
+    remove() { this.removed = true; }
     setAttribute(name, value) { this.attributes[name] = value; }
     removeAttribute(name) { delete this.attributes[name]; if (name === 'src') this.src = ''; }
     addEventListener(type, fn, options = {}) {
@@ -133,6 +134,7 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
   document.getElementById = id => elements.get(id);
   document.createElement = () => new Element();
   document.head = new Element('head');
+  document.baseURI = pageBase;
   document.fullscreenElement = null;
   document.exitFullscreen = async () => {
     document.fullscreenElement = null;
@@ -144,12 +146,14 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
   };
   const window = new Element('window');
   window.crypto = webCrypto ? { subtle: {} } : {};
+  window.performance = { now: () => clock };
   window.posthog = { capture(name, properties) { events.push({ name, properties }); } };
   if (!engineLoads) window.shaka = shaka;
-  window.mpegts = mpegts;
+  if (!engineLoads) window.mpegts = mpegts;
   if (streaming) window.ManagedMediaSource = class {};
   const context = vm.createContext({
-    window, document, shaka, mpegts,
+    window, document, shaka, mpegts, URL,
+    ...(pageBase ? { location: new URL(pageBase) } : {}),
     navigator: { userAgent: ios ? 'iPhone Safari' : 'Chrome Android', platform: ios ? 'iPhone' : 'Linux', maxTouchPoints: 1 },
     btoa: value => Buffer.from(value, 'binary').toString('base64'),
     console: { error: (...args) => logs.push(args) },
@@ -158,9 +162,15 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
   });
   document.head.appendChild = script => {
     scripts.push(script);
+    const result = engineLoads?.[scripts.length - 1];
     Promise.resolve().then(() => {
-      if (engineLoads?.[scripts.length - 1] === 'fail') script.onerror();
-      else { window.shaka = shaka; script.onload(); }
+      if (result === 'hang') return;
+      if (result === 'fail') script.onerror?.();
+      else {
+        if (script.src.includes('mpegts')) window.mpegts = mpegts;
+        else window.shaka = shaka;
+        script.onload?.();
+      }
     });
     return script;
   };
@@ -168,9 +178,12 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
 
   return {
     video, overlay, message, elements, events, loads, plays, players, flvPlayers, logs, scripts, document, window,
-    async open(sources, index = 0, match = 'test-match') {
-      await window.openFootballPlayer(JSON.stringify(sources), index, 'Test match', match);
+    async open(sources, index = 0, match = 'test-match', session = 'test-session') {
+      await window.openFootballPlayer(JSON.stringify(sources), index, 'Test match', match, session);
       await flush();
+    },
+    update(sources, session = 'test-session') {
+      window.updateFootballPlayerSources(JSON.stringify(sources), session);
     },
     async choose(index) {
       elements.get('football-player-server').click();
@@ -752,6 +765,103 @@ test('failed engine mirrors can be retried and DASH-only failures explain the HL
   await h.choose(0);
   assert.equal(h.scripts.length, 3, 'Retry must download again after all mirrors failed');
   assert.deepEqual(h.plays, [dash.url]);
+});
+
+test('a hung engine download has a deadline and does not poison the next manual retry', async () => {
+  const dash = source('dash');
+  const h = createHarness({ engineLoads: ['hang', 'fail', 'success'] });
+  const opening = h.open([dash]);
+  await flush();
+  assert.equal(h.scripts.length, 1);
+  await h.tick(5000);
+  await opening;
+  assert.equal(h.scripts[0].removed, true, 'Timed-out script must be detached');
+  assert.equal(h.scripts.length, 2, 'A hanging first mirror must not block its backup');
+  await h.choose(0);
+  assert.equal(h.scripts.length, 3, 'Manual retry must create a fresh engine request');
+  assert.deepEqual(h.plays, [dash.url]);
+});
+
+test('FLV prefers a pinned same-origin engine and falls back after a hung local download', async () => {
+  const flv = source('flv');
+  const h = createHarness({ pageBase: 'https://app.example.invalid/football-stream-app/', engineLoads: ['hang', 'success'] });
+  const opening = h.open([flv]);
+  await flush();
+  assert.equal(h.scripts[0].src, 'https://app.example.invalid/football-stream-app/vendor/mpegts.js?v=1.8.2');
+  await h.tick(5000);
+  await opening;
+  assert.match(h.scripts[1].src, /cdn\.jsdelivr\.net/);
+  assert.deepEqual(h.plays, [flv.url]);
+});
+
+test('startup and rebuffer telemetry measure elapsed playback time with host-only line context', async () => {
+  const hls = { ...source('hls'), id: 'line-123', url: 'https://proxy.example.invalid/p/SECRET?token=SECRET' };
+  const h = createHarness({ plans: { [hls.url]: { noPlaying: true } } });
+  await h.open([hls]);
+  await h.tick(400);
+  h.video.emit('playing');
+  const started = h.events.find(event => event.name === 'playback started');
+  assert.equal(started.properties.startup_ms, 400);
+  assert.equal(started.properties.line_id, 'line-123');
+  assert.equal(started.properties.route, 'proxy.example.invalid');
+  let completed = h.events.filter(event => event.name === 'playback buffering ended');
+  assert.equal(completed[0].properties.phase, 'startup');
+  assert.equal(completed[0].properties.buffering_ms, 400);
+  h.video.currentTime = 1;
+  h.video.emit('timeupdate');
+  h.video.emit('waiting');
+  h.video.emit('waiting');
+  await h.tick(1700);
+  h.video.currentTime = 2;
+  h.video.emit('timeupdate');
+  completed = h.events.filter(event => event.name === 'playback buffering ended');
+  assert.equal(completed.length, 2, 'Duplicate waiting must describe one buffering episode');
+  assert.equal(completed[1].properties.phase, 'rebuffer');
+  assert.equal(completed[1].properties.buffering_ms, 1700);
+  h.video.emit('waiting');
+  h.video.pause();
+  await h.tick(60000);
+  h.video.emit('playing');
+  assert.equal(h.events.filter(event => event.name === 'playback buffering ended').length, 2, 'User pause must not inflate buffering duration');
+  assert.ok(!JSON.stringify(h.events).includes('SECRET'));
+});
+
+test('late backups append only to the current session without restarting or replacing the chosen line', async () => {
+  const first = { ...source('hls', 'first'), id: 'first' };
+  const backup = { ...source('hls', 'late-backup'), id: 'backup' };
+  const h = createHarness();
+  await h.open([first]);
+  h.update([first, backup], 'old-session');
+  h.elements.get('football-player-server').click();
+  assert.equal(h.elements.get('football-player-menu-items').children.length, 1);
+  h.update([first, backup]);
+  assert.deepEqual(h.plays, [first.url], 'Append must preserve the active decoder');
+  assert.equal(h.elements.get('football-player-menu-items').children.length, 2, 'An open line picker should receive the new backup too');
+  h.elements.get('football-player-server').click();
+  await h.choose(1);
+  assert.deepEqual(h.plays, [first.url, backup.url]);
+  h.update([{ ...first, id: 'changed-prefix' }, backup, source('hls', 'unexpected')]);
+  h.elements.get('football-player-server').click();
+  assert.equal(h.elements.get('football-player-menu-items').children.length, 2);
+  await h.open([first], 0, 'new-match', 'new-session');
+  h.update([first, backup]);
+  h.elements.get('football-player-server').click();
+  assert.equal(h.elements.get('football-player-menu-items').children.length, 1, 'Old request session cannot change a newly opened match');
+  await h.close();
+  h.update([first, backup], 'new-session');
+  assert.equal(h.overlay.classList.contains('open'), false);
+  assert.deepEqual(h.plays, [first.url, backup.url, first.url]);
+});
+
+test('provider-scoped colon IDs remain available for line diagnostics while URL-like IDs are rejected', async () => {
+  const line = { ...source('hls'), id: 'soco:123:456:0' };
+  const h = createHarness();
+  await h.open([line], 0, 'soco:123');
+  const started = h.events.find(event => event.name === 'playback started');
+  assert.equal(started.properties.line_id, 'soco:123:456:0');
+  assert.equal(started.properties.match_id, 'soco:123');
+  await h.open([{ ...line, id: 'https://source.invalid/?SECRET' }], 0, 'https://source.invalid/?SECRET');
+  assert.ok(!JSON.stringify(h.events).includes('SECRET'));
 });
 
 test('untrusted metadata cannot become URL or credential telemetry', async () => {

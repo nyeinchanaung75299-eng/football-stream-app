@@ -5,8 +5,9 @@ import 'package:flutter/material.dart';
 /// own route when the request completes, never the page beneath it.
 Future<T?> loadPlayerSources<T>(
   BuildContext context,
-  Future<T> Function() load,
-) async {
+  Future<T> Function() load, {
+  void Function()? onCancelled,
+}) async {
   final navigator = Navigator.of(context, rootNavigator: true);
   final route = DialogRoute<void>(
     context: context,
@@ -32,6 +33,12 @@ Future<T?> loadPlayerSources<T>(
     ),
   );
   unawaited(navigator.push(route));
+  var loadFinished = false;
+  unawaited(
+    route.popped.then((_) {
+      if (!loadFinished) onCancelled?.call();
+    }),
+  );
   T? result;
   var failed = false;
   var cancelled = false;
@@ -40,6 +47,7 @@ Future<T?> loadPlayerSources<T>(
   } catch (_) {
     failed = true;
   } finally {
+    loadFinished = true;
     cancelled = !route.isActive;
     if (route.isActive) navigator.removeRoute(route);
   }

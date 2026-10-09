@@ -199,12 +199,12 @@
     const videoFrame=document.getElementById('football-player-video-frame');
     let sources=[], shakaPlayer=null, mpegtsPlayer=null, currentTracks=[];
     let currentSourceIndex=0;
-    let currentMatchId='';
+    let currentMatchId='', currentSessionId='';
     let controlsTimer=null;
     let autoFallbackTried=new Set();
     let playbackToken=0;
     let playbackStartedToken=-1;
-    let bufferingReportedToken=-1;
+    let playbackAttemptStartedAt=0, activeBuffering=null;
     let startupTimer=null, stallTimer=null, fallbackTimer=null, progressTimer=null;
     let fallbackScheduledToken=-1, awaitingPlayToken=-1;
     let activePlayingHandler=null;
@@ -212,8 +212,30 @@
     let manualRotation=0;
     let lastPlaybackTime=NaN;
     const iosRecoveryAttempts=new Map();
-    const startupTimeoutMs=20000, stallTimeoutMs=15000;
+    const startupTimeoutMs=20000, stallTimeoutMs=15000, engineTimeoutMs=5000;
     const scriptLoads=new Map();
+
+    function playbackClock(){
+      return window.performance&&typeof window.performance.now==='function'
+        ? window.performance.now() : Date.now();
+    }
+
+    function playbackProperties(index=currentSourceIndex){
+      const source=sources[index]||{};
+      const rawId=String(source.id||source.lineId||source.linkId||'');
+      let route='';
+      try{
+        const parsed=new URL(String(source.url||''));
+        if(parsed.protocol==='http:'||parsed.protocol==='https:')route=parsed.hostname;
+      }catch(_){}
+      return {
+        selected_index:index,
+        line_count:sources.length,
+        stream_type:sourceType(source),
+        ...(/^[A-Za-z0-9_:-]{1,128}$/.test(rawId)?{line_id:rawId}:{}),
+        ...(route?{route}:{}),
+      };
+    }
 
     function capturePlayerEvent(name,properties={}){
       try{
@@ -222,10 +244,30 @@
             app:'nca_viewer',
             platform:'web',
             ...(currentMatchId?{match_id:currentMatchId}:{}),
+            ...playbackProperties(),
             ...properties
           });
         }
       }catch(_){}
+    }
+
+    function beginBuffering(index,token){
+      if(!isCurrentPlayback(token)||document.hidden||activeBuffering?.token===token)return;
+      activeBuffering={token,startedAt:playbackClock(),
+        phase:playbackStartedToken===token?'rebuffer':'startup'};
+      capturePlayerEvent('playback buffering',{
+        ...playbackProperties(index),phase:activeBuffering.phase
+      });
+    }
+
+    function finishBuffering(index,token){
+      if(!isCurrentPlayback(token)||activeBuffering?.token!==token)return;
+      const buffering=activeBuffering;
+      activeBuffering=null;
+      capturePlayerEvent('playback buffering ended',{
+        ...playbackProperties(index),phase:buffering.phase,
+        buffering_ms:Math.max(0,Math.round(playbackClock()-buffering.startedAt))
+      });
     }
 
     function loadScriptOnce(src,key){
@@ -233,16 +275,22 @@
       if(scriptLoads.has(src)) return scriptLoads.get(src);
       const promise=new Promise((resolve,reject)=>{
         const script=document.createElement('script');
+        let settled=false;
+        const finish=error=>{
+          if(settled)return;
+          settled=true;
+          clearTimeout(timer);
+          script.onload=null;script.onerror=null;
+          if(error){script.remove();reject(error)}else resolve();
+        };
+        const timer=setTimeout(()=>finish(new Error(key+' player engine timed out.')),engineTimeoutMs);
         script.src=src;
         script.async=true;
-        script.onload=()=>{
-          if(window[key]) resolve();
-          else reject(new Error(key+' player engine loaded without a global.'));
-        };
-        script.onerror=()=>reject(new Error('Could not load '+key+' player engine.'));
+        script.onload=()=>finish(window[key]?null:new Error(key+' player engine loaded without a global.'));
+        script.onerror=()=>finish(new Error('Could not load '+key+' player engine.'));
         document.head.appendChild(script);
       }).catch(error=>{
-        // A transient CDN/network failure must not poison later retries.
+        // Failed or hung downloads must not poison a later manual retry.
         scriptLoads.delete(src);
         throw error;
       });
@@ -274,7 +322,9 @@
 
     async function ensurePlayerEngine(type,url){
       if(type==='flv'){
+        const local=sameOriginAsset('vendor/mpegts.js?v=1.8.2');
         await loadScriptFallback([
+          ...(local?[local]:[]),
           'https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.js'
         ],'mpegts');
         return;
@@ -444,11 +494,7 @@
         // An empty buffer must also count as a freeze. Allow segment retries
         // time to finish instead of tearing down iOS playback after 5–8s.
         if(stuckTicks>=8){
-          capturePlayerEvent('playback buffering',{
-            selected_index:index,
-            line_count:sources.length,
-            stream_type:sourceType(sources[index]||{})
-          });
+          beginBuffering(index,token);
           if(retryIOSSource(index,token))return;
           fallbackToNextLine(
             index,
@@ -513,6 +559,8 @@
       button.addEventListener('click',()=>{
         if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
         awaitingPlayToken=-1;
+        playbackAttemptStartedAt=playbackClock();
+        beginBuffering(index,token);
         armStartupWatchdog(index,token);
         requestVideoPlay(index,token);
       });
@@ -815,7 +863,7 @@
 
     async function loadSource(index,userSelected=false){
       if(!sources.length){showMessage('No stream source.');return}
-      if(userSelected)autoFallbackTried.clear();
+      if(userSelected){autoFallbackTried.clear();iosRecoveryAttempts.delete(index)}
       index=Math.max(0,Math.min(Number(index)||0,sources.length-1));
       const source=sources[index], url=String(source.url||'').trim(), type=sourceType(source);
       const support=sourceSupport(source);
@@ -824,21 +872,25 @@
       updateServerButton(index);
       closePlayerMenu();
       const token=++playbackToken;
+      playbackAttemptStartedAt=playbackClock();activeBuffering=null;
       cancelPlaybackTimers();awaitingPlayToken=-1;
       armStartupWatchdog(index,token);
       await destroyPlayback();
       if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
+      beginBuffering(index,token);
       const onPlaying=()=>{
         if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
         clearPlaybackWatchdogs();awaitingPlayToken=-1;showMessage('');
         lastPlaybackTime=Number(video.currentTime);
         armProgressWatchdog(index,token);
+        finishBuffering(index,token);
         if(playbackStartedToken===token)return;
         playbackStartedToken=token;
         capturePlayerEvent('playback started',{
           selected_index:index,
           line_count:sources.length,
           stream_type:type,
+          startup_ms:Math.max(0,Math.round(playbackClock()-playbackAttemptStartedAt)),
           resolution:/^(\d{3,4}p|auto|hd|sd|fhd|uhd|4k)$/i.test(String(source.resolution||''))
             ? String(source.resolution).toLowerCase() : 'unknown',
           health_status:['healthy','unknown','slow','failed'].includes(source.healthStatus||source.health_status)
@@ -915,11 +967,11 @@
           const shakaConfig={
             manifest:{
               retryParameters:{
-                maxAttempts:iosDash?5:5,
+                maxAttempts:5,
                 baseDelay:iosDash?250:300,
                 backoffFactor:1.45,
                 fuzzFactor:.2,
-                timeout:iosDash?8000:8000
+                timeout:8000
               },
               dash:{
                 autoCorrectDrift:true
@@ -929,8 +981,8 @@
               // Mobile Safari should start quickly and keep a modest buffer.
               // The previous 36s/8s iOS goals delayed recovery and could make
               // VPN jitter look like slow-motion playback.
-              rebufferingGoal:iosDash?2:2,
-              bufferingGoal:iosDash?12:12,
+              rebufferingGoal:2,
+              bufferingGoal:12,
               bufferBehind:iosDash?8:10,
               segmentPrefetchLimit:iosDash?2:1,
               updateIntervalSeconds:1,
@@ -941,11 +993,11 @@
               allowMediaSourceRecoveries:true,
               minTimeBetweenRecoveries:iosDash?2:5,
               retryParameters:{
-                maxAttempts:iosDash?5:5,
+                maxAttempts:5,
                 baseDelay:iosDash?250:300,
                 backoffFactor:1.45,
                 fuzzFactor:.2,
-                timeout:iosDash?8000:8000
+                timeout:8000
               }
             }
           };
@@ -1010,11 +1062,9 @@
                shaka.util.Error.Severity &&
                detail.severity===shaka.util.Error.Severity.RECOVERABLE);
             if(recoverable){
-              capturePlayerEvent('playback buffering',{
-                selected_index:index,
-                line_count:sources.length,
-                stream_type:type
-              });
+              // A recovered manifest/network warning is not necessarily a
+              // playback stall. Count buffering only while media is missing.
+              if(video.readyState<3 && !video.paused)beginBuffering(index,token);
               armStallWatchdog();
               return;
             }
@@ -1049,7 +1099,7 @@
         selected_index:currentSourceIndex,
         line_count:sources.length
       });
-      ++playbackToken;cancelPlaybackTimers();awaitingPlayToken=-1;
+      ++playbackToken;cancelPlaybackTimers();awaitingPlayToken=-1;activeBuffering=null;currentSessionId='';
       if(controlsTimer)clearTimeout(controlsTimer);
       try{
         if(video.webkitDisplayingFullscreen && video.webkitExitFullscreen){
@@ -1261,29 +1311,30 @@
     video.addEventListener('waiting',()=>{
       if(!overlay.classList.contains('open'))return;
       armStallWatchdog();
-      if(bufferingReportedToken===playbackToken)return;
-      bufferingReportedToken=playbackToken;
-      capturePlayerEvent('playback buffering',{
-        selected_index:currentSourceIndex,
-        line_count:sources.length
-      });
+      beginBuffering(currentSourceIndex,playbackToken);
     });
     video.addEventListener('stalled',armStallWatchdog);
     video.addEventListener('timeupdate',()=>{
       if(!isCurrentPlayback(playbackToken) ||
           playbackStartedToken!==playbackToken || video.paused)return;
       const now=Number(video.currentTime);
-      if(now>lastPlaybackTime+0.05 && stallTimer!==null){
-        clearTimeout(stallTimer);stallTimer=null;
+      if(now>lastPlaybackTime+0.05){
+        finishBuffering(currentSourceIndex,playbackToken);
+        if(stallTimer!==null){clearTimeout(stallTimer);stallTimer=null}
       }
       lastPlaybackTime=now;
     });
     video.addEventListener('pause',()=>{
+      activeBuffering=null;
       if(stallTimer!==null)clearTimeout(stallTimer);
       stallTimer=null;
       clearProgressWatchdog();
     });
+    document.addEventListener('visibilitychange',()=>{
+      if(document.hidden)activeBuffering=null;
+    });
     video.addEventListener('ended',()=>{
+      if(!isCurrentPlayback(playbackToken))return;
       capturePlayerEvent('playback ended',{
         selected_index:currentSourceIndex,
         line_count:sources.length
@@ -1295,11 +1346,33 @@
       }
     });
 
-    window.openFootballPlayer=async(sourcesJson,selectedIndex,title,matchId)=>{
+    window.updateFootballPlayerSources=(sourcesJson,sessionId)=>{
+      if(!currentSessionId||String(sessionId||'')!==currentSessionId||
+          !overlay.classList.contains('open'))return;
+      let incoming;
+      try{incoming=JSON.parse(String(sourcesJson||'[]'))}catch(_){return}
+      if(!Array.isArray(incoming)||incoming.length<=sources.length)return;
+      // Existing indices identify the selected line and all recovery timers.
+      // Only matching prefixes may add backups; never replace active media.
+      for(let i=0;i<sources.length;i++){
+        const old=sources[i],next=incoming[i];
+        if(!next||!next.url)return;
+        if(old.id&&next.id ? String(old.id)!==String(next.id) : old.url!==next.url)return;
+      }
+      const extra=incoming.slice(sources.length);
+      if(extra.some(source=>!source||!source.url))return;
+      sources.push(...extra);
+      updateServerButton(currentSourceIndex);
+      if(!menuPanel.classList.contains('hidden')&&menuTitle.textContent==='Choose line')openLineMenu();
+    };
+
+    window.openFootballPlayer=async(sourcesJson,selectedIndex,title,matchId,sessionId)=>{
       try{const parsed=JSON.parse(String(sourcesJson||'[]'));sources=Array.isArray(parsed)?parsed.filter(x=>x&&x.url):[]}catch(_){sources=[]}
       autoFallbackTried.clear();
       iosRecoveryAttempts.clear();
-      currentMatchId=String(matchId||'').trim();
+      const safeMatchId=String(matchId||'').trim();
+      currentMatchId=/^[A-Za-z0-9_:-]{1,128}$/.test(safeMatchId)?safeMatchId:'';
+      currentSessionId=String(sessionId||'');
       titleEl.textContent=String(title||'NCA');
       let startIndex=Math.max(0,Math.min(Number(selectedIndex)||0,sources.length-1));
       if(isIOS() && sources[startIndex]){

@@ -49,6 +49,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
   late Future<List<Map<String, dynamic>>> _targetMatchesFuture;
   Timer? _sourceRefreshTimer;
   bool _backgroundRefreshBusy = false;
+  int _sourceLoadEpoch = 0;
+  int _sourceSelectionEpoch = 0;
+  bool _addingLine = false;
 
   @override
   void initState() {
@@ -70,12 +73,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
   @override
   void dispose() {
+    _sourceLoadEpoch += 1;
+    _sourceSelectionEpoch += 1;
     _sourceRefreshTimer?.cancel();
     super.dispose();
   }
 
   Future<void> _refreshSourceInBackground() async {
-    if (!mounted || _backgroundRefreshBusy) return;
+    if (!mounted || loading || _backgroundRefreshBusy) return;
     _backgroundRefreshBusy = true;
     try {
       await _loadSoco(silent: true);
@@ -101,7 +106,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
         .eq('is_active', true)
         .order('kickoff_at', ascending: true)
         .order('sort_order', ascending: true)
-        .order('home_team', ascending: true);
+        .order('home_team', ascending: true)
+        .timeout(const Duration(seconds: 10));
 
     final now = DateTime.now();
     const staleKickoffGrace = Duration(hours: 5);
@@ -125,14 +131,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
         .toList();
   }
 
-  Future<Map<String, dynamic>> _loadSourceMirror() async {
+  Future<Map<String, dynamic>> _loadSourceMirror(String provider) async {
     Object? lastError;
     Map<String, dynamic>? emptyFallback;
     for (final base in const [_pagesMirrorBase, _rawMirrorBase]) {
       try {
         final response = await http
             .get(
-              Uri.parse(base + '/' + source + '.json').replace(
+              Uri.parse(base + '/' + provider + '.json').replace(
                 queryParameters: {
                   't': DateTime.now().millisecondsSinceEpoch.toString(),
                 },
@@ -174,6 +180,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   Future<void> _loadSoco({bool silent = false}) async {
+    final provider = source;
+    final epoch = ++_sourceLoadEpoch;
+    bool current() =>
+        mounted && source == provider && epoch == _sourceLoadEpoch;
     if (!silent) {
       setState(() {
         loading = true;
@@ -186,7 +196,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (!_enableNoVpnFallback) {
         data = await FunctionGateway.invoke(
           'source-match-list',
-          body: {'source': source},
+          body: {'source': provider},
         );
         final liveRows = data is Map ? data['matches'] : null;
         if (liveRows is! List) {
@@ -196,14 +206,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
         try {
           data = await FunctionGateway.invoke(
             'source-match-list',
-            body: {'source': source},
+            body: {'source': provider},
           );
           final liveRows = data is Map ? data['matches'] : null;
           if (liveRows is! List) {
             throw const FormatException('Live source match list is invalid.');
           }
         } catch (_) {
-          data = await _loadSourceMirror();
+          data = await _loadSourceMirror(provider);
         }
       }
 
@@ -234,14 +244,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
             );
       });
 
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'source match list loaded',
         properties: {
-          'source': source,
+          'source': provider,
           'match_count': parsed.length,
         },
-      );
-      if (!mounted) return;
+      ));
+      if (!current()) return;
       setState(() {
         sourceMatches = parsed;
         _anchorStatuses.clear();
@@ -254,21 +264,21 @@ class _SocoImportPageState extends State<SocoImportPage> {
         ),
       );
     } catch (e) {
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'source match list failed',
-        properties: {'source': source},
-      );
-      if (!mounted) return;
+        properties: {'source': provider},
+      ));
+      if (!current()) return;
       if (!silent) {
         final detail = e.toString().replaceFirst('Exception: ', '');
         setState(() {
           sourceMatches = const [];
           errorText =
-              'Could not load ${_sourceLabel(source)} sources. $detail';
+              'Could not load ${_sourceLabel(provider)} sources. $detail';
         });
       }
     } finally {
-      if (!silent && mounted) setState(() => loading = false);
+      if (!silent && current()) setState(() => loading = false);
     }
   }
 
@@ -542,6 +552,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
     if (room.isEmpty) return;
 
     final extractingKey = _anchorKey(match, anchor);
+    final provider = source;
+    final epoch = _sourceSelectionEpoch;
+    bool current() =>
+        mounted && source == provider && epoch == _sourceSelectionEpoch;
     if (_extractingAnchorKey != null) return;
     setState(() => _extractingAnchorKey = extractingKey);
 
@@ -550,7 +564,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         'soco-links',
         body: {
           'action': 'streams',
-          'source': source,
+          'source': provider,
           'room_num': room,
           'schedule_id': match['schedule_id'],
           'page_url': anchor['page_url'] ?? match['page_url'],
@@ -559,6 +573,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
 
       final rows = data is Map ? data['lines'] : null;
+      if (!current()) return;
       if (rows is! List) {
         throw const FormatException('No stream quality list returned.');
       }
@@ -568,7 +583,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .where((row) => (row['url'] ?? '').toString().trim().isNotEmpty)
           .toList();
 
-      final statusKey = _anchorKey(match, anchor);
+      final statusKey = _anchorKey(match, anchor, provider: provider);
       final sourceIsLive =
           data is Map && _isLiveStatus(data['live_status']);
       final hasHealthy = lines.any((line) {
@@ -585,10 +600,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
         });
       }
 
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'source lines loaded',
         properties: {
-          'source': source,
+          'source': provider,
           'line_count': lines.length,
           'source_live':
               data is Map &&
@@ -596,9 +611,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   data['live_status'] == 1 ||
                   data['live_status']?.toString() == '1'),
         },
-      );
+      ));
 
-      if (!mounted) return;
+      if (!current()) return;
       if (lines.isEmpty) {
         message('No playable line is available for this streamer.');
         return;
@@ -611,13 +626,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
         sourceLiveStatus: data is Map ? data['live_status'] : null,
       );
     } catch (e) {
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'source lines failed',
         properties: {'source': source},
-      );
+      ));
+      if (!current()) return;
       final detail = e.toString().replaceFirst('Exception: ', '');
       message(
-        'Could not load ${_sourceLabel(source)} stream links. $detail',
+        'Could not load ${_sourceLabel(provider)} stream links. $detail',
       );
     } finally {
       if (mounted && _extractingAnchorKey == extractingKey) {
@@ -805,14 +821,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
                             await Clipboard.setData(
                               ClipboardData(text: url),
                             );
-                            await AnalyticsService.capture(
+                            unawaited(AnalyticsService.capture(
                               'source link copied',
                               properties: {
                                 'source': source,
                                 'stream_type':
                                     (line['stream_type'] ?? 'auto').toString(),
                               },
-                            );
+                            ));
                             message('${_sourceLabel(source)} link copied.');
                           },
                           icon: const Icon(Icons.copy_rounded),
@@ -857,7 +873,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
     required Map<String, dynamic> line,
     required String anchorName,
   }) async {
-    // Always require an explicit destination confirmation. The dropdown and
+    if (_addingLine) return false;
+    _addingLine = true;
+    final provider = source;
+    try {
+      // Always require an explicit destination confirmation. The dropdown and
     // initial match only suggest which match should appear first.
     final presetTarget = targetMatchId;
     final target = await _chooseDestination();
@@ -866,7 +886,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final url = (line['url'] ?? '').toString().trim();
     if (url.isEmpty) return false;
 
-    final sourceName = _sourceLabel(source);
+    final sourceName = _sourceLabel(provider);
     final label = (line['label'] ?? sourceName).toString();
     final type = (line['stream_type'] ?? 'auto').toString();
     final resolution = (line['resolution'] ?? label).toString();
@@ -877,7 +897,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
         .select('id,is_active,expires_at')
         .eq('match_id', target)
         .eq('stream_url', url)
-        .maybeSingle();
+        .maybeSingle()
+          .timeout(const Duration(seconds: 10));
 
     Map<String, dynamic> saved;
     if (exact != null) {
@@ -900,7 +921,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
           })
           .eq('id', exact['id'])
           .select('id')
-          .single();
+          .single()
+            .timeout(const Duration(seconds: 12));
     } else {
       // Soco/YYZB/Cola signed URLs rotate. Match the logical line by its
       // stable label/type/resolution and replace the expired URL in-place so
@@ -912,7 +934,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .eq('label', fullLabel)
           .eq('stream_type', type)
           .eq('resolution', resolution)
-          .maybeSingle();
+          .maybeSingle()
+            .timeout(const Duration(seconds: 10));
 
       if (sameLogical != null) {
         saved = await Supabase.instance.client
@@ -929,7 +952,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
             })
             .eq('id', sameLogical['id'])
             .select('id')
-            .single();
+            .single()
+              .timeout(const Duration(seconds: 12));
       } else {
         saved = await Supabase.instance.client
             .from('stream_links')
@@ -948,36 +972,54 @@ class _SocoImportPageState extends State<SocoImportPage> {
               'expires_at': line['expires_at'],
             })
             .select('id')
-            .single();
+            .single()
+              .timeout(const Duration(seconds: 12));
       }
     }
 
-    var resultText = 'saved';
-    try {
-      final checked = await FunctionGateway.invoke(
-        'stream-health',
-        body: {'link_id': saved['id']},
-      );
-      if (checked is Map && checked['health_status'] != null) {
-        resultText = checked['health_status'].toString();
-      }
-    } catch (_) {
-      resultText = 'health pending';
-    }
-
-    await AnalyticsService.capture(
+      // Saving is complete. A slow health check must not keep ADD waiting or
+      // invite a duplicate submission. Its result is keyed to the saved row,
+      // never to whichever provider/destination the UI later selects.
+      unawaited(_checkSavedLine(saved['id'].toString(), provider));
+      unawaited(AnalyticsService.capture(
       'source line imported',
       properties: {
-        'source': source,
+        'source': provider,
         'stream_type': type,
         'resolution': resolution,
         'destination_preset': presetTarget != null,
-        'health_status': resultText,
+        'health_status': 'pending',
       },
-    );
+    ));
 
-    message('$sourceName $label added • $resultText');
+    message('$sourceName $label added. Health check is pending.');
     return true;
+    } on TimeoutException {
+      message('Could not confirm the save. Refresh before trying again.');
+      return false;
+    } catch (_) {
+      message('Could not add the server. Please retry.');
+      return false;
+    } finally {
+      _addingLine = false;
+    }
+  }
+
+  Future<void> _checkSavedLine(String id, String provider) async {
+    try {
+      final checked =
+          await FunctionGateway.invoke('stream-health', body: {'link_id': id})
+              .timeout(const Duration(seconds: 12));
+      unawaited(AnalyticsService.capture('stream health checked', properties: {
+        'scope': 'link',
+        'source': provider,
+        if (checked is Map && checked['health_status'] != null)
+          'health_status': checked['health_status'].toString(),
+      }));
+    } catch (_) {
+      // System Health and Stream Servers show the eventual persisted result.
+      // Do not show an error on a newer source/destination screen.
+    }
   }
 
   String? nullable(String? value) {
@@ -1004,6 +1046,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         ? null
         : () {
             setState(() {
+              _sourceSelectionEpoch += 1;
               source = value;
               dayFilter =
                   (value == 'fawa' || value == 'cola') ? 'all' : 'today';

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -6,169 +7,88 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
 import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
+import 'gateway_request.dart';
 
 class FunctionGateway {
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
     defaultValue: 'https://football-api.nyeinchanaung.us.ci',
   );
+  static String? _healthyBase;
 
-  static List<String> get _gatewayBases =>
-      publicApiBases(primary: _publicApiBase, preferVercel: usesVercelBackend);
+  static List<String> get _gatewayBases {
+    final bases = publicApiBases(
+        primary: _publicApiBase, preferVercel: usesVercelBackend);
+    final healthy = _healthyBase;
+    if (healthy != null && bases.remove(healthy)) bases.insert(0, healthy);
+    return bases;
+  }
 
-  static Future<dynamic> invoke(
-    String functionName, {
-    Object? body,
-  }) async {
-    final session = Supabase.instance.client.auth.currentSession;
-    final token = session?.accessToken;
-
-    await AnalyticsService.capture(
-      'admin function invoked',
-      properties: {'function': functionName},
-    );
-
+  static Future<dynamic> invoke(String functionName, {Object? body}) async {
+    final client = Supabase.instance.client;
+    final token = client.auth.currentSession?.accessToken;
+    final elapsed = Stopwatch()..start();
+    unawaited(AnalyticsService.capture('admin function invoked',
+        properties: {'function': functionName}));
     if (token == null || token.isEmpty) {
-      await AnalyticsService.capture(
-        'admin function failed',
-        properties: {
-          'function': functionName,
-          'reason': 'no_admin_session',
-        },
-      );
+      unawaited(AnalyticsService.capture('admin function failed', properties: {
+        'function': functionName,
+        'reason': 'no_admin_session',
+      }));
       throw StateError('Admin session is not available.');
     }
 
-    dynamic lastDecoded;
-    int? lastStatus;
-    var accessToken = token;
-    var refreshedSession = false;
-
-    for (var index = 0; index < _gatewayBases.length; index += 1) {
-      final base = _gatewayBases[index];
-      final uri = Uri.parse(
-        '$base/admin/functions/${Uri.encodeComponent(functionName)}',
-      );
-
-      Future<http.Response> send(String bearer) {
-        return http
-            .post(
-              uri,
-              headers: {
-                'Authorization': 'Bearer $bearer',
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Cache-Control': 'no-store',
-              },
-              body: jsonEncode(body ?? const <String, dynamic>{}),
-            )
-            .timeout(
-                Duration(seconds: functionName == 'system-monitor' ? 20 : 9));
-      }
-
-      http.Response response;
-      try {
-        response = await send(accessToken);
-
-        // Source tools were occasionally returning 401 with an expired access
-        // token even though the Admin still had a valid refresh session.
-        if (response.statusCode == 401 && !refreshedSession) {
-          refreshedSession = true;
-          final refreshed =
-              await Supabase.instance.client.auth.refreshSession();
-          final nextToken = refreshed.session?.accessToken;
-          if (nextToken != null && nextToken.isNotEmpty) {
-            accessToken = nextToken;
-            response = await send(accessToken);
+    try {
+      final result = await GatewayRequest(
+        bases: _gatewayBases,
+        send: (uri, bearer, timeout) async {
+          final transport = http.Client();
+          try {
+            return await transport
+                .post(uri,
+                    headers: {
+                      'Authorization': 'Bearer $bearer',
+                      'Content-Type': 'application/json',
+                      'Accept': 'application/json',
+                      'Cache-Control': 'no-store',
+                    },
+                    body: jsonEncode(body ?? const <String, dynamic>{}))
+                .timeout(timeout);
+          } finally {
+            transport.close();
           }
-        }
-      } catch (_) {
-        await AnalyticsService.capture(
-          'admin function fallback used',
-          properties: {
-            'function': functionName,
-            'reason': 'gateway_${index + 1}_network_error',
-          },
-        );
-        continue;
-      }
+        },
+        refresh: () async =>
+            (await client.auth.refreshSession()).session?.accessToken,
+        direct: () async =>
+            (await client.functions.invoke(functionName, body: body)).data,
+        onFallback: (reason) => unawaited(AnalyticsService.capture(
+            'admin function fallback used',
+            properties: {'function': functionName, 'reason': reason})),
+      ).run(functionName, token, body: body);
 
-      dynamic decoded;
-      if (response.body.trim().isNotEmpty) {
-        try {
-          decoded = jsonDecode(response.body);
-        } catch (_) {
-          decoded = response.body;
-        }
-      }
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        await AnalyticsService.capture(
-          'admin function completed',
-          properties: {
-            'function': functionName,
-            'transport': base == vercelBackupBase
+      if (result.base != null) _healthyBase = result.base;
+      unawaited(
+          AnalyticsService.capture('admin function completed', properties: {
+        'function': functionName,
+        'duration_ms': elapsed.elapsedMilliseconds,
+        'transport': result.base == null
+            ? 'supabase_direct'
+            : result.base == vercelBackupBase
                 ? 'vercel_backup'
-                : (Uri.parse(base).host.endsWith('.workers.dev')
+                : (Uri.parse(result.base!).host.endsWith('.workers.dev')
                     ? 'cloudflare_workers_dev'
                     : 'cloudflare_custom_domain'),
-            'status_code': response.statusCode,
-          },
-        );
-        return decoded;
-      }
-
-      lastDecoded = decoded;
-      lastStatus = response.statusCode;
-
-      if (response.statusCode == 404 ||
-          response.statusCode == 502 ||
-          response.statusCode == 503 ||
-          response.statusCode == 504) {
-        await AnalyticsService.capture(
-          'admin function fallback used',
-          properties: {
-            'function': functionName,
-            'reason': 'gateway_http_${response.statusCode}',
-          },
-        );
-        continue;
-      }
-
-      final detail = decoded is Map && decoded['error'] != null
-          ? decoded['error'].toString()
-          : 'HTTP ${response.statusCode}';
-      throw Exception('Gateway error: $detail');
-    }
-
-    try {
-      final direct = await Supabase.instance.client.functions.invoke(
-        functionName,
-        body: body,
-      );
-      await AnalyticsService.capture(
-        'admin function completed',
-        properties: {
-          'function': functionName,
-          'transport': 'supabase_direct',
-        },
-      );
-      return direct.data;
+        if (result.statusCode != null) 'status_code': result.statusCode!,
+      }));
+      return result.data;
     } catch (_) {
-      await AnalyticsService.capture(
-        'admin function failed',
-        properties: {
-          'function': functionName,
-          'reason': 'all_transports_failed',
-        },
-      );
-
-      final detail = lastDecoded is Map && lastDecoded['error'] != null
-          ? lastDecoded['error'].toString()
-          : lastStatus == null
-              ? 'Admin backend is unreachable on this network.'
-              : 'HTTP $lastStatus';
-      throw Exception(detail);
+      unawaited(AnalyticsService.capture('admin function failed', properties: {
+        'function': functionName,
+        'reason': 'request_failed',
+        'duration_ms': elapsed.elapsedMilliseconds,
+      }));
+      rethrow;
     }
   }
 }

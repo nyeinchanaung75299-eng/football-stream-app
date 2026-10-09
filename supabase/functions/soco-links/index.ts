@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -268,14 +269,7 @@ async function roomStreams(args: {
   const lines = extractStreamLines(stream, referer);
   const checkedLines = args.statusOnly
     ? []
-    : args.skipProbe
-      ? lines.map((line) => ({
-          ...line,
-          health_status: "unknown",
-          health_http: null,
-          checked_at: null,
-        }))
-      : await probeLines(lines);
+    : await probeLines(lines, args.skipProbe);
   const liveStatus =
     room.liveStatus ??
     room.live_status ??
@@ -466,7 +460,7 @@ async function fawaStreams(body: any) {
     }))
     .filter((line) => line.stream_type !== "auto");
 
-  const checkedLines = await probeLines(lines);
+  const checkedLines = await probeLines(lines, skipProbeRequested(body));
 
   return json({
     ok: true,
@@ -575,7 +569,7 @@ async function colaStreams(body: any) {
     }
   }
 
-  const lines = await probeLines([...found.values()]);
+  const lines = await probeLines([...found.values()], skipProbeRequested(body));
   const row = colaMatchRow(slug, match);
 
   return json({
@@ -1025,7 +1019,17 @@ function roomLine(
   };
 }
 
-async function probeLines(lines: any[]) {
+function skipProbeRequested(body: any) {
+  return body?.skip_probe === true || body?.skip_probe === "true" ||
+    body?.skip_probe === "1";
+}
+
+async function probeLines(lines: any[], skipProbe = false) {
+  if (skipProbe) {
+    return lines.map((line) => ({
+      ...line, health_status: "unknown", health_http: null, checked_at: null,
+    }));
+  }
   return await Promise.all(lines.map((line) => probeLine(line)));
 }
 
@@ -1044,61 +1048,22 @@ async function probeLine(line: any) {
   if (line.referer) headers.Referer = String(line.referer);
   if (line.origin) headers.Origin = String(line.origin);
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5500);
-
-  try {
-    const response = await fetch(value, {
-      method: "GET",
-      headers,
-      redirect: "follow",
-      signal: controller.signal,
-    });
-
-    const status = response.status;
-    const goodHttp = status >= 200 && status < 400;
-
-    let looksPlayable = goodHttp;
-    const type = String(line.stream_type ?? "").toLowerCase();
-
-    if (goodHttp && type === "hls") {
-      try {
-        const reader = response.body?.getReader();
-        const chunk = reader ? await reader.read() : null;
-        await reader?.cancel();
-        if (chunk?.value) {
-          const text = new TextDecoder().decode(chunk.value);
-          looksPlayable = text.includes("#EXTM3U") || status === 206;
-        }
-      } catch (_) {
-        looksPlayable = goodHttp;
-      }
-    } else {
-      try {
-        await response.body?.cancel();
-      } catch (_) {}
-    }
-
-    return {
-      ...line,
-      health_status: looksPlayable
-        ? "healthy"
-        : [404, 410].includes(status)
-          ? "dead"
-          : "unknown",
-      health_http: status,
-      checked_at: new Date().toISOString(),
-    };
-  } catch (_) {
-    return {
-      ...line,
-      health_status: "unknown",
-      health_http: null,
-      checked_at: new Date().toISOString(),
-    };
-  } finally {
-    clearTimeout(timer);
-  }
+  const type = String(line.stream_type ?? "").toLowerCase();
+  const result = await probeStreamFirstChunk(value, {
+    headers, timeoutMs: 5500,
+    validateFirstChunk: type === "hls"
+      ? (chunk: Uint8Array, status: number) =>
+        new TextDecoder().decode(chunk).includes("#EXTM3U") || status === 206
+      : null,
+  });
+  return {
+    ...line,
+    health_status: ["healthy", "slow"].includes(result.status)
+      ? result.status
+      : [404, 410].includes(result.httpStatus) ? "dead" : "unknown",
+    health_http: result.httpStatus || null,
+    checked_at: new Date().toISOString(),
+  };
 }
 
 function friendlyText(value: unknown) {

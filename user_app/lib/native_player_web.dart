@@ -12,6 +12,13 @@ external void _openFootballPlayer(
   JSNumber selectedIndex,
   JSString title,
   JSString matchId,
+  JSString sessionId,
+);
+
+@JS('updateFootballPlayerSources')
+external void _updateFootballPlayerSources(
+  JSString sourcesJson,
+  JSString sessionId,
 );
 
 class NativePlayer {
@@ -21,6 +28,7 @@ class NativePlayer {
     required int selectedIndex,
     String? title,
     String? matchId,
+    String? sessionId,
   }) async {
     if (sources.isNotEmpty &&
         selectedIndex >= 0 &&
@@ -29,10 +37,9 @@ class NativePlayer {
       final url = (selected['url'] ?? selected['stream_url'] ?? '')
           .toString()
           .trim();
-      final type =
-          (selected['streamType'] ?? selected['stream_type'] ?? 'auto')
-              .toString()
-              .toLowerCase();
+      final type = (selected['streamType'] ?? selected['stream_type'] ?? 'auto')
+          .toString()
+          .toLowerCase();
 
       // GitHub Pages is HTTPS, so an HTTP HLS line cannot be embedded as a
       // mixed-content subresource. A top-level navigation lets Safari hand
@@ -61,6 +68,14 @@ class NativePlayer {
       selectedIndex.toJS,
       (title ?? 'Football Live').toJS,
       (matchId ?? '').toJS,
+      (sessionId ?? '').toJS,
     );
+  }
+
+  static Future<void> updateSources({
+    required List<Map<String, dynamic>> sources,
+    required String sessionId,
+  }) async {
+    _updateFootballPlayerSources(jsonEncode(sources).toJS, sessionId.toJS);
   }
 }

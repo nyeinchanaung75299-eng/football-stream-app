@@ -81,6 +81,9 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      - name: Check native source session races
+        run: java scripts/test_native_source_sessions.java
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -229,6 +232,9 @@ jobs:
           dest.mkdir(parents=True, exist_ok=True)
           shutil.copy2('android_patch/MainActivity.kt', dest/'MainActivity.kt')
           shutil.copy2('android_patch/NativePlayerActivity.kt', dest/'NativePlayerActivity.kt')
+          java_dest=Path('android/app/src/main/java/com/example/football_viewer')
+          java_dest.mkdir(parents=True, exist_ok=True)
+          shutil.copy2('android_patch/PlaybackSourceSessions.java', java_dest/'PlaybackSourceSessions.java')
           PY2
 
       - name: Configure stable Viewer signing
