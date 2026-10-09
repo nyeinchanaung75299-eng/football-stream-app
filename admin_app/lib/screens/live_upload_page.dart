@@ -63,6 +63,10 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
     final result = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(kickoff),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
+        child: child!,
+      ),
     );
     if (result != null) {
       setState(() {
@@ -240,7 +244,7 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
                       child: OutlinedButton.icon(
                         onPressed: pickTime,
                         icon: const Icon(Icons.schedule_rounded),
-                        label: Text(DateFormat('HH:mm').format(kickoff)),
+                        label: Text(DateFormat('h:mm a', 'en_US').format(kickoff)),
                       ),
                     ),
                   ],

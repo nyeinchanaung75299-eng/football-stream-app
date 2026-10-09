@@ -186,7 +186,7 @@ class _StatusPill extends StatelessWidget {
         ? 'LIVE'
         : kickoff == null
             ? 'SCHEDULED'
-            : DateFormat('HH:mm').format(kickoff!);
+            : DateFormat('h:mm a', 'en_US').format(kickoff!);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),

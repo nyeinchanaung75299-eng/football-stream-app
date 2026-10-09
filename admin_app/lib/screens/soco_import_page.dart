@@ -507,7 +507,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   )?.toLocal();
                   final when = kickoff == null
                       ? '--:--'
-                      : DateFormat('dd MMM • HH:mm').format(kickoff);
+                      : DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff);
 
                   return ListTile(
                     shape: RoundedRectangleBorder(
@@ -1150,7 +1150,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                         )?.toLocal();
                         final when = kickoff == null
                             ? '--:--'
-                            : DateFormat('dd MMM • HH:mm').format(kickoff);
+                            : DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff);
                         return DropdownMenuItem(
                           value: m['id'] as String,
                           child: Text(
@@ -1310,7 +1310,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                           Text(
                             kickoff == null
                                 ? 'Unknown time'
-                                : DateFormat('dd MMM • HH:mm').format(kickoff),
+                                : DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff),
                             style: TextStyle(
                               color: colors.onSurfaceVariant,
                             ),
