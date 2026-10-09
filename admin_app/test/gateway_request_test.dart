@@ -156,4 +156,36 @@ void main() {
     expect(routes, ['first.test', 'first.test']);
     expect(refreshes, 1);
   });
+
+  test('a global-budget timeout stops even if the stopwatch has a remainder',
+      () async {
+    var sent = 0;
+    var direct = 0;
+    final hungRefresh = Completer<String?>();
+    final request = runZoned(
+      () => GatewayRequest(
+        bases: ['https://first.test', 'https://second.test'],
+        totalTimeout: const Duration(seconds: 1),
+        send: (_, __, ___) async {
+          sent++;
+          return http.Response('{}', 401);
+        },
+        refresh: () => hungRefresh.future,
+        direct: () async {
+          direct++;
+          return {};
+        },
+      ).run('source-match-list', 'test-token'),
+      // Model a deadline timer firing before the monotonic clock reaches the
+      // exact boundary. Successful futures still complete as microtasks.
+      zoneSpecification: ZoneSpecification(
+        createTimer: (self, parent, zone, duration, callback) =>
+            parent.createTimer(zone, Duration.zero, callback),
+      ),
+    );
+    await expectLater(request, throwsA(isA<TimeoutException>()));
+    hungRefresh.complete('late-token');
+    expect(sent, 1);
+    expect(direct, 0);
+  });
 }
