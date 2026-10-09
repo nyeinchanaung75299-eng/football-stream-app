@@ -294,4 +294,3 @@ export function createMonitor(env, { fetcher = fetch } = {}) {
     }
   };
 }
-

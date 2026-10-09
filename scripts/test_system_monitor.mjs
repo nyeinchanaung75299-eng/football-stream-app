@@ -119,4 +119,3 @@ test('Shareable error text and endpoint names omit protected credentials',()=>{
   for(const s of ['token?key','email@example.com','eyJabc','api_key=secret','phx_abc']) assert.ok(!text.includes(s));
   assert.equal(endpointName('https://worker.invalid/p/protected-token/file.m4s?secret=x'),'/p/:token/:media');
 });
-
