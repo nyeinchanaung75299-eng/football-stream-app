@@ -304,42 +304,50 @@ class _ServiceCard extends StatelessWidget {
                 Padding(
                     padding: const EdgeInsets.only(top: 10),
                     child: Text(
-                        '${_eventLabels[e['event']] ?? e['event'].toString()}: ${e['count']}${e['event'] == 'playback buffering'
-                                ? ''
-                                : ' · affected users: ${e['affectedUsers']}'}')),
+                        '${_eventLabels[e['event']] ?? e['event'].toString()}: ${e['count']}${e['event'] == 'playback buffering' ? '' : ' · affected users: ${e['affectedUsers']}'}')),
               for (final r in service['runs'] as List? ?? const [])
                 ListTile(
                     contentPadding: EdgeInsets.zero,
                     title: Text(r['workflow'] == 'deploy-web.yml'
                         ? 'Web deployment'
                         : 'APK / iOS build'),
-                    subtitle: Text('${r['state']} · ${r['sha'] ?? ''}\n${_time(r['updatedAt'])}'),
+                    subtitle: Text(
+                        '${r['state']} · ${r['sha'] ?? ''}\n${_time(r['updatedAt'])}'),
                     trailing: const Icon(Icons.open_in_new, size: 20),
                     onTap: r['url'] == null
                         ? null
                         : () => openMonitorLink(r['url'].toString(), context)),
               for (final r in service['deployments'] as List? ?? const [])
-                Text('${r['state']} · ${_time(r['createdAt'])} · ${r['sha'] ?? ''}'),
+                Text(
+                    '${r['state']} · ${_time(r['createdAt'])} · ${r['sha'] ?? ''}'),
               if ((service['breakdown'] as List? ?? const []).isNotEmpty)
                 ExpansionTile(
+                    key: PageStorageKey('monitor-breakdown-${service['id']}'),
                     tilePadding: EdgeInsets.zero,
                     title: const Text('App / platform breakdown'),
                     children: [
                       for (final b in service['breakdown'])
                         ListTile(
                             title: Text('${b['app']} · ${b['platform']}'),
-                            subtitle: Text('${b['event']}: ${b['count']} · affected users: ${b['affectedUsers']}')),
+                            subtitle: Text(
+                                '${b['event']}: ${b['count']} · affected users: ${b['affectedUsers']}')),
                     ]),
-              for (final issue in service['issues'] as List? ?? const [])
+              for (final (index, issue)
+                  in (service['issues'] as List? ?? const []).indexed)
                 ExpansionTile(
+                    key: PageStorageKey('monitor-issue-${service['id']}-'
+                        '${issue['issue']}-${issue['title']}-$index'),
                     tilePadding: EdgeInsets.zero,
                     title: Text(issue['title'].toString()),
-                    subtitle: Text('${issue['count']} events · ${issue['affectedUsers']} affected users'),
+                    subtitle: Text(
+                        '${issue['count']} events · ${issue['affectedUsers']} affected users'),
                     children: [
                       Text('Last seen: ${_time(issue['lastSeen'])}'),
                       Text('Screen: ${issue['screen'] ?? 'Unknown'}'),
                       SelectableText(
                           issue['stack']?.toString() ?? 'No stack captured.',
+                          key: PageStorageKey('monitor-stack-${service['id']}-'
+                              '${issue['issue']}-${issue['title']}-$index'),
                           style: const TextStyle(
                               fontFamily: 'monospace', fontSize: 12)),
                       if (issue['url'] != null)
@@ -426,7 +434,8 @@ class _StreamsCard extends StatelessWidget {
                                 ? Colors.green
                                 : Colors.orange),
                     title: Text('${line['label']} · ${line['type']}'),
-                    subtitle: Text('${line['health']} · consecutive failures: ${line['consecutiveFailures']}\n${line['match']}\nChecked: ${_time(line['checkedAt'])}')),
+                    subtitle: Text(
+                        '${line['health']} · consecutive failures: ${line['consecutiveFailures']}\n${line['match']}\nChecked: ${_time(line['checkedAt'])}')),
             ],
           )));
 }

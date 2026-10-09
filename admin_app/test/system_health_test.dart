@@ -63,6 +63,95 @@ Map<String, dynamic> fixture() => {
       },
     };
 void main() {
+  testWidgets('Connecting PostHog after scrolling keeps the report visible',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var connected = false;
+    var includeIssues = false;
+    Future<Map<String, dynamic>> load() async {
+      final data = fixture();
+      final posthog = (data['services'] as List).first as Map;
+      if (connected) {
+        posthog['breakdown'] = [
+          {
+            'app': 'nca_admin',
+            'platform': 'web',
+            'event': 'admin function failed',
+            'count': 1,
+            'affectedUsers': 1,
+          }
+        ];
+        posthog['issues'] = includeIssues
+            ? [
+                for (final name in ['A', 'B'])
+                  {
+                    'issue': 'issue-$name',
+                    'title': 'Error $name',
+                    'count': 1,
+                    'affectedUsers': 1,
+                    'stack': 'stack-$name',
+                  }
+              ]
+            : [];
+      } else {
+        posthog['state'] = 'not_configured';
+        posthog.remove('events');
+        posthog.remove('issues');
+      }
+      return data;
+    }
+
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: SystemHealthPage(active: true, loader: load))));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).first, const Offset(0, -250));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).first, const Offset(0, 500));
+    await tester.pumpAndSettle();
+    final listContext = tester.element(find.byType(ListView).first);
+    final bucket = PageStorage.of(listContext);
+    expect(bucket.readState(listContext), isA<double>());
+
+    connected = true;
+    await tester.tap(find.text('Refresh monitor'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('App / platform breakdown'), findsOneWidget);
+    await tester.ensureVisible(find.text('App / platform breakdown'));
+    await tester.tap(find.text('App / platform breakdown'));
+    await tester.pumpAndSettle();
+    expect(find.text('nca_admin · web'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    includeIssues = true;
+    tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position
+        .jumpTo(0);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Refresh monitor'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.ensureVisible(find.text('Error A'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Error A'));
+    await tester.pumpAndSettle();
+    expect(find.text('stack-A'), findsOneWidget);
+    expect(find.text('stack-B'), findsNothing);
+    await tester.ensureVisible(find.text('Error B'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Error B'));
+    await tester.pumpAndSettle();
+    expect(find.text('stack-A'), findsOneWidget);
+    expect(find.text('stack-B'), findsOneWidget);
+    expect(bucket.readState(listContext), isA<double>());
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(minutes: 2));
+  });
+
   testWidgets(
       'Inactive monitor does not load; opening it displays actual counts and missing access',
       (tester) async {
