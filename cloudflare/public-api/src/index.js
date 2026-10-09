@@ -13,6 +13,10 @@ const SOFT_RATE_LIMITS = new Map();
 const PLAYBACK_SESSION_AAD = new TextEncoder().encode(
   "nca-playback-session-v1",
 );
+const METADATA_TIMEOUT_MS = 8000;
+const MEDIA_HEADER_TIMEOUT_MS = 10000;
+const MANIFEST_BODY_TIMEOUT_MS = 10000;
+const MAX_METADATA_BYTES = 2 * 1024 * 1024;
 
 export default {
   async fetch(request, env, ctx) {
@@ -349,40 +353,48 @@ async function invokeViewerSourceFunction(env, body) {
     throw new Error("Source browser backend is not configured.");
   }
 
-  const response = await fetch(
-    base.replace(/\/+$/, "") + "/functions/v1/soco-links",
-    {
-      method: "POST",
-      headers: {
-        apikey: key,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        ...body,
-        viewer_public: true,
-      }),
-    },
-  );
-
-  const text = await response.text();
-  let payload = null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 16000);
   try {
-    payload = text ? JSON.parse(text) : null;
-  } catch (_) {
-    payload = { error: text || "Invalid source browser response." };
-  }
+    const response = await fetch(
+      base.replace(/\/+$/, "") + "/functions/v1/soco-links",
+      {
+        method: "POST",
+        headers: {
+          apikey: key,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          ...body,
+          viewer_public: true,
+        }),
+        signal: controller.signal,
+      },
+    );
 
-  if (!response.ok) {
-    const detail =
-      payload && typeof payload === "object" && payload.error
-        ? String(payload.error)
-        : "Source browser upstream unavailable.";
-    const error = new Error(detail);
-    error.status = response.status;
-    throw error;
+    const text = await readBoundedText(response, MAX_METADATA_BYTES);
+    let payload = null;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch (_) {
+      payload = { error: text || "Invalid source browser response." };
+    }
+
+    if (!response.ok) {
+      const detail =
+        payload && typeof payload === "object" && payload.error
+          ? String(payload.error)
+          : "Source browser upstream unavailable.";
+      const error = new Error(detail);
+      error.status = response.status;
+      throw error;
+    }
+    return payload;
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
   }
-  return payload;
 }
 
 async function handleSourceBrowserMatches(request, source, env) {
@@ -437,6 +449,9 @@ async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
       page_url: input?.page_url ?? null,
       source_id: input?.source_id ?? null,
       anchor_name: input?.anchor_name ?? null,
+      // The Viewer needs a playable candidate promptly. Admin extraction and
+      // explicit health actions still probe; skipped candidates are unknown.
+      skip_probe: true,
     });
 
     const rawLines = Array.isArray(payload?.lines) ? payload.lines : [];
@@ -507,54 +522,14 @@ async function handleStreams(request, matchId, env, publicOrigin) {
     );
   }
 
-  const commonHeaders = { apikey: key, Accept: "application/json" };
-  const matchUrl = new URL(base.replace(/\/+$/, "") + "/rest/v1/matches");
-  matchUrl.searchParams.set("select", "id");
-  matchUrl.searchParams.set("id", "eq." + matchId);
-  matchUrl.searchParams.set("is_active", "eq.true");
-  matchUrl.searchParams.set("publish_state", "eq.published");
-  matchUrl.searchParams.set("is_featured", "eq.true");
-  matchUrl.searchParams.set("limit", "1");
-
   try {
-    const matchResponse = await fetch(matchUrl, { headers: commonHeaders });
-    if (!matchResponse.ok) {
-      return json({
-        error: "Match validation upstream unavailable.",
-        upstream_status: matchResponse.status,
-      }, 502, { "Cache-Control": "no-store, max-age=0" });
-    }
-    const matchRows = await matchResponse.json();
-    if (!Array.isArray(matchRows) || matchRows.length === 0) {
+    const metadata = await loadStreamMetadata(env, matchId);
+    if (!metadata.match_valid) {
       return json({ error: "Match not found." }, 404, {
         "Cache-Control": "no-store, max-age=0",
       });
     }
-
-    const streamUrl = new URL(
-      base.replace(/\/+$/, "") +
-        "/rest/v1/rpc/get_stream_links_for_gateway",
-    );
-
-    const streamResponse = await fetch(streamUrl, {
-      method: "POST",
-      headers: {
-        ...commonHeaders,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        p_match_id: matchId,
-        p_secret: backendSecret,
-      }),
-    });
-    if (!streamResponse.ok) {
-      return json({
-        error: "Stream configuration upstream unavailable.",
-        upstream_status: streamResponse.status,
-      }, 502, { "Cache-Control": "no-store, max-age=0" });
-    }
-
-    const rawStreams = await streamResponse.json();
+    const rawStreams = metadata.streams;
     const streams = await protectedClientLinks(rawStreams, env, publicOrigin);
 
     return json({
@@ -574,6 +549,50 @@ async function handleStreams(request, matchId, env, publicOrigin) {
       "Cache-Control": "no-store, max-age=0",
     });
   }
+}
+
+async function loadStreamMetadata(env, matchId) {
+  const base = env.SUPABASE_URL.trim().replace(/\/+$/, "");
+  const headers = {
+    apikey: env.SUPABASE_PUBLISHABLE_KEY.trim(), Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  const body = JSON.stringify({
+    p_match_id: matchId, p_secret: env.PLAYBACK_BACKEND_SECRET.trim(),
+  });
+  try {
+    const { data } = await fetchJsonWithTimeout(
+      base + "/rest/v1/rpc/get_stream_metadata_for_gateway",
+      { method: "POST", headers, body }, METADATA_TIMEOUT_MS,
+    );
+    if (typeof data?.match_valid !== "boolean" || !Array.isArray(data.streams)) {
+      throw new Error("Invalid gateway metadata response.");
+    }
+    return data;
+  } catch (error) {
+    // An older database can continue serving during the Worker/RPC rollout.
+    // Other HTTP failures and timeouts must not trigger duplicate DB work.
+    if (error.status !== 404) throw error;
+  }
+
+  const matchUrl = new URL(base + "/rest/v1/matches");
+  matchUrl.searchParams.set("select", "id");
+  matchUrl.searchParams.set("id", "eq." + matchId);
+  matchUrl.searchParams.set("is_active", "eq.true");
+  matchUrl.searchParams.set("publish_state", "eq.published");
+  matchUrl.searchParams.set("is_featured", "eq.true");
+  matchUrl.searchParams.set("limit", "1");
+  const { data: matches } = await fetchJsonWithTimeout(
+    matchUrl, { headers }, METADATA_TIMEOUT_MS,
+  );
+  if (!Array.isArray(matches)) throw new Error("Invalid match response.");
+  if (!matches.length) return { match_valid: false, streams: [] };
+  const { data: streams } = await fetchJsonWithTimeout(
+    base + "/rest/v1/rpc/get_stream_links_for_gateway",
+    { method: "POST", headers, body }, METADATA_TIMEOUT_MS,
+  );
+  if (!Array.isArray(streams)) throw new Error("Invalid stream response.");
+  return { match_valid: true, streams };
 }
 
 async function loadMatchRows(env) {
@@ -653,9 +672,33 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 4000) {
       controller.abort();
       throw error;
     }
-    return { status: response.status, data: await response.json() };
+    return {
+      status: response.status,
+      data: JSON.parse(await readBoundedText(response, MAX_METADATA_BYTES)),
+    };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// Only bounded metadata/manifest bodies are buffered. Media is streamed.
+async function readBoundedText(response, maxBytes) {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let text = "";
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) throw new Error("Metadata response too large.");
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    await reader.cancel().catch(() => {});
   }
 }
 
@@ -871,87 +914,100 @@ async function handleProtectedPlayback(request, sessionToken, childPath, env) {
     headers.set("Pragma", "no-cache");
   }
 
-  let response;
+  const controller = new AbortController();
+  const signal = AbortSignal.any([request.signal, controller.signal]);
+  let timer = setTimeout(() => controller.abort(), MEDIA_HEADER_TIMEOUT_MS);
+  let mediaStreaming = false;
   try {
     const fetchOptions = {
-      method: request.method,
-      headers,
-      redirect: "follow",
+      method: request.method, headers, redirect: "follow", signal,
     };
     if (liveManifestRequest) fetchOptions.cache = "no-store";
-    response = await fetch(upstream, fetchOptions);
+    const response = await fetch(upstream, fetchOptions);
+    clearTimeout(timer);
+    const contentType = (response.headers.get("Content-Type") || "").toLowerCase();
+    const finalUrl = response.url || upstream.toString();
+    const path = new URL(finalUrl).pathname.toLowerCase();
+    const isRootRequest = !childPath;
+    const sessionType = String(session.t || "auto").toLowerCase();
+    const isHls =
+      contentType.includes("mpegurl") ||
+      path.endsWith(".m3u8") ||
+      (isRootRequest && (sessionType === "hls" || sessionType === "m3u8"));
+    const isDash =
+      contentType.includes("dash+xml") ||
+      path.endsWith(".mpd") ||
+      (isRootRequest && (sessionType === "dash" || sessionType === "mpd"));
+
+    if (request.method === "GET" && response.ok && (isDash || isHls)) {
+      timer = setTimeout(() => controller.abort(), MANIFEST_BODY_TIMEOUT_MS);
+    }
+
+    if (request.method === "GET" && response.ok && isDash) {
+      const manifest = await readBoundedText(response, MAX_METADATA_BYTES);
+      const rewritten = await rewriteDashManifest(
+        manifest,
+        finalUrl,
+        sessionToken,
+        session.k,
+        new URL(request.url).origin,
+      );
+      return new Response(rewritten, {
+        status: response.status,
+        headers: {
+          ...corsHeaders(),
+          "Content-Type": "application/dash+xml",
+          "Cache-Control": "no-store, max-age=0",
+        },
+      });
+    }
+
+    if (request.method === "GET" && response.ok && isHls) {
+      const playlist = await readBoundedText(response, MAX_METADATA_BYTES);
+      const rewritten = await rewriteHlsPlaylist(
+        playlist,
+        finalUrl,
+        sessionToken,
+        session.k,
+        new URL(request.url).origin,
+      );
+      return new Response(rewritten, {
+        status: response.status,
+        headers: {
+          ...corsHeaders(),
+          "Content-Type": "application/vnd.apple.mpegurl",
+          "Cache-Control": "no-store, max-age=0",
+        },
+      });
+    }
+
+    const outHeaders = new Headers(corsHeaders());
+    outHeaders.set("Cache-Control", "no-store, max-age=0");
+    for (const name of [
+      "Content-Type", "Content-Length", "Content-Range", "Accept-Ranges",
+      "ETag", "Last-Modified",
+    ]) {
+      const value = response.headers.get(name);
+      if (value) outHeaders.set(name, value);
+    }
+
+    // Header timeout ends when headers arrive. Continuous FLV and segment
+    // bodies retain client cancellation but have no fixed lifetime deadline.
+    mediaStreaming = request.method !== "HEAD";
+    return new Response(request.method === "HEAD" ? null : response.body, {
+      status: response.status,
+      headers: outHeaders,
+    });
   } catch (_) {
-    return json({ error: "Playback upstream unavailable." }, 502, {
+    return json({ error: signal.aborted
+      ? "Playback upstream timed out or was cancelled."
+      : "Playback upstream unavailable." }, signal.aborted ? 504 : 502, {
       "Cache-Control": "no-store",
     });
+  } finally {
+    clearTimeout(timer);
+    if (!mediaStreaming) controller.abort();
   }
-
-  const contentType = (response.headers.get("Content-Type") || "").toLowerCase();
-  const finalUrl = response.url || upstream.toString();
-  const path = new URL(finalUrl).pathname.toLowerCase();
-  const isRootRequest = !childPath;
-  const sessionType = String(session.t || "auto").toLowerCase();
-  const isHls =
-    contentType.includes("mpegurl") ||
-    path.endsWith(".m3u8") ||
-    (isRootRequest && (sessionType === "hls" || sessionType === "m3u8"));
-  const isDash =
-    contentType.includes("dash+xml") ||
-    path.endsWith(".mpd") ||
-    (isRootRequest && (sessionType === "dash" || sessionType === "mpd"));
-
-  if (request.method === "GET" && response.ok && isDash) {
-    const manifest = await response.text();
-    const rewritten = await rewriteDashManifest(
-      manifest,
-      finalUrl,
-      sessionToken,
-      session.k,
-      new URL(request.url).origin,
-    );
-    return new Response(rewritten, {
-      status: response.status,
-      headers: {
-        ...corsHeaders(),
-        "Content-Type": "application/dash+xml",
-        "Cache-Control": "no-store, max-age=0",
-      },
-    });
-  }
-
-  if (request.method === "GET" && response.ok && isHls) {
-    const playlist = await response.text();
-    const rewritten = await rewriteHlsPlaylist(
-      playlist,
-      finalUrl,
-      sessionToken,
-      session.k,
-      new URL(request.url).origin,
-    );
-    return new Response(rewritten, {
-      status: response.status,
-      headers: {
-        ...corsHeaders(),
-        "Content-Type": "application/vnd.apple.mpegurl",
-        "Cache-Control": "no-store, max-age=0",
-      },
-    });
-  }
-
-  const outHeaders = new Headers(corsHeaders());
-  outHeaders.set("Cache-Control", "no-store, max-age=0");
-  for (const name of [
-    "Content-Type", "Content-Length", "Content-Range", "Accept-Ranges",
-    "ETag", "Last-Modified",
-  ]) {
-    const value = response.headers.get(name);
-    if (value) outHeaders.set(name, value);
-  }
-
-  return new Response(request.method === "HEAD" ? null : response.body, {
-    status: response.status,
-    headers: outHeaders,
-  });
 }
 
 async function resolveProtectedTarget(childPath, session, requestUrl) {

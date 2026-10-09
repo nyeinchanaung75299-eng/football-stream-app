@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -35,6 +36,13 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 
   List<Map<String, dynamic>> fixtures = [];
   final Set<int> selectedIds = {};
+  int _loadEpoch = 0;
+
+  @override
+  void dispose() {
+    _loadEpoch += 1;
+    super.dispose();
+  }
 
   Future<void> pickDate() async {
     final result = await showDatePicker(
@@ -104,7 +112,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     throw Exception(lastError ?? 'ColaTV mirror is unavailable.');
   }
 
-  Future<List<Map<String, dynamic>>> _loadColaFixtures() async {
+  Future<List<Map<String, dynamic>>> _loadColaFixtures(
+      String requestedMode, DateTime requestedDate) async {
     dynamic data;
     if (!_enableNoVpnFallback) {
       data = await FunctionGateway.invoke(
@@ -127,9 +136,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     }
 
     final wantedDate = DateTime(
-      selectedDate.year,
-      selectedDate.month,
-      selectedDate.day,
+      requestedDate.year,
+      requestedDate.month,
+      requestedDate.day,
     );
 
     final rows = <Map<String, dynamic>>[];
@@ -144,9 +153,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           row['status']?.toString().toUpperCase() == 'LIVE' ||
           row['match_status']?.toString().toUpperCase() == 'LIVE';
 
-      if (mode == 'live') {
+      if (requestedMode == 'live') {
         if (!isLive) continue;
-      } else if (mode == 'date') {
+      } else if (requestedMode == 'date') {
         if (matchTime == null) continue;
         final day = DateTime(matchTime.year, matchTime.month, matchTime.day);
         if (day != wantedDate) continue;
@@ -190,12 +199,13 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     return rows;
   }
 
-  Future<List<Map<String, dynamic>>> _loadFallbackFixtures() async {
+  Future<List<Map<String, dynamic>>> _loadFallbackFixtures(
+      String requestedMode, DateTime requestedDate) async {
     final data = await FunctionGateway.invoke(
       'football-fixtures',
       body: {
-        'mode': mode,
-        'date': DateFormat('yyyy-MM-dd').format(selectedDate),
+        'mode': requestedMode,
+        'date': DateFormat('yyyy-MM-dd').format(requestedDate),
       },
     );
     if (data is! Map) {
@@ -214,6 +224,11 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   }
 
   Future<void> loadFixtures() async {
+    if (importing) return;
+    final requestedMode = mode;
+    final requestedDate = selectedDate;
+    final epoch = ++_loadEpoch;
+    bool current() => mounted && epoch == _loadEpoch;
     setState(() {
       loading = true;
       errorText = null;
@@ -225,7 +240,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       List<Map<String, dynamic>> rows = const [];
 
       try {
-        rows = await _loadColaFixtures();
+        rows = await _loadColaFixtures(requestedMode, requestedDate);
       } catch (_) {
         rows = const [];
       }
@@ -235,32 +250,32 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       // ColaTV is unreachable or has no matches for the selected date/mode.
       if (rows.isEmpty) {
         provider = 'fallback';
-        rows = await _loadFallbackFixtures();
+        rows = await _loadFallbackFixtures(requestedMode, requestedDate);
       }
 
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'fixture list loaded',
         properties: {
-          'mode': mode,
+          'mode': requestedMode,
           'fixture_count': rows.length,
           'primary_source': 'cola',
           'served_by': provider,
         },
-      );
+      ));
 
-      if (!mounted) return;
+      if (!current()) return;
       setState(() {
         fixtures = rows;
       });
     } catch (e) {
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'fixture list failed',
         properties: {
-          'mode': mode,
+          'mode': requestedMode,
           'primary_source': 'cola',
         },
-      );
-      if (!mounted) return;
+      ));
+      if (!current()) return;
       setState(() {
         fixtures = [];
         final raw = e.toString();
@@ -279,7 +294,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         }
       });
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (current()) setState(() => loading = false);
     }
   }
 
@@ -294,6 +309,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   }
 
   Future<void> importSelected() async {
+    if (importing || loading) return;
     final chosen = fixtures
         .where((f) => selectedIds.contains(f['fixture_id'] as int))
         .toList();
@@ -331,7 +347,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       final result = await Supabase.instance.client.rpc(
         'publish_featured_matches',
         params: {'p_fixtures': payload},
-      );
+      ).timeout(const Duration(seconds: 15));
 
       final resultMap = result is Map
           ? Map<String, dynamic>.from(result)
@@ -344,7 +360,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           (resultMap['skipped_deleted'] as num?)?.toInt() ??
           (chosen.length - savedIds.length).clamp(0, chosen.length);
 
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'matches published',
         properties: {
           'requested_count': chosen.length,
@@ -352,7 +368,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
               (resultMap['published_count'] as num?)?.toInt() ?? savedIds.length,
           'skipped_deleted': skippedDeleted,
         },
-      );
+      ));
 
       if (!mounted) return;
 
@@ -453,11 +469,17 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           ),
         );
       }
+    } on TimeoutException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Could not confirm publishing. Check Matches before trying again.')));
+      }
     } catch (e) {
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'match publish failed',
         properties: {'requested_count': chosen.length},
-      );
+      ));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString())),
@@ -492,7 +514,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     return Expanded(
       child: active
           ? FilledButton.icon(
-              onPressed: () async {
+              onPressed: importing
+                  ? null
+                  : () async {
                 setState(() => mode = value);
                 await loadFixtures();
               },
@@ -500,7 +524,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
               label: Text(label),
             )
           : OutlinedButton.icon(
-              onPressed: () async {
+              onPressed: importing
+                  ? null
+                  : () async {
                 setState(() => mode = value);
                 await loadFixtures();
               },
@@ -579,7 +605,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           const SizedBox(height: 10),
           if (mode == 'date')
             OutlinedButton.icon(
-              onPressed: pickDate,
+              onPressed: importing ? null : pickDate,
               icon: const Icon(Icons.event_rounded),
               label: Text(
                 DateFormat('EEE, dd MMM yyyy').format(selectedDate),

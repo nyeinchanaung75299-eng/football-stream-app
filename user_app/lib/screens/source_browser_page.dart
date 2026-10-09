@@ -1,15 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../analytics_service.dart';
 import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 import '../native_player.dart';
 import '../live_feed_controller.dart';
 import '../player_loading.dart';
+import '../source_line_loader.dart';
 import '../widgets/premium_bottom_nav.dart';
 import '../widgets/premium_match_card.dart';
 
@@ -46,6 +49,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   late final LiveFeedController<List<Map<String, dynamic>>> _feed;
   Timer? _sourceRefreshTimer;
   bool _openingPlayer = false;
+  int _sourceGeneration = 0;
+  SourceLineLoader? _sourceOperation;
 
   String get source => widget.source.toLowerCase();
   String get title => switch (source) {
@@ -76,7 +81,23 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   }
 
   @override
+  void didUpdateWidget(covariant SourceBrowserPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.source != widget.source) {
+      _cancelSourceOperation();
+      unawaited(_feed.refresh());
+    }
+  }
+
+  void _cancelSourceOperation() {
+    _sourceGeneration++;
+    _sourceOperation?.cancel();
+    _openingPlayer = false;
+  }
+
+  @override
   void dispose() {
+    _cancelSourceOperation();
     _sourceRefreshTimer?.cancel();
     _feed.dispose();
     super.dispose();
@@ -483,16 +504,18 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   Future<List<Map<String, dynamic>>> _anchorFrom(
     String base,
     Map<String, dynamic> m,
-    Map<String, dynamic> anchor,
-  ) async {
+    Map<String, dynamic> anchor, {
+    String? sourceName,
+  }) async {
     final response = await http
         .post(
-          Uri.parse(base + '/sources/' + source + '/streams'),
+          Uri.parse(base + '/sources/' + (sourceName ?? source) + '/streams'),
           headers: const {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
           },
           body: jsonEncode({
+            'skip_probe': true,
             'room_num':
                 anchor['room_num'] ?? m['source_id'] ?? m['schedule_id'],
             'schedule_id': m['schedule_id'] ?? m['source_id'],
@@ -517,15 +540,18 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
   Future<List<Map<String, dynamic>>> _anchorFromSupabase(
     Map<String, dynamic> m,
-    Map<String, dynamic> anchor,
-  ) async {
+    Map<String, dynamic> anchor, {
+    String? sourceName,
+  }) async {
+    final provider = sourceName ?? source;
     final response = await http
         .get(
           Uri.parse(_supabaseFunction).replace(
             queryParameters: {
               'viewer_public': '1',
+              'skip_probe': '1',
               'action': 'streams',
-              'source': source,
+              'source': provider,
               'room_num':
                   (anchor['room_num'] ?? m['source_id'] ?? m['schedule_id'] ?? '')
                       .toString(),
@@ -566,7 +592,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               ('Line ' + (entry.key + 1).toString()))
           .toString();
       return <String, dynamic>{
-        'id': source +
+        'id': provider +
             ':' +
             schedule +
             ':' +
@@ -592,68 +618,41 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     Map<String, dynamic> m,
     Map<String, dynamic> anchor,
   ) {
+    final provider = source;
     if (!_enableNoVpnFallback) {
       if (bases.isEmpty) {
         return Future.error(StateError('No live source API is configured.'));
       }
       return _hedged(bases.map<Future<List<Map<String, dynamic>>> Function()>(
-        (base) => () => _anchorFrom(base, m, anchor),
+        (base) => () => _anchorFrom(base, m, anchor, sourceName: provider),
       ).toList());
     }
 
     return _hedged(
       [
-        if (bases.isNotEmpty) () => _anchorFrom(bases.first, m, anchor),
-        () => _anchorFromSupabase(m, anchor),
+        if (bases.isNotEmpty)
+          () => _anchorFrom(bases.first, m, anchor, sourceName: provider),
+        () => _anchorFromSupabase(m, anchor, sourceName: provider),
         ...bases.skip(1).map<Future<List<Map<String, dynamic>>> Function()>(
-          (base) => () => _anchorFrom(base, m, anchor),
+          (base) => () => _anchorFrom(base, m, anchor, sourceName: provider),
         ),
       ],
     );
   }
 
-  Future<List<Map<String, dynamic>>> _streams(
-    Map<String, dynamic> m,
-  ) async {
-    var succeeded = false;
-    Object? lastError;
-    StackTrace? lastStack;
-    final groups = await Future.wait(
-      _anchors(m).map((a) async {
-        try {
-          final rows = await _anchor(m, a);
-          succeeded = true;
-          return rows;
-        } catch (error, stack) {
-          lastError = error;
-          lastStack = stack;
-          return const <Map<String, dynamic>>[];
-        }
-      }),
-      eagerError: false,
-    );
-    if (!succeeded && lastError != null) {
-      Error.throwWithStackTrace(lastError!, lastStack!);
-    }
-    final seen = <String>{};
-    final out = <Map<String, dynamic>>[];
-    for (final group in groups) {
-      for (final row in group) {
-        final id = row['id']?.toString() ?? '';
-        final url = row['stream_url']?.toString() ?? '';
-        final key = id.isNotEmpty ? 'id:' + id : 'url:' + url;
-        if (url.trim().isNotEmpty && seen.add(key)) out.add(row);
-      }
-    }
+  int _compareLines(Map<String, dynamic> a, Map<String, dynamic> b) {
     int rank(Map<String, dynamic> x) {
       final t = (x['stream_type'] ?? 'auto').toString().toLowerCase();
       if (t == 'hls' || t == 'm3u8') return 0;
-      if (t == 'dash' || t == 'mpd') return 1;
-      if (t == 'mp4') return 2;
-      if (t == 'auto') return 3;
-      if (t == 'flv') return 4;
-      return 5;
+      // Web FLV can begin without waiting for a DASH manifest/segment set.
+      if (kIsWeb && t == 'flv') return 1;
+      if (t == 'dash' || t == 'mpd') return 2;
+      if (t == 'mp4') return 3;
+      if (t == 'auto') return 4;
+      if (t == 'flv') return 5;
+      return 6;
     }
+
     int healthRank(Map<String, dynamic> x) {
       return switch ((x['health_status'] ?? 'unknown')
           .toString()
@@ -666,167 +665,257 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       };
     }
 
-    out.sort((a, b) {
-      final health = healthRank(a).compareTo(healthRank(b));
-      if (health != 0) return health;
-      final format = rank(a).compareTo(rank(b));
-      if (format != 0) return format;
-      final ap = (a['priority'] as num?)?.toInt() ?? 100;
-      final bp = (b['priority'] as num?)?.toInt() ?? 100;
-      return ap.compareTo(bp);
-    });
-    return out;
+    final health = healthRank(a).compareTo(healthRank(b));
+    if (health != 0) return health;
+    final format = rank(a).compareTo(rank(b));
+    if (format != 0) return format;
+    return ((a['priority'] as num?)?.toInt() ?? 100).compareTo(
+      (b['priority'] as num?)?.toInt() ?? 100,
+    );
   }
+
+  SourceLineLoader _streams(Map<String, dynamic> match) => SourceLineLoader(
+    anchors: _anchors(match)
+        .map<Future<SourceLines> Function()>(
+          (anchor) =>
+              () => _anchor(match, anchor),
+        )
+        .toList(),
+    compare: _compareLines,
+  );
+
+  List<Map<String, dynamic>> _playerSources(SourceLines rows) => rows
+      .map(
+        (x) => <String, dynamic>{
+          'id': x['id']?.toString(),
+          'label': (x['label'] ?? x['resolution'] ?? 'Server').toString(),
+          'streamType': (x['stream_type'] ?? 'auto').toString(),
+          'url': (x['stream_url'] ?? '').toString(),
+          'referer': (x['referer'] ?? '').toString(),
+          'origin': (x['origin'] ?? '').toString(),
+          'keyId': (x['key_id'] ?? '').toString(),
+          'keyData': (x['key_data'] ?? '').toString(),
+          'resolution': (x['resolution'] ?? '').toString(),
+          'healthStatus': (x['health_status'] ?? 'unknown').toString(),
+          'priority': (x['priority'] as num?)?.toInt() ?? 100,
+        },
+      )
+      .toList();
 
   Future<void> _watch(Map<String, dynamic> m) async {
     if (_openingPlayer || !mounted) return;
+    _cancelSourceOperation();
     _openingPlayer = true;
+    final generation = _sourceGeneration;
     try {
       await _openSourcePlayer(m);
     } finally {
-      _openingPlayer = false;
+      if (generation == _sourceGeneration) _openingPlayer = false;
     }
   }
 
   Future<void> _openSourcePlayer(Map<String, dynamic> m) async {
     if (_anchors(m).isEmpty) return;
-    final rows = await loadPlayerSources(context, () => _streams(m));
-    if (rows == null || !mounted) return;
+    final generation = _sourceGeneration;
+    final selectedSource = source;
+    final operation = _streams(m);
+    _sourceOperation = operation;
+    final resolution = Stopwatch()..start();
+    final sessionId = '$selectedSource-$generation-${UniqueKey()}';
+    var playerOpened = false;
+    var publishedCount = 0;
 
-    if (rows.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No ' + title + ' stream is available now.')),
+    bool current() =>
+        mounted &&
+        generation == _sourceGeneration &&
+        identical(_sourceOperation, operation) &&
+        !operation.cancelled;
+
+    void publishBackups() {
+      if (!current() || !playerOpened || operation.rows.length <= publishedCount) {
+        return;
+      }
+      publishedCount = operation.rows.length;
+      unawaited(
+        NativePlayer.updateSources(
+          sources: _playerSources(operation.rows),
+          sessionId: sessionId,
+        ).catchError((Object _) {}),
       );
-      return;
     }
 
-    final sources = rows
-        .map((x) => <String, dynamic>{
-              'id': x['id']?.toString(),
-              'label': (x['label'] ?? x['resolution'] ?? 'Server').toString(),
-              'streamType': (x['stream_type'] ?? 'auto').toString(),
-              'url': (x['stream_url'] ?? '').toString(),
-              'referer': (x['referer'] ?? '').toString(),
-              'origin': (x['origin'] ?? '').toString(),
-              'keyId': (x['key_id'] ?? '').toString(),
-              'keyData': (x['key_data'] ?? '').toString(),
-              'resolution': (x['resolution'] ?? '').toString(),
-              'healthStatus': (x['health_status'] ?? 'unknown').toString(),
-              'priority': (x['priority'] as num?)?.toInt() ?? 100,
-            })
-        .toList();
+    operation.addListener(publishBackups);
+    try {
+      final rows = await loadPlayerSources<SourceLines?>(context, () {
+        operation.start();
+        return operation.firstUsable;
+      }, onCancelled: operation.cancel);
+      resolution.stop();
+      if (rows == null || !current()) return;
+      final providerMatchId =
+          (m['source_id'] ?? m['schedule_id'] ?? '').toString();
+      final safeMatchId = RegExp(r'^[a-zA-Z0-9_-]{1,100}$')
+              .hasMatch(providerMatchId)
+          ? providerMatchId
+          : 'unknown';
+      unawaited(
+        AnalyticsService.capture(
+          'stream sources loaded',
+          properties: {
+            'source': selectedSource,
+            'match_id': '$selectedSource:$safeMatchId',
+            'resolution_ms': resolution.elapsedMilliseconds,
+            'count': rows.length,
+          },
+        ),
+      );
+      if (rows.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No ' + title + ' stream is available now.')),
+        );
+        return;
+      }
 
-    final picked = await showModalBottomSheet<int>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheet) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: sources.length <= 4 ? .52 : .72,
-        minChildSize: .38,
-        maxChildSize: .90,
-        builder: (_, controller) => Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
-              child: Row(
+      final picked = await showModalBottomSheet<int>(
+        context: context,
+        useSafeArea: true,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheet) => AnimatedBuilder(
+          animation: operation,
+          builder: (_, __) {
+            final sources = _playerSources(operation.rows);
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: sources.length <= 4 ? .52 : .72,
+              minChildSize: .38,
+              maxChildSize: .90,
+              builder: (_, controller) => Column(
                 children: [
-                  Expanded(
-                    child: Text(
-                      title + ' • ' + _matchName(m),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title + ' • ' + _matchName(m),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          sources.length.toString() +
+                              (operation.loading ? ' lines…' : ' lines'),
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ],
                     ),
                   ),
-                  Text(
-                    sources.length.toString() + ' lines',
-                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: ListView.separated(
+                      controller: controller,
+                      padding: const EdgeInsets.all(14),
+                      itemCount: sources.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (_, i) {
+                        final x = sources[i];
+                        final label = x['label']?.toString().trim() ?? '';
+                        final type =
+                            x['streamType']?.toString().toUpperCase() ?? 'AUTO';
+                        final quality =
+                            x['resolution']?.toString().trim() ?? '';
+                        final health =
+                            x['healthStatus']?.toString().toLowerCase() ??
+                            'unknown';
+                        final healthLabel = switch (health) {
+                          'healthy' => 'READY',
+                          'slow' => 'SLOW',
+                          'failed' => 'OFFLINE',
+                          'dead' => 'OFFLINE',
+                          _ => 'UNKNOWN',
+                        };
+                        final healthIcon = switch (health) {
+                          'healthy' => Icons.check_circle_rounded,
+                          'slow' => Icons.speed_rounded,
+                          'failed' => Icons.cloud_off_rounded,
+                          'dead' => Icons.cloud_off_rounded,
+                          _ => Icons.help_outline_rounded,
+                        };
+                        return ListTile(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            side: BorderSide(
+                              color: Theme.of(sheet).colorScheme.outlineVariant,
+                            ),
+                          ),
+                          leading: const Icon(Icons.live_tv_rounded),
+                          title: Text(
+                            label.isEmpty
+                                ? 'Line ' + (i + 1).toString()
+                                : label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          subtitle: Text(
+                            [
+                              quality,
+                              type,
+                              healthLabel,
+                            ].where((x) => x.isNotEmpty).join(' • '),
+                          ),
+                          trailing: Icon(
+                            healthIcon,
+                            color: health == 'healthy'
+                                ? Colors.green
+                                : health == 'slow'
+                                ? Colors.orange
+                                : (health == 'failed' || health == 'dead')
+                                ? Colors.redAccent
+                                : null,
+                          ),
+                          onTap: () => Navigator.pop(sheet, i),
+                        );
+                      },
+                    ),
                   ),
                 ],
               ),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: ListView.separated(
-                controller: controller,
-                padding: const EdgeInsets.all(14),
-                itemCount: sources.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (_, i) {
-                  final x = sources[i];
-                  final label = x['label']?.toString().trim() ?? '';
-                  final type =
-                      x['streamType']?.toString().toUpperCase() ?? 'AUTO';
-                  final quality = x['resolution']?.toString().trim() ?? '';
-                  final health =
-                      x['healthStatus']?.toString().toLowerCase() ?? 'unknown';
-                  final healthLabel = switch (health) {
-                    'healthy' => 'READY',
-                    'slow' => 'SLOW',
-                    'failed' => 'OFFLINE',
-                    'dead' => 'OFFLINE',
-                    _ => 'UNKNOWN',
-                  };
-                  final healthIcon = switch (health) {
-                    'healthy' => Icons.check_circle_rounded,
-                    'slow' => Icons.speed_rounded,
-                    'failed' => Icons.cloud_off_rounded,
-                    'dead' => Icons.cloud_off_rounded,
-                    _ => Icons.help_outline_rounded,
-                  };
-                  return ListTile(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(
-                        color: Theme.of(sheet).colorScheme.outlineVariant,
-                      ),
-                    ),
-                    leading: const Icon(Icons.live_tv_rounded),
-                    title: Text(
-                      label.isEmpty ? 'Line ' + (i + 1).toString() : label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    subtitle: Text(
-                      [quality, type, healthLabel]
-                          .where((x) => x.isNotEmpty)
-                          .join(' • '),
-                    ),
-                    trailing: Icon(
-                      healthIcon,
-                      color: health == 'healthy'
-                          ? Colors.green
-                          : health == 'slow'
-                              ? Colors.orange
-                              : (health == 'failed' || health == 'dead')
-                                  ? Colors.redAccent
-                                  : null,
-                    ),
-                    onTap: () => Navigator.pop(sheet, i),
-                  );
-                },
-              ),
-            ),
-          ],
+            );
+          },
         ),
-      ),
-    );
+      );
 
-    if (picked == null || !mounted) return;
-    await NativePlayer.open(
-      context: context,
-      sources: sources,
-      selectedIndex: picked,
-      title: _matchName(m),
-      matchId: source + ':' +
-          (m['source_id'] ?? m['schedule_id'] ?? '').toString(),
-    );
+      if (picked == null || !current()) return;
+      publishedCount = operation.rows.length;
+      await NativePlayer.open(
+        context: context,
+        sources: _playerSources(operation.rows),
+        selectedIndex: picked,
+        title: _matchName(m),
+        matchId:
+            selectedSource +
+            ':' +
+            (m['source_id'] ?? m['schedule_id'] ?? '').toString(),
+        sessionId: sessionId,
+      );
+      playerOpened = true;
+      publishBackups();
+      if (generation == _sourceGeneration) _openingPlayer = false;
+      // Opening returns immediately on Web/Android. Keep forwarding late
+      // anchors until they settle; the player rejects a closed/stale session.
+      await operation.settled;
+      publishBackups();
+    } finally {
+      operation.removeListener(publishBackups);
+      operation.dispose();
+      if (identical(_sourceOperation, operation)) _sourceOperation = null;
+    }
   }
 
   void _select(int index) {

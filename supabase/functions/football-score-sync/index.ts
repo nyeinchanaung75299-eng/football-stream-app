@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
 
 Deno.serve(async (req) => {
   try {
@@ -229,53 +230,11 @@ async function probeStreamLink(
   if (link.referer) headers["Referer"] = link.referer;
   if (link.origin) headers["Origin"] = link.origin;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 6500);
-  const started = Date.now();
-
-  let status: "healthy" | "slow" | "failed" | "unknown" = "failed";
-  let latency = 0;
-
-  try {
-    const response = await fetch(url, {
-      method: "GET",
-      headers,
-      redirect: "follow",
-      signal: controller.signal,
-    });
-
-    latency = Date.now() - started;
-
-    if (
-      response.ok ||
-      response.status === 206 ||
-      (response.status >= 300 && response.status < 400)
-    ) {
-      status = latency > 2800 ? "slow" : "healthy";
-    } else if (
-      response.status === 401 ||
-      response.status === 403 ||
-      response.status === 405 ||
-      response.status === 429
-    ) {
-      status = "unknown";
-    } else {
-      status = "failed";
-    }
-
-    try {
-      const reader = response.body?.getReader();
-      if (reader) {
-        await reader.read();
-        await reader.cancel();
-      }
-    } catch (_) {}
-  } catch (_) {
-    latency = Date.now() - started;
-    status = "failed";
-  } finally {
-    clearTimeout(timeout);
-  }
+  const result = await probeStreamFirstChunk(url, {
+    headers, timeoutMs: 6500, slowMs: 2800,
+  });
+  const status = result.status;
+  const latency = result.latencyMs;
 
   await updateHealth(client, link.id, status, latency);
   return status;

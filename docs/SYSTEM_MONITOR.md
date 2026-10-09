@@ -39,6 +39,16 @@ tested before the connection is saved.
   Flutter exception capture does not cover every native process crash.
   Session recording is currently off. No replay is fabricated or enabled.
   The issue link opens available PostHog event context.
+  Loading/playback timing shows sample counts, median and p95 by app/platform:
+  video startup, initial buffering, buffering during playback, source-line
+  resolution and Admin function requests. Startup finishes when the player
+  reports a first frame or advancing media time; it is not a visual measurement
+  from the user's screen. Initial buffering is separate from mid-playback stalls.
+  Paused/background time is excluded from native recovery guards. Only new
+  clients with measured duration properties contribute to these timing rows;
+  older events do not become zero-duration samples. Missing timing is shown as
+  no data or unavailable, while the existing error counts stay visible. This
+  optional query does not require reconnecting an existing query:read key.
 - **Cloudflare**: account **a072aef61b3053983e84755527ef8f39**,
   Worker **football-public-api**. Create an account-scoped API token with
   **Account Analytics: Read**. Requests, runtime errors, subrequests and CPU/
@@ -91,4 +101,6 @@ Node security tests cover missing/forged sessions, current non-Admin roles,
 sanitized data, encryption, wrong scopes/ingest keys, stale reads, tamper/provider
 swap rejection and stale/repeated stream failures. Flutter tests cover hidden-tab
 requests, counts/unconfigured states, polling disposal and sanitized exports.
+The timing expansion has its own PageStorage key so scrolling or refreshing
+after connecting PostHog cannot overwrite the parent list's scroll position.
 Existing player, HLS/DASH and relay regression checks remain in CI.

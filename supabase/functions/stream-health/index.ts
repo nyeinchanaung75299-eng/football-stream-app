@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
 
 type LinkRow = {
   id: string;
@@ -146,7 +147,7 @@ Deno.serve(async (req) => {
 });
 
 async function checkLink(
-  admin: ReturnType<typeof createClient>,
+  admin: SupabaseClient,
   link: LinkRow,
 ) {
   const url = link.use_webview ? link.webview_url : link.stream_url;
@@ -168,55 +169,11 @@ async function checkLink(
     if (link.referer) headers["Referer"] = link.referer;
     if (link.origin) headers["Origin"] = link.origin;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    const started = Date.now();
-
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers,
-        redirect: "follow",
-        signal: controller.signal,
-      });
-
-      statusCode = response.status;
-      latency = Date.now() - started;
-
-      const reachable =
-        response.ok ||
-        response.status === 206 ||
-        (response.status >= 300 && response.status < 400);
-
-      if (reachable) {
-        health = latency > 3000 ? "slow" : "healthy";
-      } else if (
-        response.status === 401 ||
-        response.status === 403 ||
-        response.status === 405 ||
-        response.status === 429
-      ) {
-        health = "unknown";
-      } else {
-        health = "failed";
-      }
-
-      detail = reachable ? "reachable" : `HTTP ${response.status}`;
-
-      try {
-        const reader = response.body?.getReader();
-        if (reader) {
-          await reader.read();
-          await reader.cancel();
-        }
-      } catch (_) {}
-    } catch (error) {
-      latency = Date.now() - started;
-      detail = error instanceof Error ? error.message : String(error);
-      health = "failed";
-    } finally {
-      clearTimeout(timeout);
-    }
+    const result = await probeStreamFirstChunk(url, { headers });
+    health = result.status;
+    statusCode = result.httpStatus;
+    latency = result.latencyMs;
+    detail = result.detail;
   }
 
   const checkedAt = new Date().toISOString();

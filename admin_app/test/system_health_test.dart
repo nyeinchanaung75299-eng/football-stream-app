@@ -16,6 +16,30 @@ Map<String, dynamic> fixture() => {
           'events': [
             {'event': r'$exception', 'count': 3, 'affectedUsers': 2}
           ],
+          'timing': {
+            'state': 'ok',
+            'note': 'Measured durations from updated clients.',
+            'rows': [
+              {
+                'event': 'playback started',
+                'phase': 'unclassified',
+                'app': 'nca_user',
+                'platform': 'web',
+                'samples': 8,
+                'p50Ms': 1300,
+                'p95Ms': 4800,
+              },
+              {
+                'event': 'playback buffering ended',
+                'phase': 'rebuffer',
+                'app': 'nca_user',
+                'platform': 'android',
+                'samples': 2,
+                'p50Ms': 600,
+                'p95Ms': 1200,
+              },
+            ],
+          },
           'issues': [
             {
               'title': 'Error fixture',
@@ -100,6 +124,7 @@ void main() {
         posthog['state'] = 'not_configured';
         posthog.remove('events');
         posthog.remove('issues');
+        posthog.remove('timing');
       }
       return data;
     }
@@ -118,6 +143,14 @@ void main() {
     connected = true;
     await tester.tap(find.text('Refresh monitor'));
     await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.ensureVisible(find.text('Loading / playback timing'));
+    await tester.tap(find.text('Loading / playback timing'));
+    await tester.pumpAndSettle();
+    expect(find.text('Video startup'), findsOneWidget);
+    expect(find.text('Buffering during playback'), findsOneWidget);
+    expect(find.textContaining('Median: 1300 ms'), findsOneWidget);
+    expect(bucket.readState(listContext), isA<double>());
     expect(tester.takeException(), isNull);
     expect(find.text('App / platform breakdown'), findsOneWidget);
     await tester.ensureVisible(find.text('App / platform breakdown'));
@@ -189,6 +222,10 @@ void main() {
     final csv = SystemMonitorService.reportCsv(fixture());
     expect(json, contains('"affectedUsers": 2'));
     expect(csv, contains('"posthog"'));
+    expect(json, contains('"p95Ms": 4800'));
+    expect(csv, contains('playback started unclassified nca_user web p50 ms'));
+    expect(csv,
+        contains('playback buffering ended rebuffer nca_user android samples'));
     for (final secret in [
       'sensitive-stack',
       'sensitive-issue-id',

@@ -35,6 +35,12 @@ class MainActivity : FlutterActivity() {
         playerEventChannel = channel
 
         channel.setMethodCallHandler { call, result ->
+            if (call.method == "updatePlayerSources") {
+                val sessionId = call.argument<String>("sessionId").orEmpty()
+                val sourcesJson = call.argument<String>("sourcesJson").orEmpty()
+                result.success(NativePlayerActivity.appendSources(sessionId, sourcesJson))
+                return@setMethodCallHandler
+            }
             if (call.method != "openPlayer") {
                 result.notImplemented()
                 return@setMethodCallHandler
@@ -46,15 +52,24 @@ class MainActivity : FlutterActivity() {
                 return@setMethodCallHandler
             }
 
-            startActivity(Intent(this, NativePlayerActivity::class.java).apply {
-                putExtra("sourcesJson", sourcesJson)
-                putExtra(
-                    "selectedIndex",
-                    call.argument<Int>("selectedIndex") ?: 0
-                )
-                putExtra("title", call.argument<String>("title").orEmpty())
-                putExtra("matchId", call.argument<String>("matchId").orEmpty())
-            })
+            val sessionId = call.argument<String>("sessionId").orEmpty()
+            NativePlayerActivity.prepareOpeningSession(sessionId)
+            try {
+                startActivity(Intent(this, NativePlayerActivity::class.java).apply {
+                    putExtra("sourcesJson", sourcesJson)
+                    putExtra(
+                        "selectedIndex",
+                        call.argument<Int>("selectedIndex") ?: 0
+                    )
+                    putExtra("title", call.argument<String>("title").orEmpty())
+                    putExtra("matchId", call.argument<String>("matchId").orEmpty())
+                    putExtra("sessionId", sessionId)
+                })
+            } catch (_: Exception) {
+                NativePlayerActivity.cancelOpeningSession(sessionId)
+                result.error("PLAYER_OPEN_FAILED", "Could not open player.", null)
+                return@setMethodCallHandler
+            }
 
             result.success(null)
         }

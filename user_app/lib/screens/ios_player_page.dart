@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart' as mk;
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../analytics_service.dart';
+import '../native_playback_progress.dart';
 
 /// Native iOS playback powered by libmpv/FFmpeg through package:media_kit.
 ///
@@ -18,18 +20,23 @@ class IOSPlayerPage extends StatefulWidget {
     required this.selectedIndex,
     required this.title,
     required this.matchId,
+    this.sourceUpdates,
+    this.onClosed,
   });
 
   final List<Map<String, dynamic>> sources;
   final int selectedIndex;
   final String title;
   final String matchId;
+  final ValueListenable<int>? sourceUpdates;
+  final VoidCallback? onClosed;
 
   @override
   State<IOSPlayerPage> createState() => _IOSPlayerPageState();
 }
 
-class _IOSPlayerPageState extends State<IOSPlayerPage> {
+class _IOSPlayerPageState extends State<IOSPlayerPage>
+    with WidgetsBindingObserver {
   late final mk.Player _player;
   late final VideoController _videoController;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
@@ -41,14 +48,27 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
   bool _playing = false;
   bool _disposed = false;
   String? _errorText;
-  Timer? _startupTimer;
+  Timer? _progressTimer;
   Timer? _stallTimer;
   int _playbackToken = 0;
   int _sameLineRecoveryCount = 0;
+  int? _recoveryRequestedFor;
+  bool _acceptProgress = false;
+  bool _sawPlayingInAttempt = false;
+  bool _foreground = true;
+  bool _userPaused = false;
+  NativePlaybackProgress? _progress;
+  final Stopwatch _attemptClock = Stopwatch();
+  Duration? _bufferStartedAt;
+  String? _bufferPhase;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    widget.sourceUpdates?.addListener(_onSourcesUpdated);
     mk.MediaKit.ensureInitialized();
 
     _selectedIndex = widget.sources.isEmpty
@@ -74,43 +94,65 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
     unawaited(_openLine(_selectedIndex, userSelected: true));
   }
 
+  void _onSourcesUpdated() {
+    // NativePlayer appends backup rows to this session's list. Keep the current
+    // index and decoder untouched; only refresh the picker and line count.
+    if (!_disposed && mounted) setState(() {});
+  }
+
   void _listenToPlayer() {
     _subscriptions.add(
       _player.stream.playing.listen((value) {
         if (_disposed) return;
+        if (_acceptProgress && (value || _sawPlayingInAttempt)) {
+          if (value) _sawPlayingInAttempt = true;
+          _userPaused = !value;
+          _syncProgressSuspension();
+        }
         if (value) {
-          _startupTimer?.cancel();
-          _errorText = null;
           unawaited(_player.setRate(1.0));
         }
         if (mounted) {
-          setState(() {
-            _playing = value;
-            if (value) _opening = false;
-          });
+          setState(() => _playing = value);
         }
       }),
     );
 
     _subscriptions.add(
       _player.stream.buffering.listen((value) {
-        if (_disposed) return;
+        if (_disposed || !_acceptProgress) return;
         if (mounted) setState(() => _buffering = value);
+        // A buffering=false notification can precede useful media. End the
+        // episode only when the media clock actually advances.
+        if (value && _foreground && !_userPaused) _beginBuffering();
+      }),
+    );
 
+    _subscriptions.add(
+      _player.stream.position.listen((position) {
+        final progress = _progress;
+        if (_disposed || !_acceptProgress || progress == null || !_playing) {
+          return;
+        }
+        final wasStarted = progress.started;
+        if (!progress.observePosition(position, _attemptClock.elapsed)) return;
         _stallTimer?.cancel();
-        _stallTimer = null;
-        if (value && _playing) {
-          _stallTimer = Timer(const Duration(seconds: 9), () {
-            if (!_disposed && _player.state.buffering) {
-              unawaited(_recoverOrFallback('stall_timeout'));
-            }
+        _endBuffering();
+        if (mounted && (_opening || _buffering || _errorText != null)) {
+          setState(() {
+            _opening = false;
+            _buffering = false;
+            _errorText = null;
           });
         }
-        if (value) {
+        if (!wasStarted) {
           unawaited(
             AnalyticsService.capture(
-              'playback buffering',
-              properties: _eventProperties(),
+              'playback started',
+              properties: <String, Object>{
+                ..._eventProperties(),
+                'startup_ms': progress.startupElapsed!.inMilliseconds,
+              },
             ),
           );
         }
@@ -128,13 +170,19 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
 
     _subscriptions.add(
       _player.stream.error.listen((_) {
-        if (_disposed) return;
+        if (_disposed || !_acceptProgress || !_foreground || _userPaused)
+          return;
         // libmpv may report recoverable network details while its cache is
         // refilling. Give an already-playing line a brief recovery window.
-        if (_playing) {
+        if (_progress?.started == true) {
+          final token = _playbackToken;
           _stallTimer?.cancel();
           _stallTimer = Timer(const Duration(seconds: 4), () {
-            if (!_disposed && (_player.state.buffering || !_player.state.playing)) {
+            if (!_disposed &&
+                token == _playbackToken &&
+                _foreground &&
+                !_userPaused &&
+                (_player.state.buffering || !_player.state.playing)) {
               unawaited(_recoverOrFallback('playback_error'));
             }
           });
@@ -146,33 +194,103 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
 
     _subscriptions.add(
       _player.stream.completed.listen((completed) {
-        if (!_disposed && completed && widget.sources.length > 1) {
-          unawaited(_fallbackToNext('playback_ended'));
+        if (!_disposed && _acceptProgress && _foreground && completed) {
+          if (_sourceType(widget.sources[_selectedIndex]) == 'mp4') {
+            // A finite file ending normally is not a failed live stream. Keep
+            // the watchdog suspended until the user starts playback again.
+            _userPaused = true;
+            _syncProgressSuspension();
+            return;
+          }
+          // Native completion can also set playing=false; that is not a
+          // deliberate user pause and must not disable recovery.
+          _userPaused = false;
+          _syncProgressSuspension();
+          unawaited(_recoverOrFallback('playback_ended'));
         }
       }),
     );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    if (!_foreground) _stallTimer?.cancel();
+    _syncProgressSuspension();
+  }
+
+  void _syncProgressSuspension() {
+    _progress?.setSuspended(!_foreground || _userPaused, _attemptClock.elapsed);
+    if (!_foreground || _userPaused) _stallTimer?.cancel();
+  }
+
+  void _beginBuffering() {
+    final progress = _progress;
+    if (progress == null || _bufferStartedAt != null) return;
+    _bufferStartedAt = progress.activeElapsed(_attemptClock.elapsed);
+    _bufferPhase = progress.started ? 'rebuffer' : 'startup';
+    unawaited(
+      AnalyticsService.capture(
+        'playback buffering',
+        properties: <String, Object>{
+          ..._eventProperties(),
+          'phase': _bufferPhase!,
+        },
+      ),
+    );
+  }
+
+  void _endBuffering() {
+    final progress = _progress;
+    final start = _bufferStartedAt;
+    if (progress == null || start == null) return;
+    final elapsed = progress.activeElapsed(_attemptClock.elapsed) - start;
+    unawaited(
+      AnalyticsService.capture(
+        'playback buffering ended',
+        properties: <String, Object>{
+          ..._eventProperties(),
+          'phase': _bufferPhase!,
+          'buffering_ms': elapsed.inMilliseconds,
+        },
+      ),
+    );
+    _bufferStartedAt = null;
+    _bufferPhase = null;
   }
 
   Map<String, Object> _eventProperties({int? fromIndex, int? toIndex}) {
     final source = widget.sources.isEmpty
         ? const <String, dynamic>{}
         : widget.sources[_selectedIndex];
+    final lineId = (source['id'] ?? source['lineId'] ?? source['line_id'] ?? '')
+        .toString()
+        .trim();
+    final uri = Uri.tryParse(
+      (source['url'] ?? source['stream_url'] ?? '').toString().trim(),
+    );
     return <String, Object>{
-      if (widget.matchId.isNotEmpty) 'match_id': widget.matchId,
+      if (RegExp(r'^[A-Za-z0-9_:-]{1,128}$').hasMatch(widget.matchId))
+        'match_id': widget.matchId,
       'selected_index': _selectedIndex,
       'line_count': widget.sources.length,
       'stream_type': _sourceType(source),
+      if (RegExp(r'^[A-Za-z0-9_:-]{1,128}$').hasMatch(lineId))
+        'line_id': lineId,
+      if (uri != null &&
+          const {'https', 'http'}.contains(uri.scheme) &&
+          uri.host.isNotEmpty)
+        'route': uri.host,
       if (fromIndex != null) 'from_index': fromIndex,
       if (toIndex != null) 'to_index': toIndex,
     };
   }
 
   String _sourceType(Map<String, dynamic> source) {
-    final declared =
-        (source['streamType'] ?? source['stream_type'] ?? 'auto')
-            .toString()
-            .trim()
-            .toLowerCase();
+    final declared = (source['streamType'] ?? source['stream_type'] ?? 'auto')
+        .toString()
+        .trim()
+        .toLowerCase();
     if (declared == 'm3u8') return 'hls';
     if (declared == 'mpd') return 'dash';
     if (const {'hls', 'dash', 'mp4', 'flv'}.contains(declared)) {
@@ -228,44 +346,56 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
     }
   }
 
-  Future<void> _configureForSource(Map<String, dynamic> source) async {
+  Future<bool> _configureForSource(
+    Map<String, dynamic> source,
+    int token,
+  ) async {
     final native = await _nativePlayer();
-    if (native == null) return;
+    bool current() => !_disposed && token == _playbackToken;
+    if (!current()) return false;
+    if (native == null) return true;
+    Future<bool> property(String name, String value) async {
+      if (!current()) return false;
+      await native.setProperty(name, value);
+      return current();
+    }
 
     // Audio-clock sync is mpv's most robust mode and prevents display timing
     // from subtly changing playback speed on mobile displays.
-    await native.setProperty('video-sync', 'audio');
-    await native.setProperty('cache', 'yes');
-    await native.setProperty('cache-secs', '8');
-    await native.setProperty('cache-pause', 'yes');
-    await native.setProperty('cache-pause-wait', '1');
-    await native.setProperty('cache-pause-initial', 'yes');
-    await native.setProperty('demuxer-readahead-secs', '8');
-    await native.setProperty('demuxer-max-bytes', '48MiB');
-
-    // Never leak format/key options from the previously selected line.
-    await native.setProperty('demuxer-lavf-format', '');
-    await native.setProperty('demuxer-lavf-o', '');
+    for (final entry in const <String, String>{
+      'video-sync': 'audio',
+      'cache': 'yes',
+      'cache-secs': '8',
+      'cache-pause': 'yes',
+      'cache-pause-wait': '1',
+      'cache-pause-initial': 'yes',
+      'demuxer-readahead-secs': '8',
+      'demuxer-max-bytes': '48MiB',
+      // Never leak format/key options from the previously selected line.
+      'demuxer-lavf-format': '',
+      'demuxer-lavf-o': '',
+    }.entries) {
+      if (!await property(entry.key, entry.value)) return false;
+    }
 
     final type = _sourceType(source);
     if (type == 'hls') {
-      await native.setProperty('demuxer-lavf-format', 'hls');
+      if (!await property('demuxer-lavf-format', 'hls')) return false;
       // Prefer a stable live rendition over immediately pulling the heaviest
       // variant through a VPN. Users can still choose another server/line.
-      await native.setProperty('hls-bitrate', '3000000');
+      if (!await property('hls-bitrate', '3000000')) return false;
     } else if (type == 'dash') {
-      await native.setProperty('demuxer-lavf-format', 'dash');
+      if (!await property('demuxer-lavf-format', 'dash')) return false;
       final key = _normalizedCencKey(source);
       if (key.isNotEmpty) {
         // This key is the already-authorized per-line key supplied by Admin.
         // FFmpeg's DASH demuxer consumes it locally; it is never logged.
-        await native.setProperty(
-          'demuxer-lavf-o',
-          'cenc_decryption_key=$key',
-        );
+        if (!await property('demuxer-lavf-o', 'cenc_decryption_key=$key'))
+          return false;
       }
     }
     await _player.setRate(1.0);
+    return current();
   }
 
   Future<void> _openLine(
@@ -277,8 +407,25 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
     index = index.clamp(0, widget.sources.length - 1);
 
     final token = ++_playbackToken;
-    _startupTimer?.cancel();
+    _progressTimer?.cancel();
     _stallTimer?.cancel();
+    _acceptProgress = false;
+    _sawPlayingInAttempt = false;
+    _userPaused = false;
+    _progress = NativePlaybackProgress();
+    _attemptClock
+      ..reset()
+      ..start();
+    _bufferStartedAt = null;
+    _bufferPhase = null;
+    _syncProgressSuspension();
+    // Arm before stop/configuration/open: any of those native awaits can hang.
+    // playing=true only means mpv is unpaused, not that a frame has arrived.
+    _progressTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_disposed || token != _playbackToken) return;
+      final reason = _progress?.timeoutReason(_attemptClock.elapsed);
+      if (reason != null) unawaited(_recoverOrFallback(reason));
+    });
     if (userSelected) {
       _failedLines.clear();
       _sameLineRecoveryCount = 0;
@@ -289,6 +436,7 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
         _selectedIndex = index;
         _opening = true;
         _buffering = true;
+        _playing = false;
         _errorText = null;
       });
     } else {
@@ -296,19 +444,24 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
     }
 
     final source = widget.sources[index];
-    final url = (source['url'] ?? source['stream_url'] ?? '')
-        .toString()
-        .trim();
+    final url = (source['url'] ?? source['stream_url'] ?? '').toString().trim();
     if (url.isEmpty) {
       await _fallbackToNext('empty_source');
       return;
     }
 
+    if (_foreground) _beginBuffering();
+    unawaited(
+      AnalyticsService.capture(
+        recovery ? 'playback line recovery' : 'playback line selected',
+        properties: _eventProperties(),
+      ),
+    );
+
     try {
       await _player.stop();
       if (_disposed || token != _playbackToken) return;
-      await _configureForSource(source);
-      if (_disposed || token != _playbackToken) return;
+      if (!await _configureForSource(source, token)) return;
 
       final media = mk.Media(
         url,
@@ -320,49 +473,36 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
       );
 
       // open(play: true) keeps startup to one native operation.
+      _acceptProgress = true;
       await _player.open(media, play: true);
       if (_disposed || token != _playbackToken) return;
-
-      _startupTimer = Timer(
-        Duration(seconds: _sourceType(source) == 'dash' ? 12 : 10),
-        () {
-          if (!_disposed && token == _playbackToken && !_player.state.playing) {
-            unawaited(_fallbackToNext('startup_timeout'));
-          }
-        },
-      );
-
-      unawaited(
-        AnalyticsService.capture(
-          recovery ? 'playback line recovery' : 'playback line selected',
-          properties: _eventProperties(),
-        ),
-      );
     } catch (_) {
       if (!_disposed && token == _playbackToken) {
-        await _fallbackToNext('playback_error');
+        await _recoverOrFallback('playback_error');
       }
     }
   }
 
   Future<void> _recoverOrFallback(String reason) async {
-    if (_disposed || widget.sources.isEmpty) return;
+    if (_disposed ||
+        widget.sources.isEmpty ||
+        !_foreground ||
+        _userPaused ||
+        _recoveryRequestedFor == _playbackToken)
+      return;
+    // Claim this generation synchronously. A delayed error and watchdog cannot
+    // both switch lines, and a stuck old open cannot disable the new deadline.
+    _recoveryRequestedFor = _playbackToken;
 
     if (_sameLineRecoveryCount < 1) {
       _sameLineRecoveryCount += 1;
       unawaited(
         AnalyticsService.capture(
           'playback native recovery',
-          properties: <String, Object>{
-            ..._eventProperties(),
-            'reason': reason,
-          },
+          properties: <String, Object>{..._eventProperties(), 'reason': reason},
         ),
       );
-      await _openLine(
-        _selectedIndex,
-        recovery: true,
-      );
+      await _openLine(_selectedIndex, recovery: true);
       return;
     }
 
@@ -384,6 +524,11 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
   Future<void> _fallbackToNext(String reason) async {
     if (_disposed || widget.sources.isEmpty) return;
 
+    _progressTimer?.cancel();
+    _stallTimer?.cancel();
+    _acceptProgress = false;
+    ++_playbackToken;
+
     final from = _selectedIndex;
     _failedLines.add(from);
     final candidates = List<int>.generate(widget.sources.length, (i) => i)
@@ -396,10 +541,7 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
     unawaited(
       AnalyticsService.capture(
         'playback line failed',
-        properties: <String, Object>{
-          ..._eventProperties(),
-          'reason': reason,
-        },
+        properties: <String, Object>{..._eventProperties(), 'reason': reason},
       ),
     );
 
@@ -409,8 +551,7 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
           _opening = false;
           _buffering = false;
           _playing = false;
-          _errorText =
-              'This stream is not stable on iPhone. Try another line.';
+          _errorText = 'This stream is not stable on iPhone. Try another line.';
         });
       }
       return;
@@ -466,9 +607,7 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
               subtitle: Text(
-                type == 'DASH'
-                    ? 'MPD • native iOS'
-                    : '$type • native iOS',
+                type == 'DASH' ? 'MPD • native iOS' : '$type • native iOS',
               ),
               trailing: selected
                   ? Icon(Icons.check_rounded, color: colors.primary)
@@ -486,9 +625,13 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
+    widget.sourceUpdates?.removeListener(_onSourcesUpdated);
+    widget.onClosed?.call();
     ++_playbackToken;
-    _startupTimer?.cancel();
+    _progressTimer?.cancel();
     _stallTimer?.cancel();
+    _attemptClock.stop();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
@@ -529,10 +672,7 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
                   _sourceType(source).toUpperCase(),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white60,
-                fontSize: 10.5,
-              ),
+              style: const TextStyle(color: Colors.white60, fontSize: 10.5),
             ),
           ],
         ),
@@ -590,7 +730,9 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
                         ),
                         const SizedBox(width: 10),
                         Text(
-                          _playing ? 'Buffering…' : 'Starting stream…',
+                          _progress?.started == true
+                              ? 'Buffering…'
+                              : 'Starting stream…',
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w700,
@@ -616,7 +758,8 @@ class _IOSPlayerPageState extends State<IOSPlayerPage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Icon(
-                        Icons.signal_wifi_statusbar_connected_no_internet_4_rounded,
+                        Icons
+                            .signal_wifi_statusbar_connected_no_internet_4_rounded,
                         color: Colors.white70,
                         size: 34,
                       ),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -21,6 +23,21 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
   DateTime kickoff = DateTime.now().add(const Duration(hours: 1));
   bool isLive = false;
   bool loading = false;
+
+  @override
+  void dispose() {
+    for (final controller in [
+      league,
+      homeTeam,
+      awayTeam,
+      homeLogo,
+      awayLogo,
+      order
+    ]) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
 
   Future<void> pickDate() async {
     final result = await showDatePicker(
@@ -61,6 +78,7 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
   }
 
   Future<void> save() async {
+    if (loading) return;
     if (league.text.trim().isEmpty ||
         homeTeam.text.trim().isEmpty ||
         awayTeam.text.trim().isEmpty) {
@@ -88,26 +106,31 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
         'publish_state': 'published',
         'source': 'manual',
         'status_short': isLive ? 'LIVE' : 'NS',
-      });
+      }).timeout(const Duration(seconds: 12));
 
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'manual match created',
         properties: {
           'is_live': isLive,
           'has_home_logo': homeLogo.text.trim().isNotEmpty,
           'has_away_logo': awayLogo.text.trim().isNotEmpty,
         },
-      );
+      ));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Live match uploaded.')),
       );
       Navigator.pop(context);
+    } on TimeoutException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Could not confirm the save. Check Matches before trying again.')));
     } catch (e) {
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'manual match create failed',
         properties: {'is_live': isLive},
-      );
+      ));
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.toString())));

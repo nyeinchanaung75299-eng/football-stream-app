@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -28,6 +30,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   bool useWebView = false;
   bool loading = false;
   final Set<String> checkingLinks = <String>{};
+  final Set<String> updatingLinks = <String>{};
   bool testingHealth = false;
   late Future<List<Map<String, dynamic>>> _matchesFuture;
   Future<List<Map<String, dynamic>>>? _linksFuture;
@@ -44,22 +47,59 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   void initState() {
     super.initState();
     matchId = widget.initialMatchId;
-    _matchesFuture = loadMatches();
+    _matchesFuture = _startMatchesLoad();
     if (matchId != null) {
-      _linksFuture = loadLinks();
+      _linksFuture = _startLinksLoad();
     }
+  }
+
+  @override
+  void dispose() {
+    for (final controller in [
+      serverName,
+      link,
+      referer,
+      origin,
+      keyId,
+      keyData,
+      webViewUrl
+    ]) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  void reloadMatches() {
+    if (!mounted) return;
+    setState(() {
+      _matchesFuture = _startMatchesLoad();
+    });
   }
 
   void reloadLinks() {
     if (!mounted || matchId == null) return;
-    setState(() { _linksFuture = loadLinks(); });
+    setState(() { _linksFuture = _startLinksLoad(); });
   }
 
   void selectMatch(String? value) {
     setState(() {
       matchId = value;
-      _linksFuture = value == null ? null : loadLinks();
+      _linksFuture = value == null ? null : _startLinksLoad();
     });
+  }
+
+  Future<List<Map<String, dynamic>>> _startMatchesLoad() {
+    final request = loadMatches();
+    request.ignore();
+    return request;
+  }
+
+  Future<List<Map<String, dynamic>>> _startLinksLoad() {
+    final request = loadLinks();
+    // A preset starts this in parallel with the matches query. Handle errors
+    // immediately even before its nested FutureBuilder can mount.
+    request.ignore();
+    return request;
   }
 
   String? nullable(String value) {
@@ -114,7 +154,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         )
         .order('kickoff_at', ascending: true)
         .order('sort_order', ascending: true)
-        .order('home_team', ascending: true);
+        .order('home_team', ascending: true)
+        .timeout(const Duration(seconds: 10));
 
     return List<Map<String, dynamic>>.from(data)
         .where((row) {
@@ -137,11 +178,13 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         .select()
         .eq('match_id', matchId!)
         .order('sort_order')
-        .order('created_at');
+        .order('created_at')
+        .timeout(const Duration(seconds: 10));
     return List<Map<String, dynamic>>.from(data);
   }
 
   Future<void> addLink() async {
+    if (loading) return;
     if (matchId == null) {
       message('Select a match first.');
       return;
@@ -186,9 +229,9 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         'webview_url': useWebView ? webViewUrl.text.trim() : null,
         'send_notification': false,
         'is_active': true,
-      });
+      }).timeout(const Duration(seconds: 12));
 
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'stream added',
         properties: {
           'match_id': matchId!,
@@ -199,7 +242,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
           'has_clearkey':
               keyId.text.trim().isNotEmpty && keyData.text.trim().isNotEmpty,
         },
-      );
+      ));
 
       if (!mounted) return;
 
@@ -214,14 +257,19 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       streamType = 'auto';
       useWebView = false;
       reloadLinks();
+    } on TimeoutException {
+      if (mounted) {
+        message('Could not confirm the save. Refresh before trying again.');
+        reloadLinks();
+      }
     } catch (e) {
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'stream add failed',
         properties: {
           'match_selected': matchId != null,
           'use_webview': useWebView,
         },
-      );
+      ));
       if (!mounted) return;
       message(e.toString());
     } finally {
@@ -241,14 +289,14 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         'stream-health',
         body: {'match_id': matchId},
       );
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'stream health checked',
         properties: {
           'scope': 'match',
           if (data is Map && data['health_status'] != null)
             'health_status': data['health_status'].toString(),
         },
-      );
+      ));
       if (!mounted) return;
 
       if (data is Map && data['summary'] is Map) {
@@ -264,10 +312,10 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
       reloadLinks();
     } catch (e) {
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'stream health check failed',
         properties: {'scope': 'match'},
-      );
+      ));
       if (mounted) message('Health check failed: $e');
     } finally {
       if (mounted) setState(() => testingHealth = false);
@@ -303,33 +351,45 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
           .delete()
           .eq('id', id);
 
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'stream deleted',
         properties: {'match_selected': matchId != null},
-      );
+      ));
 
       if (mounted) {
         message('Server deleted.');
         reloadLinks();
       }
     } catch (e) {
-      await AnalyticsService.capture('stream delete failed');
+      unawaited(AnalyticsService.capture('stream delete failed'));
       if (mounted) message('Delete failed: $e');
     }
   }
 
   Future<void> setActive(String id, bool value) async {
+    if (updatingLinks.contains(id)) return;
+    setState(() => updatingLinks.add(id));
+    try {
     await Supabase.instance.client
         .from('stream_links')
         .update({'is_active': value})
-        .eq('id', id);
-
-    await AnalyticsService.capture(
+        .eq('id', id)
+          .timeout(const Duration(seconds: 12));
+      unawaited(AnalyticsService.capture(
       'stream active changed',
-      properties: {'is_active': value},
-    );
+      properties: {'is_active': value}));
 
     reloadLinks();
+    } on TimeoutException {
+      if (mounted) {
+        message('Could not confirm the change. Refresh to check the server.');
+        reloadLinks();
+      }
+    } catch (_) {
+      if (mounted) message('Could not update the server. Please retry.');
+    } finally {
+      if (mounted) setState(() => updatingLinks.remove(id));
+    }
   }
 
   Future<void> checkHealth(String id) async {
@@ -342,14 +402,14 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         body: {'link_id': id},
       );
 
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'stream health checked',
         properties: {
           'scope': 'link',
           if (data is Map && data['health_status'] != null)
             'health_status': data['health_status'].toString(),
         },
-      );
+      ));
 
       if (mounted) {
         reloadLinks();
@@ -364,10 +424,10 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         }
       }
     } catch (e) {
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'stream health check failed',
         properties: {'scope': 'link'},
-      );
+      ));
       if (mounted) message('Health check failed: $e');
     } finally {
       if (mounted) {
@@ -387,7 +447,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     final key = TextEditingController(text: '${row['key_data'] ?? ''}');
     final webUrl = TextEditingController(text: '${row['webview_url'] ?? ''}');
 
-    String type = (row['stream_type'] ?? 'auto').toString();
+    try {
+      String type = (row['stream_type'] ?? 'auto').toString();
     if (!streamTypes.containsKey(type)) type = 'auto';
     bool web = row['use_webview'] == true;
 
@@ -590,7 +651,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
           })
           .eq('id', row['id']);
 
-      await AnalyticsService.capture(
+        unawaited(AnalyticsService.capture(
         'stream updated',
         properties: {
           'stream_type': effectiveType,
@@ -600,15 +661,20 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
           'has_clearkey':
               kid.text.trim().isNotEmpty && key.text.trim().isNotEmpty,
         },
-      );
+      ));
 
       if (mounted) {
         message('Server updated.');
         reloadLinks();
       }
     } catch (e) {
-      await AnalyticsService.capture('stream update failed');
+        unawaited(AnalyticsService.capture('stream update failed'));
       if (mounted) message('Server update failed: $e');
+      }
+    } finally {
+      for (final controller in [name, url, ref, org, kid, key, webUrl]) {
+        controller.dispose();
+      }
     }
   }
 
@@ -805,7 +871,9 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                   const SizedBox(width: 4),
                   Switch.adaptive(
                     value: active,
-                    onChanged: (value) =>
+                    onChanged: updatingLinks.contains(row['id'].toString())
+                        ? null
+                        : (value) =>
                         setActive(row['id'].toString(), value),
                   ),
                 ],
@@ -826,6 +894,9 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _matchesFuture,
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return _loadFailure('Could not load matches.', reloadMatches);
+          }
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -883,13 +954,13 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                           onPressed: matchId == null
                               ? null
                               : () async {
-                                  await AnalyticsService.capture(
+                                  unawaited(AnalyticsService.capture(
                                     'admin section opened',
                                     properties: {
                                       'section': 'stream-source-picker',
                                       'from': 'stream-servers',
                                     },
-                                  );
+                                  ));
                                   await Navigator.of(context).push(
                                     MaterialPageRoute<void>(
                                       settings: const RouteSettings(
@@ -1074,8 +1145,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                       tooltip: 'Refresh',
                       onPressed: () {
                         setState(() {
-                          _matchesFuture = loadMatches();
-                          _linksFuture = loadLinks();
+                          _matchesFuture = _startMatchesLoad();
+                          _linksFuture = _startLinksLoad();
                         });
                       },
                       icon: const Icon(Icons.refresh_rounded),
@@ -1085,8 +1156,12 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                 const SizedBox(height: 8),
                 FutureBuilder<List<Map<String, dynamic>>>(
                   key: ValueKey(matchId),
-                  future: _linksFuture ??= loadLinks(),
+                  future: _linksFuture ??= _startLinksLoad(),
                   builder: (context, linkSnapshot) {
+                    if (linkSnapshot.hasError) {
+                      return _loadFailure(
+                          'Could not load servers.', reloadLinks);
+                    }
                     if (linkSnapshot.connectionState != ConnectionState.done ||
                         !linkSnapshot.hasData) {
                       return const Center(
@@ -1126,6 +1201,17 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       ),
     );
   }
+
+  Widget _loadFailure(String text, VoidCallback retry) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(text),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: retry, child: const Text('Retry')),
+          ]),
+        ),
+      );
 }
 
 

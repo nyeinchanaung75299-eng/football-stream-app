@@ -7,6 +7,7 @@ on:
     paths:
       - "cloudflare/public-api/**"
       - "scripts/test_public_match_feed.mjs"
+      - "scripts/test_backend_startup.mjs"
       - ".github/workflows/deploy-cloudflare-public-api.yml"
 
 permissions:
@@ -48,6 +49,9 @@ jobs:
 
       - name: Test public match feed
         run: node --test scripts/test_public_match_feed.mjs
+
+      - name: Test metadata deadlines and first-chunk health probes
+        run: node --test scripts/test_backend_startup.mjs
 
       - name: Deploy Worker
         if: steps.cloudflare.outputs.ready == 'true'

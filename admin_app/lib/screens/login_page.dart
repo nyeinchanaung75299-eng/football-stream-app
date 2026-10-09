@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
@@ -16,7 +18,16 @@ class _LoginPageState extends State<LoginPage> {
   bool loading = false;
   bool hidePassword = true;
 
+  @override
+  void dispose() {
+    email.dispose();
+    password.clear();
+    password.dispose();
+    super.dispose();
+  }
+
   Future<void> login() async {
+    if (loading) return;
     if (email.text.trim().isEmpty || password.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter your admin email and password.')),
@@ -25,7 +36,7 @@ class _LoginPageState extends State<LoginPage> {
     }
 
     setState(() => loading = true);
-    await AnalyticsService.capture('admin login attempted');
+    unawaited(AnalyticsService.capture('admin login attempted'));
     try {
       await Supabase.instance.client.auth
           .signInWithPassword(
@@ -47,7 +58,7 @@ class _LoginPageState extends State<LoginPage> {
         throw Exception('This account is not an admin.');
       }
 
-      await AnalyticsService.capture('admin login succeeded');
+      unawaited(AnalyticsService.capture('admin login succeeded'));
     } catch (e) {
       if (!mounted) return;
       final raw = e.toString().toLowerCase();
@@ -58,12 +69,12 @@ class _LoginPageState extends State<LoginPage> {
           raw.contains('network is unreachable') ||
           raw.contains('connection failed') ||
           raw.contains('failed host lookup');
-      await AnalyticsService.capture(
+      unawaited(AnalyticsService.capture(
         'admin login failed',
         properties: {
           'reason': networkProblem ? 'network' : 'credentials_or_role',
         },
-      );
+      ));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

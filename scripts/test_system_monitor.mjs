@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {createMonitor, encryptSecret, decryptSecret, lineSummary, redact, endpointName} from '../supabase/functions/system-monitor/core.mjs';
+import {createMonitor, encryptSecret, decryptSecret, lineSummary, redact, endpointName, playbackTimingRows} from '../supabase/functions/system-monitor/core.mjs';
 
 const user = '11111111-1111-4111-8111-111111111111';
 const env = {SUPABASE_URL:'https://fixture.supabase.co',SUPABASE_ANON_KEY:'public-fixture',
@@ -8,7 +8,7 @@ const env = {SUPABASE_URL:'https://fixture.supabase.co',SUPABASE_ANON_KEY:'publi
 const req = (body={},token='valid-session') => new Request('https://monitor.invalid',{
   method:'POST',headers:token ? {Authorization:'Bearer '+token,'Content-Type':'application/json'} : {},
   body:JSON.stringify(body)});
-function fixture({role='admin',connections=[],cache=[],providerStatus=200,githubStatus=200,authStatus=200}={}) {
+function fixture({role='admin',connections=[],cache=[],providerStatus=200,githubStatus=200,authStatus=200,timingRows=[],timingStatus=200}={}) {
   const calls = []; const writes = [];
   const fetcher = async (input,options={}) => {
     const url = new URL(input); calls.push({url:url.href,options});
@@ -36,6 +36,11 @@ function fixture({role='admin',connections=[],cache=[],providerStatus=200,github
       assert.equal(options.headers.Authorization,'Bearer read-provider-fixture');
       if (providerStatus !== 200) return json({error:'secret should not be returned'},providerStatus);
       const query = JSON.parse(options.body).query.query;
+      if (query.startsWith('SELECT event, phase, app, platform')) {
+        assert.ok(query.includes('properties.startup_ms IS NOT NULL'));
+        assert.ok(query.includes('timestamp >= now() - INTERVAL 1 DAY'));
+        return json(timingStatus === 200 ? {results:timingRows} : {},timingStatus);
+      }
       return json({results:query.startsWith('SELECT event, count()')
         ? [['$exception',3,2],['playback buffering',5,2]] : []});
     }
@@ -80,6 +85,44 @@ test('Read credential is verified, encrypted and never returned',async()=>{
   assert.equal(await decryptSecret(saved.p_encrypted_secret,env.SUPABASE_SERVICE_ROLE_KEY,'posthog'),'read-provider-fixture');
   assert.ok(!(await response.text()).includes('read-provider-fixture'));
   assert.ok(f.calls.every(c=>!c.url.includes('attacker')));
+});
+test('Timing separates startup and rebuffer durations and does not invent samples for older clients',async()=>{
+  const f=fixture({timingRows:[
+    ['playback started','unclassified','nca_viewer','web',4,1500.4,2600.6],
+    ['playback buffering ended','startup','nca_viewer','android',2,1000,2000],
+    ['playback buffering ended','rebuffer','nca_viewer','web',3,450,850],
+  ]});
+  const response=await f.handler(req({action:'connect',provider:'posthog',
+    config:{projectId:'646885'},secret:'read-provider-fixture'}));
+  const p=(await response.json()).service;
+  assert.equal(p.timing.state,'ok');assert.equal(p.timing.rows.length,3);
+  assert.equal(p.timing.rows[0].samples,4);assert.equal(p.timing.rows[0].p50Ms,1500);
+  assert.equal(p.timing.rows[0].p95Ms,2601);
+  assert.deepEqual(p.timing.rows.slice(1).map(r=>r.phase),['startup','rebuffer']);
+  const old=fixture();
+  const prior=await old.handler(req({action:'connect',provider:'posthog',config:{projectId:'646885'},secret:'read-provider-fixture'}));
+  const timing=(await prior.json()).service.timing;
+  assert.equal(timing.state,'no_data');assert.deepEqual(timing.rows,[]);
+});
+test('Failed timing read preserves working error counts without fake zero duration',async()=>{
+  const f=fixture({timingStatus:500});
+  const response=await f.handler(req({action:'connect',provider:'posthog',config:{projectId:'646885'},secret:'read-provider-fixture'}));
+  assert.equal(response.status,200);
+  const p=(await response.json()).service;
+  assert.equal(p.events.find(e=>e.event==='$exception').count,3);
+  assert.equal(p.timing.state,'unavailable');assert.deepEqual(p.timing.rows,[]);
+});
+test('Invalid timing values and unsafe free text cannot enter the shareable monitor result',()=>{
+  const rows=playbackTimingRows({results:[
+    ['playback started','unclassified','https://private.invalid/?token=secret','web',1,123,200],
+    ['playback started','unclassified','viewer','web',0,0,0],
+    ['playback started','unclassified','viewer','web',1,null,null],
+    ['playback started','unclassified','viewer','web',1,200,100],
+    ['unexpected','unclassified','viewer','web',1,100,200],
+    ['playback buffering ended','rebuffer','viewer','android',1,100,700000],
+  ]});
+  assert.equal(rows.length,1);assert.equal(rows[0].app,'[URL]');
+  assert.ok(!JSON.stringify(rows).includes('secret'));
 });
 test('Invalid read access or a public SDK token cannot replace a connection',async()=>{
   const f=fixture({providerStatus:403});
