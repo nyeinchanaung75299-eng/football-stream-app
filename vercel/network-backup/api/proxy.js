@@ -7,7 +7,7 @@ const cors = {
   "Access-Control-Expose-Headers": "Content-Range, Accept-Ranges, Content-Location, X-Total-Count, Retry-After",
   "Cache-Control": "no-store",
 };
-const functionNames = "football-fixtures|stream-health|soco-links|source-match-list";
+const functionNames = "football-fixtures|stream-health|soco-links|source-match-list|system-monitor";
 
 function failure(message, status) {
   return Response.json({ error: message }, { status, headers: cors });

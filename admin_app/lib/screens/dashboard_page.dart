@@ -7,7 +7,7 @@ import 'fixture_import_page.dart';
 import 'live_links_page.dart';
 import 'live_upload_page.dart';
 import 'soco_import_page.dart';
-import 'diagnostics_page.dart';
+import 'system_health_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -65,8 +65,9 @@ class _DashboardPageState extends State<DashboardPage> {
             label: 'Controls',
           ),
           NavigationDestination(
-            icon: Icon(Icons.network_check_rounded),
-            label: 'Diagnostics',
+            icon: Icon(Icons.monitor_heart_outlined),
+            selectedIcon: Icon(Icons.monitor_heart_rounded),
+            label: 'System Health',
           ),
         ],
       ),
@@ -74,7 +75,7 @@ class _DashboardPageState extends State<DashboardPage> {
         index: _tab,
         children: [
           _controls(context, colors),
-          const DiagnosticsPage(),
+          SystemHealthPage(active: _tab == 1),
         ],
       ),
     );

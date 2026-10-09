@@ -23,6 +23,14 @@ class AnalyticsService {
       config.errorTrackingConfig.capturePlatformDispatcherErrors = true;
       await Posthog().setup(config).timeout(const Duration(seconds: 3));
       _ready = true;
+      // Super-properties also tag automatic exception events. Custom capture
+      // properties alone only tagged our explicit events, leaving crashes
+      // without an Admin/Viewer or Web/native breakdown.
+      await Future.wait([
+        Posthog().register('app', 'nca_admin'),
+        Posthog()
+            .register('platform', kIsWeb ? 'web' : defaultTargetPlatform.name),
+      ]).timeout(const Duration(seconds: 1));
       await capture('admin app opened');
     } catch (_) {
       // Analytics must never block Admin startup.

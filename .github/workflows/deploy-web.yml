@@ -30,6 +30,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Verify monitoring authentication and credential handling
+        run: node --test scripts/test_system_monitor.mjs
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:

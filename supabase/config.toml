@@ -7,3 +7,8 @@ verify_jwt = false
 
 [functions.stream-health]
 verify_jwt = false
+
+# Supports current Supabase signing keys. The function verifies the token with
+# Auth /user and rechecks profiles.role before any monitoring read or write.
+[functions.system-monitor]
+verify_jwt = false
