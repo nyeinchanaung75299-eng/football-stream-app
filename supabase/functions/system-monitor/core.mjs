@@ -231,7 +231,10 @@ export function createMonitor(env, { fetcher = fetch } = {}) {
         if (!result) return {workflow,state:"no_runs"};
         return {workflow,state:result.conclusion || result.status,sha:result.head_sha?.slice(0,12),updatedAt:result.updated_at,url:result.html_url,runNumber:result.run_number};
       }));
-      const summary = card("github",runs.some(r => ["failure","timed_out","action_required"].includes(r.state)) ? "warning" : "ok","Latest main-branch Web/APK workflow runs; queued or running jobs have not succeeded yet.",{runs});
+      const state = runs.some(r => ["failure","timed_out","action_required","cancelled"].includes(r.state)) ? "warning"
+        : runs.some(r => ["queued","in_progress","waiting","pending","requested"].includes(r.state)) ? "running"
+        : runs.every(r => r.state === "success") ? "ok" : "no_data";
+      const summary = card("github",state,"Latest main-branch Web/APK workflow runs; queued or running jobs have not succeeded yet.",{runs});
       await db("system_monitor_cache?on_conflict=provider",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},
         body:JSON.stringify({provider:"github",summary,collected_at:summary.collectedAt})});
       return summary;

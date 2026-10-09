@@ -60,6 +60,7 @@ test('Live Admin summary distinguishes running builds and missing monitoring con
   const data=await response.json();
   assert.deepEqual(data.services.find(s=>s.id==='supabase').metrics.matches,4);
   assert.equal(data.services.find(s=>s.id==='github').runs[0].state,'in_progress');
+  assert.equal(data.services.find(s=>s.id==='github').state,'running');
   assert.ok(data.services.filter(s=>['posthog','cloudflare','vercel','google-drive'].includes(s.id))
     .every(s=>s.state==='not_configured' && !s.metrics));
   assert.equal(data.streams.counts.alerts,1);
