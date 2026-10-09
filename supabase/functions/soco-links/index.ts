@@ -120,12 +120,14 @@ Deno.serve(async (req) => {
       return await jsonpMatches({
         source,
         url: YYZB_MATCHES_URL,
+        viewerPublic,
       });
     }
 
     return await jsonpMatches({
       source: "soco",
       url: SOCO_MATCHES_URL,
+      viewerPublic,
     });
   } catch (error) {
     return json(
@@ -148,6 +150,7 @@ function normalizeSource(value: unknown) {
 async function jsonpMatches(args: {
   source: "soco" | "yyzb";
   url: string;
+  viewerPublic?: boolean;
 }) {
   const raw = await fetchText(`${args.url}?v=${Date.now()}`);
   const payload = parseJsonp(raw);
@@ -204,11 +207,16 @@ async function jsonpMatches(args: {
         anchors: rawAnchors
           .map((anchor: any, index: number) => ({
             uid: anchor.uid ?? anchor.id ?? null,
+            // Personal nicknames do not have reliable English translations.
+            // Viewer labels are numbered within the source list; keep the raw
+            // Admin name and room identity for existing signed-URL imports.
             nick_name:
-              decodeHtml(
-                stripTags(String(anchor.nickName ?? anchor.name ?? "")),
-              ).replace(/\s+/g, " ").trim() ||
-              `Streamer ${index + 1}`,
+              args.viewerPublic
+                ? `${args.source === "soco" ? "Soco" : "YYZB"} Server ${index + 1}`
+                : decodeHtml(
+                  stripTags(String(anchor.nickName ?? anchor.name ?? "")),
+                ).replace(/\s+/g, " ").trim() ||
+                  `Streamer ${index + 1}`,
             original_nick_name: anchor.nickName ?? anchor.name ?? null,
             icon:
               anchor.cutOutIcon ??
