@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { englishFootballName } from "../_shared/football_names.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -261,10 +262,10 @@ async function loadSourceFallbackFixtures(args: {
           status_short: statusShort,
           status_long: row?.match_status ?? row?.status ?? null,
           is_live: isLive,
-          league_name: row?.league ?? "Football",
+          league_name: englishFootballName(row?.league ?? "Football", "league"),
           league_logo: null,
-          home_name: row?.home_team ?? "Home",
-          away_name: row?.away_team ?? "Away",
+          home_name: englishFootballName(row?.home_team ?? "Home"),
+          away_name: englishFootballName(row?.away_team ?? "Away"),
           home_logo: row?.home_logo ?? row?.home_logo_url ?? null,
           away_logo: row?.away_logo ?? row?.away_logo_url ?? null,
         });
