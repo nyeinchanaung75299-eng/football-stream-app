@@ -57,7 +57,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
   select exists (
     select 1
@@ -75,7 +75,7 @@ drop policy if exists "read own profile" on public.profiles;
 create policy "read own profile"
 on public.profiles for select
 to authenticated
-using (id = auth.uid());
+using (id = (select auth.uid()));
 
 drop policy if exists "admins read all profiles" on public.profiles;
 create policy "admins read all profiles"
@@ -132,6 +132,7 @@ using (is_active = true);
 create or replace function public.touch_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -147,6 +148,9 @@ for each row execute function public.touch_updated_at();
 create unique index if not exists matches_external_fixture_id_unique
   on public.matches (external_fixture_id)
   where external_fixture_id is not null;
+
+create index if not exists stream_links_match_id_idx
+  on public.stream_links (match_id);
 
 -- V7 Pro upgrade
 -- Run once AFTER the older V6/V6.3 upgrades.
@@ -196,5 +200,5 @@ end $$;
 
 
 -- Publish a complete replacement Big Match set atomically.
--- See supabase/migrations/20261007_atomic_featured_publish.sql for the full
+-- See supabase/migrations/20261007000000_atomic_featured_publish.sql for the full
 -- implementation used in production.

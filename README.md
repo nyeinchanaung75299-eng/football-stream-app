@@ -29,9 +29,15 @@ Starter project for:
 
 ## 1. Create Supabase project
 
-Open Supabase SQL Editor and run:
+For a new project, open Supabase SQL Editor and run the base schema:
 
 `supabase/schema.sql`
+
+Then apply **all files in `supabase/migrations/` in filename order** before
+publishing the apps or adding stream credentials. The base schema alone is not
+the current production setup. Follow [Database migrations](docs/DATABASE_MIGRATIONS.md)
+for fresh setup and existing-project history repair; do not replay historical
+migrations on an existing production database.
 
 Then create an Auth user with email/password.
 
@@ -75,7 +81,8 @@ flutter run \
 
 - Do NOT put the Supabase service-role key in either app.
 - RLS allows only users with `profiles.role = 'admin'` to create/update/delete content.
-- Anonymous users can read active matches and active stream links.
+- Anonymous users can read published match metadata and safe stream counts.
+  Raw playback URLs and keys remain behind the protected gateway.
 - This starter targets the common Android use case. Test your exact HLS/DASH streams on the target devices.
 - DRM-protected streams require the proper licensed DRM integration and cannot be handled by merely pasting a URL.
 
