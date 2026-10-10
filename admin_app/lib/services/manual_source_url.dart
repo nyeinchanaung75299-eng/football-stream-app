@@ -27,28 +27,25 @@ String? detectManualStreamType(String value) {
 bool isValidManualStreamUrl(String value, {String streamType = 'auto'}) {
   final uri = _parseWebStreamUrl(value);
   if (uri == null) return false;
-  // A PlayZ TV website/channel page isn't itself a playable media link.
   final path = uri.path.toLowerCase();
-  if (RegExp(r'\.(html?|php|aspx?)
-  return detected != null ||
-      (_directTypes.contains(streamType) &&
-          path.isNotEmpty &&
-          path != '/');
-}
-).hasMatch(path)) return false;
-  // Human-facing TFLIX pages are never stream media, even when a stream type
-  // is forced in the manual picker. Site navigation is browser-only.
+  // A website page is not a playable media link, even with an explicit type.
+  if (RegExp(r'\.(html?|php|aspx?)$').hasMatch(path)) return false;
   final host = uri.host.toLowerCase();
-  final isTflix = host == 'tflix.su' || host == 'tflix.club' ||
-      host.endsWith('.tflix.su') || host.endsWith('.tflix.club');
-  if (isTflix && (path == '/' || path == '/watch' || path == '/channels' ||
-      path == '/football' || path.startsWith('/football/') ||
-      path.startsWith('/match/') || path.startsWith('/channel/'))) {
+  final isTflix = host == 'tflix.su' ||
+      host == 'tflix.club' ||
+      host.endsWith('.tflix.su') ||
+      host.endsWith('.tflix.club');
+  if (isTflix &&
+      (path == '/' ||
+          path == '/watch' ||
+          path == '/channels' ||
+          path == '/football' ||
+          path.startsWith('/football/') ||
+          path.startsWith('/match/') ||
+          path.startsWith('/channel/'))) {
     return false;
   }
   final detected = detectManualStreamType(value);
   return detected != null ||
-      (_directTypes.contains(streamType) &&
-          path.isNotEmpty &&
-          path != '/');
+      (_directTypes.contains(streamType) && path.isNotEmpty && path != '/');
 }
