@@ -36,6 +36,11 @@ class PremiumBottomNav extends StatelessWidget {
       selected: Icons.tv_rounded,
       label: 'ColaTV',
     ),
+    (
+      icon: Icons.verified_outlined,
+      selected: Icons.verified_rounded,
+      label: 'NCA',
+    ),
   ];
 
   @override
@@ -81,7 +86,7 @@ class PremiumBottomNav extends StatelessWidget {
                         duration: const Duration(milliseconds: 180),
                         curve: Curves.easeOutCubic,
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
+                          horizontal: 6,
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(

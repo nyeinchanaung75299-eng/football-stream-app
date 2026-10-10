@@ -48,9 +48,12 @@ class _PersistedMatchCache {
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.backendReady});
+  const HomePage({super.key, this.backendReady, this.ncaView = false});
 
   final Future<void>? backendReady;
+  // Viewer-only view of already published, administrator-curated NCA matches.
+  // Never calls private upstream source endpoints or exposes Admin credentials.
+  final bool ncaView;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -1550,8 +1553,8 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         toolbarHeight: 52,
         titleSpacing: 14,
-        title: const Text(
-          'Live',
+        title: Text(
+          widget.ncaView ? 'NCA' : 'Live',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w900,
@@ -1587,12 +1590,23 @@ class _HomePageState extends State<HomePage> {
             );
           }
 
-          final matches = _feed.data ?? const <Map<String, dynamic>>[];
+          final published = _feed.data ?? const <Map<String, dynamic>>[];
+          // NCA only displays lines already imported and published by Admin.
+          // It is not a public TFLIX/Fawa extractor or a stream rebranding API.
+          final matches = widget.ncaView
+              ? published.where((m) {
+                  final count = (m['stream_count'] as num?)?.toInt() ?? 0;
+                  final links = m['stream_links'];
+                  return count > 0 || (links is List && links.isNotEmpty);
+                }).toList()
+              : published;
           if (matches.isEmpty) {
             return _StateMessage(
               icon: Icons.sports_soccer_outlined,
-              title: 'No matches now',
-              subtitle: 'New matches will appear here automatically.',
+              title: widget.ncaView ? 'No NCA streams yet' : 'No matches now',
+              subtitle: widget.ncaView
+                  ? 'Publish an authorized stream in Admin to show it here.'
+                  : 'New matches will appear here automatically.',
               onPressed: refresh,
             );
           }
@@ -1647,10 +1661,27 @@ class _HomePageState extends State<HomePage> {
         },
       ),
       bottomNavigationBar: PremiumBottomNav(
-        selectedIndex: 0,
+        selectedIndex: widget.ncaView ? 5 : 0,
         onSelected: (index) async {
           if (index == 0) {
-            await refresh(silent: true);
+            if (widget.ncaView) {
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            } else {
+              await refresh(silent: true);
+            }
+            return;
+          }
+          if (index == 5) {
+            if (widget.ncaView) {
+              await refresh(silent: true);
+            } else {
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const HomePage(ncaView: true),
+                ),
+              );
+              if (mounted) await refresh(silent: true);
+            }
             return;
           }
           final source = switch (index) {

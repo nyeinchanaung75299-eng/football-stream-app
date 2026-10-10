@@ -10,6 +10,7 @@ import '../analytics_service.dart';
 import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 import '../native_player.dart';
+import 'home_page.dart';
 import '../live_feed_controller.dart';
 import '../player_loading.dart';
 import '../source_line_loader.dart';
@@ -909,6 +910,14 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       Navigator.of(context).popUntil((route) => route.isFirst);
       return;
     }
+    if (index == 5) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => const HomePage(ncaView: true),
+        ),
+      );
+      return;
+    }
     final next = switch (index) {
       2 => 'yyzb',
       3 => 'fawa',
@@ -954,7 +963,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           if (_feed.error != null && !_feed.hasData) {
             return _StateView(
               title: title + ' unavailable',
-              text: 'Connect VPN, then refresh.',
+              text: source == 'fawa'
+                  ? 'Fawa website or source API is unreachable. Refresh later.'
+                  : 'Connect VPN, then refresh.',
               onRefresh: _refresh,
             );
           }
