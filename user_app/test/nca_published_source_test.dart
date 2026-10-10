@@ -58,6 +58,10 @@ void main() {
     await http.runWithClient(() async {
       await tester.pumpWidget(const MaterialApp(home: HomePage(ncaView: true)));
       await tester.pumpAndSettle();
+      // NCA performs an extra protected-source metadata lookup after matches.
+      // Give the asynchronous HTTP response its own frame before asserting.
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
       expect(find.text('NCA'), findsWidgets);
       expect(find.text('Published Home'), findsOneWidget);
       expect(find.text('Unrelated Home'), findsNothing);
