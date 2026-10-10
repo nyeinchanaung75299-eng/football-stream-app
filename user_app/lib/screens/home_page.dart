@@ -7,6 +7,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../analytics_service.dart';
+import '../nca_published_source.dart';
 import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 import '../native_player.dart';
@@ -176,7 +177,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _feed = LiveFeedController(loadMatches);
+    _feed = LiveFeedController(widget.ncaView ? _loadNcaMatches : loadMatches);
     unawaited(_feed.refresh());
     _versionLabel = _loadVersionLabel();
     _updateVersionLabel = AppUpdateService.versionSummary();
@@ -428,11 +429,63 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<List<Map<String, dynamic>>> _loadNcaMatches() async {
+    // NCA only lists Admin-imported TFLIX-origin lines via public gateway.
+    // It never calls the upstream provider or admin-only source functions.
+    final published = await loadMatches();
+    final candidates = published.where((match) {
+      final id = match['id']?.toString().trim() ?? '';
+      final count = (match['stream_count'] as num?)?.toInt() ?? 0;
+      return id.isNotEmpty && count > 0;
+    }).toList();
+    final result = <Map<String, dynamic>>[];
+    for (var offset = 0; offset < candidates.length; offset += 5) {
+      final batch = candidates.skip(offset).take(5);
+      final checked = await Future.wait(batch.map((match) async {
+        final matchId = match['id'].toString();
+        try {
+          final raw = await _loadPublicApiStreams(matchId);
+          final own = ncaPublishedLines(playableLinks(raw));
+          if (own.isEmpty) return null;
+          _streamLinkCache[matchId] = _StreamCacheEntry(own, DateTime.now());
+          return <String, dynamic>{
+            ...match,
+            'stream_count': own.length,
+            'stream_links': own,
+          };
+        } catch (_) {
+          // Never fall back to unrelated Live source lines.
+          return null;
+        }
+      }));
+      result.addAll(checked.whereType<Map<String, dynamic>>());
+    }
+    return result;
+  }
+
   Future<List<Map<String, dynamic>>> _resolveLinks(
     Map<String, dynamic> match,
   ) async {
     final matchId = match['id']?.toString().trim() ?? '';
     if (matchId.isEmpty) return const [];
+
+    if (widget.ncaView) {
+      final cached = _streamLinkCache[matchId];
+      if (cached != null &&
+          DateTime.now().difference(cached.fetchedAt) <
+              const Duration(seconds: 25)) {
+        return cached.rows;
+      }
+      final own = ncaPublishedLines(
+        playableLinks(await _loadPublicApiStreams(matchId)),
+      );
+      if (own.isEmpty) {
+        _streamLinkCache.remove(matchId);
+      } else {
+        _streamLinkCache[matchId] = _StreamCacheEntry(own, DateTime.now());
+      }
+      return own;
+    }
 
     final cached = _streamLinkCache[matchId];
     final advertisedCount =
@@ -1590,22 +1643,13 @@ class _HomePageState extends State<HomePage> {
             );
           }
 
-          final published = _feed.data ?? const <Map<String, dynamic>>[];
-          // NCA only displays lines already imported and published by Admin.
-          // It is not a public TFLIX/Fawa extractor or a stream rebranding API.
-          final matches = widget.ncaView
-              ? published.where((m) {
-                  final count = (m['stream_count'] as num?)?.toInt() ?? 0;
-                  final links = m['stream_links'];
-                  return count > 0 || (links is List && links.isNotEmpty);
-                }).toList()
-              : published;
+          final matches = _feed.data ?? const <Map<String, dynamic>>[];
           if (matches.isEmpty) {
             return _StateMessage(
               icon: Icons.sports_soccer_outlined,
               title: widget.ncaView ? 'No NCA streams yet' : 'No matches now',
               subtitle: widget.ncaView
-                  ? 'Publish an authorized stream in Admin to show it here.'
+                  ? 'Only authorized TFLIX-origin lines imported by Admin appear here.'
                   : 'New matches will appear here automatically.',
               onPressed: refresh,
             );
