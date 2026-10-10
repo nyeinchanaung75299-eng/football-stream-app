@@ -10,6 +10,7 @@ on:
       - "scripts/test_backend_startup.mjs"
       - "scripts/test_football_names.mjs"
       - "supabase/functions/_shared/football_names.mjs"
+      - "supabase/functions/_shared/source_match_rows.mjs"
       - "supabase/functions/source-match-list/index.ts"
       - "supabase/functions/soco-links/index.ts"
       - "supabase/functions/football-fixtures/index.ts"

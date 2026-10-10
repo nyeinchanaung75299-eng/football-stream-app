@@ -13,8 +13,10 @@ import '../native_player.dart';
 import '../live_feed_controller.dart';
 import '../player_loading.dart';
 import '../source_line_loader.dart';
+import '../source_match_discovery.dart';
 import '../widgets/premium_bottom_nav.dart';
 import '../widgets/premium_match_card.dart';
+import '../widgets/source_match_filters.dart';
 
 class SourceBrowserPage extends StatefulWidget {
   const SourceBrowserPage({super.key, required this.source});
@@ -51,6 +53,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   bool _openingPlayer = false;
   int _sourceGeneration = 0;
   SourceLineLoader? _sourceOperation;
+  final _searchController = TextEditingController();
+  String _query = '';
+  String? _league;
+  bool _todayOnly = false;
 
   String get source => widget.source.toLowerCase();
   String get title => switch (source) {
@@ -72,6 +78,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   @override
   void initState() {
     super.initState();
+    _todayOnly = source == 'yyzb';
     _feed = LiveFeedController(_loadMatches);
     unawaited(_feed.refresh());
     _sourceRefreshTimer = Timer.periodic(
@@ -85,6 +92,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.source != widget.source) {
       _cancelSourceOperation();
+      _query = '';
+      _searchController.clear();
+      _league = null;
+      _todayOnly = source == 'yyzb';
       unawaited(_feed.refresh());
     }
   }
@@ -98,6 +109,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   @override
   void dispose() {
     _cancelSourceOperation();
+    _searchController.dispose();
     _sourceRefreshTimer?.cancel();
     _feed.dispose();
     super.dispose();
@@ -263,6 +275,16 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return false;
   }
 
+  void _sortRows(List<Map<String, dynamic>> rows) =>
+      rows.sort((a, b) => compareSourceMatches(a, b, isLive: _live));
+
+  void _clearFilters() => setState(() {
+        _query = '';
+        _searchController.clear();
+        _league = null;
+        _todayOnly = false;
+      });
+
   String _matchName(Map<String, dynamic> m) =>
       (m['home_team'] ?? 'Home').toString() +
       ' vs ' +
@@ -291,15 +313,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         .map((x) => Map<String, dynamic>.from(x as Map))
         .where((row) => !_stale(row))
         .toList();
-    rows.sort((a, b) {
-      if (_live(a) != _live(b)) return _live(a) ? -1 : 1;
-      final at = DateTime.tryParse(a['match_time']?.toString() ?? '');
-      final bt = DateTime.tryParse(b['match_time']?.toString() ?? '');
-      if (at == null && bt == null) return _matchName(a).compareTo(_matchName(b));
-      if (at == null) return 1;
-      if (bt == null) return -1;
-      return at.compareTo(bt);
-    });
+    _sortRows(rows);
     return rows;
   }
 
@@ -330,17 +344,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         .map((x) => Map<String, dynamic>.from(x as Map))
         .where((row) => !_stale(row))
         .toList();
-    rows.sort((a, b) {
-      if (_live(a) != _live(b)) return _live(a) ? -1 : 1;
-      final at = DateTime.tryParse(a['match_time']?.toString() ?? '');
-      final bt = DateTime.tryParse(b['match_time']?.toString() ?? '');
-      if (at == null && bt == null) {
-        return _matchName(a).compareTo(_matchName(b));
-      }
-      if (at == null) return 1;
-      if (bt == null) return -1;
-      return at.compareTo(bt);
-    });
+    _sortRows(rows);
     return rows;
   }
 
@@ -370,15 +374,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         .map((x) => Map<String, dynamic>.from(x as Map))
         .where((row) => !_stale(row))
         .toList();
-    rows.sort((a, b) {
-      if (_live(a) != _live(b)) return _live(a) ? -1 : 1;
-      final at = DateTime.tryParse(a['match_time']?.toString() ?? '');
-      final bt = DateTime.tryParse(b['match_time']?.toString() ?? '');
-      if (at == null && bt == null) return _matchName(a).compareTo(_matchName(b));
-      if (at == null) return 1;
-      if (bt == null) return -1;
-      return at.compareTo(bt);
-    });
+    _sortRows(rows);
     return rows;
   }
 
@@ -484,22 +480,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
   }
 
-  List<Map<String, dynamic>> _anchors(Map<String, dynamic> m) {
-    final raw = m['anchors'];
-    if (raw is List && raw.isNotEmpty) {
-      return raw
-          .whereType<Map>()
-          .map((x) => Map<String, dynamic>.from(x))
-          .toList();
-    }
-    final room =
-        (m['source_id'] ?? m['schedule_id'] ?? '').toString().trim();
-    final page = m['page_url']?.toString().trim() ?? '';
-    if (room.isEmpty && page.isEmpty) return const [];
-    return [
-      {'room_num': room, 'page_url': page}
-    ];
-  }
+  List<Map<String, dynamic>> _anchors(Map<String, dynamic> m) =>
+      sourceMatchAnchors(m, source);
 
   Future<List<Map<String, dynamic>>> _anchorFrom(
     String base,
@@ -977,8 +959,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             );
           }
 
-          final matches = _feed.data ?? const <Map<String, dynamic>>[];
-          if (matches.isEmpty) {
+          final allMatches = _feed.data ?? const <Map<String, dynamic>>[];
+          if (allMatches.isEmpty) {
             return _StateView(
               title: 'No ' + title + ' matches',
               text: 'No football matches are available from this source now.',
@@ -986,43 +968,86 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             );
           }
 
+          final matches = filterSourceMatches(
+            allMatches,
+            todayOnly: _todayOnly,
+            query: _query,
+            league: _league,
+          );
           return RefreshIndicator(
             onRefresh: _refresh,
-            child: ListView.separated(
+            child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(10, 6, 10, 16),
-              itemCount: matches.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (_, index) {
-                final m = matches[index];
-                final live = _live(m);
-                final anchors = _anchors(m);
-                final ready = anchors.isNotEmpty;
-                final time = DateTime.tryParse(
-                  m['match_time']?.toString() ?? '',
-                )?.toLocal();
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              slivers: [
+                SliverToBoxAdapter(
+                  child: SourceMatchFilters(
+                    controller: _searchController,
+                    todayOnly: _todayOnly,
+                    league: _league,
+                    leagues: sourceMatchLeagues(allMatches),
+                    visibleCount: matches.length,
+                    onQueryChanged: (value) => setState(() => _query = value),
+                    onTodayChanged: (value) => setState(() => _todayOnly = value),
+                    onLeagueChanged: (value) => setState(() => _league = value),
+                  ),
+                ),
+                if (matches.isEmpty)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('No matches for these filters'),
+                          const SizedBox(height: 6),
+                          TextButton(
+                            onPressed: _clearFilters,
+                            child: const Text('Clear filters'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(10, 6, 10, 16),
+                    sliver: SliverList.separated(
+                      itemCount: matches.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (_, index) {
+                        final m = matches[index];
+                        final live = _live(m);
+                        final anchors = _anchors(m);
+                        final ready = anchors.isNotEmpty;
+                        final time = DateTime.tryParse(
+                          m['match_time']?.toString() ?? '',
+                        )?.toLocal();
 
-                return PremiumMatchCard(
-                  league: (m['league'] ?? 'Football').toString(),
-                  homeName: (m['home_team'] ?? 'Home').toString(),
-                  awayName: (m['away_team'] ?? 'Away').toString(),
-                  homeLogo:
-                      (m['home_logo'] ?? m['home_logo_url'])?.toString(),
-                  awayLogo:
-                      (m['away_logo'] ?? m['away_logo_url'])?.toString(),
-                  kickoff: time,
-                  isLive: live,
-                  canWatch: ready,
-                  actionLabel: ready
-                      ? (anchors.length > 1
-                          ? 'WATCH  •  ' +
-                              anchors.length.toString() +
-                              ' SOURCES'
-                          : 'WATCH')
-                      : 'NOT READY',
-                  onWatch: () => _watch(m),
-                );
-              },
+                        return PremiumMatchCard(
+                          league: (m['league'] ?? 'Football').toString(),
+                          homeName: (m['home_team'] ?? 'Home').toString(),
+                          awayName: (m['away_team'] ?? 'Away').toString(),
+                          homeLogo:
+                              (m['home_logo'] ?? m['home_logo_url'])?.toString(),
+                          awayLogo:
+                              (m['away_logo'] ?? m['away_logo_url'])?.toString(),
+                          kickoff: time,
+                          isLive: live,
+                          canWatch: ready,
+                          actionLabel: ready
+                              ? (anchors.length > 1
+                                  ? 'WATCH  •  ' +
+                                      anchors.length.toString() +
+                                      ' SOURCES'
+                                  : 'WATCH')
+                              : 'NOT READY',
+                          onWatch: () => _watch(m),
+                        );
+                      },
+                    ),
+                  ),
+              ],
             ),
           );
         },

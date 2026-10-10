@@ -13,6 +13,7 @@ try {
     let source = readFileSync(new URL(`../supabase/functions/${name}/index.ts`, import.meta.url), 'utf8')
       .replace(/^import .*jsr:.*;\n/gm, '')
       .replace('"../_shared/football_names.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/football_names.mjs', import.meta.url).href))
+      .replace('"../_shared/source_match_rows.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/source_match_rows.mjs', import.meta.url).href))
       .replace('"../_shared/stream_probe.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/stream_probe.mjs', import.meta.url).href));
     source += name === 'football-fixtures'
       ? '\nexport { loadSourceFallbackFixtures, sourceFixtureId };'
@@ -113,6 +114,66 @@ for (const adapter of adapters.filter(a => a.name !== 'football-fixtures')) {
       assert.equal(match.home_team, 'Chelsea FC');
       assert.equal(match.away_team, 'Bournemouth');
       assert.equal(match.source_id, 'source-123');
+    } finally { globalThis.fetch = originalFetch; }
+  });
+
+  test(`${adapter.name}: grouped featured schedules survive deduplication in either traversal order`, async () => {
+    const originalFetch = globalThis.fetch;
+    const row = {
+      scheduleId: 123, categoryId: 1, subCateName: '英超',
+      hostName: '切尔西', guestName: '伯恩茅斯',
+      matchTime: 1917863400000, status: 1, matchStatus: 0,
+      hot: false, anchors: [{ uid: 456, nickName: 'Original nickname', anchor: { roomNum: 'stable-room' } }],
+    };
+    // Numeric object keys always precede named keys: this is the live YYZB
+    // shape that used to discard the duplicate from `data.hot`.
+    const fixtures = [
+      { 0: [row], hot: [{ ...row, hot: undefined }] },
+      { hot: [{ ...row, hot: undefined }], list: [row] },
+    ];
+    try {
+      for (const data of fixtures) {
+        const before = structuredClone(data);
+        globalThis.fetch = async () => Response.json({ data });
+        const payload = await (await adapter.jsonpMatches({ source: 'yyzb', url: 'https://source.example/matches' })).json();
+        assert.equal(payload.matches.length, 1);
+        const match = payload.matches[0];
+        assert.equal(match.hot, true);
+        assert.equal(match.source_id, '123');
+        assert.equal(match.schedule_id, 123);
+        assert.equal(match.match_time, new Date(row.matchTime).toISOString());
+        assert.equal(match.home_team, 'Chelsea');
+        assert.equal(match.league, 'English Premier League');
+        assert.equal(match.anchors[0].room_num, 'stable-room');
+        assert.equal(match.anchors[0].nick_name, 'Original nickname');
+        if (adapter.name === 'soco-links') {
+          assert.equal(match.status, 1, 'featured is independent of schedule status');
+          assert.equal(match.match_status, 0, 'featured must not make an upcoming match live');
+        }
+        assert.deepEqual(data, before, 'provider data must not be mutated');
+      }
+    } finally { globalThis.fetch = originalFetch; }
+  });
+
+  test(`${adapter.name}: explicit featured flags merge, while ordinary and non-football schedules stay distinct`, async () => {
+    const originalFetch = globalThis.fetch;
+    const base = { categoryId: 1, hostName: 'Chelsea', guestName: 'Bournemouth', matchTime: '2030-10-10T14:00:00Z' };
+    globalThis.fetch = async () => Response.json({ data: {
+      list: [
+        { ...base, scheduleId: 'explicit', hot: false },
+        { ...base, scheduleId: 'ordinary', hot: 0 },
+        { ...base, scheduleId: 'flagged', hot: true },
+        { ...base, scheduleId: 'alternate', isHot: 1 },
+        { ...base, scheduleId: 'missing', hot: 2 },
+        { ...base, scheduleId: 'explicit', hot: true },
+      ],
+      hot: [{ ...base, scheduleId: 'basketball', categoryId: 2, categoryName: '篮球' }],
+    } });
+    try {
+      const payload = await (await adapter.jsonpMatches({ source: 'soco', url: 'https://source.example/matches' })).json();
+      assert.equal(payload.matches.length, 5);
+      const flags = Object.fromEntries(payload.matches.map(match => [match.source_id, match.hot]));
+      assert.deepEqual(flags, { explicit: true, ordinary: false, flagged: true, alternate: true, missing: false });
     } finally { globalThis.fetch = originalFetch; }
   });
 }
