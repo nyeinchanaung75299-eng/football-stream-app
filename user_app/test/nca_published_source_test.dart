@@ -55,6 +55,7 @@ void main() {
       'id': '5678', 'home_team': 'Unrelated Home', 'away_team': 'Unrelated Away',
       'stream_count': 4, 'stream_links': <dynamic>[],
     };
+    final requests = <String>[];
     await http.runWithClient(() async {
       await tester.pumpWidget(const MaterialApp(home: HomePage(ncaView: true)));
       await tester.pumpAndSettle();
@@ -63,11 +64,14 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       await tester.pumpAndSettle();
       expect(find.text('NCA'), findsWidgets);
+      print('NCA test requests: ' + requests.join(' | '));
+      print('NCA test screen: ' + find.byType(Text).evaluate().map((e) => (e.widget as Text).data).whereType<String>().take(25).join(' | '));
       expect(find.text('Published Home'), findsOneWidget);
       expect(find.text('Unrelated Home'), findsNothing);
       expect(find.byType(PremiumBottomNav), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
     }, () => MockClient((request) async {
+      requests.add(request.url.toString());
       if (request.url.path.endsWith('/matches')) {
         return http.Response(jsonEncode({'matches': [published, unrelated]}), 200);
       }
