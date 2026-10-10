@@ -119,10 +119,11 @@ test("NCA public catalog matches Admin fixture count without exposing player URL
   }
 });
 
-test("Viewer catalog permission cannot enable Admin-only media resolution", () => {
+test("Viewer NCA access is restricted to verified streams and TFLIX Admin route remains private", () => {
   const file = readFileSync(new URL("../supabase/functions/soco-links/index.ts", import.meta.url), "utf8");
   assert.match(file, /if \(source === "nca"\)/);
-  assert.match(file, /if \(!viewerPublic \|\| action !== "matches"\)/);
+  assert.match(file, /if \(!viewerPublic\)/);
+  assert.match(file, /tflixViewerStreams\(body\)/);
   assert.match(file, /if \(viewerPublic && source === "tflix"\)/);
 });
 
