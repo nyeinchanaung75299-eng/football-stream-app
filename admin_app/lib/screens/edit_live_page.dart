@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'live_links_page.dart';
 import '../analytics_service.dart';
+import '../football_english.dart';
 
 class EditLivePage extends StatefulWidget {
   const EditLivePage({super.key});
@@ -463,10 +464,10 @@ class _EditLivePageState extends State<EditLivePage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('${m['home_team']} vs ${m['away_team']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+                                Text('${englishKnownFootballName('${m['home_team']}')} vs ${englishKnownFootballName('${m['away_team']}')}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
                                 const SizedBox(height: 4),
                                 Text(
-                                  '${m['league']} • ${DateFormat('dd MMM, h:mm a', 'en_US').format(kickoff)}',
+                                  '${englishKnownFootballName('${m['league']}', kind: 'league')} • ${DateFormat('dd MMM, h:mm a', 'en_US').format(kickoff)}',
                                   style: TextStyle(fontSize: 12.5, color: colors.onSurfaceVariant),
                                 ),
                               ],

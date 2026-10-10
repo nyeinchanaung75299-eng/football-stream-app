@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { englishFootballName, firstFootballName, providerEnglishName } from "../_shared/football_names.mjs";
+import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
 import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
 import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
 import { tflixMatches, tflixStreams, tflixPublicMatches, tflixViewerStreams } from "../_shared/tflix_source.mjs";
@@ -186,20 +186,7 @@ async function jsonpMatches(args: {
         source: args.source,
         source_id: String(scheduleId ?? ""),
         schedule_id: scheduleId,
-        league: englishFootballName(firstFootballName(
-          row.subCateNameEn, row.leagueNameEn, row.subCateName,
-          row.leagueName, row.categoryName, "Football",
-        ), "league"),
-        home_team: englishFootballName(firstFootballName(
-          row.hostNameEn, row.homeNameEn, row.hostName, row.homeName,
-          row.home_team, "Home",
-        )),
-        away_team: englishFootballName(firstFootballName(
-          row.guestNameEn, row.awayNameEn, row.guestName, row.awayName,
-          row.away_team, "Away",
-        )),
-        original_home_team: row.hostName ?? row.homeName ?? null,
-        original_away_team: row.guestName ?? row.awayName ?? null,
+        ...sourceFootballNames(row, args.source === "yyzb"),
         home_logo: row.hostIcon ?? row.homeIcon ?? row.home_logo ?? null,
         away_logo: row.guestIcon ?? row.awayIcon ?? row.away_logo ?? null,
         match_time: normalizeMatchTime(
@@ -211,27 +198,28 @@ async function jsonpMatches(args: {
         status: row.status ?? null,
         match_status: row.matchStatus ?? row.match_status ?? null,
         anchors: rawAnchors
-          .map((anchor: any, index: number) => ({
-            uid: anchor.uid ?? anchor.id ?? null,
-            // Personal nicknames do not have reliable English translations.
-            // Viewer labels are numbered within the source list; keep the raw
-            // Admin name and room identity for existing signed-URL imports.
-            nick_name:
-              args.viewerPublic
-                ? `${args.source === "soco" ? "Soco" : "YYZB"} Server ${index + 1}`
-                : decodeHtml(
-                  stripTags(String(anchor.nickName ?? anchor.name ?? "")),
-                ).replace(/\s+/g, " ").trim() ||
-                  `Streamer ${index + 1}`,
-            original_nick_name: anchor.nickName ?? anchor.name ?? null,
-            icon:
-              anchor.cutOutIcon ??
-              anchor.icon ??
-              anchor.avatar ??
-              anchor.avatarUrl ??
-              null,
-            room_num: roomNumber(anchor),
-          }))
+          .map((anchor: any, index: number) => {
+            const names = englishStreamerName({
+              ...anchor,
+              nickName: decodeHtml(stripTags(String(anchor.nickName ?? anchor.name ?? "")))
+                .replace(/\s+/g, " ").trim(),
+            }, index);
+            const serverLabel = (args.source === "soco" ? "Soco" : "YYZB") + " Server " + (index + 1) +
+              (args.source === "yyzb" && names.commentary_language ? " (" + names.commentary_language + ")" : "");
+            const label = args.viewerPublic ? serverLabel : names.import_name;
+            return {
+              uid: anchor.uid ?? anchor.id ?? null,
+              nick_name: label,
+              ...(!args.viewerPublic && args.source === "yyzb" ? { nick_name_en: names.nick_name } : {}),
+              ...(names.commentary_language ? { commentary_language: names.commentary_language } : {}),
+              // YYZB clients render streamer text/chips, never these avatars.
+              // Leave room in the bounded catalog as providers add fixtures.
+              ...(args.source === "yyzb" ? {} : {
+                icon: anchor.cutOutIcon ?? anchor.icon ?? anchor.avatar ?? anchor.avatarUrl ?? null,
+              }),
+              room_num: roomNumber(anchor),
+            };
+          })
           .filter((anchor: any) => anchor.room_num),
       };
     })
@@ -291,17 +279,16 @@ async function roomStreams(args: {
     data.liveStatus ??
     data.live_status ??
     null;
+  const rawAnchorName = room.anchor?.nickName ?? room.anchor?.name ??
+    room.nickName ?? room.name ?? null;
+  const anchorName = rawAnchorName == null ? null :
+    decodeHtml(stripTags(String(rawAnchorName))).replace(/\s+/g, " ").trim() || null;
 
   return json({
     ok: true,
     room_num: roomNum,
     title: room.title ?? room.name ?? data.title ?? null,
-    anchor_name:
-      room.anchor?.nickName ??
-      room.anchor?.name ??
-      room.nickName ??
-      room.name ??
-      null,
+    anchor_name: anchorName,
     live_status: liveStatus,
     line_count: lines.length,
     ready: lines.length > 0,

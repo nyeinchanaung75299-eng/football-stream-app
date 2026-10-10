@@ -266,6 +266,8 @@ async function loadSourceFallbackFixtures(args: {
           league_logo: null,
           home_name: englishFootballName(row?.home_team ?? "Home"),
           away_name: englishFootballName(row?.away_team ?? "Away"),
+          ...(row?.original_home_team ? { original_home_team: row.original_home_team } : {}),
+          ...(row?.original_away_team ? { original_away_team: row.original_away_team } : {}),
           home_logo: row?.home_logo ?? row?.home_logo_url ?? null,
           away_logo: row?.away_logo ?? row?.away_logo_url ?? null,
         });
@@ -341,8 +343,10 @@ function sourceFixtureDedupKey(fixture: any) {
   return [
     minute,
     "names",
-    canonicalTeamName(fixture?.home_name),
-    canonicalTeamName(fixture?.away_name),
+    canonicalTeamName(/^(?:Home|Away) team \(/.test(String(fixture?.home_name ?? ""))
+      ? fixture?.original_home_team ?? fixture?.home_name : fixture?.home_name),
+    canonicalTeamName(/^(?:Home|Away) team \(/.test(String(fixture?.away_name ?? ""))
+      ? fixture?.original_away_team ?? fixture?.away_name : fixture?.away_name),
   ].join("|");
 }
 
@@ -361,19 +365,17 @@ function canonicalLogoKey(value: unknown) {
 
 function canonicalTeamName(value: unknown) {
   const original = String(value ?? "").normalize("NFKC").toLowerCase();
-  let text = original
+  let text = englishFootballName(value).normalize("NFKC").toLowerCase()
     .replace(/乌兹别克斯坦/g, "uzbekistan")
     .replace(/乌兹别克/g, "uzbekistan")
     .replace(/韩国/g, "south korea")
     .replace(/越南/g, "vietnam")
     .replace(/哈萨克斯坦/g, "kazakhstan");
 
-  // Some feeds partially translate a name, producing strings such as
-  // "Uzbekistan斯坦". If Latin text is already present, remove leftover Han
-  // suffixes so the translated and untranslated provider rows collapse.
-  if (/[a-z]/.test(text)) {
-    text = text.replace(/[\u3400-\u9fff]+/g, " ");
-  }
+  // Repair this known historical country translation without deleting
+  // arbitrary unknown Han text from mixed proper names (A未知甲 != A未知乙).
+  text = text.replace(/uzbekistan斯坦/g, "uzbekistan");
+  if (/[\u3400-\u9fff]/.test(text)) return text.replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\s+/g, " ").trim();
 
   const latinKey = text
     .replace(/\b(?:fc|cf|sc|afc)\b/g, " ")
@@ -399,7 +401,9 @@ function fixtureEnglishScore(fixture: any) {
   ].join(" ");
   const latin = (text.match(/[A-Za-z]/g) ?? []).length;
   const han = (text.match(/[\u3400-\u9fff]/g) ?? []).length;
-  return latin - han * 4;
+  const placeholders = [fixture?.home_name, fixture?.away_name]
+    .filter((name) => /^(?:Home|Away) team \(/.test(String(name ?? ""))).length;
+  return latin - han * 4 - placeholders * 1000;
 }
 
 function normalizeSourceKickoff(value: unknown) {
