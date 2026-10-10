@@ -204,6 +204,7 @@ test('all four source providers skip Viewer probes without claiming healthy; def
   const sharedUrl = new URL('../supabase/functions/_shared/stream_probe.mjs', import.meta.url);
   let ts = readFileSync(sourceUrl, 'utf8').replace(/^import .*jsr:.*;\n/gm, '');
   ts = ts.replace('"../_shared/stream_probe.mjs"', JSON.stringify(sharedUrl.href))
+    .replace('"../_shared/source_match_rows.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/source_match_rows.mjs', import.meta.url).href))
     .replace('"../_shared/football_names.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/football_names.mjs', import.meta.url).href));
   try {
     await import('data:text/javascript;base64,' + Buffer.from(stripTypeScriptTypes(ts)).toString('base64'));

@@ -15,6 +15,7 @@ on:
       - "supabase/functions/source-match-list/index.ts"
       - "supabase/functions/soco-links/index.ts"
       - "supabase/functions/_shared/football_names.mjs"
+      - "supabase/functions/_shared/source_match_rows.mjs"
   schedule:
     # GitHub scheduled workflows have a practical 5-minute minimum. Offset
     # the run from the busiest :00/:05 boundaries to reduce delayed/dropped

@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName } from "../_shared/football_names.mjs";
+import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -95,19 +96,7 @@ async function jsonpMatches(args: {
 }) {
   const raw = await fetchText(`${args.url}?v=${Date.now()}`);
   const payload = parseJsonp(raw);
-  const flattened = collectMatchRows(payload?.data ?? payload);
-
-  const seen = new Set<string>();
-  const matches = flattened
-    .filter(isFootballRow)
-    .filter((row: any) => {
-      const id = String(
-        row.scheduleId ?? row.schedule_id ?? row.fixtureId ?? row.id ?? "",
-      ).trim();
-      if (!id || seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    })
+  const matches = sourceMatchRows(payload?.data ?? payload, isFootballRow)
     .map((row: any) => {
       const scheduleId =
         row.scheduleId ?? row.schedule_id ?? row.fixtureId ?? row.id;
@@ -462,36 +451,6 @@ function colaMediaUrl(value: unknown) {
   } catch (_) {
     return null;
   }
-}
-
-function collectMatchRows(value: any, depth = 0, output: any[] = []) {
-  if (depth > 6 || value == null) return output;
-
-  if (Array.isArray(value)) {
-    for (const item of value) collectMatchRows(item, depth + 1, output);
-    return output;
-  }
-
-  if (typeof value !== "object") return output;
-
-  const row = value as Record<string, any>;
-  const looksLikeMatch =
-    row.hostName != null ||
-    row.guestName != null ||
-    row.homeName != null ||
-    row.awayName != null ||
-    row.home_team != null ||
-    row.away_team != null;
-
-  if (looksLikeMatch) output.push(row);
-
-  for (const child of Object.values(row)) {
-    if (child && typeof child === "object") {
-      collectMatchRows(child, depth + 1, output);
-    }
-  }
-
-  return output;
 }
 
 function isFootballRow(row: any) {
