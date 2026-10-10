@@ -90,7 +90,7 @@ The Cloudflare/Vercel allowlists include system-monitor, preserving the VPN-free
 route. The app sends its existing Admin JWT. No privileged provider key is
 embedded in APK/Web JS. Provider endpoints are fixed and IDs validated.
 
-Deploy migration 20261009041557_admin_system_monitor.sql and the system-monitor
+Deploy migration 20261009043306_admin_system_monitor.sql and the system-monitor
 Edge Function before Admin. Gateway JWT verification is disabled for compatibility
 with current signing keys; the function itself verifies Auth and Admin role.
 Anonymous access is denied.

@@ -1,0 +1,28 @@
+name: Check database security and migrations
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/schema.sql'
+      - 'supabase/migrations/**'
+      - 'scripts/test_database_security.*'
+      - '.github/workflows/check-database.yml'
+  pull_request:
+    paths:
+      - 'supabase/schema.sql'
+      - 'supabase/migrations/**'
+      - 'scripts/test_database_security.*'
+      - '.github/workflows/check-database.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replay migrations and check role boundaries
+        run: bash scripts/test_database_security.sh
