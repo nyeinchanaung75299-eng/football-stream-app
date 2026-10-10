@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../analytics_service.dart';
+import '../services/manual_source_url.dart';
 import '../services/function_gateway.dart';
 
 class SocoImportPage extends StatefulWidget {
@@ -52,6 +53,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
   int _sourceLoadEpoch = 0;
   int _sourceSelectionEpoch = 0;
   bool _addingLine = false;
+  final _playzServerName = TextEditingController(text: 'Server 1');
+  final _playzUrl = TextEditingController();
+  final _playzReferer = TextEditingController();
+  final _playzOrigin = TextEditingController();
+  String _playzType = 'auto';
 
   @override
   void initState() {
@@ -59,11 +65,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
     targetMatchId = widget.initialMatchId;
     _targetMatchesFuture = _loadTargetMatches();
     final requested = widget.initialSource.trim().toLowerCase();
-    source = const {'soco', 'yyzb', 'fawa', 'cola'}.contains(requested)
+    source = const {'soco', 'yyzb', 'fawa', 'cola', 'playz'}.contains(requested)
         ? requested
         : 'soco';
     dayFilter =
-        (source == 'fawa' || source == 'cola') ? 'all' : 'today';
+        (source == 'fawa' || source == 'cola' || source == 'playz') ? 'all' : 'today';
     _loadSoco();
     _sourceRefreshTimer = Timer.periodic(
       const Duration(minutes: 1),
@@ -76,11 +82,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
     _sourceLoadEpoch += 1;
     _sourceSelectionEpoch += 1;
     _sourceRefreshTimer?.cancel();
+    _playzServerName.dispose();
+    _playzUrl.dispose();
+    _playzReferer.dispose();
+    _playzOrigin.dispose();
     super.dispose();
   }
 
   Future<void> _refreshSourceInBackground() async {
-    if (!mounted || loading || _backgroundRefreshBusy) return;
+    if (!mounted || source == 'playz' || loading || _backgroundRefreshBusy) return;
     _backgroundRefreshBusy = true;
     try {
       await _loadSoco(silent: true);
@@ -181,6 +191,19 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
   Future<void> _loadSoco({bool silent = false}) async {
     final provider = source;
+    // PlayZ TV has no verified public listing API. This tab only imports
+    // direct streams supplied by the admin, never probes a private app API.
+    if (provider == 'playz') {
+      ++_sourceLoadEpoch;
+      if (mounted) {
+        setState(() {
+          loading = false;
+          sourceMatches = const [];
+          errorText = null;
+        });
+      }
+      return;
+    }
     final epoch = ++_sourceLoadEpoch;
     bool current() =>
         mounted && source == provider && epoch == _sourceLoadEpoch;
@@ -1027,8 +1050,144 @@ class _SocoImportPageState extends State<SocoImportPage> {
     return text.isEmpty ? null : text;
   }
 
+  Future<void> _addPlayzManualLine() async {
+    final url = _playzUrl.text.trim();
+    final inferred = detectManualStreamType(url);
+    final type = _playzType == 'auto' ? inferred : _playzType;
+    if (type == null || !isValidManualStreamUrl(url, streamType: type)) {
+      message(
+        'Enter an authorized direct HTTP(S) media URL (M3U8, MPD, '
+        'FLV or MP4). For extensionless URLs, select the stream type.',
+      );
+      return;
+    }
+
+    final name = _playzServerName.text.trim().isEmpty
+        ? 'Server 1'
+        : _playzServerName.text.trim();
+    final added = await _addLine(
+      anchorName: 'Manual',
+      line: {
+        'label': name,
+        'url': url,
+        'stream_type': type,
+        'resolution': type.toUpperCase(),
+        'referer': _playzReferer.text.trim(),
+        'origin': _playzOrigin.text.trim(),
+      },
+    );
+    if (added && mounted) {
+      _playzUrl.clear();
+    }
+  }
+
+  Widget _playzManualCard(ColorScheme colors) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'PlayZ TV · Manual stream',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'A public PlayZ TV football listing/API has not been verified. '
+              'Paste only a direct stream URL you are authorized to use. '
+              'This does not extract links from the APK or bypass app/DRM access.',
+              style: TextStyle(color: colors.onSurfaceVariant),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _playzServerName,
+              decoration: const InputDecoration(
+                labelText: 'Server name',
+                hintText: 'Server 1',
+                prefixIcon: Icon(Icons.dns_rounded),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _playzUrl,
+              minLines: 2,
+              maxLines: 4,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              decoration: const InputDecoration(
+                labelText: 'Direct stream URL',
+                hintText: 'https://example.com/live/stream.m3u8',
+                prefixIcon: Icon(Icons.link_rounded),
+              ),
+              onChanged: (value) {
+                final inferred = detectManualStreamType(value);
+                if (inferred != null && inferred != _playzType) {
+                  setState(() => _playzType = inferred);
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _playzType,
+              decoration: const InputDecoration(labelText: 'Stream type'),
+              items: const [
+                DropdownMenuItem(value: 'auto', child: Text('Auto / detect')),
+                DropdownMenuItem(value: 'hls', child: Text('HLS / M3U8')),
+                DropdownMenuItem(value: 'dash', child: Text('DASH / MPD')),
+                DropdownMenuItem(value: 'flv', child: Text('FLV')),
+                DropdownMenuItem(value: 'mp4', child: Text('MP4')),
+              ],
+              onChanged: (value) {
+                if (value != null) setState(() => _playzType = value);
+              },
+            ),
+            const SizedBox(height: 6),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text('Optional stream headers'),
+              children: [
+                TextField(
+                  controller: _playzReferer,
+                  decoration: const InputDecoration(
+                    labelText: 'Referer (if authorized)',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _playzOrigin,
+                  decoration: const InputDecoration(
+                    labelText: 'Origin (if authorized)',
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _addingLine ? null : _addPlayzManualLine,
+                icon: const Icon(Icons.add_link_rounded),
+                label: const Text('ADD TO NCA MATCH'),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'You must confirm the destination match before saving. '
+              'A reachability check follows; successful playback is not guaranteed.',
+              style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _sourceLabel(String value) {
     switch (value) {
+      case 'playz':
+        return 'PlayZ TV';
       case 'yyzb':
         return 'YYZB';
       case 'fawa':
@@ -1049,7 +1208,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
               _sourceSelectionEpoch += 1;
               source = value;
               dayFilter =
-                  (value == 'fawa' || value == 'cola') ? 'all' : 'today';
+                  (value == 'fawa' || value == 'cola' || value == 'playz') ? 'all' : 'today';
               sourceMatches = const [];
               errorText = null;
               _anchorStatusEpoch += 1;
@@ -1109,7 +1268,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         actions: [
           IconButton(
             tooltip: 'Refresh source',
-            onPressed: loading ? null : _loadSoco,
+            onPressed: loading || source == 'playz' ? null : _loadSoco,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -1173,6 +1332,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     _sourceButton('yyzb', 'YYZB'),
                     _sourceButton('fawa', 'Fawa'),
                     _sourceButton('cola', 'ColaTV'),
+                    _sourceButton('playz', 'PlayZ TV'),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -1183,7 +1343,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                SwitchListTile.adaptive(
+                if (source == 'playz') _playzManualCard(colors),
+                if (source != 'playz') SwitchListTile.adaptive(
                   value: availableOnly,
                   contentPadding: EdgeInsets.zero,
                   dense: true,
@@ -1198,7 +1359,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       setState(() => availableOnly = value),
                 ),
                 const SizedBox(height: 4),
-                if (source != 'fawa' && source != 'cola')
+                if (source != 'playz' && source != 'fawa' && source != 'cola')
                   Row(
                     children: [
                       _dayButton('today', 'Today'),
@@ -1235,7 +1396,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       ),
                     ),
                   ),
-                if (!loading && visible.isEmpty && errorText == null)
+                if (source != 'playz' && !loading && visible.isEmpty && errorText == null)
                   const Card(
                     child: Padding(
                       padding: EdgeInsets.all(18),

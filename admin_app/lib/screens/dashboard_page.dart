@@ -149,9 +149,9 @@ class _DashboardPageState extends State<DashboardPage> {
           const SizedBox(height: 10),
           _ActionCard(
             icon: Icons.podcasts_rounded,
-            title: 'Soco / YYZB / Fawa / ColaTV Links',
+            title: 'Soco / YYZB / Fawa / ColaTV / PlayZ TV Links',
             subtitle:
-                'Extract M3U8 / MPD / FLV / MP4 source links and add them to a match.',
+                'Pick live sources, or manually add an authorized PlayZ TV stream URL.',
             iconColor: const Color(0xFFDC2626),
             onTap: () => open(
               context,
