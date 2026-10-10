@@ -14,6 +14,7 @@ try {
       .replace(/^import .*jsr:.*;\n/gm, '')
       .replace('"../_shared/football_names.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/football_names.mjs', import.meta.url).href))
       .replace('"../_shared/source_match_rows.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/source_match_rows.mjs', import.meta.url).href))
+    .replace('"../_shared/tflix_source.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/tflix_source.mjs', import.meta.url).href))
       .replace('"../_shared/stream_probe.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/stream_probe.mjs', import.meta.url).href));
     source += name === 'football-fixtures'
       ? '\nexport { loadSourceFallbackFixtures, sourceFixtureId };'

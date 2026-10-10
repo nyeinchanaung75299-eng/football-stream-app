@@ -11,6 +11,8 @@ on:
       - "scripts/test_football_names.mjs"
       - "supabase/functions/_shared/football_names.mjs"
       - "supabase/functions/_shared/source_match_rows.mjs"
+      - "supabase/functions/_shared/tflix_source.mjs"
+      - "scripts/test_tflix_source.mjs"
       - "supabase/functions/source-match-list/index.ts"
       - "supabase/functions/soco-links/index.ts"
       - "supabase/functions/football-fixtures/index.ts"
@@ -61,6 +63,9 @@ jobs:
 
       - name: Test English fixture imports
         run: node --test scripts/test_football_names.mjs
+
+      - name: Verify Admin-only TFLIX extraction
+        run: node --test scripts/test_tflix_source.mjs
 
       - name: Deploy Worker
         if: steps.cloudflare.outputs.ready == 'true'

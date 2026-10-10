@@ -151,7 +151,7 @@ class _DashboardPageState extends State<DashboardPage> {
             icon: Icons.podcasts_rounded,
             title: 'Stream Source Picker',
             subtitle:
-                'Soco, YYZB, Fawa, ColaTV, PlayZ TV and TFLIX. Browse TFLIX pages or add authorized links.',
+                'Soco, YYZB, Fawa, ColaTV and TFLIX stream sources, plus PlayZ TV direct links.',
             iconColor: const Color(0xFFDC2626),
             onTap: () => open(
               context,
