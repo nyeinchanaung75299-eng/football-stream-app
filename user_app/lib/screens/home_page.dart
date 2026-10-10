@@ -453,11 +453,7 @@ class _HomePageState extends State<HomePage> {
             'stream_count': own.length,
             'stream_links': own,
           };
-        } catch (error) {
-          assert(() {
-            debugPrint('NCA source metadata lookup failed: ' + error.toString());
-            return true;
-          }());
+        } catch (_) {
           // Never fall back to unrelated Live source lines.
           return null;
         }
