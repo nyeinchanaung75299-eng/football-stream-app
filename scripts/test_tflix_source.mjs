@@ -256,18 +256,88 @@ test("mandatory extraction ignores skip_probe and never returns an embed as a pl
   assert.equal(mock.calls.length, 5);
 });
 
-test("a valid primary is verified before requesting a broken backup embed", async () => {
+test("a working primary remains usable if the backup embed is broken", async () => {
   const url = hlsUrl(), page = "https://tflix.su/channel/bein-sports-1-tr";
+  const backup = "https://tmaxapp.site/welive/player.php?id=public-test";
   const mock = fakeFetch({
     "https://tflix.su/api/channels": [{ slug: "bein-sports-1-tr", name: "BeIN Sports 1 TR" }],
-    [page]: new Response('<script>{"streamUrl":"' + EMBED + '","streamUrl2":"https://tmaxapp.site/welive/player.php?id=public-test"}</script>'),
+    [page]: new Response('<script>{"streamUrl":"' + EMBED + '","streamUrl2":"' + backup + '"}</script>'),
     [EMBED]: new Response(wrapper("var setupOpts={file:'" + url + "',type:'hls'};")),
+    [backup]: new Response("Player unavailable", { status: 502 }),
     [url]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
     [new URL("video.ts", url).toString()]: new Response(tsBytes()),
   });
   const result = await tflixStreams({ room_num: "channel:bein-sports-1-tr" }, mock);
   assert.equal(result.lines.length, 1);
-  assert.equal(mock.calls.some(({ url }) => url.includes("tmaxapp.site")), false);
+  assert.equal(result.lines[0].server_name, "Server 1");
+  assert.equal(result.lines[0].label, "Server 1 • HLS");
+  assert.equal(mock.calls.some(({ url }) => url === backup), true);
+});
+
+test("both verified TFLIX server slots appear as separate, correctly ordered source lines", async () => {
+  const first = hlsUrl(), second = CDN + "/tflix/secure/public-test/" + expiry() + "/sky-sport-1.m3u8";
+  const secondEmbed = "https://vixembed.bid/embed/sky-sport-1-nz";
+  const page = "https://tflix.su/match/arsenal-leeds-assigned";
+  const mock = fakeFetch({
+    "https://tflix.su/api/live-scores?scope=board": {
+      streams: [{ slug: "arsenal-leeds-assigned", sport: "football", league: "Premier League",
+        homeTeam: { name: "Arsenal" }, awayTeam: { name: "Leeds United" } }],
+    },
+    // Even when streamUrl2 occurs first, UI order should be server 1 then 2.
+    [page]: new Response('<script>{"streamUrl2":"' + secondEmbed + '","streamUrl":"' + EMBED + '"}</script>'),
+    [EMBED]: new Response(wrapper("var setupOpts={file:'" + first + "',type:'hls'};")),
+    [secondEmbed]: new Response("var setupOpts={file:'" + second + "',type:'hls'};"),
+    [first]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [second]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [new URL("video.ts", first).toString()]: new Response(tsBytes()),
+    [new URL("video.ts", second).toString()]: new Response(tsBytes()),
+  });
+  const result = await tflixStreams({ room_num: "match:arsenal-leeds-assigned" }, mock);
+  assert.equal(result.ready, true);
+  assert.equal(result.line_count, 2);
+  assert.deepEqual(result.lines.map((line) => line.server_name), ["Server 1", "Server 2"]);
+  assert.deepEqual(result.lines.map((line) => line.url), [first, second]);
+  assert.ok(result.lines.every((line) => line.media_verified && line.health_status === "healthy"));
+});
+
+test("broken first server does not hide a verified second server", async () => {
+  const first = hlsUrl(), second = CDN + "/tflix/secure/public-test/" + expiry() + "/backup.m3u8";
+  const secondEmbed = "https://vixembed.bid/embed/backup";
+  const page = "https://tflix.su/channel/bein-sports-1-tr";
+  const mock = fakeFetch({
+    "https://tflix.su/api/channels": [{ slug: "bein-sports-1-tr", name: "BeIN Sports 1 TR" }],
+    [page]: new Response('<script>{"streamUrl":"' + EMBED + '","streamUrl2":"' + secondEmbed + '"}</script>'),
+    [EMBED]: new Response("var setupOpts={file:'" + first + "',type:'hls'};"),
+    [secondEmbed]: new Response("var setupOpts={file:'" + second + "',type:'hls'};"),
+    [first]: new Response("Access denied", { status: 403 }),
+    [second]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [new URL("video.ts", second).toString()]: new Response(tsBytes()),
+  });
+  const result = await tflixStreams({ room_num: "channel:bein-sports-1-tr" }, mock);
+  assert.equal(result.line_count, 1);
+  assert.equal(result.lines[0].server_name, "Server 2");
+  assert.equal(result.lines[0].url, second);
+});
+
+test("two server slots sharing one direct manifest are deduplicated", async () => {
+  const url = hlsUrl(), secondEmbed = "https://vixembed.bid/embed/duplicate";
+  const page = "https://tflix.su/channel/bein-sports-1-tr";
+  const segment = new URL("video.ts", url).toString();
+  const routes = {
+    "https://tflix.su/api/channels": [{ slug: "bein-sports-1-tr", name: "BeIN Sports 1 TR" }],
+    [page]: () => new Response('<script>{"streamUrl":"' + EMBED + '","streamUrl2":"' + secondEmbed + '"}</script>'),
+    [EMBED]: () => new Response("var setupOpts={file:'" + url + "',type:'hls'};"),
+    [secondEmbed]: () => new Response("var setupOpts={file:'" + url + "',type:'hls'};"),
+    [url]: () => new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [segment]: () => new Response(tsBytes()),
+  };
+  const mock = fakeFetch((u, init) => {
+    const value = routes[u];
+    return typeof value === "function" ? value(u, init) : value;
+  });
+  const result = await tflixStreams({ room_num: "channel:bein-sports-1-tr" }, mock);
+  assert.equal(result.line_count, 1);
+  assert.equal(result.lines[0].server_name, "Server 1");
 });
 
 test("403/502 and unsupported player configurations yield zero importable lines without leaking signed URLs", async () => {

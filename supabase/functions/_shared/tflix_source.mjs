@@ -262,12 +262,20 @@ export function extractPublicPlayerConfig(html, base) {
 
 function sourceEmbedUrls(html, base) {
   const text = publicPageText(html);
-  const values = [...text.matchAll(/["']streamUrl2?["']\s*:\s*["']([^"']+)["']/g)].map((hit) => hit[1]);
-  const urls = new Set();
-  for (const raw of values) {
-    try { urls.add(safeTflixUrl(decodeEntities(raw).replace(/\\\//g, "/"), base).toString()); } catch {}
+  const embeds = new Map();
+  // Preserve each source position from the public match/channel page. The site
+  // does not always provide a reliable display name, so never invent one.
+  for (const hit of text.matchAll(/["'](streamUrl2?)["']\s*:\s*["']([^"']+)["']/g)) {
+    try {
+      const url = safeTflixUrl(decodeEntities(hit[2]).replace(/\\\//g, "/"), base).toString();
+      const order = hit[1] === "streamUrl2" ? 2 : 1;
+      const previous = embeds.get(url);
+      if (!previous || order < previous.order) {
+        embeds.set(url, { url, order, server_name: "Server " + order });
+      }
+    } catch {}
   }
-  return [...urls].slice(0, 4);
+  return [...embeds.values()].sort((a, b) => a.order - b.order).slice(0, 4);
 }
 
 export function signedExpiry(raw) {
@@ -519,29 +527,41 @@ export async function tflixStreams(body = {}, options = {}) {
   const embeds = sourceEmbedUrls(html, item.page_url);
   const failures = [];
   const found = new Map();
-  for (const url of embeds) {
+
+  async function checkServer(embed) {
     try {
       let candidates;
-      if (mediaType(url)) candidates = [{ url, stream_type: mediaType(url), key_id: null, key_data: null, referer: item.page_url }];
-      else {
-        const embedded = await fetchBounded(ctx, url, { referer: item.page_url });
+      if (mediaType(embed.url)) {
+        candidates = [{ url: embed.url, stream_type: mediaType(embed.url), key_id: null, key_data: null, referer: item.page_url }];
+      } else {
+        const embedded = await fetchBounded(ctx, embed.url, { referer: item.page_url });
         candidates = extractPublicPlayerConfig(new TextDecoder().decode(embedded.bytes), embedded.url)
           .map((candidate) => ({ ...candidate, referer: embedded.url }));
       }
+      // Each source is verified independently. Keep one usable quality per
+      // server, but do not stop scanning other servers after the first success.
       for (const candidate of candidates.slice(0, 4)) {
         try {
           const verified = await verifyTflixMedia(candidate, candidate.referer, { ctx });
-          found.set(candidate.url, verified);
-          break;
+          return { ...verified, server_name: embed.server_name, label: embed.server_name + " • " + verified.label };
         } catch (error) {
           failures.push(error instanceof Error ? error.message : "Source media could not be verified.");
         }
       }
-      // Verify each player before considering its backup. A dead backup must
-      // never consume the deadline after a usable primary has been found.
-      if (found.size) break;
-    } catch (error) { failures.push(error instanceof Error ? error.message : "Source player could not be read."); }
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : "Source player could not be read.");
+    }
+    return null;
+  }
+
+  // Bound concurrency to two. This lets a slow primary and a working backup
+  // progress within the same deadline, without increasing upstream load wildly.
+  for (let offset = 0; offset < embeds.length; offset += 2) {
     if (Date.now() >= ctx.deadline) break;
+    const batch = await Promise.all(embeds.slice(offset, offset + 2).map(checkServer));
+    for (const line of batch) {
+      if (line && !found.has(line.url)) found.set(line.url, line);
+    }
   }
   const lines = [...found.values()];
   return {
