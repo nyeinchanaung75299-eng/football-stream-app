@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import {
   decodePublicPlayerWrapper, extractPublicPlayerConfig, safeTflixUrl,
-  signedExpiry, tflixMatches, tflixStreams, verifyTflixMedia,
+  signedExpiry, tflixMatches, tflixPublicMatches, tflixStreams, verifyTflixMedia,
 } from "../supabase/functions/_shared/tflix_source.mjs";
 
 const KID = "0123456789abcdef0123456789abcdef";
@@ -34,6 +34,45 @@ function fakeFetch(routes) {
   };
   return { calls, fetcher };
 }
+
+test("NCA public catalog matches Admin fixture count without exposing player URLs", async () => {
+  const routes = {
+    "https://tflix.su/api/live-scores?scope=board": {
+      streams: [
+        { slug: "arsenal-leeds", sport: "football", league: "Premier League",
+          date: "2026-10-10T11:30:00Z",
+          homeTeam: { name: "Arsenal" }, awayTeam: { name: "Leeds United" } },
+        { slug: "west-brom-birmingham", sport: "football", league: "Championship",
+          date: "2026-10-10T11:30:00Z",
+          homeTeam: { name: "West Bromwich" }, awayTeam: { name: "Birmingham" } },
+        { slug: "rayo-athletic", sport: "football", league: "La Liga",
+          date: "2026-10-10T12:00:00Z",
+          homeTeam: { name: "Rayo Vallecano" }, awayTeam: { name: "Athletic Bilbao" } },
+      ],
+    },
+  };
+  const admin = await tflixMatches({}, fakeFetch(routes));
+  const result = await tflixPublicMatches(fakeFetch(routes));
+  assert.equal(result.source, "nca");
+  assert.equal(result.results, admin.results);
+  assert.equal(result.matches.length, 3);
+  assert.deepEqual(result.matches.map((x) => x.home_team),
+    ["Arsenal", "West Bromwich", "Rayo Vallecano"]);
+  for (const match of result.matches) {
+    assert.deepEqual(Object.keys(match).sort(),
+      ["source_id","league","home_team","away_team","match_time","is_live"].sort());
+    assert.equal(match.page_url, undefined);
+    assert.equal(match.anchors, undefined);
+    assert.equal(match.stream_url, undefined);
+  }
+});
+
+test("Viewer catalog permission cannot enable Admin-only media resolution", () => {
+  const file = readFileSync(new URL("../supabase/functions/soco-links/index.ts", import.meta.url), "utf8");
+  assert.match(file, /if \(source === "nca"\)/);
+  assert.match(file, /if \(!viewerPublic \|\| action !== "matches"\)/);
+  assert.match(file, /if \(viewerPublic && source === "tflix"\)/);
+});
 
 test("TFLIX score-only football fixtures never gain fabricated broadcast anchors", async () => {
   const mock = fakeFetch({

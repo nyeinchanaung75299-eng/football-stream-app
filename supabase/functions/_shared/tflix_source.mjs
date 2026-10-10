@@ -173,6 +173,25 @@ export async function tflixMatches(body = {}, options = {}) {
   };
 }
 
+// A public, metadata-only view of the exact match catalog used by Admin.
+// No player/page URLs, server anchors, media/DRM data, or provider labels.
+// Stream resolution remains exclusively in the authorized Admin workflow.
+export async function tflixPublicMatches(options = {}) {
+  const catalog = await tflixMatches({ catalog: "matches" }, options);
+  const matches = catalog.matches.slice(0, 200).map((row) => ({
+    source_id: row.source_id,
+    league: row.league,
+    home_team: row.home_team,
+    away_team: row.away_team,
+    match_time: row.match_time,
+    is_live: row.is_live === true,
+  }));
+  return {
+    ok: true, source: "nca", catalog: "matches", matches,
+    results: matches.length, generated_at: catalog.generated_at,
+  };
+}
+
 // RSC chunk arguments are JSON, not executable player code. Parse only their
 // literal strings and ordinary quoted properties exposed in the public page.
 export function publicPageText(html) {

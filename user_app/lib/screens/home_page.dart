@@ -78,6 +78,9 @@ class _HomePageState extends State<HomePage> {
   List<String> get _publicApiBases => publicApiBases(
         primary: _publicApiBase, preferVercel: usesVercelBackend);
 
+  static const _ncaCatalogEndpoint =
+      'https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links';
+
   static const _mirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/matches.json';
@@ -429,16 +432,47 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<List<Map<String, dynamic>>> _loadNcaPublicCatalog() async {
+    final url = Uri.parse(_ncaCatalogEndpoint).replace(queryParameters: {
+      'viewer_public': '1',
+      'source': 'nca',
+      'action': 'matches',
+      't': DateTime.now().millisecondsSinceEpoch.toString(),
+    });
+    final response = await http.get(url,
+        headers: const {'Accept': 'application/json'})
+        .timeout(const Duration(seconds: 12));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('NCA match catalog HTTP ' +
+          response.statusCode.toString());
+    }
+    final data = jsonDecode(utf8.decode(response.bodyBytes));
+    final raw = data is Map ? data['matches'] : null;
+    if (raw is! List) {
+      throw const FormatException('Invalid NCA match catalog.');
+    }
+    return raw.map((row) => Map<String, dynamic>.from(row as Map)).toList();
+  }
+
   Future<List<Map<String, dynamic>>> _loadNcaMatches() async {
-    // NCA only lists Admin-imported TFLIX-origin lines via public gateway.
-    // It never calls the upstream provider or admin-only source functions.
-    final published = await loadMatches();
+    // Metadata catalog is the same match list as Admin, independent of
+    // whether any authorized stream was imported yet.
+    final catalog = await _loadNcaPublicCatalog();
+    if (catalog.isEmpty) return const [];
+    List<Map<String, dynamic>> published;
+    try {
+      published = await loadMatches();
+    } catch (_) {
+      // A playback API outage must not erase the public fixture schedule.
+      return ncaCatalogWithImportedStreams(catalog, const []);
+    }
     final candidates = published.where((match) {
       final id = match['id']?.toString().trim() ?? '';
       final count = (match['stream_count'] as num?)?.toInt() ?? 0;
-      return id.isNotEmpty && count > 0;
+      return id.isNotEmpty && count > 0 &&
+          catalog.any((row) => ncaSameFixture(row, match));
     }).toList();
-    final result = <Map<String, dynamic>>[];
+    final imported = <Map<String, dynamic>>[];
     for (var offset = 0; offset < candidates.length; offset += 5) {
       final batch = candidates.skip(offset).take(5);
       final checked = await Future.wait(batch.map((match) async {
@@ -454,13 +488,13 @@ class _HomePageState extends State<HomePage> {
             'stream_links': own,
           };
         } catch (_) {
-          // Never fall back to unrelated Live source lines.
+          // Never fall back to an unrelated Live/ColaTV/YYZB line.
           return null;
         }
       }));
-      result.addAll(checked.whereType<Map<String, dynamic>>());
+      imported.addAll(checked.whereType<Map<String, dynamic>>());
     }
-    return result;
+    return ncaCatalogWithImportedStreams(catalog, imported);
   }
 
   Future<List<Map<String, dynamic>>> _resolveLinks(
@@ -1647,9 +1681,9 @@ class _HomePageState extends State<HomePage> {
           if (matches.isEmpty) {
             return _StateMessage(
               icon: Icons.sports_soccer_outlined,
-              title: widget.ncaView ? 'No NCA streams yet' : 'No matches now',
+              title: widget.ncaView ? 'No NCA matches now' : 'No matches now',
               subtitle: widget.ncaView
-                  ? 'Only authorized TFLIX-origin lines imported by Admin appear here.'
+                  ? 'No football fixtures in the current NCA catalog. Refresh later.'
                   : 'New matches will appear here automatically.',
               onPressed: refresh,
             );
@@ -1690,7 +1724,9 @@ class _HomePageState extends State<HomePage> {
                   kickoff: kickoff,
                   isLive: m['is_live'] == true,
                   canWatch: canWatch,
-                  actionLabel: canWatch
+                  actionLabel: widget.ncaView && !canWatch
+                      ? 'WAITING FOR STREAM'
+                      : canWatch
                       ? (displayCount > 1
                           ? 'WATCH LIVE  •  ' +
                               displayCount.toString() +

@@ -3,7 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName } from "../_shared/football_names.mjs";
 import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
 import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
-import { tflixMatches, tflixStreams } from "../_shared/tflix_source.mjs";
+import { tflixMatches, tflixStreams, tflixPublicMatches } from "../_shared/tflix_source.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,6 +41,15 @@ Deno.serve(async (req) => {
       body.viewer_public === "true" ||
       body.viewer_public === "1";
     const source = normalizeSource(body.source);
+    const action = body.action === "streams" ? "streams" : "matches";
+    // NCA Viewer can read only football fixture metadata, never source
+    // players, URLs or streams. The TFLIX provider remains Admin-only.
+    if (source === "nca") {
+      if (!viewerPublic || action !== "matches") {
+        return json({ error: "NCA catalog is read-only." }, 403);
+      }
+      return json(await tflixPublicMatches());
+    }
     // TFLIX is an Admin import provider, never a public Viewer source route.
     if (viewerPublic && source === "tflix") {
       return json({ error: "Admin access required." }, 403);
@@ -84,8 +93,6 @@ Deno.serve(async (req) => {
         return json({ error: "Admin access required." }, 403);
       }
     }
-
-    const action = body.action === "streams" ? "streams" : "matches";
 
     if (source === "tflix") {
       return json(action === "streams"
@@ -153,7 +160,7 @@ Deno.serve(async (req) => {
 
 function normalizeSource(value: unknown) {
   const source = String(value ?? "soco").trim().toLowerCase();
-  if (source === "yyzb" || source === "fawa" || source === "cola" || source === "tflix") {
+  if (source === "yyzb" || source === "fawa" || source === "cola" || source === "tflix" || source === "nca") {
     return source;
   }
   return "soco";
