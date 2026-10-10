@@ -592,3 +592,58 @@ export async function tflixStreams(body = {}, options = {}) {
     generated_at: new Date().toISOString(),
   };
 }
+
+// Public NCA Viewer streams: previously verified, unencrypted media only.
+// Match ID is resolved against the same upstream catalog as Admin. No DRM,
+// session credentials, keys, embed pages, or arbitrary URL fetching.
+const ncaCache = new Map();
+export async function tflixViewerStreams(body = {}, options = {}) {
+  const id = clean(body.source_id ?? body.room_num ?? body.schedule_id);
+  if (!/^match:[a-z0-9][a-z0-9_-]{0,159}$/i.test(id)) {
+    throw new Error("Invalid NCA football match ID.");
+  }
+  if (!options.fetcher) {
+    const cached = ncaCache.get(id);
+    if (cached && cached.until > Date.now()) return cached.result;
+  }
+  const checked = await tflixStreams({ room_num: id }, options);
+  const seen = new Set(), lines = [];
+  for (const source of checked.lines ?? []) {
+    if (source.media_verified !== true || source.key_id || source.key_data ||
+        !["hls", "dash"].includes(source.stream_type)) continue;
+    if (source.expires_at &&
+        Date.parse(source.expires_at) <= Date.now() + 30000) continue;
+    let url, referer;
+    try {
+      url = safeTflixUrl(source.url).toString();
+      referer = safeTflixUrl(source.referer).toString();
+    } catch { continue; }
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const slot = /^Server [1-4]$/.test(source.server_name ?? "")
+      ? source.server_name : "Server " + (lines.length + 1);
+    lines.push({
+      id: id + ":" + slot.replace(/\s+/g, "-"),
+      label: "NCA " + slot,
+      stream_url: url, stream_type: source.stream_type,
+      referer, origin: new URL(referer).origin,
+      resolution: source.resolution ?? "Auto",
+      health_status: source.health_status === "healthy" ? "healthy" : "slow",
+      media_verified: true, is_active: true,
+      expires_at: source.expires_at ?? null,
+      key_id: null, key_data: null,
+    });
+    if (lines.length >= 4) break;
+  }
+  const result = {
+    ok: true, source: "nca", source_id: id, line_count: lines.length,
+    ready: lines.length > 0, lines, generated_at: new Date().toISOString(),
+    message: lines.length ? "Verified NCA servers." :
+      "No accessible, unencrypted, verified NCA servers are available.",
+  };
+  if (!options.fetcher) {
+    if (ncaCache.size >= 64) ncaCache.delete(ncaCache.keys().next().value);
+    ncaCache.set(id, { until: Date.now() + 10000, result });
+  }
+  return result;
+}

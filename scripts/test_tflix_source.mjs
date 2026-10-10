@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import {
   decodePublicPlayerWrapper, extractPublicPlayerConfig, safeTflixUrl,
-  signedExpiry, tflixMatches, tflixPublicMatches, tflixStreams, verifyTflixMedia,
+  signedExpiry, tflixMatches, tflixPublicMatches, tflixStreams, tflixViewerStreams, verifyTflixMedia,
 } from "../supabase/functions/_shared/tflix_source.mjs";
 
 const KID = "0123456789abcdef0123456789abcdef";
@@ -34,6 +34,58 @@ function fakeFetch(routes) {
   };
   return { calls, fetcher };
 }
+
+
+test("NCA public stream resolver returns two verified keyless lines", async () => {
+  const first = hlsUrl();
+  const second = CDN + "/tflix/secure/backup/" + expiry() + "/secondary.m3u8";
+  const page = "https://tflix.su/match/auto-nca";
+  const alt = "https://vixembed.bid/embed/backup-auto-nca";
+  const mock = fakeFetch({
+    "https://tflix.su/api/live-scores?scope=board": {
+      streams: [{ slug: "auto-nca", sport: "football", league: "Premier League",
+        homeTeam: { name: "Home" }, awayTeam: { name: "Away" } }],
+    },
+    [page]: new Response('<script>{"streamUrl":"' + EMBED + '","streamUrl2":"' + alt + '"}</script>'),
+    [EMBED]: new Response("var setupOpts={file:'" + first + "',type:'hls'};"),
+    [alt]: new Response("var setupOpts={file:'" + second + "',type:'hls'};"),
+    [first]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [second]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [new URL("video.ts", first).toString()]: new Response(tsBytes()),
+    [new URL("video.ts", second).toString()]: new Response(tsBytes()),
+  });
+  const result = await tflixViewerStreams({ source_id: "match:auto-nca" }, mock);
+  assert.equal(result.line_count, 2);
+  assert.deepEqual(result.lines.map(x => x.label), ["NCA Server 1", "NCA Server 2"]);
+  assert.deepEqual(result.lines.map(x => x.stream_url), [first, second]);
+  assert.ok(result.lines.every(x => x.media_verified && x.key_data === null && x.key_id === null));
+  assert.equal(JSON.stringify(result).includes("TFLIX"), false);
+});
+
+test("NCA public resolver rejects forged channel or arbitrary URL IDs before HTTP", async () => {
+  const mock = fakeFetch({});
+  for (const id of ["channel:sky", "../etc", "match:../bad", "match:abc/stream", ""]) {
+    await assert.rejects(tflixViewerStreams({ source_id: id }, mock), /Invalid NCA/);
+  }
+  assert.equal(mock.calls.length, 0);
+});
+
+test("NCA public resolver never exports DRM protected MPD or clear keys", async () => {
+  const url = CDN + "/protected-nca.mpd";
+  const page = "https://tflix.su/match/protected-nca";
+  const mock = fakeFetch({
+    "https://tflix.su/api/live-scores?scope=board": {
+      streams: [{ slug: "protected-nca", sport: "football", league: "Premier League",
+        homeTeam: { name: "Home" }, awayTeam: { name: "Away" } }],
+    },
+    [page]: new Response('<script>{"streamUrl":"' + EMBED + '"}</script>'),
+    [EMBED]: new Response("var setupOpts={file:'" + url + "',type:'dash',keyId:'" + KID + "',key:'" + KEY + "'};"),
+    [url]: new Response('<MPD><Period><AdaptationSet><ContentProtection schemeIdUri="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"/></AdaptationSet></Period></MPD>'),
+  });
+  const result = await tflixViewerStreams({ source_id: "match:protected-nca" }, mock);
+  assert.equal(result.line_count, 0);
+  assert.ok(!JSON.stringify(result).includes(KEY));
+});
 
 test("NCA public catalog matches Admin fixture count without exposing player URLs", async () => {
   const routes = {

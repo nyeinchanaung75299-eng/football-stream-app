@@ -3,7 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName } from "../_shared/football_names.mjs";
 import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
 import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
-import { tflixMatches, tflixStreams, tflixPublicMatches } from "../_shared/tflix_source.mjs";
+import { tflixMatches, tflixStreams, tflixPublicMatches, tflixViewerStreams } from "../_shared/tflix_source.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -42,12 +42,11 @@ Deno.serve(async (req) => {
       body.viewer_public === "1";
     const source = normalizeSource(body.source);
     const action = body.action === "streams" ? "streams" : "matches";
-    // NCA Viewer can read only football fixture metadata, never source
-    // players, URLs or streams. The TFLIX provider remains Admin-only.
+    // NCA Viewer access: catalog and already verified keyless media only.
+    // Direct TFLIX provider operations remain Admin-only.
     if (source === "nca") {
-      if (!viewerPublic || action !== "matches") {
-        return json({ error: "NCA catalog is read-only." }, 403);
-      }
+      if (!viewerPublic) return json({ error: "Viewer mode required." }, 403);
+      if (action === "streams") return json(await tflixViewerStreams(body));
       return json(await tflixPublicMatches());
     }
     // TFLIX is an Admin import provider, never a public Viewer source route.
