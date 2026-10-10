@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName } from "../_shared/football_names.mjs";
 import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
 import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
+import { tflixMatches, tflixStreams } from "../_shared/tflix_source.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,6 +40,11 @@ Deno.serve(async (req) => {
       body.viewer_public === true ||
       body.viewer_public === "true" ||
       body.viewer_public === "1";
+    const source = normalizeSource(body.source);
+    // TFLIX is an Admin import provider, never a public Viewer source route.
+    if (viewerPublic && source === "tflix") {
+      return json({ error: "Admin access required." }, 403);
+    }
 
     // Admin continues to require a verified admin session. The Viewer may use
     // this function only in explicit read-only source-browser mode; this
@@ -79,8 +85,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    const source = normalizeSource(body.source);
     const action = body.action === "streams" ? "streams" : "matches";
+
+    if (source === "tflix") {
+      return json(action === "streams"
+        ? await tflixStreams(body)
+        : await tflixMatches(body));
+    }
 
     if (action === "streams") {
       if (source === "fawa") {
@@ -142,7 +153,7 @@ Deno.serve(async (req) => {
 
 function normalizeSource(value: unknown) {
   const source = String(value ?? "soco").trim().toLowerCase();
-  if (source === "yyzb" || source === "fawa" || source === "cola") {
+  if (source === "yyzb" || source === "fawa" || source === "cola" || source === "tflix") {
     return source;
   }
   return "soco";

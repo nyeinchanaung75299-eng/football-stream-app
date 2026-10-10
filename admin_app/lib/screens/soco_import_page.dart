@@ -5,11 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../analytics_service.dart';
 import '../services/manual_source_url.dart';
 import '../services/function_gateway.dart';
+import '../source_line_validation.dart';
 
 class SocoImportPage extends StatefulWidget {
   const SocoImportPage({
@@ -26,15 +26,8 @@ class SocoImportPage extends StatefulWidget {
 }
 
 class _SocoImportPageState extends State<SocoImportPage> {
-  // These are human-facing website destinations. They are not media URLs or
-  // an API and must never be passed to the stream extractor.
-  static const _tflixPages = <String, String>{
-    'Watch': 'https://tflix.su/watch',
-    'Matches': 'https://tflix.su/football',
-    'Channels': 'https://tflix.su/channels',
-  };
-
-  bool get _isManualSource => source == 'playz' || source == 'tflix';
+  bool get _isManualSource => source == 'playz';
+  String _tflixCatalog = 'matches';
 
   static const _pagesMirrorBase =
       'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources';
@@ -80,7 +73,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
         ? requested
         : 'soco';
     dayFilter =
-        (source == 'fawa' || source == 'cola' || _isManualSource) ? 'all' : 'today';
+        (source == 'fawa' || source == 'cola' || source == 'tflix' || _isManualSource)
+            ? 'all'
+            : 'today';
     _loadSoco();
     _sourceRefreshTimer = Timer.periodic(
       const Duration(minutes: 1),
@@ -202,9 +197,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
   Future<void> _loadSoco({bool silent = false}) async {
     final provider = source;
-    // No verified and permitted public stream APIs for these providers.
-    // Never treat their website/player pages as a match/stream API.
-    if (provider == 'playz' || provider == 'tflix') {
+    // PlayZ currently supports direct-media manual import only.
+    if (provider == 'playz') {
       ++_sourceLoadEpoch;
       if (mounted) {
         setState(() {
@@ -215,6 +209,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       }
       return;
     }
+    final catalog = _tflixCatalog;
     final epoch = ++_sourceLoadEpoch;
     bool current() =>
         mounted && source == provider && epoch == _sourceLoadEpoch;
@@ -227,10 +222,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     try {
       dynamic data;
-      if (!_enableNoVpnFallback) {
+      if (!_enableNoVpnFallback || provider == 'tflix') {
         data = await FunctionGateway.invoke(
           'source-match-list',
-          body: {'source': provider},
+          body: {
+            'source': provider,
+            if (provider == 'tflix') 'catalog': catalog,
+          },
         );
         final liveRows = data is Map ? data['matches'] : null;
         if (liveRows is! List) {
@@ -370,6 +368,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
       for (final anchor in anchors) {
         final key = _anchorKey(match, anchor, provider: provider);
         if (_anchorStatuses.containsKey(key)) continue;
+
+        if (provider == 'tflix') {
+          // Catalog entries are candidates. Check their actual media on demand.
+          _anchorStatuses[key] = 'unknown';
+          continue;
+        }
 
         if (provider == 'cola' || provider == 'fawa') {
           _anchorStatuses[key] =
@@ -602,7 +606,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'room_num': room,
           'schedule_id': match['schedule_id'],
           'page_url': anchor['page_url'] ?? match['page_url'],
-          'skip_probe': true,
+          'skip_probe': provider != 'tflix',
+          if (provider == 'tflix') 'catalog': _tflixCatalog,
         },
       );
 
@@ -615,11 +620,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
       final lines = rows
           .map((row) => Map<String, dynamic>.from(row as Map))
           .where((row) => (row['url'] ?? '').toString().trim().isNotEmpty)
+          .where((row) => provider != 'tflix' || isVerifiedTflixLine(row))
           .toList();
 
       final statusKey = _anchorKey(match, anchor, provider: provider);
       final sourceIsLive =
-          data is Map && _isLiveStatus(data['live_status']);
+          provider != 'tflix' && data is Map && _isLiveStatus(data['live_status']);
       final hasHealthy = lines.any((line) {
         final health =
             (line['health_status'] ?? '').toString().toLowerCase();
@@ -649,7 +655,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
       if (!current()) return;
       if (lines.isEmpty) {
-        message('No playable line is available for this streamer.');
+        message(provider == 'tflix'
+            ? 'No verified M3U8 or MPD stream is available for this TFLIX source.'
+            : 'No playable line is available for this streamer.');
         return;
       }
 
@@ -657,7 +665,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         match: match,
         anchor: anchor,
         lines: lines,
-        sourceLiveStatus: data is Map ? data['live_status'] : null,
+        sourceLiveStatus: provider != 'tflix' && data is Map ? data['live_status'] : null,
       );
     } catch (e) {
       unawaited(AnalyticsService.capture(
@@ -692,7 +700,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       showDragHandle: true,
       builder: (sheetContext) {
         final colors = Theme.of(sheetContext).colorScheme;
-        return Padding(
+        return SingleChildScrollView(child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -706,7 +714,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
               ),
               const SizedBox(height: 4),
               Text(
-                '${match['home_team']} vs ${match['away_team']} • $anchorName',
+                '${_sourceMatchTitle(match)} • $anchorName',
                 style: TextStyle(color: colors.onSurfaceVariant),
               ),
               if (sourceLiveStatus != null) ...[
@@ -898,7 +906,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
               ),
             ],
           ),
-        );
+        ));
       },
     );
   }
@@ -911,11 +919,19 @@ class _SocoImportPageState extends State<SocoImportPage> {
     _addingLine = true;
     final provider = source;
     try {
+      if (provider == 'tflix' && !isVerifiedTflixLine(line)) {
+        message('This TFLIX stream needs a new media check. Refresh the source.');
+        return false;
+      }
       // Always require an explicit destination confirmation. The dropdown and
     // initial match only suggest which match should appear first.
     final presetTarget = targetMatchId;
     final target = await _chooseDestination();
     if (target == null) return false;
+    if (provider == 'tflix' && !isVerifiedTflixLine(line)) {
+      message('This TFLIX stream needs a new media check. Refresh the source.');
+      return false;
+    }
 
     final url = (line['url'] ?? '').toString().trim();
     if (url.isEmpty) return false;
@@ -947,6 +963,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
             'stream_type': type,
             'referer': nullable(line['referer']?.toString()),
             'origin': nullable(line['origin']?.toString()),
+            ...sourceLineKeyFields(line),
             'is_active': true,
             'expires_at': line['expires_at'],
             'health_status': 'unknown',
@@ -978,6 +995,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
               'stream_url': url,
               'referer': nullable(line['referer']?.toString()),
               'origin': nullable(line['origin']?.toString()),
+              ...sourceLineKeyFields(line),
               'is_active': true,
               'expires_at': line['expires_at'],
               'health_status': 'unknown',
@@ -999,6 +1017,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
               'stream_url': url,
               'referer': nullable(line['referer']?.toString()),
               'origin': nullable(line['origin']?.toString()),
+              ...sourceLineKeyFields(line),
               'use_webview': false,
               'webview_url': null,
               'send_notification': false,
@@ -1105,15 +1124,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              source == 'tflix'
-                  ? 'TFLIX Watch, Matches and Channels are website pages, not media links. '
-                      'A reusable public stream API and redistribution permission have not '
-                      'been verified. Open the original site to browse; import only a '
-                      'direct media URL you are authorized to distribute. This does not '
-                      'scrape players or bypass access restrictions.'
-                  : 'A public PlayZ TV football listing/API has not been verified. '
-                      'Paste only a direct stream URL you are authorized to use. '
-                      'This does not extract links from the APK or bypass app/DRM access.',
+              'A public PlayZ TV football listing/API has not been verified. '
+              'Paste only a direct stream URL you are authorized to use. '
+              'This does not extract links from the APK or bypass app/DRM access.',
               style: TextStyle(color: colors.onSurfaceVariant),
             ),
             const SizedBox(height: 14),
@@ -1201,55 +1214,35 @@ class _SocoImportPageState extends State<SocoImportPage> {
     );
   }
 
-  Future<void> _openTflixPage(String page) async {
-    final location = _tflixPages[page];
-    if (location == null) return;
-    try {
-      final opened = await launchUrl(
-        Uri.parse(location),
-        mode: LaunchMode.externalApplication,
-      );
-      if (!opened && mounted) message('Could not open TFLIX $page.');
-    } catch (_) {
-      if (mounted) message('Could not open TFLIX $page.');
-    }
+  String _sourceMatchTitle(Map<String, dynamic> match) {
+    final home = (match['home_team'] ?? '').toString();
+    if (match['kind'] == 'channel') return home;
+    return '$home vs ${match['away_team'] ?? ''}';
   }
 
-  Widget _tflixBrowseCard(ColorScheme colors) {
-    return Card(
-      key: const Key('tflix-browse-card'),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'TFLIX · Watch / Matches / Channels',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Browse the original TFLIX website. These open in a browser; '
-              'they do not extract streams or import broadcast channels into NCA.',
-              style: TextStyle(color: colors.onSurfaceVariant),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _tflixPages.keys.map((page) {
-                return OutlinedButton.icon(
-                  key: Key('tflix-open-${page.toLowerCase()}'),
-                  onPressed: () => unawaited(_openTflixPage(page)),
-                  icon: const Icon(Icons.open_in_new_rounded),
-                  label: Text(page),
-                );
-              }).toList(),
-            ),
-          ],
-        ),
-      ),
-    );
+  Widget _tflixCatalogButton(String value, String label) {
+    void selectCatalog() {
+      setState(() {
+        _tflixCatalog = value;
+        _sourceSelectionEpoch += 1;
+        _anchorStatusEpoch += 1;
+        sourceMatches = const [];
+        errorText = null;
+        _anchorStatuses.clear();
+        _anchorLineCounts.clear();
+      });
+      _loadSoco();
+    }
+
+    return _tflixCatalog == value
+        ? FilledButton.tonal(
+            onPressed: loading ? null : selectCatalog,
+            child: Text(label),
+          )
+        : OutlinedButton(
+            onPressed: loading ? null : selectCatalog,
+            child: Text(label),
+          );
   }
 
   String _sourceLabel(String value) {
@@ -1414,24 +1407,41 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                if (source == 'tflix') _tflixBrowseCard(colors),
+                if (source == 'tflix') ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _tflixCatalogButton('matches', 'Matches'),
+                      _tflixCatalogButton('channels', 'Channels'),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Choose a source to check its M3U8 or MPD stream. '
+                    'Only recently verified media can be added.',
+                  ),
+                ],
                 if (_isManualSource) _manualSourceCard(colors),
                 if (!_isManualSource) SwitchListTile.adaptive(
                   value: availableOnly,
                   contentPadding: EdgeInsets.zero,
                   dense: true,
-                  title: const Text(
-                    'Available only',
-                    style: TextStyle(fontWeight: FontWeight.w800),
+                  title: Text(
+                    source == 'tflix' ? 'With stream source' : 'Available only',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
-                  subtitle: const Text(
-                    'Hide matches that have no source yet.',
+                  subtitle: Text(
+                    source == 'tflix'
+                        ? 'Show entries with a player to check; playback is not verified yet.'
+                        : 'Hide matches that have no source yet.',
                   ),
                   onChanged: (value) =>
                       setState(() => availableOnly = value),
                 ),
                 const SizedBox(height: 4),
-                if (!_isManualSource && source != 'fawa' && source != 'cola')
+                if (!_isManualSource && source != 'fawa' && source != 'cola' && source != 'tflix')
                   Row(
                     children: [
                       _dayButton('today', 'Today'),
@@ -1469,10 +1479,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     ),
                   ),
                 if (!_isManualSource && !loading && visible.isEmpty && errorText == null)
-                  const Card(
+                  Card(
                     child: Padding(
-                      padding: EdgeInsets.all(18),
-                      child: Text('No football matches in this source section.'),
+                      padding: const EdgeInsets.all(18),
+                      child: Text(source == 'tflix'
+                          ? (_tflixCatalog == 'channels'
+                              ? 'No sports channel sources are listed by TFLIX right now.'
+                              : 'No football matches with stream sources are listed by TFLIX right now. Try Channels.')
+                          : 'No football matches in this source section.'),
                     ),
                   ),
                 ...visible.map((match) {
@@ -1533,7 +1547,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            '${match['home_team']} vs ${match['away_team']}',
+                            _sourceMatchTitle(match),
                             style: const TextStyle(
                               fontSize: 17,
                               fontWeight: FontWeight.w900,
@@ -1541,9 +1555,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            kickoff == null
-                                ? 'Unknown time'
-                                : DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff),
+                            match['kind'] == 'channel'
+                                ? 'Broadcast channel'
+                                : kickoff == null
+                                    ? 'Unknown time'
+                                    : DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff),
                             style: TextStyle(
                               color: colors.onSurfaceVariant,
                             ),
@@ -1621,7 +1637,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                   label: Text(
                                     extracting
                                         ? '$name • LOADING'
-                                        : '$name$suffix',
+                                        : source == 'tflix' && status == 'unknown'
+                                            ? '$name • CHECK STREAMS'
+                                            : '$name$suffix',
                                   ),
                                 );
                               }).toList(),
