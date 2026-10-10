@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'live_links_page.dart';
 import 'soco_import_page.dart';
 import '../analytics_service.dart';
+import '../football_english.dart';
 import '../services/function_gateway.dart';
 
 class FixtureImportPage extends StatefulWidget {
@@ -717,7 +718,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  f['league_name'].toString(),
+                                  englishKnownFootballName(f['league_name'].toString(), kind: 'league'),
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: colors.onSurfaceVariant,
@@ -725,7 +726,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                                 ),
                                 const SizedBox(height: 5),
                                 Text(
-                                  '${f['home_name']}  vs  ${f['away_name']}',
+                                  '${englishKnownFootballName('${f['home_name']}')}  vs  ${englishKnownFootballName('${f['away_name']}')}',
                                   style: const TextStyle(
                                     fontSize: 15.5,
                                     fontWeight: FontWeight.w900,

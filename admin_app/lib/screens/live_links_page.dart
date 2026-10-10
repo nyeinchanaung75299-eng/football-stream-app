@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
+import '../football_english.dart';
 import '../services/function_gateway.dart';
 import 'soco_import_page.dart';
 
@@ -680,9 +681,13 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
   Widget _serverCard(
     Map<String, dynamic> row,
-    ColorScheme colors,
-  ) {
-    final name = '${row['label'] ?? row['resolution'] ?? 'Server'}';
+    ColorScheme colors, {
+    int displayIndex = 0,
+  }) {
+    final rawName = '${row['label'] ?? row['resolution'] ?? 'Server'}';
+    final name = RegExp(r'^YYZB\b', caseSensitive: false).hasMatch(rawName)
+        ? englishStreamLabel(rawName, index: displayIndex)
+        : rawName;
     final streamKey = (row['stream_type'] ?? 'auto').toString();
     final type = row['use_webview'] == true
         ? 'WEBVIEW'
@@ -938,7 +943,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                                 return DropdownMenuItem(
                                   value: m['id'] as String,
                                   child: Text(
-                                    '$when  ·  ${m['home_team']} vs ${m['away_team']}',
+                                    '$when  ·  ${englishKnownFootballName('${m['home_team']}')} vs ${englishKnownFootballName('${m['away_team']}')}',
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 );
@@ -1188,8 +1193,9 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                     }
 
                     return Column(
-                      children: rows
-                          .map((row) => _serverCard(row, colors))
+                      children: rows.asMap().entries
+                          .map((entry) => _serverCard(entry.value, colors,
+                              displayIndex: entry.key))
                           .toList(),
                     );
                   },

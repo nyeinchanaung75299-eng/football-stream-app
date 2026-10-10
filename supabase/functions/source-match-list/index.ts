@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { englishFootballName, firstFootballName, providerEnglishName } from "../_shared/football_names.mjs";
+import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
 import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
 import { tflixMatches } from "../_shared/tflix_source.mjs";
 
@@ -117,18 +117,7 @@ async function jsonpMatches(args: {
         source: args.source,
         source_id: String(scheduleId ?? ""),
         schedule_id: scheduleId,
-        league: englishFootballName(firstFootballName(
-          row.subCateNameEn, row.leagueNameEn, row.subCateName,
-          row.leagueName, row.categoryName, "Football",
-        ), "league"),
-        home_team: englishFootballName(firstFootballName(
-          row.hostNameEn, row.homeNameEn, row.hostName, row.homeName,
-          row.home_team, "Home",
-        )),
-        away_team: englishFootballName(firstFootballName(
-          row.guestNameEn, row.awayNameEn, row.guestName, row.awayName,
-          row.away_team, "Away",
-        )),
+        ...sourceFootballNames(row, args.source === "yyzb"),
         home_logo: sourceLogo(row, "home", args.source),
         away_logo: sourceLogo(row, "away", args.source),
         match_time: normalizeMatchTime(
@@ -138,15 +127,22 @@ async function jsonpMatches(args: {
           row.hot === true ||
           String(row.hot ?? row.isHot ?? "0") === "1",
         anchors: anchors
-          .map((anchor: any, index: number) => ({
-            uid: anchor.uid ?? anchor.id ?? null,
-            nick_name:
-              decodeHtml(
-                stripTags(String(anchor.nickName ?? anchor.name ?? "")),
-              ).replace(/\s+/g, " ").trim() ||
-              `Streamer ${index + 1}`,
-            room_num: roomNumber(anchor),
-          }))
+          .map((anchor: any, index: number) => {
+            const names = englishStreamerName({
+              ...anchor,
+              nickName: decodeHtml(stripTags(String(anchor.nickName ?? anchor.name ?? "")))
+                .replace(/\s+/g, " ").trim(),
+            }, index);
+            return {
+              uid: anchor.uid ?? anchor.id ?? null,
+              // Older Admin APKs import by nick_name. Preserve that identity;
+              // updated clients use nick_name_en for display only.
+              nick_name: names.import_name,
+              ...(args.source === "yyzb" ? { nick_name_en: names.nick_name } : {}),
+              ...(names.commentary_language ? { commentary_language: names.commentary_language } : {}),
+              room_num: roomNumber(anchor),
+            };
+          })
           .filter((anchor: any) => anchor.room_num),
       };
     })

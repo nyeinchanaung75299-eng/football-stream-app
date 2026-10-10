@@ -19,6 +19,7 @@ import '../widgets/premium_match_card.dart';
 import '../app_update_service.dart';
 import '../live_feed_controller.dart';
 import '../player_loading.dart';
+import '../football_english.dart';
 
 class _MatchLoadResult {
   const _MatchLoadResult(this.rows, this.label);
@@ -1130,6 +1131,17 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  String _matchTitle(Map<String, dynamic> match) =>
+      '${englishKnownFootballName((match['home_team'] ?? 'Home').toString())}'
+      ' vs ${englishKnownFootballName((match['away_team'] ?? 'Away').toString())}';
+
+  String _streamDisplayLabel(Map<String, dynamic> row, int index) {
+    final raw = (row['label'] ?? row['resolution'] ?? 'Server').toString();
+    return RegExp(r'^YYZB\b', caseSensitive: false).hasMatch(raw)
+        ? englishStreamLabel(raw, index: index)
+        : raw;
+  }
+
   Future<void> _openPlayer(Map<String, dynamic> match) async {
     final matchId = match['id']?.toString() ?? '';
     unawaited(AnalyticsService.capture(
@@ -1183,21 +1195,27 @@ class _HomePageState extends State<HomePage> {
 
     final nativeSources = links
         .where((x) => x['use_webview'] != true)
-        .map((x) => <String, dynamic>{
-              'id': x['id']?.toString(),
-              'label': (x['label'] ?? x['resolution'] ?? 'Server').toString(),
-              'streamType': (x['stream_type'] ?? 'auto').toString(),
-              'url': (x['stream_url'] ?? '').toString(),
-              'referer': _normalizedWebReferer(x, match),
-              'origin': (x['origin'] ?? '').toString(),
-              'keyId': (x['key_id'] ?? '').toString(),
-              'keyData': (x['key_data'] ?? '').toString(),
-              'resolution': (x['resolution'] ?? '').toString(),
-              'healthStatus': (x['health_status'] ?? 'unknown').toString(),
-              'priority': (x['priority'] as num?)?.toInt() ?? 100,
-              'blockedReason': (x['blocked_reason'] ?? '').toString(),
-              'viewerMessage': (x['viewer_message'] ?? '').toString(),
-            })
+        .toList()
+        .asMap()
+        .entries
+        .map((entry) {
+          final x = entry.value;
+          return <String, dynamic>{
+            'id': x['id']?.toString(),
+            'label': _streamDisplayLabel(x, entry.key),
+            'streamType': (x['stream_type'] ?? 'auto').toString(),
+            'url': (x['stream_url'] ?? '').toString(),
+            'referer': _normalizedWebReferer(x, match),
+            'origin': (x['origin'] ?? '').toString(),
+            'keyId': (x['key_id'] ?? '').toString(),
+            'keyData': (x['key_data'] ?? '').toString(),
+            'resolution': (x['resolution'] ?? '').toString(),
+            'healthStatus': (x['health_status'] ?? 'unknown').toString(),
+            'priority': (x['priority'] as num?)?.toInt() ?? 100,
+            'blockedReason': (x['blocked_reason'] ?? '').toString(),
+            'viewerMessage': (x['viewer_message'] ?? '').toString(),
+          };
+        })
         .where((x) => (x['url'] as String).trim().isNotEmpty)
         .toList();
 
@@ -1262,7 +1280,7 @@ class _HomePageState extends State<HomePage> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                '${match['home_team']} vs ${match['away_team']}',
+                                _matchTitle(match),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
@@ -1514,7 +1532,7 @@ class _HomePageState extends State<HomePage> {
         context: context,
         sources: nativeSources,
         selectedIndex: selectedIndex,
-        title: '${match['home_team']} vs ${match['away_team']}',
+        title: _matchTitle(match),
         matchId: matchId,
       );
       await AnalyticsService.capture(
@@ -1740,9 +1758,12 @@ class _HomePageState extends State<HomePage> {
                 final canWatch = widget.ncaView || displayCount > 0;
 
                 return PremiumMatchCard(
-                  league: (m['league'] ?? 'Football').toString(),
-                  homeName: (m['home_team'] ?? 'Home').toString(),
-                  awayName: (m['away_team'] ?? 'Away').toString(),
+                  league: englishKnownFootballName(
+                    (m['league'] ?? 'Football').toString(), kind: 'league'),
+                  homeName: englishKnownFootballName(
+                    (m['home_team'] ?? 'Home').toString()),
+                  awayName: englishKnownFootballName(
+                    (m['away_team'] ?? 'Away').toString()),
                   homeLogo: m['home_logo_url']?.toString(),
                   awayLogo: m['away_logo_url']?.toString(),
                   kickoff: kickoff,

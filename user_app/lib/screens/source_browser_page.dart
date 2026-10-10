@@ -15,6 +15,7 @@ import '../live_feed_controller.dart';
 import '../player_loading.dart';
 import '../source_line_loader.dart';
 import '../source_match_discovery.dart';
+import '../football_english.dart';
 import '../widgets/premium_bottom_nav.dart';
 import '../widgets/premium_match_card.dart';
 import '../widgets/source_match_filters.dart';
@@ -312,6 +313,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     if (raw is! List) throw const FormatException('Invalid source matches.');
     final rows = raw
         .map((x) => Map<String, dynamic>.from(x as Map))
+        .map((row) => englishSourceMatch(row, source))
         .where((row) => !_stale(row))
         .toList();
     _sortRows(rows);
@@ -343,6 +345,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
     final rows = raw
         .map((x) => Map<String, dynamic>.from(x as Map))
+        .map((row) => englishSourceMatch(row, source))
         .where((row) => !_stale(row))
         .toList();
     _sortRows(rows);
@@ -373,6 +376,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     if (raw is! List) throw const FormatException('Invalid direct source list.');
     final rows = raw
         .map((x) => Map<String, dynamic>.from(x as Map))
+        .map((row) => englishSourceMatch(row, source))
         .where((row) => !_stale(row))
         .toList();
     _sortRows(rows);
@@ -412,6 +416,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       return (decoded['matches'] as List)
           .whereType<Map>()
           .map((row) => Map<String, dynamic>.from(row))
+          .map((row) => englishSourceMatch(row, source))
           .toList();
     } catch (_) {
       return null;
@@ -515,8 +520,18 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final decoded = jsonDecode(response.body);
     final raw = decoded is Map ? decoded['streams'] : null;
     if (raw is! List) throw const FormatException('Invalid source streams.');
-    return raw
-        .map((x) => Map<String, dynamic>.from(x as Map))
+    return raw.asMap().entries
+        .map((entry) {
+          final row = Map<String, dynamic>.from(entry.value as Map);
+          if ((sourceName ?? source) == 'yyzb') {
+            row['label'] = englishStreamLabel(
+              (row['label'] ?? row['resolution'] ?? 'Line ${entry.key + 1}')
+                  .toString(),
+              index: entry.key,
+            );
+          }
+          return row;
+        })
         .where((x) => (x['stream_url']?.toString() ?? '').trim().isNotEmpty)
         .toList();
   }
@@ -570,10 +585,13 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return raw.asMap().entries.map((entry) {
       final row = Map<String, dynamic>.from(entry.value as Map);
       final url = (row['url'] ?? row['stream_url'] ?? '').toString().trim();
-      final rawLabel = (row['label'] ??
+      final providerLabel = (row['label'] ??
               row['resolution'] ??
               ('Line ' + (entry.key + 1).toString()))
           .toString();
+      final rawLabel = provider == 'yyzb'
+          ? englishStreamLabel(providerLabel, index: entry.key)
+          : providerLabel;
       return <String, dynamic>{
         'id': provider +
             ':' +

@@ -50,6 +50,61 @@ List<Map<String, dynamic>> _fixtures() {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  testWidgets('legacy Chinese YYZB rows display and search in English', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    final kickoff = DateTime(now.year, now.month, now.day, 23, 59);
+    final chineseRows = [
+      {
+        'source_id': 'fixture-42',
+        'league': '德甲',
+        'home_team': '帕德博恩',
+        'away_team': '斯图加特',
+        'match_time': kickoff.toUtc().toIso8601String(),
+        'anchors': [
+          {'room_num': 'room-7', 'nick_name': '老白聊球'},
+        ],
+      },
+      {
+        'source_id': 'fixture-43',
+        'league': '未知联赛',
+        'home_team': '未知球队',
+        'away_team': '球队测试',
+        'match_time': kickoff.toUtc().toIso8601String(),
+        'anchors': [],
+      },
+    ];
+    await http.runWithClient(
+      () async {
+        await tester.pumpWidget(
+          const MaterialApp(home: SourceBrowserPage(source: 'yyzb')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('SC Paderborn 07'), findsOneWidget);
+        expect(find.text('VfB Stuttgart'), findsOneWidget);
+        expect(find.text('Home team (fixture-43)'), findsOneWidget);
+        expect(find.text('Away team (fixture-43)'), findsOneWidget);
+        expect(find.text('帕德博恩'), findsNothing);
+        expect(find.text('未知联赛'), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.enterText(
+          find.byKey(const ValueKey('source-match-search')),
+          'paderborn stuttgart',
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('1 match'), findsOneWidget);
+        expect(find.text('SC Paderborn 07'), findsOneWidget);
+        expect(find.text('Home team (fixture-43)'), findsNothing);
+        await tester.pumpWidget(const SizedBox());
+      },
+      () => MockClient((request) async => request.url.path.endsWith('/matches')
+          ? http.Response(jsonEncode({'matches': chineseRows}), 200,
+              headers: {'content-type': 'application/json; charset=utf-8'})
+          : http.Response('{}', 404)),
+    );
+  });
+
   testWidgets('phone filter controls remain usable with enlarged text', (
     tester,
   ) async {

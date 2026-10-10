@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../analytics_service.dart';
+import '../football_english.dart';
 import '../services/manual_source_url.dart';
 import '../services/function_gateway.dart';
 import '../source_line_validation.dart';
@@ -255,7 +256,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
       }
 
       final parsed = rows
-          .map((row) => Map<String, dynamic>.from(row as Map))
+          .map((row) => englishSourceMatch(
+                Map<String, dynamic>.from(row as Map), provider))
           .where((row) => !_staleSourceMatch(row))
           .toList();
 
@@ -555,7 +557,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                         Theme.of(context).colorScheme.surfaceContainerLow,
                     leading: const Icon(Icons.sports_soccer_rounded),
                     title: Text(
-                      '${m['home_team']} vs ${m['away_team']}',
+                      '${englishKnownFootballName('${m['home_team']}')} vs ${englishKnownFootballName('${m['away_team']}')}',
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     subtitle: Text(when),
@@ -661,9 +663,21 @@ class _SocoImportPageState extends State<SocoImportPage> {
         return;
       }
 
+      final resolvedAnchor = Map<String, dynamic>.from(anchor);
+      final freshName = data is Map
+          ? (data['anchor_name'] ?? '').toString().trim()
+          : '';
+      if (provider == 'yyzb' && freshName.isNotEmpty &&
+          _genericAnchorIdentity(anchor)) {
+        // Public mirrors mask commentator names. The authenticated room
+        // response can recover the legacy import name without exposing it.
+        resolvedAnchor['import_name'] = freshName;
+        resolvedAnchor['original_nick_name'] = freshName;
+        resolvedAnchor['nick_name'] = englishSourceAnchorName(resolvedAnchor, 0);
+      }
       await _showQualityPicker(
         match: match,
-        anchor: anchor,
+        anchor: resolvedAnchor,
         lines: lines,
         sourceLiveStatus: provider != 'tflix' && data is Map ? data['live_status'] : null,
       );
@@ -692,6 +706,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }) async {
     final anchorName =
         (anchor['nick_name'] ?? 'Streamer').toString().trim();
+    final importName = source == 'yyzb' ? _anchorImportName(anchor) : anchorName;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -781,7 +796,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                 children: [
                                   Expanded(
                                     child: Text(
-                                      label,
+                                      source == 'yyzb' ? englishStreamLabel(label) : label,
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w900,
                                       ),
@@ -879,7 +894,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                           onPressed: () async {
                             final added = await _addLine(
                               line: line,
-                              anchorName: anchorName,
+                              anchorName: importName,
                             );
                             if (added && sheetContext.mounted) {
                               Navigator.pop(sheetContext);
@@ -1045,7 +1060,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
       },
     ));
 
-    message('$sourceName $label added. Health check is pending.');
+    final shownLabel = provider == 'yyzb' ? englishStreamLabel(label) : label;
+    message('$sourceName $shownLabel added. Health check is pending.');
     return true;
     } on TimeoutException {
       message('Could not confirm the save. Refresh before trying again.');
@@ -1214,6 +1230,27 @@ class _SocoImportPageState extends State<SocoImportPage> {
     );
   }
 
+  String _anchorImportName(Map<String, dynamic> anchor) {
+    // Presentation can change, but legacy signed-URL imports match this raw
+    // identity. Renaming it would create a second row on the next refresh.
+    for (final field in ['import_name', 'original_nick_name', 'nick_name']) {
+      final name = anchor[field]?.toString().trim() ?? '';
+      if (name.isNotEmpty) return name;
+    }
+    return 'Streamer';
+  }
+
+  bool _genericAnchorIdentity(Map<String, dynamic> anchor) {
+    final generic = RegExp(
+      r'^(?:YYZB\s+)?(?:Server|Streamer)\s*\d*(?:\s*\((?:Cantonese|Mandarin)\))?$',
+      caseSensitive: false,
+    );
+    return ['import_name', 'original_nick_name', 'nick_name'].every((field) {
+      final name = anchor[field]?.toString().trim() ?? '';
+      return name.isEmpty || generic.hasMatch(name);
+    });
+  }
+
   String _sourceMatchTitle(Map<String, dynamic> match) {
     final home = (match['home_team'] ?? '').toString();
     if (match['kind'] == 'channel') return home;
@@ -1376,7 +1413,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                         return DropdownMenuItem(
                           value: m['id'] as String,
                           child: Text(
-                            '$when · ${m['home_team']} vs ${m['away_team']}',
+                            '$when · ${englishKnownFootballName('${m['home_team']}')} vs ${englishKnownFootballName('${m['away_team']}')}',
                             overflow: TextOverflow.ellipsis,
                           ),
                         );
