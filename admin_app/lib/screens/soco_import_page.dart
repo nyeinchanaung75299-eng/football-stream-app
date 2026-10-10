@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../analytics_service.dart';
 import '../services/manual_source_url.dart';
@@ -25,6 +26,16 @@ class SocoImportPage extends StatefulWidget {
 }
 
 class _SocoImportPageState extends State<SocoImportPage> {
+  // These are human-facing website destinations. They are not media URLs or
+  // an API and must never be passed to the stream extractor.
+  static const _tflixPages = <String, String>{
+    'Watch': 'https://tflix.su/watch',
+    'Matches': 'https://tflix.su/football',
+    'Channels': 'https://tflix.su/channels',
+  };
+
+  bool get _isManualSource => source == 'playz' || source == 'tflix';
+
   static const _pagesMirrorBase =
       'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources';
   static const _rawMirrorBase =
@@ -65,11 +76,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
     targetMatchId = widget.initialMatchId;
     _targetMatchesFuture = _loadTargetMatches();
     final requested = widget.initialSource.trim().toLowerCase();
-    source = const {'soco', 'yyzb', 'fawa', 'cola', 'playz'}.contains(requested)
+    source = const {'soco', 'yyzb', 'fawa', 'cola', 'playz', 'tflix'}.contains(requested)
         ? requested
         : 'soco';
     dayFilter =
-        (source == 'fawa' || source == 'cola' || source == 'playz') ? 'all' : 'today';
+        (source == 'fawa' || source == 'cola' || _isManualSource) ? 'all' : 'today';
     _loadSoco();
     _sourceRefreshTimer = Timer.periodic(
       const Duration(minutes: 1),
@@ -90,7 +101,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   Future<void> _refreshSourceInBackground() async {
-    if (!mounted || source == 'playz' || loading || _backgroundRefreshBusy) return;
+    if (!mounted || _isManualSource || loading || _backgroundRefreshBusy) return;
     _backgroundRefreshBusy = true;
     try {
       await _loadSoco(silent: true);
@@ -191,9 +202,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
   Future<void> _loadSoco({bool silent = false}) async {
     final provider = source;
-    // PlayZ TV has no verified public listing API. This tab only imports
-    // direct streams supplied by the admin, never probes a private app API.
-    if (provider == 'playz') {
+    // No verified and permitted public stream APIs for these providers.
+    // Never treat their website/player pages as a match/stream API.
+    if (provider == 'playz' || provider == 'tflix') {
       ++_sourceLoadEpoch;
       if (mounted) {
         setState(() {
@@ -1050,7 +1061,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     return text.isEmpty ? null : text;
   }
 
-  Future<void> _addPlayzManualLine() async {
+  Future<void> _addManualLine() async {
     final url = _playzUrl.text.trim();
     final inferred = detectManualStreamType(url);
     final type = _playzType == 'auto' ? inferred : _playzType;
@@ -1081,22 +1092,28 @@ class _SocoImportPageState extends State<SocoImportPage> {
     }
   }
 
-  Widget _playzManualCard(ColorScheme colors) {
+  Widget _manualSourceCard(ColorScheme colors) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'PlayZ TV · Manual stream',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+            Text(
+              '${_sourceLabel(source)} · Manual stream',
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 8),
             Text(
-              'A public PlayZ TV football listing/API has not been verified. '
-              'Paste only a direct stream URL you are authorized to use. '
-              'This does not extract links from the APK or bypass app/DRM access.',
+              source == 'tflix'
+                  ? 'TFLIX Watch, Matches and Channels are website pages, not media links. '
+                      'A reusable public stream API and redistribution permission have not '
+                      'been verified. Open the original site to browse; import only a '
+                      'direct media URL you are authorized to distribute. This does not '
+                      'scrape players or bypass access restrictions.'
+                  : 'A public PlayZ TV football listing/API has not been verified. '
+                      'Paste only a direct stream URL you are authorized to use. '
+                      'This does not extract links from the APK or bypass app/DRM access.',
               style: TextStyle(color: colors.onSurfaceVariant),
             ),
             const SizedBox(height: 14),
@@ -1167,7 +1184,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: _addingLine ? null : _addPlayzManualLine,
+                onPressed: _addingLine ? null : _addManualLine,
                 icon: const Icon(Icons.add_link_rounded),
                 label: const Text('ADD TO NCA MATCH'),
               ),
@@ -1184,8 +1201,61 @@ class _SocoImportPageState extends State<SocoImportPage> {
     );
   }
 
+  Future<void> _openTflixPage(String page) async {
+    final location = _tflixPages[page];
+    if (location == null) return;
+    try {
+      final opened = await launchUrl(
+        Uri.parse(location),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened && mounted) message('Could not open TFLIX $page.');
+    } catch (_) {
+      if (mounted) message('Could not open TFLIX $page.');
+    }
+  }
+
+  Widget _tflixBrowseCard(ColorScheme colors) {
+    return Card(
+      key: const Key('tflix-browse-card'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'TFLIX · Watch / Matches / Channels',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Browse the original TFLIX website. These open in a browser; '
+              'they do not extract streams or import broadcast channels into NCA.',
+              style: TextStyle(color: colors.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _tflixPages.keys.map((page) {
+                return OutlinedButton.icon(
+                  key: Key('tflix-open-${page.toLowerCase()}'),
+                  onPressed: () => unawaited(_openTflixPage(page)),
+                  icon: const Icon(Icons.open_in_new_rounded),
+                  label: Text(page),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _sourceLabel(String value) {
     switch (value) {
+      case 'tflix':
+        return 'TFLIX';
       case 'playz':
         return 'PlayZ TV';
       case 'yyzb':
@@ -1208,7 +1278,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
               _sourceSelectionEpoch += 1;
               source = value;
               dayFilter =
-                  (value == 'fawa' || value == 'cola' || value == 'playz') ? 'all' : 'today';
+                  (value == 'fawa' || value == 'cola' || value == 'playz' || value == 'tflix') ? 'all' : 'today';
               sourceMatches = const [];
               errorText = null;
               _anchorStatusEpoch += 1;
@@ -1268,7 +1338,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         actions: [
           IconButton(
             tooltip: 'Refresh source',
-            onPressed: loading || source == 'playz' ? null : _loadSoco,
+            onPressed: loading || _isManualSource ? null : _loadSoco,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -1333,6 +1403,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     _sourceButton('fawa', 'Fawa'),
                     _sourceButton('cola', 'ColaTV'),
                     _sourceButton('playz', 'PlayZ TV'),
+                    _sourceButton('tflix', 'TFLIX'),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -1343,8 +1414,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                if (source == 'playz') _playzManualCard(colors),
-                if (source != 'playz') SwitchListTile.adaptive(
+                if (source == 'tflix') _tflixBrowseCard(colors),
+                if (_isManualSource) _manualSourceCard(colors),
+                if (!_isManualSource) SwitchListTile.adaptive(
                   value: availableOnly,
                   contentPadding: EdgeInsets.zero,
                   dense: true,
@@ -1359,7 +1431,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       setState(() => availableOnly = value),
                 ),
                 const SizedBox(height: 4),
-                if (source != 'playz' && source != 'fawa' && source != 'cola')
+                if (!_isManualSource && source != 'fawa' && source != 'cola')
                   Row(
                     children: [
                       _dayButton('today', 'Today'),
@@ -1396,7 +1468,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       ),
                     ),
                   ),
-                if (source != 'playz' && !loading && visible.isEmpty && errorText == null)
+                if (!_isManualSource && !loading && visible.isEmpty && errorText == null)
                   const Card(
                     child: Padding(
                       padding: EdgeInsets.all(18),
