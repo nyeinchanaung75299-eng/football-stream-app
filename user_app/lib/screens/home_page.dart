@@ -497,6 +497,35 @@ class _HomePageState extends State<HomePage> {
     return ncaCatalogWithImportedStreams(catalog, imported);
   }
 
+
+  Future<List<Map<String, dynamic>>> _loadNcaAutoStreams(String sourceId) async {
+    if (!RegExp(r'^match:[a-zA-Z0-9][a-zA-Z0-9_-]{0,159}$')
+        .hasMatch(sourceId)) return const [];
+    final uri = Uri.parse(_ncaCatalogEndpoint).replace(queryParameters: {
+      'viewer_public': '1', 'source': 'nca', 'action': 'streams',
+      'source_id': sourceId,
+      't': DateTime.now().millisecondsSinceEpoch.toString(),
+    });
+    final response = await http
+        .get(uri, headers: const {'Accept': 'application/json'})
+        .timeout(const Duration(seconds: 12));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('NCA automatic stream lookup unavailable.');
+    }
+    final data = jsonDecode(utf8.decode(response.bodyBytes));
+    final raw = data is Map ? data['lines'] : null;
+    if (raw is! List) throw const FormatException('Invalid NCA stream response.');
+    return playableLinks(raw.whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .where((row) =>
+            row['media_verified'] == true &&
+            row['key_id'] == null && row['key_data'] == null &&
+            (row['label']?.toString().startsWith('NCA Server ') ?? false) &&
+            {'hls', 'dash'}.contains(row['stream_type']) &&
+            Uri.tryParse(row['stream_url']?.toString() ?? '')?.scheme == 'https')
+        .toList());
+  }
+
   Future<List<Map<String, dynamic>>> _resolveLinks(
     Map<String, dynamic> match,
   ) async {
@@ -504,21 +533,16 @@ class _HomePageState extends State<HomePage> {
     if (matchId.isEmpty) return const [];
 
     if (widget.ncaView) {
-      final cached = _streamLinkCache[matchId];
-      if (cached != null &&
-          DateTime.now().difference(cached.fetchedAt) <
-              const Duration(seconds: 25)) {
-        return cached.rows;
+      // Fetch verified auto servers on WATCH, independently of Admin import.
+      final lines = await _loadNcaAutoStreams(
+          (match['source_id'] ?? '').toString());
+      if (lines.isNotEmpty) {
+        _streamLinkCache[matchId] = _StreamCacheEntry(lines, DateTime.now());
+        return lines;
       }
-      final own = ncaPublishedLines(
-        playableLinks(await _loadPublicApiStreams(matchId)),
-      );
-      if (own.isEmpty) {
-        _streamLinkCache.remove(matchId);
-      } else {
-        _streamLinkCache[matchId] = _StreamCacheEntry(own, DateTime.now());
-      }
-      return own;
+      // Only previously imported NCA lines may be used as a fallback.
+      return ncaPublishedLines(playableLinks(
+          match['stream_links'] ?? const <Map<String, dynamic>>[]));
     }
 
     final cached = _streamLinkCache[matchId];
@@ -1713,7 +1737,7 @@ class _HomePageState extends State<HomePage> {
                 final kickoff = DateTime.tryParse(
                   m['kickoff_at']?.toString() ?? '',
                 )?.toLocal();
-                final canWatch = displayCount > 0;
+                final canWatch = widget.ncaView || displayCount > 0;
 
                 return PremiumMatchCard(
                   league: (m['league'] ?? 'Football').toString(),
@@ -1724,8 +1748,8 @@ class _HomePageState extends State<HomePage> {
                   kickoff: kickoff,
                   isLive: m['is_live'] == true,
                   canWatch: canWatch,
-                  actionLabel: widget.ncaView && !canWatch
-                      ? 'WAITING FOR STREAM'
+                  actionLabel: widget.ncaView && displayCount == 0
+                      ? 'CHECK NCA STREAM'
                       : canWatch
                       ? (displayCount > 1
                           ? 'WATCH LIVE  •  ' +

@@ -105,7 +105,7 @@ void main() {
       expect(find.text('NCA'), findsWidgets);
       expect(find.text('Arsenal'), findsOneWidget);
       expect(find.text('West Bromwich'), findsOneWidget);
-      expect(find.textContaining('WAITING FOR STREAM'), findsWidgets);
+      expect(find.textContaining('CHECK NCA STREAM'), findsWidgets);
       expect(find.byType(PremiumBottomNav), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
     }, () => MockClient((request) async {
@@ -123,6 +123,27 @@ void main() {
     }));
   });
 
+
+  testWidgets('NCA matches can request automatic stream before manual import',
+      (tester) async {
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home: HomePage(ncaView: true)));
+      await tester.pumpAndSettle();
+      expect(find.text('Arsenal'), findsOneWidget);
+      expect(find.textContaining('CHECK NCA STREAM'), findsWidgets);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, () => MockClient((request) async {
+      if (request.url.path.endsWith('/soco-links') &&
+          request.url.queryParameters['source'] == 'nca') {
+        return jsonResponse({'source': 'nca', 'matches': catalog});
+      }
+      if (request.url.path.endsWith('/matches')) {
+        return jsonResponse({'matches': []});
+      }
+      return http.Response('{}', 404);
+    }));
+  });
+
   testWidgets('NCA displays the full catalog with zero published streams',
       (tester) async {
     await http.runWithClient(() async {
@@ -131,7 +152,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Arsenal'), findsOneWidget);
       expect(find.text('West Bromwich'), findsOneWidget);
-      expect(find.textContaining('WAITING FOR STREAM'), findsWidgets);
+      expect(find.textContaining('CHECK NCA STREAM'), findsWidgets);
       await tester.pumpWidget(const SizedBox.shrink());
     }, () => MockClient((request) async {
       if (request.url.path.endsWith('/soco-links') &&
