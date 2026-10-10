@@ -275,7 +275,7 @@ test("a working primary remains usable if the backup embed is broken", async () 
 });
 
 test("both verified TFLIX server slots appear as separate, correctly ordered source lines", async () => {
-  const first = hlsUrl(), second = CDN + "/tflix/secure/public-test/" + expiry() + "/sky-sport-1.m3u8";
+  const first = hlsUrl(), second = CDN + "/tflix/secure/sky-sport-1/" + expiry() + "/sky-sport-1.m3u8";
   const secondEmbed = "https://vixembed.bid/embed/sky-sport-1-nz";
   const page = "https://tflix.su/match/arsenal-leeds-assigned";
   const mock = fakeFetch({
