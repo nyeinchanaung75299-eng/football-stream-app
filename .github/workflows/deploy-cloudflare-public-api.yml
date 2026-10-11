@@ -13,6 +13,7 @@ on:
       - "supabase/functions/_shared/source_match_rows.mjs"
       - "supabase/functions/_shared/tflix_source.mjs"
       - "scripts/test_tflix_source.mjs"
+      - "scripts/test_fawa_source.mjs"
       - "supabase/functions/source-match-list/index.ts"
       - "supabase/functions/soco-links/index.ts"
       - "supabase/functions/football-fixtures/index.ts"
@@ -66,6 +67,9 @@ jobs:
 
       - name: Verify Admin-only TFLIX extraction
         run: node --test scripts/test_tflix_source.mjs
+
+      - name: Test Fawa literal stream extraction
+        run: node --test scripts/test_fawa_source.mjs
 
       - name: Deploy Worker
         if: steps.cloudflare.outputs.ready == 'true'
