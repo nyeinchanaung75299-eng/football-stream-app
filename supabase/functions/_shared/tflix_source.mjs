@@ -4,7 +4,7 @@ const HOME = "https://tflix.su";
 const CATALOG_URL = HOME + "/api/live-scores?scope=board";
 const CHANNEL_URL = HOME + "/api/channels";
 const ALLOWED_HOSTS = new Set([
-  "tflix.su", "www.tflix.su", "xtrahut.xyz", "vixembed.bid",
+  "tflix.su", "www.tflix.su", "xtrahut.xyz", "vixembed.bid", "vix.sjncvuaq.xyz",
   "tmaxapp.site", "cdnfan.site", "event-65s.dsfigosdhgfvsshed.xyz",
   "polovo.margutm.su", "vix.cdn9859.shop",
   "p16-common-sign.tiktokcdn-us.com",
@@ -294,7 +294,13 @@ function sourceEmbedUrls(html, base) {
       }
     } catch {}
   }
-  return [...embeds.values()].sort((a, b) => a.order - b.order).slice(0, 4);
+  return [...embeds.values()].sort((a, b) => a.order - b.order).slice(0, 4)
+    // Match pages can contain several channels, each with its own streamUrl.
+    // Give those distinct players distinct IDs while retaining Server 2 when
+    // a channel exposes only its secondary slot.
+    .map((embed, index, all) => ({ ...embed,
+      server_name: "Server " + (all.length === 1 ? embed.order : index + 1),
+    }));
 }
 
 export function signedExpiry(raw) {
