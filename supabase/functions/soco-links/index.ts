@@ -4,6 +4,7 @@ import { englishFootballName, firstFootballName, providerEnglishName, sourceFoot
 import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
 import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
 import { tflixMatches, tflixStreams, tflixPublicMatches, tflixViewerStreams } from "../_shared/tflix_source.mjs";
+import { playzMatches, playzStreams } from "../_shared/playz_source.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -98,6 +99,9 @@ Deno.serve(async (req) => {
         ? await tflixStreams(body)
         : await tflixMatches(body));
     }
+    if (source === "playz") {
+      return json(action === "streams" ? playzStreams(body) : playzMatches(body));
+    }
 
     if (action === "streams") {
       if (source === "fawa") {
@@ -159,7 +163,7 @@ Deno.serve(async (req) => {
 
 function normalizeSource(value: unknown) {
   const source = String(value ?? "soco").trim().toLowerCase();
-  if (source === "yyzb" || source === "fawa" || source === "cola" || source === "tflix" || source === "nca") {
+  if (source === "yyzb" || source === "fawa" || source === "cola" || source === "tflix" || source === "playz" || source === "nca") {
     return source;
   }
   return "soco";
