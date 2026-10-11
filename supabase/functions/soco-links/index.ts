@@ -448,7 +448,7 @@ async function fawaStreams(body: any) {
 
   const html = await fetchFawaText(pageUrl);
   const origin = new URL(pageUrl).origin;
-  const urls = extractMediaUrls(html, pageUrl);
+  const urls = extractFawaMediaUrls(html, pageUrl);
 
   const lines = [...urls]
     .map((value, index) => ({
@@ -850,6 +850,106 @@ function extractStreamLines(value: any, referer: string) {
     };
     return rank(a) - rank(b);
   });
+}
+
+// Fawa's Clappr pages also assemble sources from literal URL fragments. Read
+// only those data expressions; never execute downloaded JavaScript or ads.
+function extractFawaMediaUrls(html: string, baseUrl: string) {
+  const urls = extractMediaUrls(html, baseUrl);
+  const limit = 16;
+  const literal = (token: string): string | null => {
+    if (!/^["']/.test(token)) return null;
+    let value = "";
+    for (let i = 1; i < token.length - 1; i++) {
+      if (token[i] !== "\\") { value += token[i]; continue; }
+      const escaped = token[++i];
+      if (/[\\/"']/.test(escaped)) value += escaped;
+      else if (escaped === "u" || escaped === "x") {
+        const size = escaped === "u" ? 4 : 2;
+        const digits = token.slice(i + 1, i + 1 + size);
+        if (!new RegExp("^[0-9a-f]{" + size + "}$", "i").test(digits)) return null;
+        value += String.fromCharCode(parseInt(digits, 16));
+        i += size;
+      } else return null;
+    }
+    return value.length <= 2048 ? value : null;
+  };
+  // The URL fragments and the player constructor can be in separate script
+  // elements on the same page. Keep literal bindings in document order.
+  const values = new Map<string, string | string[]>();
+  let scripts = 0;
+  for (const script of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
+    if (++scripts > 128) break;
+    const code = script[1];
+    if (code.length > 65536) continue;
+    const tokenize = (expression: string): string[] | null => {
+      const tokens: string[] = [];
+      const pattern = /\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[A-Za-z_$][\w$]*(?:\s*\[\s*(?:\d+|[A-Za-z_$][\w$]*)\s*\])?|[+,\[\]])/gy;
+      let at = 0;
+      while (at < expression.trimEnd().length) {
+        pattern.lastIndex = at;
+        const hit = pattern.exec(expression);
+        if (!hit || tokens.length >= 128) return null;
+        tokens.push(hit[1]); at = pattern.lastIndex;
+      }
+      return tokens;
+    };
+    const concatenate = (tokens: string[]): string[] | null => {
+      if (!tokens.length || tokens.length % 2 === 0) return null;
+      let output = [""];
+      for (let i = 0; i < tokens.length; i += 2) {
+        if (i && tokens[i - 1] !== "+") return null;
+        const token = tokens[i];
+        const text = literal(token);
+        const indexed = token.match(/^([A-Za-z_$][\w$]*)\s*\[\s*(\d+|[A-Za-z_$][\w$]*)\s*\]$/);
+        const value = values.get(indexed?.[1] ?? token);
+        const parts = text !== null ? [text]
+          : indexed && Array.isArray(value)
+          ? /^\d+$/.test(indexed[2]) ? value.slice(Number(indexed[2]), Number(indexed[2]) + 1) : value
+          : typeof value === "string" ? [value] : null;
+        if (!parts?.length || output.length * parts.length > limit) return null;
+        output = output.flatMap((prefix) => parts.map((part) => prefix + part));
+        if (output.some((part) => part.length > 2048)) return null;
+      }
+      return output;
+    };
+    let declarations = 0;
+    for (const hit of code.matchAll(/\b(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*((?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^;"']){1,8192});/g)) {
+      if (++declarations > 128 || values.size >= 128) break;
+      values.delete(hit[1]);
+      const tokens = tokenize(hit[2]);
+      if (!tokens) continue;
+      if (tokens[0] === "[" && tokens.at(-1) === "]") {
+        const items: string[] = [], parts = tokens.slice(1, -1);
+        let start = 0, valid = true;
+        for (let i = 0; i <= parts.length && parts.length; i++) {
+          if (i !== parts.length && parts[i] !== ",") continue;
+          const item = concatenate(parts.slice(start, i));
+          if (!item || items.length + item.length > limit) { valid = false; break; }
+          items.push(...item); start = i + 1;
+        }
+        if (valid) values.set(hit[1], items);
+      } else {
+        const item = concatenate(tokens);
+        if (item?.length === 1) values.set(hit[1], item[0]);
+      }
+    }
+    let pushes = 0;
+    for (const hit of code.matchAll(/\b([A-Za-z_$][\w$]*)\.push\(\s*([^;]{1,2048})\s*\)\s*;/g)) {
+      if (++pushes > 128) break;
+      const target = values.get(hit[1]), tokens = tokenize(hit[2]);
+      const items = tokens ? concatenate(tokens) : null;
+      if (Array.isArray(target) && items && target.length + items.length <= limit) target.push(...items);
+    }
+    for (const hit of code.matchAll(/\bsource\s*:\s*([A-Za-z_$][\w$]*)(?:\s*\[[^\]\r\n]{1,180}\])?\s*[,}]/g)) {
+      const value = values.get(hit[1]);
+      for (const raw of typeof value === "string" ? [value] : value ?? []) {
+        const url = normalizeMediaUrl(raw, baseUrl);
+        if (url && looksLikeMediaUrl(url) && urls.size < limit) urls.add(url);
+      }
+    }
+  }
+  return urls;
 }
 
 function extractMediaUrls(html: string, baseUrl: string) {
