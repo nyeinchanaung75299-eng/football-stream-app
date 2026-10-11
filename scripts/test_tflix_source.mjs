@@ -62,6 +62,51 @@ test("NCA public stream resolver returns two verified keyless lines", async () =
   assert.equal(JSON.stringify(result).includes("TFLIX"), false);
 });
 
+for (const slot of ["streamUrl", "streamUrl2"]) test("current match channel arrays resolve " + slot + " on the new player host with unique server IDs", async () => {
+  const page = "https://tflix.su/match/multi-channel";
+  const embeds = ["https://vix.sjncvuaq.xyz/embed/skysportsmainevent-uk",
+    "https://vix.sjncvuaq.xyz/embed/skysport8-nz", EMBED];
+  const manifests = embeds.map((_, i) => CDN + "/channel-" + i + ".m3u8");
+  const chunk = JSON.stringify({ channels: embeds.map((url) => ({ [slot]: url })) });
+  const routes = {
+    "https://tflix.su/api/live-scores?scope=board": { streams: [{
+      slug: "multi-channel", sport: "football", homeTeam: { name: "Home" }, awayTeam: { name: "Away" },
+    }] },
+    [page]: new Response('<script>self.__next_f.push(' + JSON.stringify([1, chunk]) + ')</script>'),
+  };
+  for (let i = 0; i < embeds.length; i++) {
+    routes[embeds[i]] = new Response(wrapper("var setupOpts={file:'" + manifests[i] + "',type:'hls'};"));
+    routes[manifests[i]] = new Response("#EXTM3U\n#EXTINF:6,\nvideo-" + i + ".ts");
+    routes[new URL("video-" + i + ".ts", manifests[i]).toString()] = new Response(tsBytes());
+  }
+  const result = await tflixViewerStreams({ source_id: "match:multi-channel" }, fakeFetch(routes));
+  assert.equal(result.line_count, 3);
+  assert.equal(new Set(result.lines.map((line) => line.id)).size, 3);
+  assert.deepEqual(result.lines.map((line) => line.label), ["NCA Server 1", "NCA Server 2", "NCA Server 3"]);
+  assert.deepEqual(result.lines.map((line) => line.stream_url), manifests);
+  assert.ok(result.lines.every((line) => line.media_verified && !line.key_id && !line.key_data));
+});
+
+test("new player host permission remains exact and validates redirects", async () => {
+  assert.equal(safeTflixUrl("https://vix.sjncvuaq.xyz/embed/test").hostname, "vix.sjncvuaq.xyz");
+  for (const url of ["https://sjncvuaq.xyz/embed/test", "https://evil.sjncvuaq.xyz/test",
+    "https://vix.sjncvuaq.xyz.evil.example/test", "http://vix.sjncvuaq.xyz/test"]) {
+    assert.throws(() => safeTflixUrl(url), /Unsupported source host/);
+  }
+  const page = "https://tflix.su/match/redirect-test";
+  const embed = "https://vix.sjncvuaq.xyz/embed/test";
+  const mock = fakeFetch({
+    "https://tflix.su/api/live-scores?scope=board": { streams: [{
+      slug: "redirect-test", sport: "football", homeTeam: { name: "Home" }, awayTeam: { name: "Away" },
+    }] },
+    [page]: new Response(JSON.stringify({ streamUrl: embed })),
+    [embed]: new Response(null, { status: 302, headers: { Location: "https://evil.sjncvuaq.xyz/private" } }),
+  });
+  const result = await tflixViewerStreams({ source_id: "match:redirect-test" }, mock);
+  assert.equal(result.line_count, 0);
+  assert.equal(mock.calls.length, 3);
+});
+
 test("NCA public resolver rejects forged channel or arbitrary URL IDs before HTTP", async () => {
   const mock = fakeFetch({});
   for (const id of ["channel:sky", "../etc", "match:../bad", "match:abc/stream", ""]) {
