@@ -27,6 +27,30 @@ Map<String, String?> sourceLineKeyFields(Map<String, dynamic> line) {
   return {};
 }
 
+String? manualClearKeyError({
+  required String streamType,
+  required String keyId,
+  required String keyData,
+}) {
+  final id = keyId.trim();
+  final data = keyData.trim();
+  final hasKey = id.isNotEmpty || data.isNotEmpty;
+  if (!hasKey) return null;
+  if (streamType.toLowerCase() != 'dash') {
+    return 'ClearKey can only be used with a DASH / MPD stream.';
+  }
+  final fields = sourceLineKeyFields({
+    'stream_type': streamType,
+    'key_id': id,
+    'key_data': data,
+  });
+  if (fields['key_id'] == null) {
+    return 'Enter both ClearKey values as 32 hexadecimal characters. '
+        'Hyphens in Key ID are allowed.';
+  }
+  return null;
+}
+
 bool isVerifiedTflixLine(Map<String, dynamic> line, {DateTime? now}) {
   final current = (now ?? DateTime.now()).toUtc();
   final uri = Uri.tryParse(line['url']?.toString().trim() ?? '');

@@ -62,6 +62,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
   final _playzUrl = TextEditingController();
   final _playzReferer = TextEditingController();
   final _playzOrigin = TextEditingController();
+  final _playzKeyId = TextEditingController();
+  final _playzKeyData = TextEditingController();
   String _playzType = 'auto';
 
   @override
@@ -93,6 +95,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
     _playzUrl.dispose();
     _playzReferer.dispose();
     _playzOrigin.dispose();
+    _playzKeyId.dispose();
+    _playzKeyData.dispose();
     super.dispose();
   }
 
@@ -1108,6 +1112,18 @@ class _SocoImportPageState extends State<SocoImportPage> {
       return;
     }
 
+    final keyId = _playzKeyId.text.trim();
+    final keyData = _playzKeyData.text.trim();
+    final keyError = manualClearKeyError(
+      streamType: type,
+      keyId: keyId,
+      keyData: keyData,
+    );
+    if (keyError != null) {
+      message(keyError);
+      return;
+    }
+
     final name = _playzServerName.text.trim().isEmpty
         ? 'Server 1'
         : _playzServerName.text.trim();
@@ -1120,10 +1136,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
         'resolution': type.toUpperCase(),
         'referer': _playzReferer.text.trim(),
         'origin': _playzOrigin.text.trim(),
+        'key_id': keyId,
+        'key_data': keyData,
       },
     );
     if (added && mounted) {
       _playzUrl.clear();
+      _playzKeyId.clear();
+      _playzKeyData.clear();
     }
   }
 
@@ -1209,6 +1229,47 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 const SizedBox(height: 10),
               ],
             ),
+            if (_playzType == 'dash') ...[
+              const SizedBox(height: 6),
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: const Text('Optional DASH ClearKey'),
+                subtitle: const Text(
+                  'Use only keys you are authorized to use.',
+                ),
+                children: [
+                  TextField(
+                    controller: _playzKeyId,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Key ID (KID)',
+                      hintText: '00112233445566778899aabbccddeeff',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _playzKeyData,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Key Data',
+                      hintText: 'ffeeddccbbaa99887766554433221100',
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Both values must contain 32 hexadecimal characters. '
+                    'They are saved with the stream record, not bundled into the APK.',
+                    style: TextStyle(
+                      color: colors.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+              ),
+            ],
             const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
