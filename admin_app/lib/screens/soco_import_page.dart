@@ -27,9 +27,8 @@ class SocoImportPage extends StatefulWidget {
 }
 
 class _SocoImportPageState extends State<SocoImportPage> {
-  bool get _isManualSource => source == 'playz' && _playzCatalog == 'manual';
+  bool get _isManualSource => source == 'playz';
   String _tflixCatalog = 'matches';
-  String _playzCatalog = 'channels';
 
   static const _pagesMirrorBase =
       'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources';
@@ -199,7 +198,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
   Future<void> _loadSoco({bool silent = false}) async {
     final provider = source;
-    if (_isManualSource) {
+    // PlayZ currently supports direct-media manual import only.
+    if (provider == 'playz') {
       ++_sourceLoadEpoch;
       if (mounted) {
         setState(() {
@@ -210,7 +210,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       }
       return;
     }
-    final catalog = provider == 'playz' ? _playzCatalog : _tflixCatalog;
+    final catalog = _tflixCatalog;
     final epoch = ++_sourceLoadEpoch;
     bool current() =>
         mounted && source == provider && epoch == _sourceLoadEpoch;
@@ -223,12 +223,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     try {
       dynamic data;
-      if (!_enableNoVpnFallback || provider == 'tflix' || provider == 'playz') {
+      if (!_enableNoVpnFallback || provider == 'tflix') {
         data = await FunctionGateway.invoke(
           'source-match-list',
           body: {
             'source': provider,
-            if (provider == 'tflix' || provider == 'playz') 'catalog': catalog,
+            if (provider == 'tflix') 'catalog': catalog,
           },
         );
         final liveRows = data is Map ? data['matches'] : null;
@@ -371,7 +371,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         final key = _anchorKey(match, anchor, provider: provider);
         if (_anchorStatuses.containsKey(key)) continue;
 
-        if (provider == 'tflix' || provider == 'playz') {
+        if (provider == 'tflix') {
           // Catalog entries are candidates. Check their actual media on demand.
           _anchorStatuses[key] = 'unknown';
           continue;
@@ -610,7 +610,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'page_url': anchor['page_url'] ?? match['page_url'],
           'skip_probe': provider != 'tflix',
           if (provider == 'tflix') 'catalog': _tflixCatalog,
-          if (provider == 'playz') 'catalog': _playzCatalog,
         },
       );
 
@@ -1283,31 +1282,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
           );
   }
 
-  Widget _playzCatalogButton(String value, String label) {
-    void selectCatalog() {
-      setState(() {
-        _playzCatalog = value;
-        _sourceSelectionEpoch += 1;
-        _anchorStatusEpoch += 1;
-        sourceMatches = const [];
-        errorText = null;
-        _anchorStatuses.clear();
-        _anchorLineCounts.clear();
-      });
-      _loadSoco();
-    }
-
-    return _playzCatalog == value
-        ? FilledButton.tonal(
-            onPressed: loading ? null : selectCatalog,
-            child: Text(label),
-          )
-        : OutlinedButton(
-            onPressed: loading ? null : selectCatalog,
-            child: Text(label),
-          );
-  }
-
   String _sourceLabel(String value) {
     switch (value) {
       case 'tflix':
@@ -1486,23 +1460,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     'Only recently verified media can be added.',
                   ),
                 ],
-                if (source == 'playz') ...[
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _playzCatalogButton('channels', 'Sports Channels'),
-                      _playzCatalogButton('matches', 'Matches'),
-                      _playzCatalogButton('manual', 'Manual Link'),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  if (!_isManualSource)
-                    const Text(
-                      'Choose a PlayZ sports channel or event, then select a direct media line to add.',
-                    ),
-                ],
                 if (_isManualSource) _manualSourceCard(colors),
                 if (!_isManualSource) SwitchListTile.adaptive(
                   value: availableOnly,
@@ -1521,7 +1478,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       setState(() => availableOnly = value),
                 ),
                 const SizedBox(height: 4),
-                if (!_isManualSource && source != 'fawa' && source != 'cola' && source != 'tflix' && source != 'playz')
+                if (!_isManualSource && source != 'fawa' && source != 'cola' && source != 'tflix')
                   Row(
                     children: [
                       _dayButton('today', 'Today'),
@@ -1566,10 +1523,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
                           ? (_tflixCatalog == 'channels'
                               ? 'No sports channel sources are listed by TFLIX right now.'
                               : 'No football matches with stream sources are listed by TFLIX right now. Try Channels.')
-                          : source == 'playz'
-                              ? (_playzCatalog == 'channels'
-                                  ? 'No PlayZ sports channels with direct media are available.'
-                                  : 'No PlayZ matches with direct media are available.')
                           : 'No football matches in this source section.'),
                     ),
                   ),
@@ -1721,8 +1674,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                   label: Text(
                                     extracting
                                         ? '$name • LOADING'
-                                        : (source == 'tflix' || source == 'playz') &&
-                                                status == 'unknown'
+                                        : source == 'tflix' && status == 'unknown'
                                             ? '$name • CHECK STREAMS'
                                             : '$name$suffix',
                                   ),

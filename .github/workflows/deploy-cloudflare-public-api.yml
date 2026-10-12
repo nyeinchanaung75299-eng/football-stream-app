@@ -12,10 +12,7 @@ on:
       - "supabase/functions/_shared/football_names.mjs"
       - "supabase/functions/_shared/source_match_rows.mjs"
       - "supabase/functions/_shared/tflix_source.mjs"
-      - "supabase/functions/_shared/playz_source.mjs"
-      - "supabase/functions/_shared/playz_snapshot.mjs"
       - "scripts/test_tflix_source.mjs"
-      - "scripts/test_playz_source.mjs"
       - "scripts/test_fawa_source.mjs"
       - "supabase/functions/source-match-list/index.ts"
       - "supabase/functions/soco-links/index.ts"
@@ -70,9 +67,6 @@ jobs:
 
       - name: Verify Admin-only TFLIX extraction
         run: node --test scripts/test_tflix_source.mjs
-
-      - name: Verify Admin-only PlayZ catalog
-        run: node --test scripts/test_playz_source.mjs
 
       - name: Test Fawa literal stream extraction
         run: node --test scripts/test_fawa_source.mjs
