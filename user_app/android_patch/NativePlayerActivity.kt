@@ -2,9 +2,11 @@ package com.example.football_viewer
 
 import android.app.Activity
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.text.TextUtils
 import android.util.Base64
 import android.view.Gravity
 import android.view.MotionEvent
@@ -14,6 +16,7 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
@@ -120,6 +123,8 @@ class NativePlayerActivity : Activity() {
     private lateinit var playerView: PlayerView
     private lateinit var qualityButton: TextView
     private lateinit var serverButton: TextView
+    private lateinit var serverRail: LinearLayout
+    private lateinit var serverRailScroll: HorizontalScrollView
     private lateinit var statusText: TextView
     private lateinit var displayModeButton: TextView
 
@@ -258,9 +263,9 @@ class NativePlayerActivity : Activity() {
 
         playerView = PlayerView(this).apply {
             setBackgroundColor(Color.BLACK)
-            // FILL uses the exact PlayerView size on every phone:
-            // no letterbox bars and no crop/zoom. Aspect ratio may stretch slightly.
-            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+            // Preserve the source aspect ratio by default. FILL remains
+            // available from the display-mode button for users who prefer it.
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             useController = true
             // Keep the video clean. Controls appear only after the user taps.
             controllerAutoShow = false
@@ -293,9 +298,29 @@ class NativePlayerActivity : Activity() {
             }
         }
 
-        serverButton = overlayButton("Server").apply {
-            textSize = 14f
-            setPadding(dp(12), 0, dp(12), 0)
+        val safeTitle = intent.getStringExtra("title")
+            .orEmpty()
+            .trim()
+            .take(120)
+            .ifEmpty { "Football Live" }
+        val titleText = TextView(this).apply {
+            text = safeTitle
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            setSingleLine(true)
+            ellipsize = TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), 0, dp(8), 0)
+            contentDescription = "Match: $safeTitle"
+        }
+
+        serverButton = overlayButton("Lines").apply {
+            textSize = 13f
+            maxWidth = dp(150)
+            setSingleLine(true)
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(dp(10), 0, dp(10), 0)
+            contentDescription = "Show all lines"
             setOnClickListener { showServerMenu() }
         }
 
@@ -305,7 +330,7 @@ class NativePlayerActivity : Activity() {
             setOnClickListener { showQualityMenu() }
         }
 
-        displayModeButton = overlayButton("Fill").apply {
+        displayModeButton = overlayButton("Fit").apply {
             textSize = 13f
             setPadding(dp(10), 0, dp(10), 0)
             setOnClickListener { toggleDisplayMode() }
@@ -313,8 +338,15 @@ class NativePlayerActivity : Activity() {
 
         topBar.addView(back, LinearLayout.LayoutParams(dp(48), dp(42)))
         topBar.addView(
-            serverButton,
+            titleText,
             LinearLayout.LayoutParams(0, dp(42), 1f)
+        )
+        topBar.addView(
+            serverButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                dp(42)
+            )
         )
         topBar.addView(
             qualityButton,
@@ -340,6 +372,36 @@ class NativePlayerActivity : Activity() {
             )
         )
 
+        serverRail = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+        }
+        serverRailScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(Color.argb(150, 0, 0, 0))
+            addView(
+                serverRail,
+                HorizontalScrollView.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            )
+            visibility = View.GONE
+        }
+        root.addView(
+            serverRailScroll,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(50),
+                Gravity.BOTTOM
+            ).apply {
+                // Keep the line rail above Media3's seek/playback controls.
+                bottomMargin = dp(62)
+            }
+        )
+        renderServerRail()
+
         // Keep Server / Quality / Back completely hidden until the USER taps.
         // Media3 can briefly report its controller as visible during startup on
         // some Android/OEM builds, so controller visibility alone is not enough.
@@ -356,8 +418,10 @@ class NativePlayerActivity : Activity() {
             PlayerView.ControllerVisibilityListener { visibility ->
                 if (visibility == View.VISIBLE && userRequestedControls) {
                     topBar.visibility = View.VISIBLE
+                    serverRailScroll.visibility = View.VISIBLE
                 } else {
                     topBar.visibility = View.GONE
+                    serverRailScroll.visibility = View.GONE
                 }
 
                 if (visibility != View.VISIBLE) {
@@ -370,6 +434,7 @@ class NativePlayerActivity : Activity() {
         playerView.post {
             playerView.hideController()
             topBar.visibility = View.GONE
+            serverRailScroll.visibility = View.GONE
         }
 
         statusText = TextView(this).apply {
@@ -409,6 +474,7 @@ class NativePlayerActivity : Activity() {
         stopProgressCheck()
         playbackGeneration += 1
         selectedServerIndex = index
+        renderServerRail()
         val source = sources.optJSONObject(index) ?: return
         val url = source.optString("url").trim()
         if (url.isBlank()) {
@@ -426,8 +492,7 @@ class NativePlayerActivity : Activity() {
         forcedQualityLabel = null
         qualityOptions.clear()
         qualityButton.text = "Auto"
-        serverButton.text = source.optString("label", "Server ${index + 1}")
-        showStatus("Opening ${serverButton.text}…")
+        showStatus("Opening ${serverLabel(index)}…")
 
         playerView.player = null
         player?.release()
@@ -585,6 +650,7 @@ class NativePlayerActivity : Activity() {
             additions.add(source)
         }
         additions.forEach { sources.put(it) }
+        renderServerRail()
     }
 
     private fun reportPlaybackProgress() {
@@ -677,6 +743,7 @@ class NativePlayerActivity : Activity() {
     private fun tryNextServer(message: String) {
         stopProgressCheck()
         autoFallbackTried.add(selectedServerIndex)
+        renderServerRail()
         for (i in 0 until sources.length()) {
             if (!autoFallbackTried.contains(i)) {
                 val from = selectedServerIndex
@@ -708,31 +775,120 @@ class NativePlayerActivity : Activity() {
         }
         showStatus("No working server\nTap Server to choose again")
         autoFallbackTried.clear()
+        renderServerRail()
     }
 
     private fun showServerMenu() {
         val popup = PopupMenu(this, serverButton)
         for (i in 0 until sources.length()) {
-            val source = sources.optJSONObject(i)
-            val label = source?.optString("label", "Server ${i + 1}") ?: "Server ${i + 1}"
-            popup.menu.add(0, 12000 + i, i, label).apply { isChecked = i == selectedServerIndex }
+            popup.menu.add(0, 12000 + i, i, serverLabel(i)).apply {
+                isChecked = i == selectedServerIndex
+            }
         }
         popup.setOnMenuItemClickListener { item ->
             val i = item.itemId - 12000
             if (i in 0 until sources.length()) {
-                autoFallbackTried.clear()
-                MainActivity.emitPlayerEvent(
-                    "playback line selected",
-                    mapOf(
-                        "selected_index" to i,
-                        "line_count" to sources.length()
-                    )
-                )
-                playServer(i)
+                selectServer(i)
                 true
             } else false
         }
         popup.show()
+    }
+
+    private fun selectServer(index: Int) {
+        if (index !in 0 until sources.length() || index == selectedServerIndex) return
+        autoFallbackTried.clear()
+        MainActivity.emitPlayerEvent(
+            "playback line selected",
+            mapOf(
+                "selected_index" to index,
+                "line_count" to sources.length()
+            )
+        )
+        playServer(index)
+    }
+
+    private fun serverLabel(index: Int): String {
+        val source = sources.optJSONObject(index)
+        val raw = source?.optString("label")
+            ?.trim()
+            .orEmpty()
+            .ifEmpty { source?.optString("resolution")?.trim().orEmpty() }
+        val unsafe = raw.length > 80 ||
+            Regex("[/?:=&@\\\\]").containsMatchIn(raw) ||
+            Regex("(?i)\\b(?:referer|origin|authorization|token|key|kid)\\s*[:=]")
+                .containsMatchIn(raw) ||
+            Regex("(?i)\\b[0-9a-f]{24,}\\b").containsMatchIn(raw)
+        return if (raw.isEmpty() || unsafe) "Line ${index + 1}" else raw
+    }
+
+    private fun renderServerRail() {
+        if (!::serverRail.isInitialized || !::serverRailScroll.isInitialized) return
+        serverRail.removeAllViews()
+        var selectedChip: View? = null
+        for (i in 0 until sources.length()) {
+            val selected = i == selectedServerIndex
+            val failed = autoFallbackTried.contains(i)
+            val chip = TextView(this).apply {
+                text = when {
+                    selected -> "✓ ${serverLabel(i)}"
+                    failed -> "! ${serverLabel(i)}"
+                    else -> serverLabel(i)
+                }
+                setTextColor(
+                    when {
+                        selected -> Color.rgb(82, 224, 154)
+                        failed -> Color.rgb(255, 145, 145)
+                        else -> Color.WHITE
+                    }
+                )
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setSingleLine(true)
+                ellipsize = TextUtils.TruncateAt.END
+                maxWidth = dp(210)
+                minWidth = dp(84)
+                setPadding(dp(14), 0, dp(14), 0)
+                isSelected = selected
+                contentDescription = if (selected) {
+                    "${serverLabel(i)}, selected line"
+                } else {
+                    "${serverLabel(i)}, line"
+                }
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(20).toFloat()
+                    setColor(
+                        if (selected) Color.argb(225, 18, 57, 43)
+                        else Color.argb(225, 24, 24, 24)
+                    )
+                    setStroke(
+                        if (selected) dp(2) else dp(1),
+                        when {
+                            selected -> Color.rgb(82, 224, 154)
+                            failed -> Color.rgb(220, 94, 94)
+                            else -> Color.rgb(100, 100, 100)
+                        }
+                    )
+                }
+                setOnClickListener { selectServer(i) }
+            }
+            serverRail.addView(
+                chip,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    dp(40)
+                ).apply {
+                    marginEnd = dp(8)
+                }
+            )
+            if (selected) selectedChip = chip
+        }
+        selectedChip?.let { chip ->
+            serverRailScroll.post {
+                serverRailScroll.smoothScrollTo((chip.left - dp(12)).coerceAtLeast(0), 0)
+            }
+        }
     }
 
     private fun rebuildQualityOptions(tracks: Tracks) {
