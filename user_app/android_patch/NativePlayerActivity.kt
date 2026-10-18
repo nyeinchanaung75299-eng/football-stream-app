@@ -382,7 +382,7 @@ class NativePlayerActivity : Activity() {
             setBackgroundColor(Color.argb(150, 0, 0, 0))
             addView(
                 serverRail,
-                HorizontalScrollView.LayoutParams(
+                FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
