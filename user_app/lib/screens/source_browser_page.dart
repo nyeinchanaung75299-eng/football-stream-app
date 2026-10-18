@@ -777,6 +777,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         return;
       }
 
+      NativePlayer.prewarm(sources: _playerSources(rows));
+
       final picked = await showModalBottomSheet<int>(
         context: context,
         useSafeArea: true,

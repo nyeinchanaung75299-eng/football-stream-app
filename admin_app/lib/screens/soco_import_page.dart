@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -10,6 +11,7 @@ import '../analytics_service.dart';
 import '../football_english.dart';
 import '../services/manual_source_url.dart';
 import '../services/function_gateway.dart';
+import '../services/stream_library_service.dart';
 import '../source_line_validation.dart';
 
 class SocoImportPage extends StatefulWidget {
@@ -35,8 +37,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   static const _rawMirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/sources';
 
-  static final bool _enableNoVpnFallback =
-      const String.fromEnvironment(
+  static final bool _enableNoVpnFallback = const String.fromEnvironment(
         'ENABLE_NO_VPN_FALLBACK',
         defaultValue: '0',
       ).trim() ==
@@ -58,6 +59,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
   int _sourceLoadEpoch = 0;
   int _sourceSelectionEpoch = 0;
   bool _addingLine = false;
+  bool _savingLibrary = false;
+  String? _deletingLibraryId;
+  late final StreamLibraryService _streamLibrary;
+  Future<List<StreamLibraryEntry>>? _libraryFuture;
   final _playzServerName = TextEditingController(text: 'Server 1');
   final _playzUrl = TextEditingController();
   final _playzReferer = TextEditingController();
@@ -69,16 +74,27 @@ class _SocoImportPageState extends State<SocoImportPage> {
   @override
   void initState() {
     super.initState();
+    _streamLibrary = StreamLibraryService(Supabase.instance.client);
     targetMatchId = widget.initialMatchId;
     _targetMatchesFuture = _loadTargetMatches();
     final requested = widget.initialSource.trim().toLowerCase();
-    source = const {'soco', 'yyzb', 'fawa', 'cola', 'playz', 'tflix'}.contains(requested)
+    source = const {
+      'soco',
+      'yyzb',
+      'fawa',
+      'cola',
+      'playz',
+      'tflix',
+    }.contains(requested)
         ? requested
         : 'soco';
-    dayFilter =
-        (source == 'fawa' || source == 'cola' || source == 'tflix' || _isManualSource)
-            ? 'all'
-            : 'today';
+    if (_isManualSource) _libraryFuture = _streamLibrary.list();
+    dayFilter = (source == 'fawa' ||
+            source == 'cola' ||
+            source == 'tflix' ||
+            _isManualSource)
+        ? 'all'
+        : 'today';
     _loadSoco();
     _sourceRefreshTimer = Timer.periodic(
       const Duration(minutes: 1),
@@ -101,7 +117,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   Future<void> _refreshSourceInBackground() async {
-    if (!mounted || _isManualSource || loading || _backgroundRefreshBusy) return;
+    if (!mounted || _isManualSource || loading || _backgroundRefreshBusy)
+      return;
     _backgroundRefreshBusy = true;
     try {
       await _loadSoco(silent: true);
@@ -112,9 +129,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
   void message(String text) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(text)),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   Future<List<Map<String, dynamic>>> _loadTargetMatches() async {
@@ -133,23 +148,20 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final now = DateTime.now();
     const staleKickoffGrace = Duration(hours: 5);
 
-    return List<Map<String, dynamic>>.from(data)
-        .where((row) {
-          final kickoff = DateTime.tryParse(
-            row['kickoff_at']?.toString() ?? '',
-          )?.toLocal();
-          final stale = row['is_live'] != true &&
-              kickoff != null &&
-              now.difference(kickoff) > staleKickoffGrace;
+    return List<Map<String, dynamic>>.from(data).where((row) {
+      final kickoff =
+          DateTime.tryParse(row['kickoff_at']?.toString() ?? '')?.toLocal();
+      final stale = row['is_live'] != true &&
+          kickoff != null &&
+          now.difference(kickoff) > staleKickoffGrace;
 
-          return row['deleted_at'] == null &&
-              row['is_active'] == true &&
-              row['is_finished'] != true &&
-              row['is_featured'] != false &&
-              (row['publish_state'] ?? 'published') == 'published' &&
-              !stale;
-        })
-        .toList();
+      return row['deleted_at'] == null &&
+          row['is_active'] == true &&
+          row['is_finished'] != true &&
+          row['is_featured'] != false &&
+          (row['publish_state'] ?? 'published') == 'published' &&
+          !stale;
+    }).toList();
   }
 
   Future<Map<String, dynamic>> _loadSourceMirror(String provider) async {
@@ -157,16 +169,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
     Map<String, dynamic>? emptyFallback;
     for (final base in const [_pagesMirrorBase, _rawMirrorBase]) {
       try {
-        final response = await http
-            .get(
-              Uri.parse(base + '/' + provider + '.json').replace(
-                queryParameters: {
-                  't': DateTime.now().millisecondsSinceEpoch.toString(),
-                },
-              ),
-              headers: const {'Accept': 'application/json'},
-            )
-            .timeout(const Duration(seconds: 18));
+        final response = await http.get(
+          Uri.parse(base + '/' + provider + '.json').replace(
+            queryParameters: {
+              't': DateTime.now().millisecondsSinceEpoch.toString(),
+            },
+          ),
+          headers: const {'Accept': 'application/json'},
+        ).timeout(const Duration(seconds: 18));
         if (response.statusCode < 200 || response.statusCode >= 300) {
           throw Exception(
             'Source mirror HTTP ' + response.statusCode.toString(),
@@ -192,9 +202,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   bool _staleSourceMatch(Map<String, dynamic> row) {
-    final kickoff = DateTime.tryParse(
-      row['match_time']?.toString() ?? '',
-    )?.toUtc();
+    final kickoff =
+        DateTime.tryParse(row['match_time']?.toString() ?? '')?.toUtc();
     if (kickoff == null) return false;
     return DateTime.now().toUtc().difference(kickoff) >
         const Duration(hours: 4);
@@ -260,35 +269,35 @@ class _SocoImportPageState extends State<SocoImportPage> {
       }
 
       final parsed = rows
-          .map((row) => englishSourceMatch(
-                Map<String, dynamic>.from(row as Map), provider))
+          .map(
+            (row) => englishSourceMatch(
+              Map<String, dynamic>.from(row as Map),
+              provider,
+            ),
+          )
           .where((row) => !_staleSourceMatch(row))
           .toList();
 
       parsed.sort((a, b) {
-        final at = DateTime.tryParse(a['match_time']?.toString() ?? '')
-                ?.toLocal() ??
-            DateTime(9999);
-        final bt = DateTime.tryParse(b['match_time']?.toString() ?? '')
-                ?.toLocal() ??
-            DateTime(9999);
+        final at =
+            DateTime.tryParse(a['match_time']?.toString() ?? '')?.toLocal() ??
+                DateTime(9999);
+        final bt =
+            DateTime.tryParse(b['match_time']?.toString() ?? '')?.toLocal() ??
+                DateTime(9999);
         final byTime = at.compareTo(bt);
         if (byTime != 0) return byTime;
-        return (a['home_team'] ?? '')
-            .toString()
-            .toLowerCase()
-            .compareTo(
+        return (a['home_team'] ?? '').toString().toLowerCase().compareTo(
               (b['home_team'] ?? '').toString().toLowerCase(),
             );
       });
 
-      unawaited(AnalyticsService.capture(
-        'source match list loaded',
-        properties: {
-          'source': provider,
-          'match_count': parsed.length,
-        },
-      ));
+      unawaited(
+        AnalyticsService.capture(
+          'source match list loaded',
+          properties: {'source': provider, 'match_count': parsed.length},
+        ),
+      );
       if (!current()) return;
       setState(() {
         sourceMatches = parsed;
@@ -296,16 +305,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
         _anchorLineCounts.clear();
       });
       unawaited(
-        Future<void>.delayed(
-          Duration.zero,
-          _probeVisibleAnchorStatuses,
-        ),
+        Future<void>.delayed(Duration.zero, _probeVisibleAnchorStatuses),
       );
     } catch (e) {
-      unawaited(AnalyticsService.capture(
-        'source match list failed',
-        properties: {'source': provider},
-      ));
+      unawaited(
+        AnalyticsService.capture(
+          'source match list failed',
+          properties: {'source': provider},
+        ),
+      );
       if (!current()) return;
       if (!silent) {
         final detail = e.toString().replaceFirst('Exception: ', '');
@@ -351,8 +359,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     for (final value in [match['match_status'], match['status']]) {
       final status = value?.toString().trim().toUpperCase() ?? '';
-      if (const {'LIVE', 'INPLAY', 'IN_PLAY', '1H', '2H', 'HT'}
-          .contains(status)) {
+      if (const {
+        'LIVE',
+        'INPLAY',
+        'IN_PLAY',
+        '1H',
+        '2H',
+        'HT',
+      }.contains(status)) {
         return true;
       }
     }
@@ -382,17 +396,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
         }
 
         if (provider == 'cola' || provider == 'fawa') {
-          _anchorStatuses[key] =
-              _matchLooksLive(match) ? 'live' : 'ready';
+          _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'ready';
           continue;
         }
 
         _anchorStatuses[key] = 'checking';
-        pending.add({
-          'match': match,
-          'anchor': anchor,
-          'key': key,
-        });
+        pending.add({'match': match, 'anchor': anchor, 'key': key});
       }
     }
 
@@ -404,10 +413,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
       final batch = pending.skip(offset).take(4).toList();
       await Future.wait(
         batch.map((item) async {
-          final match =
-              Map<String, dynamic>.from(item['match'] as Map);
-          final anchor =
-              Map<String, dynamic>.from(item['anchor'] as Map);
+          final match = Map<String, dynamic>.from(item['match'] as Map);
+          final anchor = Map<String, dynamic>.from(item['anchor'] as Map);
           final key = item['key'].toString();
 
           try {
@@ -434,8 +441,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
               return;
             }
 
-            final lineCount =
-                (data['line_count'] as num?)?.toInt() ?? 0;
+            final lineCount = (data['line_count'] as num?)?.toInt() ?? 0;
             _anchorLineCounts[key] = lineCount;
 
             if (_isLiveStatus(data['live_status'])) {
@@ -491,9 +497,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
         : DateTime(now.year, now.month, now.day);
 
     return rows.where((row) {
-      final time = DateTime.tryParse(
-        row['match_time']?.toString() ?? '',
-      )?.toLocal();
+      final time =
+          DateTime.tryParse(row['match_time']?.toString() ?? '')?.toLocal();
       return time != null && _sameDate(time, wanted);
     }).toList();
   }
@@ -531,10 +536,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'Choose NCA match',
-                  style: TextStyle(
-                    fontSize: 19,
-                    fontWeight: FontWeight.w900,
-                  ),
+                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
                 ),
               ),
             ),
@@ -574,10 +576,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                             ),
                           )
                         : null,
-                    onTap: () => Navigator.pop(
-                      sheetContext,
-                      m['id']?.toString(),
-                    ),
+                    onTap: () =>
+                        Navigator.pop(sheetContext, m['id']?.toString()),
                   );
                 },
               ),
@@ -630,11 +630,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .toList();
 
       final statusKey = _anchorKey(match, anchor, provider: provider);
-      final sourceIsLive =
-          provider != 'tflix' && data is Map && _isLiveStatus(data['live_status']);
+      final sourceIsLive = provider != 'tflix' &&
+          data is Map &&
+          _isLiveStatus(data['live_status']);
       final hasHealthy = lines.any((line) {
-        final health =
-            (line['health_status'] ?? '').toString().toLowerCase();
+        final health = (line['health_status'] ?? '').toString().toLowerCase();
         return health == 'healthy' || health == 'slow';
       });
       if (mounted) {
@@ -646,55 +646,62 @@ class _SocoImportPageState extends State<SocoImportPage> {
         });
       }
 
-      unawaited(AnalyticsService.capture(
-        'source lines loaded',
-        properties: {
-          'source': provider,
-          'line_count': lines.length,
-          'source_live':
-              data is Map &&
-              (data['live_status'] == true ||
-                  data['live_status'] == 1 ||
-                  data['live_status']?.toString() == '1'),
-        },
-      ));
+      unawaited(
+        AnalyticsService.capture(
+          'source lines loaded',
+          properties: {
+            'source': provider,
+            'line_count': lines.length,
+            'source_live': data is Map &&
+                (data['live_status'] == true ||
+                    data['live_status'] == 1 ||
+                    data['live_status']?.toString() == '1'),
+          },
+        ),
+      );
 
       if (!current()) return;
       if (lines.isEmpty) {
-        message(provider == 'tflix'
-            ? 'No verified M3U8 or MPD stream is available for this TFLIX source.'
-            : 'No playable line is available for this streamer.');
+        message(
+          provider == 'tflix'
+              ? 'No verified M3U8 or MPD stream is available for this TFLIX source.'
+              : 'No playable line is available for this streamer.',
+        );
         return;
       }
 
       final resolvedAnchor = Map<String, dynamic>.from(anchor);
-      final freshName = data is Map
-          ? (data['anchor_name'] ?? '').toString().trim()
-          : '';
-      if (provider == 'yyzb' && freshName.isNotEmpty &&
+      final freshName =
+          data is Map ? (data['anchor_name'] ?? '').toString().trim() : '';
+      if (provider == 'yyzb' &&
+          freshName.isNotEmpty &&
           _genericAnchorIdentity(anchor)) {
         // Public mirrors mask commentator names. The authenticated room
         // response can recover the legacy import name without exposing it.
         resolvedAnchor['import_name'] = freshName;
         resolvedAnchor['original_nick_name'] = freshName;
-        resolvedAnchor['nick_name'] = englishSourceAnchorName(resolvedAnchor, 0);
+        resolvedAnchor['nick_name'] = englishSourceAnchorName(
+          resolvedAnchor,
+          0,
+        );
       }
       await _showQualityPicker(
         match: match,
         anchor: resolvedAnchor,
         lines: lines,
-        sourceLiveStatus: provider != 'tflix' && data is Map ? data['live_status'] : null,
+        sourceLiveStatus:
+            provider != 'tflix' && data is Map ? data['live_status'] : null,
       );
     } catch (e) {
-      unawaited(AnalyticsService.capture(
-        'source lines failed',
-        properties: {'source': source},
-      ));
+      unawaited(
+        AnalyticsService.capture(
+          'source lines failed',
+          properties: {'source': source},
+        ),
+      );
       if (!current()) return;
       final detail = e.toString().replaceFirst('Exception: ', '');
-      message(
-        'Could not load ${_sourceLabel(provider)} stream links. $detail',
-      );
+      message('Could not load ${_sourceLabel(provider)} stream links. $detail');
     } finally {
       if (mounted && _extractingAnchorKey == extractingKey) {
         setState(() => _extractingAnchorKey = null);
@@ -708,9 +715,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
     required List<Map<String, dynamic>> lines,
     dynamic sourceLiveStatus,
   }) async {
-    final anchorName =
-        (anchor['nick_name'] ?? 'Streamer').toString().trim();
-    final importName = source == 'yyzb' ? _anchorImportName(anchor) : anchorName;
+    final anchorName = (anchor['nick_name'] ?? 'Streamer').toString().trim();
+    final importName =
+        source == 'yyzb' ? _anchorImportName(anchor) : anchorName;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -719,213 +726,220 @@ class _SocoImportPageState extends State<SocoImportPage> {
       showDragHandle: true,
       builder: (sheetContext) {
         final colors = Theme.of(sheetContext).colorScheme;
-        return SingleChildScrollView(child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 22),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Select Stream Quality',
-                style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${_sourceMatchTitle(match)} • $anchorName',
-                style: TextStyle(color: colors.onSurfaceVariant),
-              ),
-              if (sourceLiveStatus != null) ...[
-                const SizedBox(height: 8),
-                Builder(
-                  builder: (context) {
-                    final live = sourceLiveStatus == true ||
-                        sourceLiveStatus == 1 ||
-                        sourceLiveStatus.toString() == '1';
-                    return Align(
-                      alignment: Alignment.centerLeft,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: (live ? Colors.green : Colors.orange)
-                              .withValues(alpha: .12),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          live ? 'SOURCE LIVE' : 'SOURCE NOT LIVE',
-                          style: TextStyle(
-                            color: live ? Colors.green : Colors.orange,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w900,
+        return SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Select Stream Quality',
+                  style: Theme.of(sheetContext)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${_sourceMatchTitle(match)} • $anchorName',
+                  style: TextStyle(color: colors.onSurfaceVariant),
+                ),
+                if (sourceLiveStatus != null) ...[
+                  const SizedBox(height: 8),
+                  Builder(
+                    builder: (context) {
+                      final live = sourceLiveStatus == true ||
+                          sourceLiveStatus == 1 ||
+                          sourceLiveStatus.toString() == '1';
+                      return Align(
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: (live ? Colors.green : Colors.orange)
+                                .withValues(alpha: .12),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            live ? 'SOURCE LIVE' : 'SOURCE NOT LIVE',
+                            style: TextStyle(
+                              color: live ? Colors.green : Colors.orange,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  },
-                ),
-              ],
-              const SizedBox(height: 12),
-              ...lines.map((line) {
-                final label = (line['label'] ?? 'Stream').toString();
-                final type =
-                    (line['stream_type'] ?? 'auto').toString().toUpperCase();
-                final url = (line['url'] ?? '').toString();
-                final referer = (line['referer'] ?? '').toString().trim();
-                final origin = (line['origin'] ?? '').toString().trim();
-                final health =
-                    (line['health_status'] ?? '').toString().toLowerCase();
+                      );
+                    },
+                  ),
+                ],
+                const SizedBox(height: 12),
+                ...lines.map((line) {
+                  final label = (line['label'] ?? 'Stream').toString();
+                  final type =
+                      (line['stream_type'] ?? 'auto').toString().toUpperCase();
+                  final url = (line['url'] ?? '').toString();
+                  final referer = (line['referer'] ?? '').toString().trim();
+                  final origin = (line['origin'] ?? '').toString().trim();
+                  final health =
+                      (line['health_status'] ?? '').toString().toLowerCase();
 
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-                    child: Row(
-                      children: [
-                        Icon(
-                          type == 'HLS'
-                              ? Icons.play_circle_fill_rounded
-                              : Icons.video_file_rounded,
-                          color: colors.primary,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      source == 'yyzb' ? englishStreamLabel(label) : label,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                  ),
-                                  if (health.isNotEmpty)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 7,
-                                        vertical: 3,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: (health == 'healthy'
-                                                ? Colors.green
-                                                : health == 'failed' ||
-                                                        health == 'dead'
-                                                    ? Colors.red
-                                                    : Colors.orange)
-                                            .withValues(alpha: .12),
-                                        borderRadius:
-                                            BorderRadius.circular(999),
-                                      ),
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                      child: Row(
+                        children: [
+                          Icon(
+                            type == 'HLS'
+                                ? Icons.play_circle_fill_rounded
+                                : Icons.video_file_rounded,
+                            color: colors.primary,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
                                       child: Text(
-                                        health.toUpperCase(),
-                                        style: TextStyle(
-                                          color: health == 'healthy'
-                                              ? Colors.green
-                                              : health == 'failed' ||
-                                                      health == 'dead'
-                                                  ? Colors.red
-                                                  : Colors.orange,
-                                          fontSize: 9.5,
+                                        source == 'yyzb'
+                                            ? englishStreamLabel(label)
+                                            : label,
+                                        style: const TextStyle(
                                           fontWeight: FontWeight.w900,
                                         ),
                                       ),
                                     ),
+                                    if (health.isNotEmpty)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 7,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: (health == 'healthy'
+                                                  ? Colors.green
+                                                  : health == 'failed' ||
+                                                          health == 'dead'
+                                                      ? Colors.red
+                                                      : Colors.orange)
+                                              .withValues(alpha: .12),
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          health.toUpperCase(),
+                                          style: TextStyle(
+                                            color: health == 'healthy'
+                                                ? Colors.green
+                                                : health == 'failed' ||
+                                                        health == 'dead'
+                                                    ? Colors.red
+                                                    : Colors.orange,
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  url,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                                if (referer.isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Referer: $referer',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      color: colors.onSurfaceVariant,
+                                    ),
+                                  ),
                                 ],
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                url,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  color: colors.onSurfaceVariant,
-                                ),
-                              ),
-                              if (referer.isNotEmpty) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Referer: $referer',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 10.5,
-                                    color: colors.onSurfaceVariant,
+                                if (origin.isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Origin: $origin',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      color: colors.onSurfaceVariant,
+                                    ),
                                   ),
-                                ),
+                                ],
                               ],
-                              if (origin.isNotEmpty) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Origin: $origin',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 10.5,
-                                    color: colors.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ],
+                            ),
                           ),
-                        ),
-                        IconButton(
-                          tooltip: 'Copy link',
-                          onPressed: () async {
-                            await Clipboard.setData(
-                              ClipboardData(text: url),
-                            );
-                            unawaited(AnalyticsService.capture(
-                              'source link copied',
-                              properties: {
-                                'source': source,
-                                'stream_type':
-                                    (line['stream_type'] ?? 'auto').toString(),
-                              },
-                            ));
-                            message('${_sourceLabel(source)} link copied.');
-                          },
-                          icon: const Icon(Icons.copy_rounded),
-                        ),
-                        FilledButton(
-                          onPressed: () async {
-                            final added = await _addLine(
-                              line: line,
-                              anchorName: importName,
-                            );
-                            if (added && sheetContext.mounted) {
-                              Navigator.pop(sheetContext);
-                            }
-                          },
-                          child: const Text('ADD'),
-                        ),
-                      ],
+                          IconButton(
+                            tooltip: 'Copy link',
+                            onPressed: () async {
+                              await Clipboard.setData(ClipboardData(text: url));
+                              unawaited(
+                                AnalyticsService.capture(
+                                  'source link copied',
+                                  properties: {
+                                    'source': source,
+                                    'stream_type':
+                                        (line['stream_type'] ?? 'auto')
+                                            .toString(),
+                                  },
+                                ),
+                              );
+                              message('${_sourceLabel(source)} link copied.');
+                            },
+                            icon: const Icon(Icons.copy_rounded),
+                          ),
+                          FilledButton(
+                            onPressed: () async {
+                              final added = await _addLine(
+                                line: line,
+                                anchorName: importName,
+                              );
+                              if (added && sheetContext.mounted) {
+                                Navigator.pop(sheetContext);
+                              }
+                            },
+                            child: const Text('ADD'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    targetMatchId == null
+                        ? 'Each ADD will ask which NCA match to use.'
+                        : 'Each ADD will still ask for the NCA match. The selected destination is shown first.',
+                    style: TextStyle(
+                      color: colors.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                );
-              }),
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  targetMatchId == null
-                      ? 'Each ADD will ask which NCA match to use.'
-                      : 'Each ADD will still ask for the NCA match. The selected destination is shown first.',
-                  style: TextStyle(
-                    color: colors.onSurfaceVariant,
-                    fontWeight: FontWeight.w700,
-                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ));
+        );
       },
     );
   }
@@ -935,83 +949,55 @@ class _SocoImportPageState extends State<SocoImportPage> {
     required String anchorName,
   }) async {
     if (_addingLine) return false;
-    _addingLine = true;
+    setState(() => _addingLine = true);
     final provider = source;
     try {
       if (provider == 'tflix' && !isVerifiedTflixLine(line)) {
-        message('This TFLIX stream needs a new media check. Refresh the source.');
+        message(
+          'This TFLIX stream needs a new media check. Refresh the source.',
+        );
         return false;
       }
       // Always require an explicit destination confirmation. The dropdown and
-    // initial match only suggest which match should appear first.
-    final presetTarget = targetMatchId;
-    final target = await _chooseDestination();
-    if (target == null) return false;
-    if (provider == 'tflix' && !isVerifiedTflixLine(line)) {
-      message('This TFLIX stream needs a new media check. Refresh the source.');
-      return false;
-    }
+      // initial match only suggest which match should appear first.
+      final presetTarget = targetMatchId;
+      final target = await _chooseDestination();
+      if (target == null) return false;
+      if (provider == 'tflix' && !isVerifiedTflixLine(line)) {
+        message(
+          'This TFLIX stream needs a new media check. Refresh the source.',
+        );
+        return false;
+      }
 
-    final url = (line['url'] ?? '').toString().trim();
-    if (url.isEmpty) return false;
+      final url = (line['url'] ?? '').toString().trim();
+      if (url.isEmpty) return false;
 
-    final sourceName = _sourceLabel(provider);
-    final label = (line['label'] ?? sourceName).toString();
-    final type = (line['stream_type'] ?? 'auto').toString();
-    final resolution = (line['resolution'] ?? label).toString();
-    final fullLabel = '$sourceName • $anchorName • $label';
+      final sourceName = _sourceLabel(provider);
+      final label = (line['label'] ?? sourceName).toString();
+      final type = (line['stream_type'] ?? 'auto').toString();
+      final resolution = (line['resolution'] ?? label).toString();
+      final fullLabel = '$sourceName • $anchorName • $label';
 
-    final exact = await Supabase.instance.client
-        .from('stream_links')
-        .select('id,is_active,expires_at')
-        .eq('match_id', target)
-        .eq('stream_url', url)
-        .maybeSingle()
+      final exact = await Supabase.instance.client
+          .from('stream_links')
+          .select('id,is_active,expires_at')
+          .eq('match_id', target)
+          .eq('stream_url', url)
+          .maybeSingle()
           .timeout(const Duration(seconds: 10));
 
-    Map<String, dynamic> saved;
-    if (exact != null) {
-      // A previously imported short-lived line may have been disabled after
-      // its signed URL expired. Re-enable it when the source returns the same
-      // URL again instead of treating it as an unusable duplicate.
-      saved = await Supabase.instance.client
-          .from('stream_links')
-          .update({
-            'label': fullLabel,
-            'resolution': resolution,
-            'stream_type': type,
-            'referer': nullable(line['referer']?.toString()),
-            'origin': nullable(line['origin']?.toString()),
-            ...sourceLineKeyFields(line),
-            'is_active': true,
-            'expires_at': line['expires_at'],
-            'health_status': 'unknown',
-            'health_latency_ms': null,
-            'last_checked_at': null,
-          })
-          .eq('id', exact['id'])
-          .select('id')
-          .single()
-            .timeout(const Duration(seconds: 12));
-    } else {
-      // Soco/YYZB/Cola signed URLs rotate. Match the logical line by its
-      // stable label/type/resolution and replace the expired URL in-place so
-      // the viewer gets the fresh token without accumulating dead rows.
-      final sameLogical = await Supabase.instance.client
-          .from('stream_links')
-          .select('id')
-          .eq('match_id', target)
-          .eq('label', fullLabel)
-          .eq('stream_type', type)
-          .eq('resolution', resolution)
-          .maybeSingle()
-            .timeout(const Duration(seconds: 10));
-
-      if (sameLogical != null) {
+      Map<String, dynamic> saved;
+      if (exact != null) {
+        // A previously imported short-lived line may have been disabled after
+        // its signed URL expired. Re-enable it when the source returns the same
+        // URL again instead of treating it as an unusable duplicate.
         saved = await Supabase.instance.client
             .from('stream_links')
             .update({
-              'stream_url': url,
+              'label': fullLabel,
+              'resolution': resolution,
+              'stream_type': type,
               'referer': nullable(line['referer']?.toString()),
               'origin': nullable(line['origin']?.toString()),
               ...sourceLineKeyFields(line),
@@ -1021,52 +1007,86 @@ class _SocoImportPageState extends State<SocoImportPage> {
               'health_latency_ms': null,
               'last_checked_at': null,
             })
-            .eq('id', sameLogical['id'])
+            .eq('id', exact['id'])
             .select('id')
             .single()
-              .timeout(const Duration(seconds: 12));
+            .timeout(const Duration(seconds: 12));
       } else {
-        saved = await Supabase.instance.client
+        // Soco/YYZB/Cola signed URLs rotate. Match the logical line by its
+        // stable label/type/resolution and replace the expired URL in-place so
+        // the viewer gets the fresh token without accumulating dead rows.
+        final sameLogical = await Supabase.instance.client
             .from('stream_links')
-            .insert({
-              'match_id': target,
-              'label': fullLabel,
-              'resolution': resolution,
-              'stream_type': type,
-              'stream_url': url,
-              'referer': nullable(line['referer']?.toString()),
-              'origin': nullable(line['origin']?.toString()),
-              ...sourceLineKeyFields(line),
-              'use_webview': false,
-              'webview_url': null,
-              'send_notification': false,
-              'is_active': true,
-              'expires_at': line['expires_at'],
-            })
             .select('id')
-            .single()
+            .eq('match_id', target)
+            .eq('label', fullLabel)
+            .eq('stream_type', type)
+            .eq('resolution', resolution)
+            .maybeSingle()
+            .timeout(const Duration(seconds: 10));
+
+        if (sameLogical != null) {
+          saved = await Supabase.instance.client
+              .from('stream_links')
+              .update({
+                'stream_url': url,
+                'referer': nullable(line['referer']?.toString()),
+                'origin': nullable(line['origin']?.toString()),
+                ...sourceLineKeyFields(line),
+                'is_active': true,
+                'expires_at': line['expires_at'],
+                'health_status': 'unknown',
+                'health_latency_ms': null,
+                'last_checked_at': null,
+              })
+              .eq('id', sameLogical['id'])
+              .select('id')
+              .single()
               .timeout(const Duration(seconds: 12));
+        } else {
+          saved = await Supabase.instance.client
+              .from('stream_links')
+              .insert({
+                'match_id': target,
+                'label': fullLabel,
+                'resolution': resolution,
+                'stream_type': type,
+                'stream_url': url,
+                'referer': nullable(line['referer']?.toString()),
+                'origin': nullable(line['origin']?.toString()),
+                ...sourceLineKeyFields(line),
+                'use_webview': false,
+                'webview_url': null,
+                'send_notification': false,
+                'is_active': true,
+                'expires_at': line['expires_at'],
+              })
+              .select('id')
+              .single()
+              .timeout(const Duration(seconds: 12));
+        }
       }
-    }
 
       // Saving is complete. A slow health check must not keep ADD waiting or
       // invite a duplicate submission. Its result is keyed to the saved row,
       // never to whichever provider/destination the UI later selects.
       unawaited(_checkSavedLine(saved['id'].toString(), provider));
-      unawaited(AnalyticsService.capture(
-      'source line imported',
-      properties: {
-        'source': provider,
-        'stream_type': type,
-        'resolution': resolution,
-        'destination_preset': presetTarget != null,
-        'health_status': 'pending',
-      },
-    ));
+      unawaited(
+        AnalyticsService.capture(
+          'source line imported',
+          properties: {
+            'source': provider,
+            'stream_type': type,
+            'resolution': resolution,
+            'destination_preset': presetTarget != null,
+            'health_status': 'pending',
+          },
+        ),
+      );
 
-    final shownLabel = provider == 'yyzb' ? englishStreamLabel(label) : label;
-    message('$sourceName $shownLabel added. Health check is pending.');
-    return true;
+      final shownLabel = provider == 'yyzb' ? englishStreamLabel(label) : label;
+      message('$sourceName $shownLabel added. Health check is pending.');
+      return true;
     } on TimeoutException {
       message('Could not confirm the save. Refresh before trying again.');
       return false;
@@ -1074,21 +1094,31 @@ class _SocoImportPageState extends State<SocoImportPage> {
       message('Could not add the server. Please retry.');
       return false;
     } finally {
-      _addingLine = false;
+      if (mounted) {
+        setState(() => _addingLine = false);
+      } else {
+        _addingLine = false;
+      }
     }
   }
 
   Future<void> _checkSavedLine(String id, String provider) async {
     try {
-      final checked =
-          await FunctionGateway.invoke('stream-health', body: {'link_id': id})
-              .timeout(const Duration(seconds: 12));
-      unawaited(AnalyticsService.capture('stream health checked', properties: {
-        'scope': 'link',
-        'source': provider,
-        if (checked is Map && checked['health_status'] != null)
-          'health_status': checked['health_status'].toString(),
-      }));
+      final checked = await FunctionGateway.invoke(
+        'stream-health',
+        body: {'link_id': id},
+      ).timeout(const Duration(seconds: 12));
+      unawaited(
+        AnalyticsService.capture(
+          'stream health checked',
+          properties: {
+            'scope': 'link',
+            'source': provider,
+            if (checked is Map && checked['health_status'] != null)
+              'health_status': checked['health_status'].toString(),
+          },
+        ),
+      );
     } catch (_) {
       // System Health and Stream Servers show the eventual persisted result.
       // Do not show an error on a newer source/destination screen.
@@ -1098,6 +1128,122 @@ class _SocoImportPageState extends State<SocoImportPage> {
   String? nullable(String? value) {
     final text = value?.trim() ?? '';
     return text.isEmpty ? null : text;
+  }
+
+  void _refreshLibrary() {
+    if (!mounted) return;
+    setState(() => _libraryFuture = _streamLibrary.list());
+  }
+
+  Future<void> _saveHlsToLibrary() async {
+    if (_savingLibrary) return;
+    final url = _playzUrl.text.trim();
+    final inferred = detectManualStreamType(url);
+    final type = _playzType == 'auto' ? inferred : _playzType;
+    if (type != 'hls') {
+      message('Only HLS / M3U8 can be saved to the Library.');
+      return;
+    }
+
+    final name = _playzServerName.text.trim().isEmpty
+        ? 'Server 1'
+        : _playzServerName.text.trim();
+    final validation = validateHlsLibraryInput(
+      label: name,
+      streamUrl: url,
+      referer: _playzReferer.text,
+      origin: _playzOrigin.text,
+    );
+    if (validation != null) {
+      message(validation);
+      return;
+    }
+
+    setState(() => _savingLibrary = true);
+    try {
+      await _streamLibrary.save(
+        label: name,
+        streamUrl: url,
+        referer: _playzReferer.text,
+        origin: _playzOrigin.text,
+      );
+      unawaited(
+        AnalyticsService.capture(
+          'stream library saved',
+          properties: const {'stream_type': 'hls'},
+        ),
+      );
+      _refreshLibrary();
+      message('$name saved to the private HLS Library.');
+    } on TimeoutException {
+      message('Library save timed out. Refresh before trying again.');
+    } catch (_) {
+      message('Could not save this HLS entry. Please retry.');
+    } finally {
+      if (mounted) setState(() => _savingLibrary = false);
+    }
+  }
+
+  void _useLibraryEntry(StreamLibraryEntry entry) {
+    setState(() {
+      _playzServerName.text = entry.label;
+      _playzUrl.text = entry.streamUrl;
+      _playzReferer.text = entry.referer ?? '';
+      _playzOrigin.text = entry.origin ?? '';
+      _playzKeyId.clear();
+      _playzKeyData.clear();
+      _playzType = 'hls';
+    });
+    message('${entry.label} loaded into the manual form.');
+  }
+
+  Future<void> _addLibraryEntry(StreamLibraryEntry entry) async {
+    final added = await _addLine(
+      anchorName: 'Library',
+      line: entry.toPlaybackLine(),
+    );
+    if (!added) return;
+    unawaited(
+      _streamLibrary.markUsed(entry.id).then((_) {
+        if (mounted) _refreshLibrary();
+      }).catchError((_) {}),
+    );
+  }
+
+  Future<void> _deleteLibraryEntry(StreamLibraryEntry entry) async {
+    if (_deletingLibraryId != null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete saved HLS?'),
+        content: Text(
+          'Delete “${entry.label}” from the private Library? '
+          'Lines already added to matches will not be changed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('CANCEL'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('DELETE'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _deletingLibraryId = entry.id);
+    try {
+      await _streamLibrary.delete(entry.id);
+      _refreshLibrary();
+      message('${entry.label} removed from the Library.');
+    } catch (_) {
+      message('Could not delete this Library entry.');
+    } finally {
+      if (mounted) setState(() => _deletingLibraryId = null);
+    }
   }
 
   Future<void> _addManualLine() async {
@@ -1141,10 +1287,176 @@ class _SocoImportPageState extends State<SocoImportPage> {
       },
     );
     if (added && mounted) {
-      _playzUrl.clear();
-      _playzKeyId.clear();
-      _playzKeyData.clear();
+      setState(() {
+        _playzServerName.text = 'Server 1';
+        _playzUrl.clear();
+        _playzReferer.clear();
+        _playzOrigin.clear();
+        _playzKeyId.clear();
+        _playzKeyData.clear();
+        _playzType = 'auto';
+      });
     }
+  }
+
+  Widget _streamLibrarySection(ColorScheme colors) {
+    _libraryFuture ??= _streamLibrary.list();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: 32),
+        Row(
+          children: [
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Private HLS Library',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                  ),
+                  SizedBox(height: 2),
+                  Text('Admin-only · URL query and keys are never shown'),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Refresh Library',
+              onPressed: _refreshLibrary,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        FutureBuilder<List<StreamLibraryEntry>>(
+          future: _libraryFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              );
+            }
+            if (snapshot.hasError) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  'Could not load the private Library. Tap refresh to retry.',
+                  style: TextStyle(color: colors.error),
+                ),
+              );
+            }
+            final entries = snapshot.data ?? const <StreamLibraryEntry>[];
+            if (entries.isEmpty) {
+              return Text(
+                'No saved HLS yet. Enter an authorized M3U8 URL above and tap SAVE HLS.',
+                style: TextStyle(color: colors.onSurfaceVariant),
+              );
+            }
+
+            return Column(
+              children: entries.map((entry) {
+                final deleting = _deletingLibraryId == entry.id;
+                return Card.outlined(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.video_library_outlined,
+                              size: 22,
+                            ),
+                            const SizedBox(width: 9),
+                            Expanded(
+                              child: Text(
+                                entry.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            const Text(
+                              'HLS',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          safeStreamLocation(entry.streamUrl),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: deleting
+                                  ? null
+                                  : () => _useLibraryEntry(entry),
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                size: 18,
+                              ),
+                              label: const Text('USE'),
+                            ),
+                            FilledButton.icon(
+                              onPressed: deleting || _addingLine
+                                  ? null
+                                  : () => _addLibraryEntry(entry),
+                              icon: const Icon(
+                                Icons.add_link_rounded,
+                                size: 18,
+                              ),
+                              label: const Text('ADD TO MATCH'),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete saved HLS',
+                              onPressed: deleting
+                                  ? null
+                                  : () => _deleteLibraryEntry(entry),
+                              icon: deleting
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.delete_outline_rounded,
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(growable: false),
+            );
+          },
+        ),
+      ],
+    );
   }
 
   Widget _manualSourceCard(ColorScheme colors) {
@@ -1160,9 +1472,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              'A public PlayZ TV football listing/API has not been verified. '
               'Paste only a direct stream URL you are authorized to use. '
-              'This does not extract links from the APK or bypass app/DRM access.',
+              'HLS / M3U8 can be saved in your private Library for reuse. '
+              'This does not extract links from an APK or bypass app/DRM access.',
               style: TextStyle(color: colors.onSurfaceVariant),
             ),
             const SizedBox(height: 14),
@@ -1271,13 +1583,33 @@ class _SocoImportPageState extends State<SocoImportPage> {
               ),
             ],
             const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _addingLine ? null : _addManualLine,
-                icon: const Icon(Icons.add_link_rounded),
-                label: const Text('ADD TO NCA MATCH'),
-              ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _savingLibrary ? null : _saveHlsToLibrary,
+                  icon: _savingLibrary
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.bookmark_add_outlined),
+                  label: const Text('SAVE HLS'),
+                ),
+                FilledButton.icon(
+                  onPressed: _addingLine ? null : _addManualLine,
+                  icon: _addingLine
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.add_link_rounded),
+                  label: const Text('ADD TO NCA MATCH'),
+                ),
+              ],
             ),
             const SizedBox(height: 6),
             Text(
@@ -1285,6 +1617,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
               'A reachability check follows; successful playback is not guaranteed.',
               style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12),
             ),
+            _streamLibrarySection(colors),
           ],
         ),
       ),
@@ -1348,7 +1681,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       case 'tflix':
         return 'TFLIX';
       case 'playz':
-        return 'PlayZ TV';
+        return 'PlayZ / Manual';
       case 'yyzb':
         return 'YYZB';
       case 'fawa':
@@ -1368,8 +1701,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
             setState(() {
               _sourceSelectionEpoch += 1;
               source = value;
-              dayFilter =
-                  (value == 'fawa' || value == 'cola' || value == 'playz' || value == 'tflix') ? 'all' : 'today';
+              if (value == 'playz') {
+                _libraryFuture ??= _streamLibrary.list();
+              }
+              dayFilter = (value == 'fawa' ||
+                      value == 'cola' ||
+                      value == 'playz' ||
+                      value == 'tflix')
+                  ? 'all'
+                  : 'today';
               sourceMatches = const [];
               errorText = null;
               _anchorStatusEpoch += 1;
@@ -1384,14 +1724,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
           };
 
     return selected
-        ? FilledButton.tonal(
-            onPressed: onPressed,
-            child: Text(label),
-          )
-        : OutlinedButton(
-            onPressed: onPressed,
-            child: Text(label),
-          );
+        ? FilledButton.tonal(onPressed: onPressed, child: Text(label))
+        : OutlinedButton(onPressed: onPressed, child: Text(label));
   }
 
   Widget _dayButton(String value, String label) {
@@ -1400,22 +1734,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
     void selectDay() {
       setState(() => dayFilter = value);
       unawaited(
-        Future<void>.delayed(
-          Duration.zero,
-          _probeVisibleAnchorStatuses,
-        ),
+        Future<void>.delayed(Duration.zero, _probeVisibleAnchorStatuses),
       );
     }
 
     return selected
-        ? FilledButton.tonal(
-            onPressed: selectDay,
-            child: Text(label),
-          )
-        : TextButton(
-            onPressed: selectDay,
-            child: Text(label),
-          );
+        ? FilledButton.tonal(onPressed: selectDay, child: Text(label))
+        : TextButton(onPressed: selectDay, child: Text(label));
   }
 
   @override
@@ -1437,8 +1762,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _targetMatchesFuture,
         builder: (context, targetSnapshot) {
-          final targets =
-              targetSnapshot.data ?? const <Map<String, dynamic>>[];
+          final targets = targetSnapshot.data ?? const <Map<String, dynamic>>[];
 
           if (targetSnapshot.connectionState == ConnectionState.done &&
               targetSnapshot.hasData &&
@@ -1470,7 +1794,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
                         )?.toLocal();
                         final when = kickoff == null
                             ? '--:--'
-                            : DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff);
+                            : DateFormat(
+                                'dd MMM • h:mm a',
+                                'en_US',
+                              ).format(kickoff);
                         return DropdownMenuItem(
                           value: m['id'] as String,
                           child: Text(
@@ -1493,7 +1820,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     _sourceButton('yyzb', 'YYZB'),
                     _sourceButton('fawa', 'Fawa'),
                     _sourceButton('cola', 'ColaTV'),
-                    _sourceButton('playz', 'PlayZ TV'),
+                    _sourceButton('playz', 'PlayZ / Manual'),
                     _sourceButton('tflix', 'TFLIX'),
                   ],
                 ),
@@ -1522,32 +1849,37 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   ),
                 ],
                 if (_isManualSource) _manualSourceCard(colors),
-                if (!_isManualSource) SwitchListTile.adaptive(
-                  value: availableOnly,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: Text(
-                    source == 'tflix' ? 'With stream source' : 'Available only',
-                    style: const TextStyle(fontWeight: FontWeight.w800),
+                if (!_isManualSource)
+                  SwitchListTile.adaptive(
+                    value: availableOnly,
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text(
+                      source == 'tflix'
+                          ? 'With stream source'
+                          : 'Available only',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    subtitle: Text(
+                      source == 'tflix'
+                          ? 'Show entries with a player to check; playback is not verified yet.'
+                          : 'Hide matches that have no source yet.',
+                    ),
+                    onChanged: (value) => setState(() => availableOnly = value),
                   ),
-                  subtitle: Text(
-                    source == 'tflix'
-                        ? 'Show entries with a player to check; playback is not verified yet.'
-                        : 'Hide matches that have no source yet.',
-                  ),
-                  onChanged: (value) =>
-                      setState(() => availableOnly = value),
-                ),
                 const SizedBox(height: 4),
-                if (!_isManualSource && source != 'fawa' && source != 'cola' && source != 'tflix')
+                if (!_isManualSource &&
+                    source != 'fawa' &&
+                    source != 'cola' &&
+                    source != 'tflix')
                   Row(
                     children: [
                       _dayButton('today', 'Today'),
-                    const SizedBox(width: 4),
-                    _dayButton('tomorrow', 'Tomorrow'),
-                    const SizedBox(width: 4),
-                    _dayButton('all', 'All'),
-                    const Spacer(),
+                      const SizedBox(width: 4),
+                      _dayButton('tomorrow', 'Tomorrow'),
+                      const SizedBox(width: 4),
+                      _dayButton('all', 'All'),
+                      const Spacer(),
                       if (loading)
                         const SizedBox(
                           width: 19,
@@ -1576,15 +1908,20 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       ),
                     ),
                   ),
-                if (!_isManualSource && !loading && visible.isEmpty && errorText == null)
+                if (!_isManualSource &&
+                    !loading &&
+                    visible.isEmpty &&
+                    errorText == null)
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(18),
-                      child: Text(source == 'tflix'
-                          ? (_tflixCatalog == 'channels'
-                              ? 'No sports channel sources are listed by TFLIX right now.'
-                              : 'No football matches with stream sources are listed by TFLIX right now. Try Channels.')
-                          : 'No football matches in this source section.'),
+                      child: Text(
+                        source == 'tflix'
+                            ? (_tflixCatalog == 'channels'
+                                ? 'No sports channel sources are listed by TFLIX right now.'
+                                : 'No football matches with stream sources are listed by TFLIX right now. Try Channels.')
+                            : 'No football matches in this source section.',
+                      ),
                     ),
                   ),
                 ...visible.map((match) {
@@ -1594,12 +1931,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   final anchors = List<Map<String, dynamic>>.from(
                     match['anchors'] ?? const [],
                   )..sort((a, b) {
-                      final aStatus = _anchorStatuses[
-                          _anchorKey(match, a)
-                      ];
-                      final bStatus = _anchorStatuses[
-                          _anchorKey(match, b)
-                      ];
+                      final aStatus = _anchorStatuses[_anchorKey(match, a)];
+                      final bStatus = _anchorStatuses[_anchorKey(match, b)];
                       return _anchorStatusRank(aStatus)
                           .compareTo(_anchorStatusRank(bStatus));
                     });
@@ -1657,32 +1990,29 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                 ? 'Broadcast channel'
                                 : kickoff == null
                                     ? 'Unknown time'
-                                    : DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff),
-                            style: TextStyle(
-                              color: colors.onSurfaceVariant,
-                            ),
+                                    : DateFormat(
+                                        'dd MMM • h:mm a',
+                                        'en_US',
+                                      ).format(kickoff),
+                            style: TextStyle(color: colors.onSurfaceVariant),
                           ),
                           const SizedBox(height: 12),
                           if (anchors.isEmpty)
                             Text(
                               'No streamer is listed yet.',
-                              style: TextStyle(
-                                color: colors.onSurfaceVariant,
-                              ),
+                              style: TextStyle(color: colors.onSurfaceVariant),
                             )
                           else
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
                               children: anchors.map((anchor) {
-                                final name =
-                                    (anchor['nick_name'] ?? 'Streamer')
-                                        .toString();
+                                final name = (anchor['nick_name'] ?? 'Streamer')
+                                    .toString();
                                 final key = _anchorKey(match, anchor);
                                 final status =
                                     _anchorStatuses[key] ?? 'unknown';
-                                final lineCount =
-                                    _anchorLineCounts[key] ?? 0;
+                                final lineCount = _anchorLineCounts[key] ?? 0;
 
                                 final icon = switch (status) {
                                   'live' => Icons.sensors_rounded,
@@ -1708,8 +2038,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                   _ => colors.onSurfaceVariant,
                                 };
 
-                                final extracting =
-                                    _extractingAnchorKey == key;
+                                final extracting = _extractingAnchorKey == key;
 
                                 return OutlinedButton.icon(
                                   style: OutlinedButton.styleFrom(
@@ -1735,7 +2064,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                   label: Text(
                                     extracting
                                         ? '$name • LOADING'
-                                        : source == 'tflix' && status == 'unknown'
+                                        : source == 'tflix' &&
+                                                status == 'unknown'
                                             ? '$name • CHECK STREAMS'
                                             : '$name$suffix',
                                   ),

@@ -42,6 +42,48 @@ create table if not exists public.stream_links (
   created_at timestamptz not null default now()
 );
 
+-- Reusable direct HLS entries are private Admin data. They do not become
+-- playable/public until the Admin app copies one into stream_links for a
+-- specific match. DRM keys intentionally have no place in this table.
+create table if not exists public.stream_library (
+  id uuid primary key default gen_random_uuid(),
+  label text not null,
+  stream_type text not null default 'hls',
+  stream_url text not null,
+  referer text,
+  origin text,
+  fingerprint text generated always as (
+    encode(
+      extensions.digest(
+        stream_url || chr(31) || coalesce(referer, '') || chr(31) ||
+        coalesce(origin, ''),
+        'sha256'
+      ),
+      'hex'
+    )
+  ) stored,
+  created_by uuid default auth.uid() references auth.users(id) on delete set null,
+  last_used_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint stream_library_label_length
+    check (char_length(btrim(label)) between 1 and 120),
+  constraint stream_library_hls_only check (stream_type = 'hls'),
+  constraint stream_library_http_url check (
+    stream_url ~ '^https?://[^[:space:]]+$'
+    and char_length(stream_url) <= 8192
+  ),
+  constraint stream_library_referer_length check (
+    referer is null
+    or (referer !~ '[\r\n]' and char_length(referer) <= 2048)
+  ),
+  constraint stream_library_origin_length check (
+    origin is null
+    or (origin !~ '[\r\n]' and char_length(origin) <= 2048)
+  ),
+  constraint stream_library_fingerprint_unique unique (fingerprint)
+);
+
 create table if not exists public.highlights (
   id uuid primary key default gen_random_uuid(),
   title text not null,
@@ -69,6 +111,7 @@ $$;
 alter table public.profiles enable row level security;
 alter table public.matches enable row level security;
 alter table public.stream_links enable row level security;
+alter table public.stream_library enable row level security;
 alter table public.highlights enable row level security;
 
 drop policy if exists "read own profile" on public.profiles;
@@ -116,6 +159,16 @@ using (
   )
 );
 
+drop policy if exists "admins manage stream library" on public.stream_library;
+create policy "admins manage stream library"
+on public.stream_library for all
+to authenticated
+using ((select public.is_admin()))
+with check ((select public.is_admin()));
+
+revoke all on public.stream_library from public, anon, authenticated;
+grant select, insert, update, delete on public.stream_library to authenticated;
+
 drop policy if exists "admins manage highlights" on public.highlights;
 create policy "admins manage highlights"
 on public.highlights for all
@@ -145,12 +198,24 @@ create trigger trg_matches_updated_at
 before update on public.matches
 for each row execute function public.touch_updated_at();
 
+drop trigger if exists trg_stream_library_updated_at on public.stream_library;
+create trigger trg_stream_library_updated_at
+before update on public.stream_library
+for each row execute function public.touch_updated_at();
+
 create unique index if not exists matches_external_fixture_id_unique
   on public.matches (external_fixture_id)
   where external_fixture_id is not null;
 
 create index if not exists stream_links_match_id_idx
   on public.stream_links (match_id);
+
+create index if not exists stream_library_recent_idx
+  on public.stream_library (coalesce(last_used_at, updated_at) desc);
+
+create index if not exists stream_library_created_by_idx
+  on public.stream_library (created_by)
+  where created_by is not null;
 
 -- V7 Pro upgrade
 -- Run once AFTER the older V6/V6.3 upgrades.

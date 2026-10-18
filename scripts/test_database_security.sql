@@ -9,6 +9,13 @@ do $$ begin
   if current_database() <> 'nca_security_test' then
     raise exception 'This test requires the disposable nca_security_test database';
   end if;
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema='public' and table_name='stream_library'
+      and column_name in ('key_id','key_data')
+  ) then
+    raise exception 'Private HLS Library must not store DRM keys';
+  end if;
 end $$;
 
 insert into auth.users(id) values
@@ -36,6 +43,9 @@ insert into public.stream_links(match_id,stream_url)
   where id in ('10000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000004','10000000-0000-0000-0000-000000000005');
 insert into public.highlights(title,video_url,is_active) values
   ('Active','https://fixture.invalid/a',true),('Inactive','https://fixture.invalid/b',false);
+insert into public.stream_library(label,stream_url,referer,origin) values
+  ('Saved HLS','https://fixture.invalid/library.m3u8?private=1',
+   'https://fixture.invalid/watch','https://fixture.invalid');
 insert into private.gateway_secrets(name,secret_hash) values
   ('cloudflare_playback',encode(extensions.digest('local-test-gateway','sha256'),'hex'));
 
@@ -69,6 +79,8 @@ do $$ begin
      has_table_privilege('authenticated','public.stream_links','TRIGGER') or
      has_table_privilege('anon','public.stream_links','REFERENCES') or
      has_table_privilege('authenticated','public.stream_links','REFERENCES') or
+     has_table_privilege('anon','public.stream_library','SELECT') or
+     has_table_privilege('authenticated','public.stream_library','TRUNCATE') or
      has_table_privilege('authenticated','public.profiles','UPDATE') or
      has_function_privilege('anon','public.publish_featured_matches(jsonb)','EXECUTE') then
     raise exception 'Anonymous private-schema or publish privilege was granted';
@@ -93,6 +105,7 @@ select set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000002'
 do $$ begin
   if public.is_admin() or (select count(*) from public.profiles) <> 1 or
      (select count(*) from public.stream_links) <> 0 or
+     (select count(*) from public.stream_library) <> 0 or
      (select count(*) from public.highlights) <> 1 or
      (select stream_count from public.match_stream_counts where match_id='10000000-0000-0000-0000-000000000001') <> 2 then
     raise exception 'Non-admin read privileges changed';
@@ -108,15 +121,30 @@ do $$ begin
     raise exception 'Non-admin insert accepted';
   exception when insufficient_privilege then null;
   end;
+  begin
+    insert into public.stream_library(label,stream_url) values
+      ('Unauthorized','https://fixture.invalid/unauthorized.m3u8');
+    raise exception 'Non-admin Library insert accepted';
+  exception when insufficient_privilege then null;
+  end;
 end $$;
 
 select set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',true);
 do $$ declare result jsonb; before_count int; begin
   if not public.is_admin() or (select count(*) from public.profiles) <> 2 or
      (select count(*) from public.matches) <> 5 or
+     (select count(*) from public.stream_library) <> 1 or
      (select count(*) from public.highlights) <> 2 then
     raise exception 'Admin read privileges changed';
   end if;
+  insert into public.stream_library(label,stream_url) values
+    ('Added HLS','https://fixture.invalid/added.m3u8');
+  update public.stream_library set label='Edited HLS',updated_at='2000-01-01'
+    where label='Added HLS';
+  if (select updated_at from public.stream_library where label='Edited HLS') <> now() then
+    raise exception 'Library timestamp trigger failed';
+  end if;
+  delete from public.stream_library where label='Edited HLS';
   insert into public.stream_links(match_id,label,stream_url) values
     ('10000000-0000-0000-0000-000000000001','Added','https://fixture.invalid/added');
   if (select stream_count from public.match_stream_counts where match_id='10000000-0000-0000-0000-000000000001') <> 3 then

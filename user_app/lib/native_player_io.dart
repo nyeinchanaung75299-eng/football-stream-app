@@ -18,6 +18,10 @@ class NativePlayer {
   static List<Map<String, dynamic>>? _iosSources;
   static ValueNotifier<int>? _iosSourceUpdates;
 
+  // Native players ship with their playback engines, so there is no script
+  // download to warm before the line picker is shown.
+  static void prewarm({required List<Map<String, dynamic>> sources}) {}
+
   static void _ensureEventHandler() {
     if (_eventHandlerInstalled) return;
     _eventHandlerInstalled = true;

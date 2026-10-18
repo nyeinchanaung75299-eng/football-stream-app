@@ -7,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../analytics_service.dart';
 import '../native_playback_progress.dart';
+import '../widgets/player_server_rail.dart';
 
 /// Native iOS playback powered by libmpv/FFmpeg through package:media_kit.
 ///
@@ -692,97 +693,114 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
       ),
       body: SafeArea(
         top: false,
-        child: Stack(
-          fit: StackFit.expand,
+        child: Column(
           children: [
-            if (widget.sources.isNotEmpty)
-              Video(
-                controller: _videoController,
-                fit: BoxFit.contain,
-                fill: Colors.black,
-                controls: AdaptiveVideoControls,
-                wakelock: true,
-                pauseUponEnteringBackgroundMode: true,
-                resumeUponEnteringForegroundMode: false,
-              ),
-            if (_opening || _buffering)
-              IgnorePointer(
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 15,
-                      vertical: 11,
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (widget.sources.isNotEmpty)
+                    Video(
+                      controller: _videoController,
+                      // Preserve the source aspect ratio. Full-bleed stretch
+                      // can make faces and pitch markings look distorted.
+                      fit: BoxFit.contain,
+                      fill: Colors.black,
+                      controls: AdaptiveVideoControls,
+                      wakelock: true,
+                      pauseUponEnteringBackgroundMode: true,
+                      resumeUponEnteringForegroundMode: false,
                     ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: .68),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.2,
-                            color: colors.primary,
+                  if (_opening || _buffering)
+                    IgnorePointer(
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 15,
+                            vertical: 11,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: .68),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.2,
+                                  color: colors.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                _progress?.started == true
+                                    ? 'Buffering…'
+                                    : 'Starting stream…',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Text(
-                          _progress?.started == true
-                              ? 'Buffering…'
-                              : 'Starting stream…',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-              ),
-            if (_errorText != null)
-              Center(
-                child: Container(
-                  margin: const EdgeInsets.all(24),
-                  padding: const EdgeInsets.all(18),
-                  constraints: const BoxConstraints(maxWidth: 420),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF161616),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons
-                            .signal_wifi_statusbar_connected_no_internet_4_rounded,
-                        color: Colors.white70,
-                        size: 34,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        _errorText!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          height: 1.35,
-                          fontWeight: FontWeight.w700,
+                  if (_errorText != null)
+                    Center(
+                      child: Container(
+                        margin: const EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(18),
+                        constraints: const BoxConstraints(maxWidth: 420),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF161616),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons
+                                  .signal_wifi_statusbar_connected_no_internet_4_rounded,
+                              color: Colors.white70,
+                              size: 34,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              _errorText!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                height: 1.35,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            FilledButton.icon(
+                              onPressed: _pickLine,
+                              icon: const Icon(Icons.dns_rounded),
+                              label: const Text('CHOOSE ANOTHER LINE'),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 14),
-                      FilledButton.icon(
-                        onPressed: _pickLine,
-                        icon: const Icon(Icons.dns_rounded),
-                        label: const Text('CHOOSE ANOTHER LINE'),
-                      ),
-                    ],
-                  ),
-                ),
+                    ),
+                ],
               ),
+            ),
+            PlayerServerRail(
+              sources: widget.sources,
+              selectedIndex: _selectedIndex,
+              failedIndices: _failedLines,
+              loadingIndex: _opening || _buffering ? _selectedIndex : null,
+              onSelected: (index) {
+                unawaited(_openLine(index, userSelected: true));
+              },
+            ),
           ],
         ),
       ),

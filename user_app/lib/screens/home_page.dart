@@ -1237,6 +1237,12 @@ class _HomePageState extends State<HomePage> {
 
     var selectedIndex = 0;
 
+    // Web downloads its player engine while the user is choosing a line,
+    // removing that network wait from the first-frame startup measurement.
+    // Android and iOS implement this as a no-op because their engines ship in
+    // the app.
+    NativePlayer.prewarm(sources: nativeSources);
+
     {
       final picked = await showModalBottomSheet<int>(
         context: context,

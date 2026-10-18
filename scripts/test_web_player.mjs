@@ -211,6 +211,78 @@ const tests = [];
 function test(name, run) { tests.push({ name, run }); }
 const failures = h => h.events.filter(event => event.name === 'playback line failed');
 
+test('line chip rail marks the selected server and switches through the existing player path', async () => {
+  const first = { ...source('hls', 'Primary'), resolution: '720p' };
+  const second = { ...source('hls', 'Backup'), resolution: '1080p' };
+  const h = createHarness();
+  await h.open([first, second]);
+
+  const rail = h.elements.get('football-player-line-items');
+  assert.equal(rail.children.length, 2);
+  assert.equal(rail.children[0].classList.contains('current'), true);
+  assert.equal(rail.children[0].attributes['aria-pressed'], 'true');
+  assert.equal(rail.children[1].attributes['aria-pressed'], 'false');
+  assert.match(rail.children[0].innerHTML, /Primary/);
+  assert.match(rail.children[0].innerHTML, /720p.*HLS/);
+
+  rail.children[1].click();
+  await flush();
+
+  assert.deepEqual(h.plays, [first.url, second.url]);
+  assert.equal(rail.children[0].classList.contains('current'), false);
+  assert.equal(rail.children[1].classList.contains('current'), true);
+  assert.equal(h.elements.get('football-player-server').textContent, 'Backup');
+  const selections = h.events.filter(event => event.name === 'playback line selected');
+  assert.equal(selections.length, 1);
+  assert.equal(selections[0].properties.selected_index, 1);
+});
+
+test('line controls never render source URLs, hosts, headers or credential-shaped metadata', async () => {
+  const secret = {
+    ...source('hls', 'https://private.example.invalid/watch?token=SECRET'),
+    url: 'https://stream.example.invalid/live.m3u8?token=SECRET',
+    resolution: 'SECRET',
+    referer: 'https://referer.example.invalid/SECRET',
+    origin: 'https://origin.example.invalid',
+    keyId: '00112233445566778899aabbccddeeff',
+    keyData: 'ffeeddccbbaa99887766554433221100',
+  };
+  const h = createHarness();
+  await h.open([secret]);
+  h.elements.get('football-player-server').click();
+
+  const chip = h.elements.get('football-player-line-items').children[0];
+  const menuItem = h.elements.get('football-player-menu-items').children[0];
+  const visible = [
+    chip.innerHTML,
+    chip.attributes['aria-label'],
+    h.elements.get('football-player-server').textContent,
+    menuItem.innerHTML,
+  ].join(' ');
+  assert.match(visible, /Server 1/);
+  for (const forbidden of [
+    'SECRET', 'private.example.invalid', 'stream.example.invalid',
+    'referer.example.invalid', 'origin.example.invalid',
+    secret.keyId, secret.keyData,
+  ]) assert.ok(!visible.includes(forbidden), `Visible line UI leaked ${forbidden}`);
+});
+
+test('prewarming downloads only the Web engine and reuses it on first playback', async () => {
+  const line = source('hls', 'Primary');
+  const h = createHarness({ ios: false, engineLoads: ['ok'] });
+
+  h.window.prewarmFootballPlayer(JSON.stringify([line]));
+  await flush();
+
+  assert.equal(h.scripts.length, 1);
+  assert.deepEqual(h.plays, []);
+  assert.equal(h.overlay.classList.contains('open'), false);
+
+  await h.open([line]);
+  assert.equal(h.scripts.length, 1, 'Opening should reuse the prewarmed engine');
+  assert.deepEqual(h.plays, [line.url]);
+});
+
 test('HLS aliases select native HLS on an extensionless protected URL', async () => {
   for (const type of ['hls', 'm3u8']) {
     const line = source(type), h = createHarness();
@@ -521,7 +593,7 @@ test('Android Chromium uses Shaka for live HLS even when canPlayType claims nati
 test('Android recoverable errors never replace a stream whose playback keeps advancing', async () => {
   const dash = source('dash'), backup = source('hls', 'backup');
   const h = createHarness({ ios: false });
-  h.video.currentTime = 0;
+  h.video.currentTime = 0; h.video.readyState = 4;
   await h.open([dash, backup]);
   h.players[0].listeners.get('error')({ detail: { severity: 1, category: 1, code: 1001 } });
   await h.tick(10000);
@@ -529,6 +601,19 @@ test('Android recoverable errors never replace a stream whose playback keeps adv
   await h.tick(10000);
   assert.equal(failures(h).length, 0);
   assert.deepEqual(h.plays, [dash.url]);
+});
+
+test('Chromium progress watchdog falls back after a true no-progress freeze', async () => {
+  const dash = source('dash', 'frozen'), backup = source('hls', 'backup');
+  const h = createHarness({ ios: false });
+  h.video.currentTime = 0; h.video.readyState = 4;
+  await h.open([dash, backup]);
+
+  await h.tick(16500);
+  assert.equal(failures(h).length, 1);
+  assert.equal(failures(h)[0].properties.reason, 'stall_timeout');
+  await h.tick(500);
+  assert.deepEqual(h.plays, [dash.url, backup.url]);
 });
 
 test('Android playback progress cancels an old stall timer before a later true freeze', async () => {
@@ -836,6 +921,8 @@ test('late backups append only to the current session without restarting or repl
   assert.equal(h.elements.get('football-player-menu-items').children.length, 1);
   h.update([first, backup]);
   assert.deepEqual(h.plays, [first.url], 'Append must preserve the active decoder');
+  assert.equal(h.elements.get('football-player-line-items').children.length, 2, 'The chip rail should receive the late backup');
+  assert.equal(h.elements.get('football-player-line-items').children[0].classList.contains('current'), true);
   assert.equal(h.elements.get('football-player-menu-items').children.length, 2, 'An open line picker should receive the new backup too');
   h.elements.get('football-player-server').click();
   await h.choose(1);

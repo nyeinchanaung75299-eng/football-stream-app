@@ -30,6 +30,18 @@
     #football-player-video{width:100%;height:100%;object-fit:contain;background:#000;transform-origin:center center}
     #football-player-video.fill{object-fit:fill}
     #football-player-ios-fullscreen{display:none}
+    #football-player-line-rail{position:relative;z-index:4;flex:0 0 auto;min-height:54px;box-sizing:border-box;padding:7px 10px calc(7px + env(safe-area-inset-bottom));border-top:1px solid rgba(255,255,255,.12);background:#080b0a;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+    #football-player-line-rail.hidden{display:none}
+    #football-player-line-rail::-webkit-scrollbar{display:none}
+    #football-player-line-rail:empty{display:none}
+    #football-player-line-items{display:flex;align-items:stretch;gap:8px;width:max-content;min-width:100%}
+    .football-line-chip{display:flex;align-items:center;gap:7px;flex:0 0 auto;min-height:40px;max-width:190px;padding:6px 12px;border:1px solid rgba(255,255,255,.2);border-radius:12px;background:#171a19;color:#fff;text-align:left;cursor:pointer;touch-action:manipulation}
+    .football-line-chip.current{border-color:#38d88a;background:#163c2d;box-shadow:inset 0 0 0 1px rgba(56,216,138,.22)}
+    .football-line-chip-mark{display:none;flex:0 0 auto;color:#66e6a4;font-size:14px;font-weight:1000}
+    .football-line-chip.current .football-line-chip-mark{display:block}
+    .football-line-chip-copy{min-width:0}
+    .football-line-chip-label{display:block;max-width:145px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:900}
+    .football-line-chip-meta{display:block;margin-top:1px;color:#aeb7b3;font-size:10px;font-weight:800;letter-spacing:.02em}
     /* Other browsers fullscreen NCA's container. iPhone instead enters
        native video fullscreen from the button beside the picture, with
        system portrait/landscape rotation owning the video. */
@@ -98,6 +110,9 @@
       .football-control{min-height:36px;padding:0 9px}
       #football-player-server,#football-player-quality{max-width:132px}
       #football-player-menu{top:102px;left:8px;right:8px;width:auto;max-height:62vh}
+      #football-player-line-rail{min-height:52px;padding:6px 8px calc(6px + env(safe-area-inset-bottom))}
+      .football-line-chip{min-height:40px;max-width:160px;padding:5px 10px}
+      .football-line-chip-label{max-width:118px}
     }
     @media(orientation:landscape) and (max-height:600px){
       #football-player-topbar{min-height:46px;gap:5px;padding:5px 7px;flex-wrap:nowrap}
@@ -106,6 +121,8 @@
       #football-player-server,#football-player-quality{max-width:150px}
       #football-player-menu{top:50px;right:8px;left:auto;width:min(360px,48vw);max-height:calc(100vh - 58px)}
       #football-player-menu-items{max-height:calc(100vh - 105px)}
+      #football-player-line-rail{min-height:46px;padding:4px 7px calc(4px + env(safe-area-inset-bottom))}
+      .football-line-chip{min-height:36px;padding:3px 9px}
     }
   </style>
   <style>
@@ -178,6 +195,9 @@
       </div>
       <div id="football-player-message"></div>
     </div>
+    <div id="football-player-line-rail" aria-label="Stream lines">
+      <div id="football-player-line-items" role="list"></div>
+    </div>
   </div>
   <script>
   (() => {
@@ -197,6 +217,8 @@
     const iosFullscreenButton=document.getElementById('football-player-ios-fullscreen');
     const videoWrap=document.getElementById('football-player-video-wrap');
     const videoFrame=document.getElementById('football-player-video-frame');
+    const lineRail=document.getElementById('football-player-line-rail');
+    const lineItems=document.getElementById('football-player-line-items');
     let sources=[], shakaPlayer=null, mpegtsPlayer=null, currentTracks=[];
     let currentSourceIndex=0;
     let currentMatchId='', currentSessionId='';
@@ -467,7 +489,6 @@
     }
 
     function armProgressWatchdog(index,token){
-      if(!isIOS())return;
       const initialTime=Number(video.currentTime);
       if(!Number.isFinite(initialTime) || !Number.isFinite(Number(video.readyState))){
         return;
@@ -709,6 +730,58 @@
       menuItems.innerHTML='';
     }
 
+    function safeLineLabel(source,index){
+      const fallback='Server '+(index+1);
+      const raw=String(source&&source.label||'').trim();
+      if(!raw || raw.length>72)return fallback;
+      // Labels are presentation-only. Never let a URL, hostname, header or
+      // credential-shaped value become visible in the compact player UI.
+      if(/[\/:?=&@\\]/.test(raw) ||
+          /(?:^|\s)(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\s|$)/i.test(raw) ||
+          /\b(?:referer|origin|authorization|token|key|kid)\s*[:=]/i.test(raw) ||
+          /\b[0-9a-f]{24,}\b/i.test(raw))return fallback;
+      return raw;
+    }
+
+    function safeLineResolution(source){
+      const raw=String(source&&source.resolution||'').trim();
+      return /^(?:\d{3,4}p|auto|sd|hd|fhd|uhd|4k)$/i.test(raw)?raw:'';
+    }
+
+    function renderLineRail(){
+      lineItems.innerHTML='';
+      lineRail.classList.toggle('hidden',sources.length===0);
+      sources.forEach((source,index)=>{
+        const item=document.createElement('button');
+        const selected=index===currentSourceIndex;
+        const label=safeLineLabel(source,index);
+        const resolution=safeLineResolution(source);
+        const type=sourceType(source).toUpperCase();
+        item.type='button';
+        item.className='football-line-chip'+(selected?' current':'');
+        item.setAttribute('role','listitem');
+        item.setAttribute('aria-pressed',selected?'true':'false');
+        item.setAttribute('aria-label',label+' • '+type);
+        item.innerHTML=
+          '<span class="football-line-chip-mark" aria-hidden="true">✓</span>'+
+          '<span class="football-line-chip-copy">'+
+          '<span class="football-line-chip-label">'+escapeHtml(label)+'</span>'+
+          '<span class="football-line-chip-meta">'+escapeHtml(
+            [resolution,type].filter(Boolean).join(' • ')
+          )+'</span></span>';
+        item.addEventListener('click',()=>{
+          revealControls();
+          capturePlayerEvent('playback line selected',{
+            selected_index:index,
+            line_count:sources.length,
+            stream_type:sourceType(source)
+          });
+          loadSource(index,true);
+        });
+        lineItems.appendChild(item);
+      });
+    }
+
     function openLineMenu(){
       revealControls();
       menuTitle.textContent='Choose line';
@@ -721,7 +794,7 @@
         item.className='football-menu-item'+
           (index===currentSourceIndex?' current':'');
         item.disabled=false;
-        const label=String(source.label||source.resolution||('Server '+(index+1)));
+        const label=safeLineLabel(source,index);
         item.innerHTML=
           '<span class="football-menu-item-main">'+
           '<span class="football-menu-item-label">'+escapeHtml(label)+'</span>'+
@@ -840,9 +913,8 @@
 
     function updateServerButton(index){
       const source=sources[index]||{};
-      serverButton.textContent=String(
-        source.label||source.resolution||('Server '+(index+1))
-      );
+      serverButton.textContent=safeLineLabel(source,index);
+      renderLineRail();
     }
 
     function fillQualityOptions(){
@@ -1364,6 +1436,23 @@
       sources.push(...extra);
       updateServerButton(currentSourceIndex);
       if(!menuPanel.classList.contains('hidden')&&menuTitle.textContent==='Choose line')openLineMenu();
+    };
+
+    window.prewarmFootballPlayer=(sourcesJson)=>{
+      let incoming=[];
+      try{
+        const parsed=JSON.parse(String(sourcesJson||'[]'));
+        if(Array.isArray(parsed))incoming=parsed.filter(source=>source&&source.url);
+      }catch(_){return}
+      const candidate=incoming.find(source=>{
+        const type=sourceType(source);
+        return type==='hls'||type==='dash'||type==='flv';
+      });
+      if(!candidate)return;
+      // Load only the decoder script. No manifest, media URL, headers or key
+      // material is requested until the user actually opens a line.
+      ensurePlayerEngine(sourceType(candidate),String(candidate.url||''))
+        .catch(()=>{});
     };
 
     window.openFootballPlayer=async(sourcesJson,selectedIndex,title,matchId,sessionId)=>{

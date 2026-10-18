@@ -21,7 +21,15 @@ external void _updateFootballPlayerSources(
   JSString sessionId,
 );
 
+@JS('prewarmFootballPlayer')
+external void _prewarmFootballPlayer(JSString sourcesJson);
+
 class NativePlayer {
+  static void prewarm({required List<Map<String, dynamic>> sources}) {
+    if (sources.isEmpty) return;
+    _prewarmFootballPlayer(jsonEncode(sources).toJS);
+  }
+
   static Future<void> open({
     BuildContext? context,
     required List<Map<String, dynamic>> sources,

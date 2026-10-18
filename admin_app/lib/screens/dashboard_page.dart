@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../analytics_service.dart';
 import '../widgets/theme_mode_button.dart';
 import 'edit_live_page.dart';
@@ -19,11 +20,7 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   int _tab = 0;
 
-  void open(
-    BuildContext context,
-    Widget page,
-    String section,
-  ) {
+  void open(BuildContext context, Widget page, String section) {
     AnalyticsService.capture(
       'admin section opened',
       properties: {'section': section},
@@ -82,85 +79,64 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _controls(BuildContext context, ColorScheme colors) => ListView(
-        key: const PageStorageKey('admin-controls'),
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
-        children: [
-          Text(
-            'Control Center',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -.4,
-                ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Only the controls you need.',
-            style: TextStyle(color: colors.onSurfaceVariant),
-          ),
-          const SizedBox(height: 18),
-          _ActionCard(
-            icon: Icons.star_rounded,
-            title: 'Pick Big Matches',
-            subtitle:
-                'Choose fixtures from the API and publish only selected games.',
-            iconColor: const Color(0xFFF59E0B),
-            onTap: () => open(
-              context,
-              const FixtureImportPage(),
-              'pick-big-matches',
-            ),
-          ),
-          const SizedBox(height: 10),
-          _ActionCard(
-            icon: Icons.add_circle_outline_rounded,
-            title: 'Manual Match',
-            subtitle: 'Create your own match and use your own logo URLs.',
-            iconColor: const Color(0xFF0EA5E9),
-            onTap: () => open(
-              context,
-              const LiveUploadPage(),
-              'manual-match',
-            ),
-          ),
-          const SizedBox(height: 10),
-          _ActionCard(
-            icon: Icons.sports_score_rounded,
-            title: 'Matches',
-            subtitle: 'Edit teams, logos, kickoff, publish state or delete.',
-            iconColor: colors.primary,
-            onTap: () => open(
-              context,
-              const EditLivePage(),
-              'matches-scores',
-            ),
-          ),
-          const SizedBox(height: 10),
-          _ActionCard(
-            icon: Icons.dns_rounded,
-            title: 'Stream Servers',
-            subtitle: 'Add primary/backup links and edit or disable them.',
-            iconColor: const Color(0xFF7C3AED),
-            onTap: () => open(
-              context,
-              const LiveLinksPage(),
-              'stream-servers',
-            ),
-          ),
-          const SizedBox(height: 10),
-          _ActionCard(
-            icon: Icons.podcasts_rounded,
-            title: 'Stream Source Picker',
-            subtitle:
-                'Soco, YYZB, Fawa, ColaTV and TFLIX stream sources, plus PlayZ TV direct links.',
-            iconColor: const Color(0xFFDC2626),
-            onTap: () => open(
-              context,
-              const SocoImportPage(),
-              'stream-source-picker',
-            ),
-          ),
-        ],
-      );
+    key: const PageStorageKey('admin-controls'),
+    padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
+    children: [
+      Text(
+        'Control Center',
+        style: Theme.of(context).textTheme.headlineSmall
+            ?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -.4),
+      ),
+      const SizedBox(height: 4),
+      Text(
+        'Only the controls you need.',
+        style: TextStyle(color: colors.onSurfaceVariant),
+      ),
+      const SizedBox(height: 18),
+      _ActionCard(
+        icon: Icons.star_rounded,
+        title: 'Pick Big Matches',
+        subtitle:
+            'Choose fixtures from the API and publish only selected games.',
+        iconColor: const Color(0xFFF59E0B),
+        onTap: () =>
+            open(context, const FixtureImportPage(), 'pick-big-matches'),
+      ),
+      const SizedBox(height: 10),
+      _ActionCard(
+        icon: Icons.add_circle_outline_rounded,
+        title: 'Manual Match',
+        subtitle: 'Create your own match and use your own logo URLs.',
+        iconColor: const Color(0xFF0EA5E9),
+        onTap: () => open(context, const LiveUploadPage(), 'manual-match'),
+      ),
+      const SizedBox(height: 10),
+      _ActionCard(
+        icon: Icons.sports_score_rounded,
+        title: 'Matches',
+        subtitle: 'Edit teams, logos, kickoff, publish state or delete.',
+        iconColor: colors.primary,
+        onTap: () => open(context, const EditLivePage(), 'matches-scores'),
+      ),
+      const SizedBox(height: 10),
+      _ActionCard(
+        icon: Icons.dns_rounded,
+        title: 'Stream Servers',
+        subtitle: 'Add primary/backup links and edit or disable them.',
+        iconColor: const Color(0xFF7C3AED),
+        onTap: () => open(context, const LiveLinksPage(), 'stream-servers'),
+      ),
+      const SizedBox(height: 10),
+      _ActionCard(
+        icon: Icons.podcasts_rounded,
+        title: 'Stream Source Picker',
+        subtitle: 'Live sources plus authorized manual links and a private HLS Library.',
+        iconColor: const Color(0xFFDC2626),
+        onTap: () =>
+            open(context, const SocoImportPage(), 'stream-source-picker'),
+      ),
+    ],
+  );
 }
 
 class _ActionCard extends StatelessWidget {
@@ -207,11 +183,13 @@ class _ActionCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
-                        )),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
