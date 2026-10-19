@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
 import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
 import { tflixMatches } from "../_shared/tflix_source.mjs";
+import { streameMatches } from "../_shared/streame_source.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,6 +69,9 @@ Deno.serve(async (req) => {
       }
       return json(await tflixMatches(body));
     }
+    if (source === "streame") {
+      return json(await streameMatches(body));
+    }
     if (source === "fawa") {
       return await fawaMatches();
     }
@@ -89,9 +93,9 @@ Deno.serve(async (req) => {
   }
 });
 
-function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "tflix" {
+function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "tflix" | "streame" {
   const source = String(value ?? "soco").trim().toLowerCase();
-  if (source === "yyzb" || source === "fawa" || source === "cola" || source === "tflix") {
+  if (source === "yyzb" || source === "fawa" || source === "cola" || source === "tflix" || source === "streame") {
     return source;
   }
   return "soco";

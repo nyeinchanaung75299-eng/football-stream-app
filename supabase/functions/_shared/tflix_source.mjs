@@ -598,11 +598,17 @@ export async function verifyTflixMedia(candidate, referer, options = {}) {
   const keys = type === "hls" ? await verifyHls(ctx, { ...candidate, url }, referer)
     : await verifyDash(ctx, { ...candidate, url }, referer);
   const ref = safeTflixUrl(referer);
+  // This host currently binds the generated media session to the Supabase
+  // verification egress. The same verified URL returns HTTP 403 from the
+  // protected Cloudflare playback gateway, so it must not be imported as a
+  // Viewer-playable line.
+  const gatewayCompatible = new URL(url).hostname !== "saka.kpores.ru";
   return {
     label: type === "hls" ? "HLS" : "DASH", resolution: "Auto", url, stream_type: type,
     referer: ref.toString(), origin: ref.origin, ...keys, expires_at: expiry,
     media_verified: true, health_status: Date.now() - started > 3000 ? "slow" : "healthy",
     health_http: 200, checked_at: new Date().toISOString(),
+    gateway_compatible: gatewayCompatible,
     verification_scope: "Manifest, required keys, and a bounded media sample; playback duration is not guaranteed.",
   };
 }
@@ -686,6 +692,7 @@ export async function tflixViewerStreams(body = {}, options = {}) {
   const seen = new Set(), lines = [];
   for (const source of checked.lines ?? []) {
     if (source.media_verified !== true || source.key_id || source.key_data ||
+        source.gateway_compatible === false ||
         !["hls", "dash"].includes(source.stream_type)) continue;
     if (source.expires_at &&
         Date.parse(source.expires_at) <= Date.now() + 30000) continue;
