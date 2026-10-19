@@ -28,7 +28,13 @@ function fakeFetch(routes) {
   const fetcher = async (raw, init = {}) => {
     const url = String(raw);
     calls.push({ url, init });
-    const value = typeof routes === "function" ? await routes(url, init) : routes[url];
+    let value = typeof routes === "function" ? await routes(url, init) : routes[url];
+    // Old-schema fixtures remain useful compatibility coverage while catalog()
+    // now prefers TFLIX's unified public endpoint.
+    if (value === undefined && typeof routes !== "function" && url === "https://tflix.su/api/public") {
+      value = routes["https://tflix.su/api/live-scores?scope=board"] ??
+        routes["https://tflix.su/api/channels"];
+    }
     assert.notEqual(value, undefined, "Unexpected fetch: " + new URL(url).pathname);
     return value instanceof Response ? value : Response.json(value);
   };
@@ -162,6 +168,44 @@ test("NCA public catalog matches Admin fixture count without exposing player URL
     assert.equal(match.anchors, undefined);
     assert.equal(match.stream_url, undefined);
   }
+});
+
+test("current public catalog replaces signed-in legacy routes without leaking embeds", async () => {
+  const player = "https://mix1.eeeertwfvsgs.xyz/embed/current-football";
+  const media = hlsUrl();
+  const channel = {
+    id: "current-channel", slug: "sky-sports-main-event-current",
+    name: "Sky Sports Main Event", enabled: 1, embed_url: player, embed_backup: "",
+  };
+  const payload = {
+    events: [{
+      id: "current-event", title: "Tottenham vs Coventry", sport: "Football",
+      competition: "Angleterre : Premier League", status: "live",
+      starts_at: "2026-10-19T19:00:00Z", watch_url: "/watch/tottenham-vs-coventry-current",
+      home_name: "Tottenham", away_name: "Coventry", channels: [channel],
+    }],
+    channels: [channel],
+  };
+  const routes = {
+    "https://tflix.su/api/public": payload,
+  };
+  const catalog = await tflixMatches({}, fakeFetch(routes));
+  assert.equal(catalog.results, 1);
+  assert.equal(catalog.matches[0].source_id, "match:tottenham-vs-coventry-current");
+  assert.equal(catalog.matches[0].league, "Premier League");
+  assert.equal(catalog.matches[0].page_url, "https://tflix.su/watch/tottenham-vs-coventry-current");
+  assert.equal(JSON.stringify(catalog).includes(player), false);
+
+  const checked = await tflixStreams({ room_num: catalog.matches[0].source_id }, fakeFetch({
+    ...routes,
+    [player]: new Response("var setupOpts={file:'" + media + "',type:'hls'};"),
+    [media]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [new URL("video.ts", media).toString()]: new Response(tsBytes()),
+  }));
+  assert.equal(checked.ready, true);
+  assert.equal(checked.line_count, 1);
+  assert.equal(checked.lines[0].server_name, "Sky Sports Main Event");
+  assert.equal(checked.lines[0].media_verified, true);
 });
 
 test("Viewer NCA access is restricted to verified streams and TFLIX Admin route remains private", () => {
@@ -479,7 +523,8 @@ test("two server slots sharing one direct manifest are deduplicated", async () =
     [segment]: () => new Response(tsBytes()),
   };
   const mock = fakeFetch((u, init) => {
-    const value = routes[u];
+    const value = routes[u] ?? (u === "https://tflix.su/api/public"
+      ? routes["https://tflix.su/api/channels"] : undefined);
     return typeof value === "function" ? value(u, init) : value;
   });
   const result = await tflixStreams({ room_num: "channel:bein-sports-1-tr" }, mock);
@@ -544,7 +589,7 @@ test("both Edge adapters require a verified user and freshly checked Admin role 
   });
   globalThis.fetch = async (raw) => {
     networkCalls++;
-    assert.equal(String(raw), "https://tflix.su/api/channels", "TFLIX must not silently fall back to Soco.");
+    assert.equal(String(raw), "https://tflix.su/api/public", "TFLIX must not silently fall back to Soco.");
     return Response.json([{ slug: "bein-sports-1-tr", name: "BeIN Sports 1 TR" }]);
   };
   try {
