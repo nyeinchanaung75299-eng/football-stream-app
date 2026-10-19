@@ -1865,13 +1865,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     contentPadding: EdgeInsets.zero,
                     dense: true,
                     title: Text(
-                      source == 'tflix'
+                      source == 'tflix' || source == 'streame'
                           ? 'With stream source'
                           : 'Available only',
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     subtitle: Text(
-                      source == 'tflix'
+                      source == 'tflix' || source == 'streame'
                           ? 'Show entries with a player to check; playback is not verified yet.'
                           : 'Hide matches that have no source yet.',
                     ),
@@ -2077,7 +2077,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                   label: Text(
                                     extracting
                                         ? '$name • LOADING'
-                                        : source == 'tflix' &&
+                                        : (source == 'tflix' ||
+                                                    source == 'streame') &&
                                                 status == 'unknown'
                                             ? '$name • CHECK STREAMS'
                                             : '$name$suffix',
