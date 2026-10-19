@@ -365,6 +365,16 @@ test("malformed or deeply nested DASH cannot pass media verification", async () 
 });
 
 test("unsafe destinations and redirect targets are rejected before network access", async () => {
+  for (const host of [
+    "mix.eeeertwfvsgs.xyz",
+    "mix1.eeeertwfvsgs.xyz",
+    "sha.dsfigosdhgfvsshed.xyz",
+    "xu.sjncvuaq.xyz",
+  ]) {
+    assert.equal(safeTflixUrl(`https://${host}/player`).hostname, host);
+    assert.throws(() => safeTflixUrl(`https://${host}.attacker.test/player`));
+    assert.throws(() => safeTflixUrl(`https://evil-${host}/player`));
+  }
   for (const url of ["http://tflix.su/", "https://127.0.0.1/", "https://169.254.169.254/", "https://xtrahut.xyz.attacker.test/", "https://user:pass@tflix.su/", "https://tflix.su:8443/"]) {
     assert.throws(() => safeTflixUrl(url));
   }
