@@ -172,7 +172,7 @@ test("NCA public catalog matches Admin fixture count without exposing player URL
 
 test("current public catalog replaces signed-in legacy routes without leaking embeds", async () => {
   const player = "https://mix1.eeeertwfvsgs.xyz/embed/current-football";
-  const media = hlsUrl();
+  const media = "https://saka.kpores.ru/live/current-football.m3u8";
   const channel = {
     id: "current-channel", slug: "sky-sports-main-event-current",
     name: "Sky Sports Main Event", enabled: 1, embed_url: player, embed_backup: "",
@@ -414,6 +414,7 @@ test("unsafe destinations and redirect targets are rejected before network acces
     "mix1.eeeertwfvsgs.xyz",
     "sha.dsfigosdhgfvsshed.xyz",
     "xu.sjncvuaq.xyz",
+    "saka.kpores.ru",
   ]) {
     assert.equal(safeTflixUrl(`https://${host}/player`).hostname, host);
     assert.throws(() => safeTflixUrl(`https://${host}.attacker.test/player`));

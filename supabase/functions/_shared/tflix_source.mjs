@@ -10,7 +10,7 @@ const ALLOWED_HOSTS = new Set([
   "tmaxapp.site", "cdnfan.site", "event-65s.dsfigosdhgfvsshed.xyz",
   "polovo.margutm.su", "vix.cdn9859.shop", "mix.eeeertwfvsgs.xyz",
   "mix1.eeeertwfvsgs.xyz", "sha.dsfigosdhgfvsshed.xyz", "xu.sjncvuaq.xyz",
-  "kpores.ru", "nfl.sjncvuaq.xyz",
+  "kpores.ru", "saka.kpores.ru", "nfl.sjncvuaq.xyz",
   "p16-common-sign.tiktokcdn-us.com",
 ]);
 const MAX_TEXT_BYTES = 1024 * 1024;
