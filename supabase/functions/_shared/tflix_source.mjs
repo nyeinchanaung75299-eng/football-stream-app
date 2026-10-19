@@ -3,11 +3,14 @@
 const HOME = "https://tflix.su";
 const CATALOG_URL = HOME + "/api/live-scores?scope=board";
 const CHANNEL_URL = HOME + "/api/channels";
+const PUBLIC_URL = HOME + "/api/public";
 const ALLOWED_HOSTS = new Set([
-  "tflix.su", "www.tflix.su", "xtrahut.xyz", "vixembed.bid", "vix.sjncvuaq.xyz",
+  "tflix.su", "www.tflix.su", "tflix1.su", "www.tflix1.su",
+  "xtrahut.xyz", "vixembed.bid", "vix.sjncvuaq.xyz",
   "tmaxapp.site", "cdnfan.site", "event-65s.dsfigosdhgfvsshed.xyz",
   "polovo.margutm.su", "vix.cdn9859.shop", "mix.eeeertwfvsgs.xyz",
   "mix1.eeeertwfvsgs.xyz", "sha.dsfigosdhgfvsshed.xyz", "xu.sjncvuaq.xyz",
+  "kpores.ru", "nfl.sjncvuaq.xyz",
   "p16-common-sign.tiktokcdn-us.com",
 ]);
 const MAX_TEXT_BYTES = 1024 * 1024;
@@ -118,6 +121,27 @@ function logo(raw) {
 }
 
 function footballRows(payload) {
+  if (Array.isArray(payload?.events)) {
+    return payload.events.filter((row) => {
+      const path = clean(row?.watch_url);
+      return row?.sport === "Football" && row.status !== "finished" &&
+        Array.isArray(row.channels) && row.channels.length > 0 &&
+        /^\/watch\/[a-z0-9][a-z0-9-]{0,159}$/i.test(path);
+    }).map((row) => {
+      const path = clean(row.watch_url);
+      const slug = path.slice("/watch/".length);
+      const id = "match:" + slug;
+      const league = clean(row.competition).split(/\s*:\s*/).at(-1) || "Football";
+      return {
+        source: "tflix", source_id: id, schedule_id: id, kind: "match",
+        home_team: clean(row.home_name), away_team: clean(row.away_name),
+        home_logo: logo(row.home_logo), away_logo: logo(row.away_logo),
+        league, match_time: iso(row.starts_at), is_live: row.status === "live",
+        page_url: HOME + path,
+        anchors: [{ uid: id, room_num: id, nick_name: "TFLIX streams", page_url: HOME + path }],
+      };
+    });
+  }
   const footballLeagues = new Set((payload?.boardLeagues ?? [])
     .filter((row) => row?.sport === "football").map((row) => leagueKey(row.label)));
   // Only the assigned streams array creates imports. The much larger score
@@ -149,7 +173,8 @@ function channelRows(payload) {
       return {
         source: "tflix", source_id: id, schedule_id: id, kind: "channel",
         home_team: clean(row.name), away_team: "", home_logo: logo(row.logo), away_logo: null,
-        league: "Sports channels", match_time: null, is_live: row.isLive === true,
+        league: "Sports channels", match_time: null,
+        is_live: row.isLive === true || row.enabled === true || row.enabled === 1,
         page_url: page, anchors: [{ uid: id, room_num: id, nick_name: clean(row.name), page_url: page }],
       };
     });
@@ -157,10 +182,18 @@ function channelRows(payload) {
 
 async function catalog(ctx, requested) {
   const kind = requested === "channels" ? "channels" : "matches";
-  const payload = await fetchJson(ctx, kind === "channels" ? CHANNEL_URL : CATALOG_URL);
+  let payload;
+  try {
+    payload = await fetchJson(ctx, PUBLIC_URL);
+  } catch (error) {
+    // Older deployments used separate public catalog routes. Keep that narrow
+    // compatibility path only when the unified public route is unavailable.
+    if (!/Source returned HTTP (?:401|404)\./.test(error instanceof Error ? error.message : "")) throw error;
+    payload = await fetchJson(ctx, kind === "channels" ? CHANNEL_URL : CATALOG_URL);
+  }
   const rows = kind === "channels" ? channelRows(payload) : footballRows(payload);
   const unique = [...new Map(rows.map((row) => [row.source_id, row])).values()];
-  return { kind, rows: unique };
+  return { kind, rows: unique, payload };
 }
 
 export async function tflixMatches(body = {}, options = {}) {
@@ -302,6 +335,39 @@ function sourceEmbedUrls(html, base) {
     .map((embed, index, all) => ({ ...embed,
       server_name: "Server " + (all.length === 1 ? embed.order : index + 1),
     }));
+}
+
+function publicApiEmbedUrls(payload, item) {
+  if (!Array.isArray(payload?.events) || !Array.isArray(payload?.channels)) return [];
+  let channels = [];
+  if (item.kind === "match") {
+    const path = new URL(item.page_url).pathname;
+    channels = payload.events.find((row) => clean(row?.watch_url) === path)?.channels ?? [];
+  } else {
+    const slug = item.source_id.slice("channel:".length);
+    const channel = payload.channels.find((row) => clean(row?.slug) === slug);
+    if (channel) channels = [channel];
+  }
+  const embeds = new Map();
+  for (const channel of channels) {
+    for (const [slot, raw] of [[1, channel?.embed_url], [2, channel?.embed_backup]]) {
+      if (!clean(raw)) continue;
+      try {
+        const url = safeTflixUrl(raw).toString();
+        if (!embeds.has(url)) embeds.set(url, {
+          url,
+          order: embeds.size + 1,
+          server_name: clean(channel?.name) + (slot === 2 ? " Backup" : ""),
+        });
+      } catch {}
+      if (embeds.size >= 4) break;
+    }
+    if (embeds.size >= 4) break;
+  }
+  return [...embeds.values()].map((embed, index) => ({
+    ...embed,
+    server_name: embed.server_name || "Server " + (index + 1),
+  }));
 }
 
 export function signedExpiry(raw) {
@@ -545,12 +611,15 @@ export async function tflixStreams(body = {}, options = {}) {
   const ctx = context(options);
   const target = clean(body.room_num ?? body.source_id ?? body.schedule_id);
   const kind = target.startsWith("channel:") ? "channels" : "matches";
-  const { rows } = await catalog(ctx, kind);
+  const { rows, payload } = await catalog(ctx, kind);
   const item = rows.find((row) => row.source_id === target);
   if (!item || (body.page_url && body.page_url !== item.page_url)) throw new Error("TFLIX source is no longer available.");
-  const page = await fetchBounded(ctx, item.page_url);
-  const html = new TextDecoder().decode(page.bytes);
-  const embeds = sourceEmbedUrls(html, item.page_url);
+  let embeds = publicApiEmbedUrls(payload, item);
+  if (!embeds.length) {
+    const page = await fetchBounded(ctx, item.page_url);
+    const html = new TextDecoder().decode(page.bytes);
+    embeds = sourceEmbedUrls(html, item.page_url);
+  }
   const failures = [];
   const found = new Map();
 
