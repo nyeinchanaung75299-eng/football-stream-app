@@ -6,7 +6,8 @@ const CHANNEL_URL = HOME + "/api/channels";
 const ALLOWED_HOSTS = new Set([
   "tflix.su", "www.tflix.su", "xtrahut.xyz", "vixembed.bid", "vix.sjncvuaq.xyz",
   "tmaxapp.site", "cdnfan.site", "event-65s.dsfigosdhgfvsshed.xyz",
-  "polovo.margutm.su", "vix.cdn9859.shop",
+  "polovo.margutm.su", "vix.cdn9859.shop", "mix.eeeertwfvsgs.xyz",
+  "mix1.eeeertwfvsgs.xyz", "sha.dsfigosdhgfvsshed.xyz", "xu.sjncvuaq.xyz",
   "p16-common-sign.tiktokcdn-us.com",
 ]);
 const MAX_TEXT_BYTES = 1024 * 1024;
