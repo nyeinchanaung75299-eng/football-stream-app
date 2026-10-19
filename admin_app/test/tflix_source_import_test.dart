@@ -91,6 +91,7 @@ void main() {
     for (final change in <Map<String, dynamic>>[
       {'media_verified': false},
       {'health_status': 'unknown'},
+      {'gateway_compatible': false},
       {'checked_at': null},
       {
         'checked_at':
@@ -206,6 +207,62 @@ void main() {
                     : [],
               });
             }));
+  });
+
+  testWidgets(
+      'StreamCenter provider lists public candidates without background extraction',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    databaseHandler = (_) async => jsonResponse([]);
+    var listCalls = 0;
+    var streamCalls = 0;
+
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(
+        home: SocoImportPage(initialSource: 'streame'),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Source: StreamCenter'), findsOneWidget);
+      expect(find.text('Fixture home vs Fixture away'), findsOneWidget);
+      expect(find.textContaining('CHECK STREAMS'), findsOneWidget);
+      expect(find.text('Tomorrow'), findsNothing);
+      expect(listCalls, 1);
+      expect(streamCalls, 0,
+          reason: 'Listing must not resolve media until Admin selects it.');
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, () => MockClient((request) async {
+          if (request.url.path.endsWith('/soco-links')) {
+            streamCalls += 1;
+            return jsonResponse({'lines': []});
+          }
+          expect(request.url.path.endsWith('/source-match-list'), isTrue);
+          final body = jsonDecode(request.body) as Map;
+          expect(body['source'], 'streame');
+          listCalls += 1;
+          return jsonResponse({
+            'matches': [
+              {
+                ...sourceRow(),
+                'source': 'streame',
+                'source_id': 'event-fixture',
+                'schedule_id': 'event-fixture',
+                'anchors': [
+                  {
+                    'room_num':
+                        'event-fixture:645527f1-15e9-4a06-963e-421a87699691',
+                    'page_url':
+                        'https://streamcenter.st/api/stream-link/iframe/event-fixture/645527f1-15e9-4a06-963e-421a87699691',
+                    'nick_name': 'English',
+                  }
+                ],
+              }
+            ],
+          });
+        }));
   });
 
   for (final savePath in ['insert', 'exact', 'logical']) {

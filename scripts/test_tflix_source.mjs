@@ -213,7 +213,7 @@ test("Viewer NCA access is restricted to verified streams and TFLIX Admin route 
   assert.match(file, /if \(source === "nca"\)/);
   assert.match(file, /if \(!viewerPublic\)/);
   assert.match(file, /tflixViewerStreams\(body\)/);
-  assert.match(file, /if \(viewerPublic && source === "tflix"\)/);
+  assert.match(file, /if \(viewerPublic && \(source === "tflix" \|\| source === "streame"\)\)/);
 });
 
 test("TFLIX score-only football fixtures never gain fabricated broadcast anchors", async () => {

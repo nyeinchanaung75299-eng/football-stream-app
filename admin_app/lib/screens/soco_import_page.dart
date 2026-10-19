@@ -85,6 +85,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       'cola',
       'playz',
       'tflix',
+      'streame',
     }.contains(requested)
         ? requested
         : 'soco';
@@ -92,6 +93,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     dayFilter = (source == 'fawa' ||
             source == 'cola' ||
             source == 'tflix' ||
+            source == 'streame' ||
             _isManualSource)
         ? 'all'
         : 'today';
@@ -236,7 +238,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     try {
       dynamic data;
-      if (!_enableNoVpnFallback || provider == 'tflix') {
+      if (!_enableNoVpnFallback || provider == 'tflix' || provider == 'streame') {
         data = await FunctionGateway.invoke(
           'source-match-list',
           body: {
@@ -389,7 +391,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         final key = _anchorKey(match, anchor, provider: provider);
         if (_anchorStatuses.containsKey(key)) continue;
 
-        if (provider == 'tflix') {
+        if (provider == 'tflix' || provider == 'streame') {
           // Catalog entries are candidates. Check their actual media on demand.
           _anchorStatuses[key] = 'unknown';
           continue;
@@ -612,7 +614,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'room_num': room,
           'schedule_id': match['schedule_id'],
           'page_url': anchor['page_url'] ?? match['page_url'],
-          'skip_probe': provider != 'tflix',
+          'skip_probe': provider != 'tflix' && provider != 'streame',
           if (provider == 'tflix') 'catalog': _tflixCatalog,
         },
       );
@@ -626,7 +628,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
       final lines = rows
           .map((row) => Map<String, dynamic>.from(row as Map))
           .where((row) => (row['url'] ?? '').toString().trim().isNotEmpty)
-          .where((row) => provider != 'tflix' || isVerifiedTflixLine(row))
+          .where((row) =>
+              (provider != 'tflix' && provider != 'streame') ||
+              isRecentlyVerifiedSourceLine(row))
           .toList();
 
       final statusKey = _anchorKey(match, anchor, provider: provider);
@@ -663,8 +667,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (!current()) return;
       if (lines.isEmpty) {
         message(
-          provider == 'tflix'
-              ? 'No verified M3U8 or MPD stream is available for this TFLIX source.'
+          provider == 'tflix' || provider == 'streame'
+              ? 'No gateway-compatible verified stream is available for this ${_sourceLabel(provider)} source.'
               : 'No playable line is available for this streamer.',
         );
         return;
@@ -952,9 +956,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
     setState(() => _addingLine = true);
     final provider = source;
     try {
-      if (provider == 'tflix' && !isVerifiedTflixLine(line)) {
+      if ((provider == 'tflix' || provider == 'streame') &&
+          !isRecentlyVerifiedSourceLine(line)) {
         message(
-          'This TFLIX stream needs a new media check. Refresh the source.',
+          'This ${_sourceLabel(provider)} stream needs a new gateway-compatible media check. Refresh the source.',
         );
         return false;
       }
@@ -963,9 +968,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
       final presetTarget = targetMatchId;
       final target = await _chooseDestination();
       if (target == null) return false;
-      if (provider == 'tflix' && !isVerifiedTflixLine(line)) {
+      if ((provider == 'tflix' || provider == 'streame') &&
+          !isRecentlyVerifiedSourceLine(line)) {
         message(
-          'This TFLIX stream needs a new media check. Refresh the source.',
+          'This ${_sourceLabel(provider)} stream needs a new gateway-compatible media check. Refresh the source.',
         );
         return false;
       }
@@ -1681,7 +1687,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
       case 'tflix':
         return 'TFLIX';
       case 'playz':
-        return 'PlayZ / Manual';
+        return 'Manual HLS Library';
+      case 'streame':
+        return 'StreamCenter';
       case 'yyzb':
         return 'YYZB';
       case 'fawa':
@@ -1707,7 +1715,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
               dayFilter = (value == 'fawa' ||
                       value == 'cola' ||
                       value == 'playz' ||
-                      value == 'tflix')
+                      value == 'tflix' ||
+                      value == 'streame')
                   ? 'all'
                   : 'today';
               sourceMatches = const [];
@@ -1820,7 +1829,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     _sourceButton('yyzb', 'YYZB'),
                     _sourceButton('fawa', 'Fawa'),
                     _sourceButton('cola', 'ColaTV'),
-                    _sourceButton('playz', 'PlayZ / Manual'),
+                    _sourceButton('streame', 'StreamCenter'),
+                    _sourceButton('playz', 'Manual HLS'),
                     _sourceButton('tflix', 'TFLIX'),
                   ],
                 ),
@@ -1871,7 +1881,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 if (!_isManualSource &&
                     source != 'fawa' &&
                     source != 'cola' &&
-                    source != 'tflix')
+                    source != 'tflix' &&
+                    source != 'streame')
                   Row(
                     children: [
                       _dayButton('today', 'Today'),
@@ -1920,7 +1931,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                             ? (_tflixCatalog == 'channels'
                                 ? 'No sports channel sources are listed by TFLIX right now.'
                                 : 'No football matches with stream sources are listed by TFLIX right now. Try Channels.')
-                            : 'No football matches in this source section.',
+                            : source == 'streame'
+                                ? 'No current football sources are listed by StreamCenter.'
+                                : 'No football matches in this source section.',
                       ),
                     ),
                   ),

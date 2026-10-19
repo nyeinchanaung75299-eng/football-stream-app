@@ -51,7 +51,7 @@ String? manualClearKeyError({
   return null;
 }
 
-bool isVerifiedTflixLine(Map<String, dynamic> line, {DateTime? now}) {
+bool isRecentlyVerifiedSourceLine(Map<String, dynamic> line, {DateTime? now}) {
   final current = (now ?? DateTime.now()).toUtc();
   final uri = Uri.tryParse(line['url']?.toString().trim() ?? '');
   if (uri == null ||
@@ -64,7 +64,8 @@ bool isVerifiedTflixLine(Map<String, dynamic> line, {DateTime? now}) {
           streamType: line['stream_type'].toString().toLowerCase()) ||
       line['media_verified'] != true ||
       !const {'healthy', 'slow'}
-          .contains(line['health_status']?.toString().toLowerCase())) {
+          .contains(line['health_status']?.toString().toLowerCase()) ||
+      line['gateway_compatible'] == false) {
     return false;
   }
 
@@ -90,3 +91,6 @@ bool isVerifiedTflixLine(Map<String, dynamic> line, {DateTime? now}) {
   if (hasKey && sourceLineKeyFields(line)['key_id'] == null) return false;
   return true;
 }
+
+bool isVerifiedTflixLine(Map<String, dynamic> line, {DateTime? now}) =>
+    isRecentlyVerifiedSourceLine(line, now: now);
