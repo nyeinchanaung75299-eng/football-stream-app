@@ -201,7 +201,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('New All'), findsOneWidget);
       older.complete(jsonResponse({
-        'matches': [sourceMatch('Old Live')]
+        'source': 'cola',
+        'matches': [sourceMatch('Old Live', source: 'cola')]
       }));
       await tester.pumpAndSettle();
       expect(find.textContaining('Old Live'), findsNothing);
@@ -213,7 +214,8 @@ void main() {
               loads++;
               if (loads == 1) return older.future;
               return jsonResponse({
-                'matches': [sourceMatch('New All')]
+                'source': 'cola',
+                'matches': [sourceMatch('New All', source: 'cola')]
               });
             }));
   });
