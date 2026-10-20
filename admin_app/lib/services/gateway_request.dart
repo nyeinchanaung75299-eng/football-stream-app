@@ -44,6 +44,32 @@ class GatewayRequest {
           body is Map &&
           body['action'] == 'summary');
 
+  static String? _requestedSource(String functionName, Object? body) {
+    if (!const {'source-match-list', 'soco-links'}.contains(functionName) ||
+        body is! Map ||
+        !body.containsKey('source')) {
+      return null;
+    }
+    return (body['source'] ?? '').toString().trim().toLowerCase();
+  }
+
+  static bool _matchesRequestedSource(
+      String functionName, Object? body, dynamic data) {
+    final expected = _requestedSource(functionName, body);
+    if (expected == null) return true;
+    if (data is! Map ||
+        (data['source'] ?? '').toString().trim().toLowerCase() != expected) {
+      return false;
+    }
+    if (functionName != 'source-match-list') return true;
+
+    final matches = data['matches'];
+    if (matches is! List) return false;
+    return matches.every((row) =>
+        row is Map &&
+        (row['source'] ?? '').toString().trim().toLowerCase() == expected);
+  }
+
   Future<GatewayResult> run(String functionName, String token,
       {Object? body}) async {
     final repeatable = canRetry(functionName, body);
@@ -108,6 +134,11 @@ class GatewayRequest {
         }
       }
       if (response.statusCode >= 200 && response.statusCode < 300) {
+        if (!_matchesRequestedSource(functionName, body, decoded)) {
+          onFallback?.call('gateway_source_mismatch');
+          remaining();
+          continue;
+        }
         return GatewayResult(decoded,
             base: base, statusCode: response.statusCode);
       }
@@ -130,9 +161,10 @@ class GatewayRequest {
 
     // The SDK fallback shares the same deadline; it cannot leave the UI
     // waiting indefinitely after the gateway attempts have finished.
+    dynamic directData;
     try {
       final timeout = remaining();
-      return GatewayResult(await direct().timeout(timeout));
+      directData = await direct().timeout(timeout);
     } catch (_) {
       if (!repeatable) {
         throw StateError(
@@ -140,5 +172,10 @@ class GatewayRequest {
       }
       throw Exception('Could not connect. Check your connection and retry.');
     }
+    if (!_matchesRequestedSource(functionName, body, directData)) {
+      throw const FormatException(
+          'The server returned data for a different stream source. Please retry.');
+    }
+    return GatewayResult(directData);
   }
 }

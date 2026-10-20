@@ -63,7 +63,8 @@ void main() {
         'publish_state': 'published',
       };
 
-  Map<String, dynamic> sourceMatch(String home) => {
+  Map<String, dynamic> sourceMatch(String home, {String source = 'fawa'}) => {
+        'source': source,
         'source_id': home,
         'league': 'Fixture league',
         'home_team': home,
@@ -162,6 +163,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('New Cola'), findsOneWidget);
       old.complete(jsonResponse({
+        'source': 'fawa',
         'matches': [sourceMatch('Old Fawa')]
       }));
       await tester.pumpAndSettle();
@@ -176,11 +178,13 @@ void main() {
                 fawa++;
                 if (fawa == 2) return old.future;
                 return jsonResponse({
+                  'source': 'fawa',
                   'matches': [sourceMatch('First Fawa')]
                 });
               }
               return jsonResponse({
-                'matches': [sourceMatch('New Cola')]
+                'source': 'cola',
+                'matches': [sourceMatch('New Cola', source: 'cola')]
               });
             }));
   });
@@ -266,6 +270,7 @@ void main() {
               }
               if (request.url.path.endsWith('/soco-links')) {
                 return jsonResponse({
+                  'source': 'fawa',
                   'live_status': true,
                   'lines': [
                     {
@@ -277,6 +282,7 @@ void main() {
                 });
               }
               return jsonResponse({
+                'source': 'fawa',
                 'matches': [sourceMatch('Fixture home')]
               });
             }));

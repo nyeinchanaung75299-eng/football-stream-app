@@ -59,7 +59,8 @@ void main() {
         'key_data': 'FFEEDDCCBBAA99887766554433221100',
       };
 
-  Map<String, dynamic> sourceRow() => {
+  Map<String, dynamic> sourceRow({String source = 'tflix'}) => {
+        'source': source,
         'source_id': 'football-source',
         'league': 'Fixture football',
         'home_team': 'Fixture home',
@@ -159,7 +160,9 @@ void main() {
               expect(request.url.path.endsWith('/source-match-list'), isTrue);
               providers
                   .add((jsonDecode(request.body) as Map)['source'].toString());
-              return jsonResponse({'matches': []});
+              final source =
+                  (jsonDecode(request.body) as Map)['source'].toString();
+              return jsonResponse({'source': source, 'matches': []});
             }));
   });
 
@@ -194,6 +197,7 @@ void main() {
               final body = jsonDecode(request.body) as Map;
               catalogs.add(body['catalog'].toString());
               return jsonResponse({
+                'source': 'tflix',
                 'matches': body['catalog'] == 'channels'
                     ? [
                         {
@@ -237,13 +241,14 @@ void main() {
     }, () => MockClient((request) async {
           if (request.url.path.endsWith('/soco-links')) {
             streamCalls += 1;
-            return jsonResponse({'lines': []});
+            return jsonResponse({'source': 'streame', 'lines': []});
           }
           expect(request.url.path.endsWith('/source-match-list'), isTrue);
           final body = jsonDecode(request.body) as Map;
           expect(body['source'], 'streame');
           listCalls += 1;
           return jsonResponse({
+            'source': 'streame',
             'matches': [
               {
                 ...sourceRow(),
@@ -327,6 +332,7 @@ void main() {
                   expect(body['source'], 'tflix');
                   expect(body['skip_probe'], isFalse);
                   return jsonResponse({
+                    'source': 'tflix',
                     'lines': [
                       verifiedLine(),
                       {
@@ -345,6 +351,7 @@ void main() {
                   });
                 }
                 return jsonResponse({
+                  'source': 'tflix',
                   'matches': [sourceRow()]
                 });
               }));

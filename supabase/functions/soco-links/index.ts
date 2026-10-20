@@ -42,6 +42,9 @@ Deno.serve(async (req) => {
       body.viewer_public === "true" ||
       body.viewer_public === "1";
     const source = normalizeSource(body.source);
+    if (source === null) {
+      return json({ error: "Unsupported source." }, 400);
+    }
     const action = body.action === "streams" ? "streams" : "matches";
     // NCA Viewer access: catalog and already verified keyless media only.
     // Direct TFLIX provider operations remain Admin-only.
@@ -163,12 +166,13 @@ Deno.serve(async (req) => {
   }
 });
 
-function normalizeSource(value: unknown) {
-  const source = String(value ?? "soco").trim().toLowerCase();
-  if (source === "yyzb" || source === "fawa" || source === "cola" || source === "tflix" || source === "streame" || source === "nca") {
+function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "tflix" | "streame" | "nca" | null {
+  const source = String(value ?? "").trim().toLowerCase();
+  if (!source) return "soco";
+  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "tflix" || source === "streame" || source === "nca") {
     return source;
   }
-  return "soco";
+  return null;
 }
 
 async function jsonpMatches(args: {

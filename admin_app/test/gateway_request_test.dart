@@ -67,6 +67,118 @@ void main() {
     expect(result.base, 'https://backup.test');
   });
 
+  test('source catalog rejects a mismatched provider and uses next route',
+      () async {
+    final called = <String>[];
+    final fallbacks = <String>[];
+    final result = await GatewayRequest(
+      bases: ['https://stale.test', 'https://current.test'],
+      send: (uri, _, __) async {
+        called.add(uri.host);
+        if (uri.host == 'stale.test') {
+          return http.Response(
+            '{"source":"soco","matches":[{"source":"soco","source_id":"wrong-room"}]}',
+            200,
+          );
+        }
+        return http.Response(
+          '{"source":"streame","matches":[{"source":"streame","source_id":"right-event"}]}',
+          200,
+        );
+      },
+      refresh: () async => null,
+      direct: () async => throw StateError('Direct must not be used'),
+      onFallback: fallbacks.add,
+    ).run(
+      'source-match-list',
+      'test-token',
+      body: {'source': 'streame'},
+    );
+
+    expect(called, ['stale.test', 'current.test']);
+    expect(fallbacks, ['gateway_source_mismatch']);
+    expect(result.base, 'https://current.test');
+    expect(result.data['source'], 'streame');
+  });
+
+  test('source catalog rejects rows belonging to a different provider',
+      () async {
+    var direct = 0;
+    final result = await GatewayRequest(
+      bases: ['https://mixed.test'],
+      send: (_, __, ___) async => http.Response(
+        '{"source":"streame","matches":[{"source":"soco","source_id":"wrong-room"}]}',
+        200,
+      ),
+      refresh: () async => null,
+      direct: () async {
+        direct++;
+        return {
+          'source': 'streame',
+          'matches': [
+            {'source': 'streame', 'source_id': 'right-event'}
+          ],
+        };
+      },
+    ).run(
+      'source-match-list',
+      'test-token',
+      body: {'source': 'streame'},
+    );
+
+    expect(result.base, isNull);
+    expect(result.data['source'], 'streame');
+    expect(direct, 1);
+  });
+
+  test('direct fallback rejects data for a different source', () async {
+    final request = GatewayRequest(
+      bases: const [],
+      send: (_, __, ___) async => throw StateError('No gateway route'),
+      refresh: () async => null,
+      direct: () async => {
+        'source': 'soco',
+        'matches': <Map<String, dynamic>>[],
+      },
+    ).run(
+      'source-match-list',
+      'test-token',
+      body: {'source': 'streame'},
+    );
+
+    await expectLater(
+      request,
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('different stream source'),
+        ),
+      ),
+    );
+  });
+
+  test('stream resolver rejects a response from another provider', () async {
+    final fallbacks = <String>[];
+    final result = await GatewayRequest(
+      bases: ['https://stale.test', 'https://current.test'],
+      send: (uri, _, __) async => uri.host == 'stale.test'
+          ? http.Response('{"source":"soco","lines":[]}', 200)
+          : http.Response('{"source":"streame","lines":[]}', 200),
+      refresh: () async => null,
+      direct: () async => throw StateError('Direct must not be used'),
+      onFallback: fallbacks.add,
+    ).run(
+      'soco-links',
+      'test-token',
+      body: {'source': 'streame', 'room_num': 'event-1'},
+    );
+
+    expect(result.base, 'https://current.test');
+    expect(result.data['source'], 'streame');
+    expect(fallbacks, ['gateway_source_mismatch']);
+  });
+
   test('timeouts on multiple routes consume one global budget', () async {
     final pending = Completer<http.Response>();
     final budgets = <Duration>[];

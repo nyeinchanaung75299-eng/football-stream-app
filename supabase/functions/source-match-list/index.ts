@@ -62,6 +62,9 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const source = normalizeSource(body.source);
+    if (source === null) {
+      return json({ error: "Unsupported source." }, 400);
+    }
 
     if (source === "tflix") {
       if (body.viewer_public === true || body.viewer_public === "true" || body.viewer_public === "1") {
@@ -93,12 +96,13 @@ Deno.serve(async (req) => {
   }
 });
 
-function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "tflix" | "streame" {
-  const source = String(value ?? "soco").trim().toLowerCase();
-  if (source === "yyzb" || source === "fawa" || source === "cola" || source === "tflix" || source === "streame") {
+function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "tflix" | "streame" | null {
+  const source = String(value ?? "").trim().toLowerCase();
+  if (!source) return "soco";
+  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "tflix" || source === "streame") {
     return source;
   }
-  return "soco";
+  return null;
 }
 
 async function jsonpMatches(args: {
