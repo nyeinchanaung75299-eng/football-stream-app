@@ -14,6 +14,39 @@ import '../services/function_gateway.dart';
 import '../services/stream_library_service.dart';
 import '../source_line_validation.dart';
 
+@visibleForTesting
+List<Map<String, dynamic>> validateSourceMatchRows(
+  dynamic payload,
+  String provider,
+) {
+  if (payload is! Map) {
+    throw const FormatException('Source match response is invalid.');
+  }
+
+  final expected = provider.trim().toLowerCase();
+  final responseSource = payload['source']?.toString().trim().toLowerCase();
+  if (expected.isEmpty || responseSource != expected) {
+    throw FormatException('Source response mismatch: expected $expected.');
+  }
+
+  final rows = payload['matches'];
+  if (rows is! List) {
+    throw const FormatException('Source match list is invalid.');
+  }
+
+  return rows.map<Map<String, dynamic>>((row) {
+    if (row is! Map) {
+      throw const FormatException('Source match row is invalid.');
+    }
+    final parsed = Map<String, dynamic>.from(row);
+    final rowSource = parsed['source']?.toString().trim().toLowerCase();
+    if (rowSource != expected) {
+      throw FormatException('Source response mismatch: expected $expected.');
+    }
+    return parsed;
+  }).toList(growable: false);
+}
+
 class SocoImportPage extends StatefulWidget {
   const SocoImportPage({
     super.key,
@@ -246,34 +279,26 @@ class _SocoImportPageState extends State<SocoImportPage> {
             if (provider == 'tflix') 'catalog': catalog,
           },
         );
-        final liveRows = data is Map ? data['matches'] : null;
-        if (liveRows is! List) {
-          throw const FormatException('Live source match list is invalid.');
-        }
+        validateSourceMatchRows(data, provider);
       } else {
         try {
           data = await FunctionGateway.invoke(
             'source-match-list',
             body: {'source': provider},
           );
-          final liveRows = data is Map ? data['matches'] : null;
-          if (liveRows is! List) {
-            throw const FormatException('Live source match list is invalid.');
-          }
+          validateSourceMatchRows(data, provider);
         } catch (_) {
           data = await _loadSourceMirror(provider);
+          validateSourceMatchRows(data, provider);
         }
       }
 
-      final rows = data is Map ? data['matches'] : null;
-      if (rows is! List) {
-        throw const FormatException('Source match list is invalid.');
-      }
+      final rows = validateSourceMatchRows(data, provider);
 
       final parsed = rows
           .map(
             (row) => englishSourceMatch(
-              Map<String, dynamic>.from(row as Map),
+              row,
               provider,
             ),
           )

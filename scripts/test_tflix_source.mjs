@@ -621,6 +621,13 @@ test("both Edge adapters require a verified user and freshly checked Admin role 
       assert.equal(payload.catalog, "channels");
       assert.equal(payload.matches[0].kind, "channel");
       assert.equal(networkCalls, 1);
+      const unknownSource = await invoke(
+        { Authorization: "Bearer admin" },
+        { source: "unknown-provider" },
+      );
+      assert.equal(unknownSource.status, 400);
+      assert.deepEqual(await unknownSource.json(), { error: "Unsupported source." });
+      assert.equal(networkCalls, 1, "Unknown providers must not silently fetch the Soco catalog.");
       // A restored JWT must not keep using an Admin role that was revoked.
       role = "user";
       assert.equal((await invoke({ Authorization: "Bearer formerly-admin" })).status, 403);

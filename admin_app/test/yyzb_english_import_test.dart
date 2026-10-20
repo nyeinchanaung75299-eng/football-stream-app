@@ -123,11 +123,14 @@ void main() {
               final body = jsonDecode(request.body) as Map;
               if (request.url.path.endsWith('/soco-links')) {
                 checkedRooms.add(body['room_num'].toString());
-                return jsonResponse({'ready': true, 'line_count': 1});
+                return jsonResponse(
+                    {'source': 'yyzb', 'ready': true, 'line_count': 1});
               }
               return jsonResponse({
+                'source': 'yyzb',
                 'matches': [
                   {
+                    'source': 'yyzb',
                     'source_id': 'old-schedule',
                     'league': '德甲',
                     'home_team': '柏林联合',
@@ -233,10 +236,12 @@ void main() {
                 if (request.url.path.endsWith('/soco-links')) {
                   expect(body['room_num'], 'unchanged-room-7');
                   if (body['status_only'] == true) {
-                    return jsonResponse({'ready': true, 'line_count': 1});
+                    return jsonResponse(
+                        {'source': 'yyzb', 'ready': true, 'line_count': 1});
                   }
                   extraction++;
                   return jsonResponse({
+                    'source': 'yyzb',
                     'anchor_name':
                         mirror ? originalName : 'Different fresh room nickname',
                     'lines': [
@@ -251,8 +256,10 @@ void main() {
                   });
                 }
                 return jsonResponse({
+                  'source': 'yyzb',
                   'matches': [
                     {
+                      'source': 'yyzb',
                       'source_id': 'schedule-123',
                       'schedule_id': 'schedule-123',
                       'league': '德甲',
