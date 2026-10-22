@@ -42,7 +42,9 @@ class _StartupGateState extends State<StartupGate> {
       _initialization = null;
       _initializationFailed = false;
     }
-    setState(() => _ready = _start());
+    setState(() {
+      _ready = _start();
+    });
   }
 
   @override
