@@ -76,7 +76,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         'fawa' => 3,
         'cola' => 4,
         'tflix' => 5,
-        'streame' => 5,
+        'streame' => 6,
         _ => 1,
       };
   List<String> get bases => publicApiBases(
@@ -968,6 +968,14 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       return;
     }
     if (index == 6) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => const SourceBrowserPage(source: 'streame'),
+        ),
+      );
+      return;
+    }
+    if (index == 7) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
           builder: (_) => const HomePage(ncaView: true),

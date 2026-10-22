@@ -39,7 +39,12 @@ class PremiumBottomNav extends StatelessWidget {
     (
       icon: Icons.sports_soccer_outlined,
       selected: Icons.sports_soccer_rounded,
-      label: 'Sources',
+      label: 'TFLIX',
+    ),
+    (
+      icon: Icons.hub_outlined,
+      selected: Icons.hub_rounded,
+      label: 'StreamCtr',
     ),
     (
       icon: Icons.verified_outlined,
