@@ -59,12 +59,15 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   String _query = '';
   String? _league;
   bool _todayOnly = false;
+  String _tflixCatalog = 'matches';
 
   String get source => widget.source.toLowerCase();
   String get title => switch (source) {
         'yyzb' => 'YYZB',
         'fawa' => 'Fawa',
         'cola' => 'ColaTV',
+        'tflix' => 'TFLIX',
+        'streame' => 'StreamCenter',
         _ => 'Soco',
       };
   int get navIndex => switch (source) {
@@ -72,6 +75,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         'yyzb' => 2,
         'fawa' => 3,
         'cola' => 4,
+        'tflix' => 5,
+        'streame' => 5,
         _ => 1,
       };
   List<String> get bases => publicApiBases(
@@ -288,15 +293,18 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       });
 
   String _matchName(Map<String, dynamic> m) =>
-      (m['home_team'] ?? 'Home').toString() +
-      ' vs ' +
-      (m['away_team'] ?? 'Away').toString();
+      m['kind'] == 'channel'
+          ? (m['home_team'] ?? 'Sports channel').toString()
+          : (m['home_team'] ?? 'Home').toString() +
+              ' vs ' +
+              (m['away_team'] ?? 'Away').toString();
 
   Future<List<Map<String, dynamic>>> _loadFrom(String base) async {
     final response = await http
         .get(
           Uri.parse(base + '/sources/' + source + '/matches').replace(
             queryParameters: {
+              if (source == 'tflix') 'catalog': _tflixCatalog,
               't': DateTime.now().millisecondsSinceEpoch.toString(),
             },
           ),
@@ -360,6 +368,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               'viewer_public': '1',
               'action': 'matches',
               'source': source,
+              if (source == 'tflix') 'catalog': _tflixCatalog,
               't': DateTime.now().millisecondsSinceEpoch.toString(),
             },
           ),
@@ -383,7 +392,27 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return rows;
   }
 
-  String get _cacheKey => 'viewer_source_cache_v1_' + source;
+  String get _cacheKey => 'viewer_source_cache_v1_' + source +
+      (source == 'tflix' ? '_$_tflixCatalog' : '');
+
+  void _selectProvider(String provider) {
+    if (provider == source || !mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => SourceBrowserPage(source: provider),
+      ),
+    );
+  }
+
+  void _selectTflixCatalog(String catalog) {
+    if (catalog == _tflixCatalog || !mounted) return;
+    setState(() {
+      _tflixCatalog = catalog;
+      _todayOnly = false;
+      _league = null;
+    });
+    unawaited(_refresh());
+  }
 
   Future<void> _saveLastGood(List<Map<String, dynamic>> rows) async {
     try {
@@ -933,6 +962,14 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     if (index == 5) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
+          builder: (_) => const SourceBrowserPage(source: 'tflix'),
+        ),
+      );
+      return;
+    }
+    if (index == 6) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
           builder: (_) => const HomePage(ncaView: true),
         ),
       );
@@ -966,6 +1003,17 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           ),
         ),
         actions: [
+          if (source == 'tflix' || source == 'streame')
+            PopupMenuButton<String>(
+              tooltip: 'Choose stream source',
+              icon: const Icon(Icons.swap_horiz_rounded),
+              initialValue: source,
+              onSelected: _selectProvider,
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'tflix', child: Text('TFLIX')),
+                PopupMenuItem(value: 'streame', child: Text('StreamCenter')),
+              ],
+            ),
           IconButton(
             tooltip: 'Refresh source',
             onPressed: _refresh,
@@ -993,8 +1041,12 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           final allMatches = _feed.data ?? const <Map<String, dynamic>>[];
           if (allMatches.isEmpty) {
             return _StateView(
-              title: 'No ' + title + ' matches',
-              text: 'No football matches are available from this source now.',
+              title: source == 'tflix'
+                  ? 'No TFLIX ' + _tflixCatalog
+                  : 'No ' + title + ' matches',
+              text: source == 'tflix'
+                  ? 'TFLIX has no ' + _tflixCatalog + ' listed right now.'
+                  : 'No matches are available from this source right now.',
               onRefresh: _refresh,
             );
           }
@@ -1011,6 +1063,24 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               slivers: [
+                if (source == 'tflix')
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
+                      child: SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(value: 'matches', label: Text('Matches')),
+                          ButtonSegment(value: 'channels', label: Text('Channels')),
+                        ],
+                        selected: {_tflixCatalog},
+                        onSelectionChanged: (selection) {
+                          if (selection.isNotEmpty) {
+                            _selectTflixCatalog(selection.first);
+                          }
+                        },
+                      ),
+                    ),
+                  ),
                 SliverToBoxAdapter(
                   child: SourceMatchFilters(
                     controller: _searchController,
@@ -1054,6 +1124,15 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                         final time = DateTime.tryParse(
                           m['match_time']?.toString() ?? '',
                         )?.toLocal();
+
+                        if (m['kind'] == 'channel') {
+                          return _TflixChannelCard(
+                            name: (m['home_team'] ?? 'Sports channel').toString(),
+                            category: (m['league'] ?? 'Sports channels').toString(),
+                            canWatch: ready,
+                            onWatch: () => _watch(m),
+                          );
+                        }
 
                         return PremiumMatchCard(
                           league: (m['league'] ?? 'Football').toString(),
@@ -1128,6 +1207,42 @@ class _SourceLoading extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TflixChannelCard extends StatelessWidget {
+  const _TflixChannelCard({
+    required this.name,
+    required this.category,
+    required this.canWatch,
+    required this.onWatch,
+  });
+
+  final String name;
+  final String category;
+  final bool canWatch;
+  final VoidCallback onWatch;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: .55),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.outlineVariant.withValues(alpha: .3)),
+      ),
+      child: ListTile(
+        leading: Icon(Icons.live_tv_rounded, color: colors.primary),
+        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text(category),
+        trailing: FilledButton.tonal(
+          onPressed: canWatch ? onWatch : null,
+          child: const Text('CHECK STREAMS'),
+        ),
+        onTap: canWatch ? onWatch : null,
       ),
     );
   }

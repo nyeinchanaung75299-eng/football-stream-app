@@ -1,4 +1,4 @@
-// Admin-only StreamCenter adapter. It reads the site's public, server-rendered
+// StreamCenter adapter. It reads the site's public, server-rendered
 // game cards and public iframe chain. Only an HLS manifest that also returns a
 // bounded media sample is offered to Admin; no page script is executed.
 const CATALOG = "https://streamcenter.st/game-cards/embed";

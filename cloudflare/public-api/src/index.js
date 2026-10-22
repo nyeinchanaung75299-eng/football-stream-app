@@ -53,7 +53,7 @@ export default {
     }
 
     const sourceStreamsRoute = url.pathname.match(
-      /^\/sources\/(soco|yyzb|fawa|cola)\/streams$/,
+      /^\/sources\/(soco|yyzb|fawa|cola|tflix|streame)\/streams$/,
     );
     if (sourceStreamsRoute && request.method === "POST") {
       return handleSourceBrowserStreams(
@@ -87,7 +87,7 @@ export default {
     }
 
     const sourceMatchesRoute = url.pathname.match(
-      /^\/sources\/(soco|yyzb|fawa|cola)\/matches$/,
+      /^\/sources\/(soco|yyzb|fawa|cola|tflix|streame)\/matches$/,
     );
     if (sourceMatchesRoute && request.method === "GET") {
       return handleSourceBrowserMatches(
@@ -406,14 +406,19 @@ async function handleSourceBrowserMatches(request, source, env) {
   }
 
   try {
+    const catalog = source === "tflix"
+      ? (new URL(request.url).searchParams.get("catalog") === "channels" ? "channels" : "matches")
+      : undefined;
     const payload = await invokeViewerSourceFunction(env, {
       action: "matches",
       source,
+      ...(catalog ? { catalog } : {}),
     });
     const matches = Array.isArray(payload?.matches) ? payload.matches : [];
     return json({
       ok: true,
       source,
+      ...(catalog ? { catalog } : {}),
       matches,
       results: matches.length,
       generated_at: payload?.generated_at || new Date().toISOString(),
@@ -441,20 +446,43 @@ async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
   } catch (_) {}
 
   try {
+    const protectedSource = source === "tflix" || source === "streame";
+    const backendSecret = protectedSource ? env.PLAYBACK_BACKEND_SECRET?.trim() || "" : "";
+    if (protectedSource && !backendSecret) {
+      return json({ error: "Protected source playback is not configured." }, 503, {
+        "Cache-Control": "no-store, max-age=0",
+      });
+    }
     const payload = await invokeViewerSourceFunction(env, {
       action: "streams",
       source,
-      room_num: input?.room_num ?? null,
+      room_num: source === "tflix"
+        ? input?.source_id ?? input?.room_num ?? null
+        : source === "streame"
+          ? input?.room_num ?? input?.source_id ?? null
+          : input?.room_num ?? null,
       schedule_id: input?.schedule_id ?? null,
       page_url: input?.page_url ?? null,
       source_id: input?.source_id ?? null,
       anchor_name: input?.anchor_name ?? null,
+      ...(protectedSource ? { playback_secret: backendSecret } : {}),
       // The Viewer needs a playable candidate promptly. Admin extraction and
       // explicit health actions still probe; skipped candidates are unknown.
       skip_probe: true,
     });
 
-    const rawLines = Array.isArray(payload?.lines) ? payload.lines : [];
+    const candidates = Array.isArray(payload?.lines) ? payload.lines : [];
+    const rawLines = protectedSource ? candidates.filter((line) => {
+      const type = String(line?.stream_type || "").toLowerCase();
+      const url = String(line?.stream_url || line?.url || "");
+      const expiry = Date.parse(String(line?.expires_at || ""));
+      return line?.media_verified === true &&
+        !line?.key_id && !line?.key_data &&
+        line?.gateway_compatible !== false &&
+        ["hls", "dash"].includes(type) &&
+        url.startsWith("https://") &&
+        (!Number.isFinite(expiry) || expiry > Date.now() + 30000);
+    }) : candidates;
     const roomKey = String(input?.room_num || input?.source_id || "room");
     const anchorName = String(input?.anchor_name || "").trim();
     const normalized = rawLines.map((line, index) => ({
@@ -490,7 +518,9 @@ async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
     }, 200, { "Cache-Control": "no-store, max-age=0" });
   } catch (error) {
     return json({
-      error: error instanceof Error ? error.message : String(error),
+      error: source === "tflix" || source === "streame"
+        ? "No verified, keyless source stream is available right now."
+        : error instanceof Error ? error.message : String(error),
     }, Number(error?.status) || 502, {
       "Cache-Control": "no-store, max-age=0",
     });
@@ -748,6 +778,7 @@ async function protectedClientLinks(raw, env, publicOrigin) {
     if (Number.isFinite(availableFrom) && now < availableFrom) continue;
     const expiresAt = Date.parse(String(link.expires_at || ""));
     if (Number.isFinite(expiresAt) && now >= expiresAt) continue;
+    if (Number.isFinite(expiresAt) && expiresAt - now <= 30000) continue;
 
     const upstreamUrl = String(link.stream_url || "").trim();
     if (!upstreamUrl) continue;
@@ -767,9 +798,10 @@ async function protectedClientLinks(raw, env, publicOrigin) {
           : declaredType;
 
     const sourceTtl = Number.isFinite(expiresAt)
-      ? Math.max(60, Math.floor((expiresAt - now) / 1000))
+      ? Math.floor((expiresAt - now) / 1000)
       : maxLifetime;
-    const maxTtl = Math.max(60, Math.min(maxLifetime, sourceTtl));
+    if (sourceTtl <= 0) continue;
+    const maxTtl = Math.min(maxLifetime, sourceTtl);
     const sessionKey = crypto.getRandomValues(new Uint8Array(32));
     const session = {
       u: upstreamUrl,

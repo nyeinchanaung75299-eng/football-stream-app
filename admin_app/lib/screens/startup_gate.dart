@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 /// Show a visible, retryable startup state before the authenticated Admin UI.
@@ -12,10 +14,36 @@ class StartupGate extends StatefulWidget {
 }
 
 class _StartupGateState extends State<StartupGate> {
+  static const _startupTimeout = Duration(seconds: 30);
+
+  Future<void>? _initialization;
+  bool _initializationFailed = false;
   late Future<void> _ready;
 
-  Future<void> _start() =>
-      Future<void>.sync(widget.initialize).timeout(const Duration(seconds: 12));
+  Future<void> _initializeOnce() async {
+    try {
+      await widget.initialize();
+    } catch (_) {
+      _initializationFailed = true;
+      rethrow;
+    }
+  }
+
+  Future<void> _start() {
+    final operation = _initialization ??= _initializeOnce();
+    return operation.timeout(_startupTimeout);
+  }
+
+  void _retry() {
+    // A timeout does not cancel the underlying backend/session restoration.
+    // Keep waiting for that same operation instead of starting a second
+    // Supabase initialization. Only a completed failure may start over.
+    if (_initializationFailed) {
+      _initialization = null;
+      _initializationFailed = false;
+    }
+    setState(() => _ready = _start());
+  }
 
   @override
   void initState() {
@@ -47,11 +75,7 @@ class _StartupGateState extends State<StartupGate> {
                 const Text(
                     'Could not connect. Check your connection and retry.'),
                 const SizedBox(height: 16),
-                FilledButton(
-                    onPressed: () => setState(() {
-                          _ready = _start();
-                        }),
-                    child: const Text('Retry')),
+                FilledButton(onPressed: _retry, child: const Text('Retry')),
               ],
             ]),
           )));

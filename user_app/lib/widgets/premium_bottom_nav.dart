@@ -37,6 +37,11 @@ class PremiumBottomNav extends StatelessWidget {
       label: 'ColaTV',
     ),
     (
+      icon: Icons.sports_soccer_outlined,
+      selected: Icons.sports_soccer_rounded,
+      label: 'Sources',
+    ),
+    (
       icon: Icons.verified_outlined,
       selected: Icons.verified_rounded,
       label: 'NCA',

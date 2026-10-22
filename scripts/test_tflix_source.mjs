@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import {
   decodePublicPlayerWrapper, extractPublicPlayerConfig, safeTflixUrl,
-  signedExpiry, tflixMatches, tflixPublicMatches, tflixStreams, tflixViewerStreams, verifyTflixMedia,
+  signedExpiry, tflixMatches, tflixPublicCatalog, tflixPublicMatches, tflixStreams, tflixViewerStreams, verifyTflixMedia,
 } from "../supabase/functions/_shared/tflix_source.mjs";
 
 const KID = "0123456789abcdef0123456789abcdef";
@@ -116,7 +116,7 @@ test("new player host permission remains exact and validates redirects", async (
 test("NCA public resolver rejects forged channel or arbitrary URL IDs before HTTP", async () => {
   const mock = fakeFetch({});
   for (const id of ["channel:sky", "../etc", "match:../bad", "match:abc/stream", ""]) {
-    await assert.rejects(tflixViewerStreams({ source_id: id }, mock), /Invalid NCA/);
+    await assert.rejects(tflixViewerStreams({ source_id: id }, mock), /Invalid TFLIX/);
   }
   assert.equal(mock.calls.length, 0);
 });
@@ -163,7 +163,7 @@ test("NCA public catalog matches Admin fixture count without exposing player URL
     ["Arsenal", "West Bromwich", "Rayo Vallecano"]);
   for (const match of result.matches) {
     assert.deepEqual(Object.keys(match).sort(),
-      ["source_id","league","home_team","away_team","match_time","is_live"].sort());
+      ["source_id","kind","league","home_team","away_team","match_time","is_live"].sort());
     assert.equal(match.page_url, undefined);
     assert.equal(match.anchors, undefined);
     assert.equal(match.stream_url, undefined);
@@ -208,12 +208,15 @@ test("current public catalog replaces signed-in legacy routes without leaking em
   assert.equal(checked.lines[0].media_verified, true);
 });
 
-test("Viewer NCA access is restricted to verified streams and TFLIX Admin route remains private", () => {
+test("Viewer NCA, TFLIX, and StreamCenter streams are protected and verified", () => {
   const file = readFileSync(new URL("../supabase/functions/soco-links/index.ts", import.meta.url), "utf8");
   assert.match(file, /if \(source === "nca"\)/);
   assert.match(file, /if \(!viewerPublic\)/);
-  assert.match(file, /tflixViewerStreams\(body\)/);
-  assert.match(file, /if \(viewerPublic && \(source === "tflix" \|\| source === "streame"\)\)/);
+  assert.match(file, /verifyPlaybackBackendSecret\(body\.playback_secret\)/);
+  assert.match(file, /tflixViewerStreams\(\{ \.\.\.body, label_prefix: "NCA" \}\)/);
+  assert.match(file, /tflixPublicCatalog\(body\.catalog\)/);
+  assert.match(file, /if \(\(source === "tflix" \|\| source === "streame"\) && viewerPublic\)/);
+  assert.match(file, /if \(source === "streame"\) return json\(await streameStreams\(body\)\)/);
 });
 
 test("TFLIX score-only football fixtures never gain fabricated broadcast anchors", async () => {
@@ -260,6 +263,32 @@ test("TFLIX Channels remain channels, exclude unrelated sports, and never invent
   assert.equal(result.matches[0].away_team, "");
   assert.equal(result.matches[0].match_time, null);
   assert.equal(result.matches[0].anchors[0].media_verified, undefined);
+});
+
+test("public TFLIX catalog exposes both match and channel metadata without player URLs", async () => {
+  const mock = fakeFetch({
+    "https://tflix.su/api/public": {
+      events: [{ slug: "public-match", sport: "Football", status: "live",
+        competition: "England: Premier League", starts_at: "2026-10-22T18:00:00Z",
+        watch_url: "/watch/public-match", home_name: "Home", away_name: "Away",
+        channels: [{ streamUrl: "https://media.example/live.m3u8", key: "private" }] }],
+      channels: [{ slug: "sky-sports", name: "Sky Sports Main Event", isLive: true,
+        page_url: "https://tflix.su/channel/sky-sports",
+        stream_url: "https://media.example/live.m3u8", key_data: "private" }],
+    },
+  });
+  for (const kind of ["matches", "channels"]) {
+    const result = await tflixPublicCatalog(kind, mock);
+    assert.equal(result.source, "tflix");
+    assert.equal(result.catalog, kind);
+    assert.equal(result.matches.length, 1);
+    assert.equal(result.matches[0].kind, kind === "matches" ? "match" : "channel");
+    const serialized = JSON.stringify(result);
+    assert.equal(serialized.includes("page_url"), false);
+    assert.equal(serialized.includes("stream_url"), false);
+    assert.equal(serialized.includes("key_data"), false);
+    assert.equal(serialized.includes("anchors"), false);
+  }
 });
 
 test("observed public literal array decoder returns text without executing player scripts", () => {
@@ -581,17 +610,31 @@ test("stalled cancellation callbacks cannot hold a completed manifest verificati
 
 test("both Edge adapters require a verified user and freshly checked Admin role before dispatching TFLIX", async () => {
   const original = { Deno: globalThis.Deno, fetch: globalThis.fetch, createClient: globalThis.createClient };
-  let role = "admin", valid = true, userChecks = 0, roleChecks = 0, networkCalls = 0;
+  let role = "admin", valid = true, userChecks = 0, roleChecks = 0, networkCalls = 0, gatewayChecks = 0;
   globalThis.createClient = () => ({
     auth: { getUser: async () => { userChecks++; return { data: { user: valid ? { id: "admin-test" } : null }, error: valid ? null : new Error("invalid") }; } },
+    rpc: async (name, args) => {
+      assert.equal(name, "get_stream_metadata_for_gateway");
+      gatewayChecks++;
+      return args.p_secret === "gateway-secret" ? { data: { match_valid: false }, error: null }
+        : { data: null, error: new Error("unauthorized") };
+    },
     from: () => ({
       select: () => ({ eq: () => ({ single: async () => { roleChecks++; return { data: { role } }; } }) }),
     }),
   });
   globalThis.fetch = async (raw) => {
     networkCalls++;
-    assert.equal(String(raw), "https://tflix.su/api/public", "TFLIX must not silently fall back to Soco.");
-    return Response.json([{ slug: "bein-sports-1-tr", name: "BeIN Sports 1 TR" }]);
+    if (String(raw) === "https://tflix.su/api/public") return Response.json({
+      events: [{ slug: "public-match", sport: "Football", status: "live",
+        competition: "Premier League", watch_url: "/watch/public-match",
+        home_name: "Home", away_name: "Away", channels: [{
+          embed_url: "https://xtrahut.xyz/embed/public-match",
+        }] }],
+      channels: [{ slug: "bein-sports-1-tr", name: "BeIN Sports 1 TR" }],
+    });
+    assert.equal(String(raw), "https://xtrahut.xyz/embed/public-match", "TFLIX must not silently fall back to Soco.");
+    return new Response("<html>No direct media</html>");
   };
   try {
     for (const name of ["source-match-list", "soco-links"]) {
@@ -633,12 +676,26 @@ test("both Edge adapters require a verified user and freshly checked Admin role 
       assert.equal((await invoke({ Authorization: "Bearer formerly-admin" })).status, 403);
       assert.equal(networkCalls, 1);
       role = "admin";
-      assert.equal((await invoke({ Authorization: "Bearer admin" }, { viewer_public: true })).status, 403);
-      assert.equal(networkCalls, 1);
+      const publicResult = await invoke({ Authorization: "Bearer admin" }, { viewer_public: true });
+      assert.equal(publicResult.status, name === "soco-links" ? 200 : 403);
+      if (name === "soco-links") assert.equal((await publicResult.json()).source, "tflix");
+      assert.equal(networkCalls, name === "soco-links" ? 2 : 1);
       if (name === "soco-links") {
         const checks = userChecks;
-        assert.equal((await invoke({}, { viewer_public: true })).status, 403);
+        const publicWithoutSession = await invoke({}, { viewer_public: true });
+        assert.equal(publicWithoutSession.status, 200);
         assert.equal(userChecks, checks);
+        assert.equal(networkCalls, 3);
+        assert.equal(gatewayChecks, 0);
+
+        const noSecret = await invoke({}, { viewer_public: true, action: "streams", source_id: "match:public-match" });
+        assert.equal(noSecret.status, 403);
+        assert.equal(gatewayChecks, 0);
+        const protectedLookup = await invoke({}, { viewer_public: true, action: "streams",
+          source_id: "match:public-match", playback_secret: "gateway-secret" });
+        assert.equal(protectedLookup.status, 200);
+        assert.equal((await protectedLookup.json()).line_count, 0);
+        assert.equal(gatewayChecks, 1);
       }
     }
   } finally {

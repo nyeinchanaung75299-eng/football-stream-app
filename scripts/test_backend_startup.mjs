@@ -57,6 +57,58 @@ test('stream metadata is one secret-gated RPC and preserves empty versus missing
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('TFLIX Viewer catalogs are public metadata and streams are secret-gated protected URLs', async () => {
+  const streamUrl = 'https://media.example/tflix/live.m3u8';
+  globalThis.fetch = async (url, options) => {
+    assert.equal(new URL(url).pathname, '/functions/v1/soco-links');
+    const body = JSON.parse(options.body);
+    assert.equal(body.viewer_public, true);
+    if (body.action === 'matches') {
+      assert.equal(body.source, 'tflix');
+      assert.equal(body.catalog, 'channels');
+      return Response.json({ source: 'tflix', catalog: 'channels', matches: [
+        { source_id: 'channel:sky-sports', kind: 'channel', home_team: 'Sky Sports' },
+      ] });
+    }
+    assert.equal(body.source, 'tflix');
+    assert.equal(body.source_id, 'channel:sky-sports');
+    assert.equal(body.playback_secret, env.PLAYBACK_BACKEND_SECRET);
+    return Response.json({ lines: [
+      { id: 'good', label: 'TFLIX Server 1', stream_url: streamUrl, stream_type: 'hls',
+        media_verified: true, key_id: null, key_data: null, is_active: true,
+        expires_at: new Date(Date.now() + 120000).toISOString() },
+      { id: 'keyed', stream_url: 'https://media.example/keyed.mpd', stream_type: 'dash',
+        media_verified: true, key_id: 'secret-kid', key_data: 'secret-key', is_active: true },
+      { id: 'unverified', stream_url: 'https://media.example/unverified.m3u8', stream_type: 'hls',
+        media_verified: false, is_active: true },
+    ] });
+  };
+  try {
+    const catalogResponse = await worker.fetch(new Request(
+      'https://api.example/sources/tflix/matches?catalog=channels'), env);
+    assert.equal(catalogResponse.status, 200);
+    const catalog = await catalogResponse.json();
+    assert.equal(catalog.catalog, 'channels');
+    assert.equal(catalog.matches[0].kind, 'channel');
+
+    const streamsResponse = await worker.fetch(new Request(
+      'https://api.example/sources/tflix/streams', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_id: 'channel:sky-sports' }),
+      }), env);
+    assert.equal(streamsResponse.status, 200);
+    const result = await streamsResponse.json();
+    assert.equal(result.stream_count, 1);
+    assert.equal(result.streams[0].protected_proxy, true);
+    assert.equal(result.streams[0].key_id, null);
+    assert.equal(result.streams[0].key_data, null);
+    assert.notEqual(result.streams[0].stream_url, streamUrl);
+    const serialized = JSON.stringify(result);
+    assert.equal(serialized.includes(streamUrl), false);
+    assert.equal(serialized.includes(env.PLAYBACK_BACKEND_SECRET), false);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('only a missing new RPC uses legacy validation; outage does not duplicate requests', async () => {
   const paths = [];
   globalThis.fetch = async url => {

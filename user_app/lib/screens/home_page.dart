@@ -502,26 +502,43 @@ class _HomePageState extends State<HomePage> {
   Future<List<Map<String, dynamic>>> _loadNcaAutoStreams(String sourceId) async {
     if (!RegExp(r'^match:[a-zA-Z0-9][a-zA-Z0-9_-]{0,159}$')
         .hasMatch(sourceId)) return const [];
-    final uri = Uri.parse(_ncaCatalogEndpoint).replace(queryParameters: {
-      'viewer_public': '1', 'source': 'nca', 'action': 'streams',
-      'source_id': sourceId,
-      't': DateTime.now().millisecondsSinceEpoch.toString(),
-    });
+    return _hedged(
+      _publicApiBases
+          .map<Future<List<Map<String, dynamic>>> Function()>(
+            (base) => () => _loadNcaAutoStreamsFrom(base, sourceId),
+          )
+          .toList(),
+      delay: const Duration(milliseconds: 250),
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _loadNcaAutoStreamsFrom(
+    String base,
+    String sourceId,
+  ) async {
     final response = await http
-        .get(uri, headers: const {'Accept': 'application/json'})
+        .post(
+          Uri.parse('$base/sources/tflix/streams'),
+          headers: const {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'source_id': sourceId}),
+        )
         .timeout(const Duration(seconds: 12));
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError('NCA automatic stream lookup unavailable.');
+      throw StateError('TFLIX automatic stream lookup unavailable.');
     }
     final data = jsonDecode(utf8.decode(response.bodyBytes));
-    final raw = data is Map ? data['lines'] : null;
-    if (raw is! List) throw const FormatException('Invalid NCA stream response.');
+    final raw = data is Map ? data['streams'] : null;
+    if (raw is! List) {
+      throw const FormatException('Invalid TFLIX stream response.');
+    }
     return playableLinks(raw.whereType<Map>()
         .map((row) => Map<String, dynamic>.from(row))
         .where((row) =>
-            row['media_verified'] == true &&
+            row['protected_proxy'] == true &&
             row['key_id'] == null && row['key_data'] == null &&
-            (row['label']?.toString().startsWith('NCA Server ') ?? false) &&
             {'hls', 'dash'}.contains(row['stream_type']) &&
             Uri.tryParse(row['stream_url']?.toString() ?? '')?.scheme == 'https')
         .toList());
@@ -1792,7 +1809,7 @@ class _HomePageState extends State<HomePage> {
         },
       ),
       bottomNavigationBar: PremiumBottomNav(
-        selectedIndex: widget.ncaView ? 5 : 0,
+        selectedIndex: widget.ncaView ? 6 : 0,
         onSelected: (index) async {
           if (index == 0) {
             if (widget.ncaView) {
@@ -1803,6 +1820,15 @@ class _HomePageState extends State<HomePage> {
             return;
           }
           if (index == 5) {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const SourceBrowserPage(source: 'tflix'),
+              ),
+            );
+            if (mounted) await refresh(silent: true);
+            return;
+          }
+          if (index == 6) {
             if (widget.ncaView) {
               await refresh(silent: true);
             } else {
