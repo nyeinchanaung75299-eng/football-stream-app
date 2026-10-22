@@ -76,22 +76,45 @@ Future<void> _loadTheme() async {
   } catch (_) {}
 }
 
-Future<void> _initializeBackend() async {
+Future<void>? _backendInitialization;
+
+bool _backendIsInitialized() {
+  try {
+    Supabase.instance.client;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<void> _initializeBackend() =>
+    _backendInitialization ??= _initializeBackendOnce();
+
+Future<void> _initializeBackendOnce() async {
   const directUrl = 'https://woggzixprvyjnfjzsglz.supabase.co';
   const anonKey = 'sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O';
-
-  final url = await resolveSupabaseUrl(
-    directUrl: directUrl,
-    publishableKey: anonKey,
-  );
-
-  await Supabase.initialize(
-    url: url,
-    anonKey: anonKey,
-    authOptions: FlutterAuthClientOptions(
-      localStorage: _StableAdminSessionStorage(),
-    ),
-  );
+  try {
+    final url = await resolveSupabaseUrl(
+      directUrl: directUrl,
+      publishableKey: anonKey,
+    );
+    await Supabase.initialize(
+      url: url,
+      anonKey: anonKey,
+      authOptions: FlutterAuthClientOptions(
+        localStorage: _StableAdminSessionStorage(),
+      ),
+    );
+  } catch (_) {
+    // Some SDK failures happen after the client is constructed (for example,
+    // a stored session cannot be restored over the current network). Let the
+    // AuthGate recover through its login flow instead of retrying initialization.
+    if (_backendIsInitialized()) return;
+    // A genuine completed failure can be retried. A UI timeout does not reach
+    // this branch, so the same in-flight initialization remains memoized.
+    _backendInitialization = null;
+    rethrow;
+  }
 }
 
 class FootballAdminApp extends StatelessWidget {

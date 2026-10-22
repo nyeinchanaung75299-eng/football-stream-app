@@ -69,6 +69,26 @@ test('Admin authorization stays with the original Worker and unsupported proxy t
   });
 });
 
+test('TFLIX catalog and playback routes are forwarded through the protected public Worker', async () => {
+  const seen = [];
+  await withFetch(async (url, init) => {
+    seen.push({ url: String(url), method: init.method });
+    return Response.json({ ok: true });
+  }, async () => {
+    const catalog = await proxy(new Request(origin + '/api/proxy?route=sources/tflix/matches&catalog=channels'));
+    assert.equal(catalog.status, 200);
+    assert.equal(seen[0].url, worker + '/sources/tflix/matches?catalog=channels');
+
+    const streams = await proxy(new Request(origin + '/api/proxy?route=sources/tflix/streams', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_id: 'channel:sky-sports' }),
+    }));
+    assert.equal(streams.status, 200);
+    assert.equal(seen[1].url, worker + '/sources/tflix/streams');
+    assert.equal(seen[1].method, 'POST');
+  });
+});
+
 test('Protected metadata stays on the reachable backup and binary range responses stay intact', async () => {
   await withFetch(async (url, init) => {
     assert.equal(init.headers.has('Authorization'), false);

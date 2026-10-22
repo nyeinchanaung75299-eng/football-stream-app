@@ -211,9 +211,16 @@ export async function tflixMatches(body = {}, options = {}) {
 // No player/page URLs, server anchors, media/DRM data, or provider labels.
 // Stream resolution remains exclusively in the authorized Admin workflow.
 export async function tflixPublicMatches(options = {}) {
-  const catalog = await tflixMatches({ catalog: "matches" }, options);
+  return tflixPublicCatalog("matches", options, "nca");
+}
+
+// Public TFLIX browser catalog. Keep it to display metadata; player URLs,
+// provider embeds, keys, and tokens stay inside the server-side resolver.
+export async function tflixPublicCatalog(requested = "matches", options = {}, publicSource = "tflix") {
+  const catalog = await tflixMatches({ catalog: requested }, options);
   const matches = catalog.matches.slice(0, 200).map((row) => ({
     source_id: row.source_id,
+    kind: row.kind,
     league: row.league,
     home_team: row.home_team,
     away_team: row.away_team,
@@ -221,7 +228,7 @@ export async function tflixPublicMatches(options = {}) {
     is_live: row.is_live === true,
   }));
   return {
-    ok: true, source: "nca", catalog: "matches", matches,
+    ok: true, source: publicSource, catalog: catalog.catalog, matches,
     results: matches.length, generated_at: catalog.generated_at,
   };
 }
@@ -681,11 +688,16 @@ export async function tflixStreams(body = {}, options = {}) {
 const ncaCache = new Map();
 export async function tflixViewerStreams(body = {}, options = {}) {
   const id = clean(body.source_id ?? body.room_num ?? body.schedule_id);
-  if (!/^match:[a-z0-9][a-z0-9_-]{0,159}$/i.test(id)) {
-    throw new Error("Invalid NCA football match ID.");
+  const isNca = body.label_prefix !== "TFLIX";
+  const allowedId = !isNca
+    ? /^(?:match|channel):[a-z0-9][a-z0-9_-]{0,159}$/i
+    : /^match:[a-z0-9][a-z0-9_-]{0,159}$/i;
+  if (!allowedId.test(id)) {
+    throw new Error("Invalid TFLIX source ID.");
   }
+  const cacheKey = (isNca ? "nca:" : "tflix:") + id;
   if (!options.fetcher) {
-    const cached = ncaCache.get(id);
+    const cached = ncaCache.get(cacheKey);
     if (cached && cached.until > Date.now()) return cached.result;
   }
   const checked = await tflixStreams({ room_num: id }, options);
@@ -707,7 +719,7 @@ export async function tflixViewerStreams(body = {}, options = {}) {
       ? source.server_name : "Server " + (lines.length + 1);
     lines.push({
       id: id + ":" + slot.replace(/\s+/g, "-"),
-      label: "NCA " + slot,
+      label: (isNca ? "NCA " : "TFLIX ") + slot,
       stream_url: url, stream_type: source.stream_type,
       referer, origin: new URL(referer).origin,
       resolution: source.resolution ?? "Auto",
@@ -719,14 +731,16 @@ export async function tflixViewerStreams(body = {}, options = {}) {
     if (lines.length >= 4) break;
   }
   const result = {
-    ok: true, source: "nca", source_id: id, line_count: lines.length,
+    ok: true, source: isNca ? "nca" : "tflix",
+    source_id: id, line_count: lines.length,
     ready: lines.length > 0, lines, generated_at: new Date().toISOString(),
-    message: lines.length ? "Verified NCA servers." :
-      "No accessible, unencrypted, verified NCA servers are available.",
+    message: lines.length
+      ? `Verified ${isNca ? "NCA" : "TFLIX"} servers.`
+      : `No accessible, unencrypted, verified ${isNca ? "NCA" : "TFLIX"} streams are available.`,
   };
   if (!options.fetcher) {
     if (ncaCache.size >= 64) ncaCache.delete(ncaCache.keys().next().value);
-    ncaCache.set(id, { until: Date.now() + 10000, result });
+    ncaCache.set(cacheKey, { until: Date.now() + 10000, result });
   }
   return result;
 }

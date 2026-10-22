@@ -44,9 +44,56 @@ void main() {
       initialize: () => Completer<void>().future,
       child: const Text('Authenticated UI'),
     )));
-    await tester.pump(const Duration(seconds: 13));
+    await tester.pump(const Duration(seconds: 31));
     await tester.pumpAndSettle();
     expect(find.text('Retry'), findsOneWidget);
     expect(find.text('Authenticated UI'), findsNothing);
+  });
+
+  testWidgets('a slow reachable backend can finish within the startup budget',
+      (tester) async {
+    final pending = Completer<void>();
+    await tester.pumpWidget(MaterialApp(
+        home: StartupGate(
+      initialize: () => pending.future,
+      child: const Text('Authenticated UI'),
+    )));
+
+    await tester.pump(const Duration(seconds: 20));
+    expect(find.text('Connecting…'), findsOneWidget);
+    expect(find.text('Retry'), findsNothing);
+
+    pending.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Authenticated UI'), findsOneWidget);
+  });
+
+  testWidgets('retry after timeout never overlaps backend initialization',
+      (tester) async {
+    final pending = Completer<void>();
+    var calls = 0;
+    await tester.pumpWidget(MaterialApp(
+        home: StartupGate(
+      initialize: () {
+        calls += 1;
+        return pending.future;
+      },
+      child: const Text('Authenticated UI'),
+    )));
+
+    await tester.pump(const Duration(seconds: 31));
+    await tester.pumpAndSettle();
+    expect(find.text('Retry'), findsOneWidget);
+    expect(calls, 1);
+
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    expect(find.text('Connecting…'), findsOneWidget);
+    expect(calls, 1);
+
+    pending.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Authenticated UI'), findsOneWidget);
+    expect(calls, 1);
   });
 }

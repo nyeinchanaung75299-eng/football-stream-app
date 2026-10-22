@@ -17,7 +17,7 @@ function routeKind(path) {
   if (["/health", "/matches", "/backend-health"].includes(path) ||
       /^\/matches\/[A-Za-z0-9_-]+\/streams$/.test(path) ||
       /^\/p\/[A-Za-z0-9_-]+(?:\/.*)?$/.test(path) ||
-      /^\/sources\/(soco|yyzb|fawa|cola)\/(matches|streams)$/.test(path)) return "public";
+      /^\/sources\/(soco|yyzb|fawa|cola|tflix|streame)\/(matches|streams)$/.test(path)) return "public";
   if (new RegExp("^/admin/functions/(" + functionNames + ")$").test(path)) return "admin";
   if (/^\/(auth|rest|storage)\/v1(?:\/.*)?$/.test(path) ||
       new RegExp("^/functions/v1/(" + functionNames + ")$").test(path)) return "backend";
@@ -67,7 +67,7 @@ async function proxy(request) {
   const kind = routeKind(path);
   if (!kind) return failure("Not found.", 404);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-  const sourcePost = /^\/sources\/(soco|yyzb|fawa|cola)\/streams$/.test(path);
+  const sourcePost = /^\/sources\/(soco|yyzb|fawa|cola|tflix|streame)\/streams$/.test(path);
   const methods = kind === "backend" ? ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"] :
     (kind === "admin" || sourcePost ? ["POST"] : ["GET", "HEAD"]);
   if (!methods.includes(request.method)) return failure("Method not allowed.", 405);
