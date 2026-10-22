@@ -1809,7 +1809,7 @@ class _HomePageState extends State<HomePage> {
         },
       ),
       bottomNavigationBar: PremiumBottomNav(
-        selectedIndex: widget.ncaView ? 6 : 0,
+        selectedIndex: widget.ncaView ? 7 : 0,
         onSelected: (index) async {
           if (index == 0) {
             if (widget.ncaView) {
@@ -1829,6 +1829,15 @@ class _HomePageState extends State<HomePage> {
             return;
           }
           if (index == 6) {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const SourceBrowserPage(source: 'streame'),
+              ),
+            );
+            if (mounted) await refresh(silent: true);
+            return;
+          }
+          if (index == 7) {
             if (widget.ncaView) {
               await refresh(silent: true);
             } else {
