@@ -69,7 +69,7 @@ class _StartupGateState extends State<StartupGate> {
               Text('NCA Admin',
                   style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 20),
-              if (!snapshot.hasError) ...[
+              if (snapshot.connectionState != ConnectionState.done) ...[
                 const CircularProgressIndicator(),
                 const SizedBox(height: 16),
                 const Text('Connecting…'),
