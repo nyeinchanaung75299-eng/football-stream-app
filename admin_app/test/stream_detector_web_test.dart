@@ -16,6 +16,12 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('web-check-stream')));
     await tester.pump();
+    // The result card is below the form; scroll the lazy ListView to build it.
+    await tester.scrollUntilVisible(
+      find.textContaining('Ready for testing'),
+      200,
+    );
+    await tester.pumpAndSettle();
 
     expect(find.textContaining('Ready for testing'), findsOneWidget);
     expect(find.text('Add to Servers'), findsOneWidget);
