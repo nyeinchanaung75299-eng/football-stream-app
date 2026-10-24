@@ -113,7 +113,7 @@ class _DashboardPageState extends State<DashboardPage> {
         icon: Icons.radar_rounded,
         title: 'Stream Detector',
         subtitle: kIsWeb
-            ? 'Paste a stream URL, test playback and add to servers.'
+            ? 'Paste a website URL, scan HLS/DASH/MP4 links, test and save.'
             : 'Open a website, detect streams, test and add servers.',
         iconColor: const Color(0xFF059669),
         onTap: () =>
