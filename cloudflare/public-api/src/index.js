@@ -445,8 +445,8 @@ async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
     input = await request.json();
   } catch (_) {}
 
+  const protectedSource = source === "tflix" || source === "streame";
   try {
-    const protectedSource = source === "tflix" || source === "streame";
     const backendSecret = protectedSource ? env.PLAYBACK_BACKEND_SECRET?.trim() || "" : "";
     if (protectedSource && !backendSecret) {
       return json({ error: "Protected source playback is not configured." }, 503, {
@@ -517,10 +517,27 @@ async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
       generated_at: new Date().toISOString(),
     }, 200, { "Cache-Control": "no-store, max-age=0" });
   } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    // StreamCenter can rotate its public player host.  Keep the strict
+    // allow-list in place, but treat a rejected provider destination as an
+    // empty source rather than a client/network failure.  The Viewer will
+    // then accurately say that no stream is available instead of telling the
+    // user to troubleshoot their own connection.
+    if (source === "streame" && detail === "Unsupported source host.") {
+      return json({
+        ok: true,
+        source,
+        streams: [],
+        stream_count: 0,
+        availability: "unverified",
+        message: "No verified, keyless StreamCenter stream is available right now.",
+        generated_at: new Date().toISOString(),
+      }, 200, { "Cache-Control": "no-store, max-age=0" });
+    }
     return json({
-      error: source === "tflix" || source === "streame"
+      error: protectedSource
         ? "No verified, keyless source stream is available right now."
-        : error instanceof Error ? error.message : String(error),
+        : detail,
     }, Number(error?.status) || 502, {
       "Cache-Control": "no-store, max-age=0",
     });
