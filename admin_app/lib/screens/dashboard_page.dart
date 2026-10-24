@@ -8,7 +8,8 @@ import 'fixture_import_page.dart';
 import 'live_links_page.dart';
 import 'live_upload_page.dart';
 import 'soco_import_page.dart';
-import 'stream_detector_page.dart';
+import 'stream_detector_page.dart'
+    if (dart.library.js_interop) 'stream_detector_page_web.dart';
 import 'system_health_page.dart';
 
 class DashboardPage extends StatefulWidget {
