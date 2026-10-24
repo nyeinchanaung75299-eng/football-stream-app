@@ -8,6 +8,8 @@ on:
       - "user_app/**"
       - "admin_app/**"
       - "scripts/test_web_player.mjs"
+      - "scripts/stamp_flutter_web_cache.py"
+      - "scripts/test_stamp_flutter_web_cache.py"
       - "scripts/generate_embedded_player.py"
       - ".github/workflows/deploy-web.yml"
 
@@ -32,6 +34,9 @@ jobs:
 
       - name: Verify monitoring authentication and credential handling
         run: node --test scripts/test_system_monitor.mjs
+
+      - name: Verify Flutter web cache stamps
+        run: python3 -m unittest discover -s scripts -p 'test_stamp_flutter_web_cache.py'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -77,21 +82,7 @@ jobs:
           # from surviving a new release while still allowing heavy assets to
           # remain browser-cached for fast repeat visits.
           BUILD_ID="${GITHUB_SHA::12}-${GITHUB_RUN_NUMBER}"
-          python3 - "$BUILD_ID" <<'PY'
-          from pathlib import Path
-          import sys
-          p = Path("build/web/index.html")
-          s = p.read_text(encoding="utf-8")
-          build_id = sys.argv[1]
-          s = s.replace(
-              'src="flutter_bootstrap.js"',
-              f'src="flutter_bootstrap.js?v={build_id}"',
-          )
-          p.write_text(s, encoding="utf-8")
-          PY
-          # Disable Flutter's service-worker cache. Live match data must not
-          # be pinned to an older web release after a VPN/network change.
-          cp build/web/index.html build/web/404.html
+          python3 ../scripts/stamp_flutter_web_cache.py build/web "$BUILD_ID"
 
       - name: Create Admin Web platform
         working-directory: admin_app
@@ -124,21 +115,7 @@ jobs:
             --pwa-strategy=none --no-web-resources-cdn
 
           BUILD_ID="${GITHUB_SHA::12}-${GITHUB_RUN_NUMBER}"
-          python3 - "$BUILD_ID" <<'PY'
-          from pathlib import Path
-          import sys
-
-          p = Path("build/web/index.html")
-          s = p.read_text(encoding="utf-8")
-          build_id = sys.argv[1]
-          s = s.replace(
-              'src="flutter_bootstrap.js"',
-              f'src="flutter_bootstrap.js?v={build_id}"',
-          )
-          p.write_text(s, encoding="utf-8")
-          PY
-
-          cp build/web/index.html build/web/404.html
+          python3 ../scripts/stamp_flutter_web_cache.py build/web "$BUILD_ID"
 
       - name: Add Admin Web to Viewer Pages build
         run: |
