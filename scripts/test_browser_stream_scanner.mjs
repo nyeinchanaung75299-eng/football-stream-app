@@ -71,6 +71,18 @@ test("CDP observes requests, closes the browser and never reads cookies",async()
     close(){this.closed=true;},
     send(raw){
       const command=JSON.parse(raw);
+      if(command.method==="Target.setAutoAttach"){
+        listeners.get("message")?.({data:JSON.stringify({
+          method:"Target.attachedToTarget",
+          params:{sessionId:"iframe-1",targetInfo:{type:"iframe"}},
+        })});
+      }
+      if(command.method==="Network.enable" && command.sessionId==="iframe-1"){
+        listeners.get("message")?.({data:JSON.stringify({
+          method:"Network.requestWillBeSent",sessionId:"iframe-1",
+          params:{request:{url:"https://cdn.example.org/iframe/child.m3u8"}},
+        })});
+      }
       if(command.method==="Page.navigate"){
         listeners.get("message")?.({data:JSON.stringify({
           method:"Page.frameNavigated",params:{frame:{id:"main",url:"https://video.example.org/watch"}},
@@ -101,10 +113,10 @@ test("CDP observes requests, closes the browser and never reads cookies",async()
     closeSession:async()=>{closeCount++;},
   };
   const result=await captureBrowserMedia({...env,BROWSER:browser},"https://video.example.org/watch",{delay:async()=>{}});
-  assert.equal(result.count,2);
-  assert.deepEqual(result.links.map(x=>x.type),["hls","dash"]);
+  assert.equal(result.count,3);
+  assert.deepEqual(result.links.map(x=>x.type),["hls","hls","dash"]);
   assert.equal(result.diagnostics.navigationConfirmed,true);
-  assert.equal(result.diagnostics.requestsObserved,1);
+  assert.equal(result.diagnostics.requestsObserved,2);
   assert.equal(result.diagnostics.responsesObserved,1);
   assert.equal(result.diagnostics.htmlVideoElements,1);
   assert.equal(result.diagnostics.videoPlayAttempts,1);
