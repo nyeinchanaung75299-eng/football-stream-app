@@ -19,7 +19,7 @@ class WebsiteScanResult {
   final String notes;
   final String mode;
   final bool partial;
-  final Map<String, int?> diagnostics;
+  final Map<String, Object?> diagnostics;
 }
 
 /// Server-side HTML scan for public, authorized pages. Requests go only to
@@ -121,7 +121,10 @@ class WebsiteDetectorService {
             partial: payload['partial'] == true,
             diagnostics: payload['diagnostics'] is Map
                 ? (payload['diagnostics'] as Map).map(
-                    (k, v) => MapEntry(k.toString(), v is int ? v : null),
+                    (k, v) => MapEntry(
+                      k.toString(),
+                      (v is int || v is bool) ? v : null,
+                    ),
                   )
                 : const {},
           );
