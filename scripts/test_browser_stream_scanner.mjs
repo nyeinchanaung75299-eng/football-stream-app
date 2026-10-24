@@ -72,6 +72,9 @@ test("CDP observes requests, closes the browser and never reads cookies",async()
     send(raw){
       const command=JSON.parse(raw);
       if(command.method==="Page.navigate"){
+        listeners.get("message")?.({data:JSON.stringify({
+          method:"Page.frameNavigated",params:{frame:{id:"main",url:"https://video.example.org/watch"}},
+        })});
         const events=[
           {method:"Network.requestWillBeSent",params:{request:{
             url:"https://cdn.example.org/live/master.m3u8",
@@ -83,7 +86,11 @@ test("CDP observes requests, closes the browser and never reads cookies",async()
         ];
         for(const event of events)listeners.get("message")?.({data:JSON.stringify(event)});
       }
-      listeners.get("message")?.({data:JSON.stringify({id:command.id,result:{}})});
+      const result=command.method==="Runtime.evaluate"
+        ? {result:{value:command.params.expression.includes('frames:')
+            ? {videos:1,frames:0} : 1}}
+        : {};
+      listeners.get("message")?.({data:JSON.stringify({id:command.id,result})});
     },
   };
   let closeCount=0;
@@ -96,7 +103,52 @@ test("CDP observes requests, closes the browser and never reads cookies",async()
   const result=await captureBrowserMedia({...env,BROWSER:browser},"https://video.example.org/watch",{delay:async()=>{}});
   assert.equal(result.count,2);
   assert.deepEqual(result.links.map(x=>x.type),["hls","dash"]);
+  assert.equal(result.diagnostics.navigationConfirmed,true);
+  assert.equal(result.diagnostics.requestsObserved,1);
+  assert.equal(result.diagnostics.responsesObserved,1);
+  assert.equal(result.diagnostics.htmlVideoElements,1);
+  assert.equal(result.diagnostics.videoPlayAttempts,1);
   assert.equal(closeCount,1);
   assert.equal(cdpSocket.closed,true);
   assert.ok(!JSON.stringify(result).includes("SECRET"));
+});
+
+test("empty result distinguishes no requests from a loaded iframe player",async()=>{
+  const handlers=new Map();
+  const socket={
+    addEventListener(event,fn){handlers.set(event,fn);},
+    removeEventListener(event){handlers.delete(event);},
+    accept(){},close(){},
+    send(raw){
+      const cmd=JSON.parse(raw);
+      const emit=(data)=>handlers.get("message")?.({data:JSON.stringify(data)});
+      if(cmd.method==="Page.navigate"){
+        emit({method:"Network.requestWillBeSent",params:{
+          request:{url:"https://video.example.org/watch",headers:{Cookie:"PRIVATE"}},
+        }});
+        emit({method:"Network.responseReceived",params:{
+          type:"Document",response:{status:200,url:"https://video.example.org/watch"},
+        }});
+      }
+      const result=cmd.method==="Runtime.evaluate"
+        ? {result:{value:cmd.params.expression.includes("frames:")
+            ? {videos:0,frames:1} : 0}}
+        : {};
+      emit({id:cmd.id,result});
+    },
+  };
+  const browser={
+    launch:async()=>({sessionId:"short",targets:[],webSocket:{
+      fetch:async()=>({webSocket:socket}),
+    }}),
+    closeSession:async()=>{},
+  };
+  const result=await captureBrowserMedia({...env,BROWSER:browser},
+    "https://video.example.org/watch",{delay:async()=>{}});
+  assert.equal(result.count,0);
+  assert.equal(result.diagnostics.requestsObserved,1);
+  assert.equal(result.diagnostics.iframeElements,1);
+  assert.equal(result.diagnostics.pageHttpStatus,200);
+  assert.match(result.notes,/iframe players/);
+  assert.ok(!JSON.stringify(result).includes("PRIVATE"));
 });
