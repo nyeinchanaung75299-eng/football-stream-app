@@ -290,7 +290,57 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                 const SizedBox(height: 10),
                 Text(_scanError!, style: TextStyle(color: colors.error)),
               ],
-              if (_scanNote != null) ...[
+              if (_scanNote != null && _detected.isEmpty) ...[
+                const SizedBox(height: 12),
+                Card(
+                  key: const Key('scan-needs-browser'),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.info_outline, color: colors.primary),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'No direct stream URLs found',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _partialScan
+                              ? 'Only part of this large website was scanned. '
+                                'There may be media links farther down the page.'
+                              : 'The website responded, but no HLS, DASH or MP4 '
+                                'link was present in the accessible HTML or scripts.',
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Some players request their streaming URLs only '
+                          'after you press Play. This Web source scanner cannot '
+                          'see those network requests. A browser-based network '
+                          'observer is a separate feature; scanning this same '
+                          'URL repeatedly will not reveal playback-only links.',
+                        ),
+                        const SizedBox(height: 10),
+                        OutlinedButton.icon(
+                          onPressed: () => Clipboard.setData(
+                            ClipboardData(text: _website.text.trim()),
+                          ),
+                          icon: const Icon(Icons.copy),
+                          label: const Text('Copy website URL'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              if (_scanNote != null && _detected.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text(_scanNote!),
               ],
