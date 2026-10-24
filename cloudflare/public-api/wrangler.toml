@@ -1,6 +1,7 @@
 name = "football-public-api"
 main = "src/index.js"
-compatibility_date = "2026-10-05"
+compatibility_date = "2026-10-13"
+compatibility_flags = ["nodejs_compat"]
 
 [vars]
 SUPABASE_URL = "https://woggzixprvyjnfjzsglz.supabase.co"
@@ -10,3 +11,8 @@ GITHUB_MIRROR_URL = "https://raw.githubusercontent.com/nyeinchanaung75299-eng/fo
 pattern = "football-api.nyeinchanaung.us.ci"
 custom_domain = true
 
+
+# Browser Run uses Workers Free quotas. Do not set
+# ENABLE_FREE_BROWSER_DETECT until confirming Workers Free plan.
+[browser]
+binding = "BROWSER"
