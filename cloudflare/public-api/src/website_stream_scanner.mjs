@@ -7,7 +7,7 @@ const MAX_PAGE_BYTES = 1024 * 1024;
 const MAX_SCRIPT_BYTES = 256 * 1024;
 const SCAN_TIMEOUT_MS = 9000;
 
-function rejectTarget(input) {
+export function rejectTarget(input) {
   if (typeof input !== "string" || input.length > 2048 || !input.trim()) return null;
   let target;
   try { target = new URL(input.trim()); } catch { return null; }
@@ -173,7 +173,7 @@ async function loadPage(address,kind,fetchImpl) {
   } finally {clearTimeout(timer);controller.abort();}
 }
 
-async function isVerifiedAdmin(request,env,fetchImpl) {
+export async function isVerifiedAdmin(request,env,fetchImpl) {
   const header=request.headers.get("Authorization")||"";
   if (!/^Bearer [^ ]{12,}$/.test(header)) return false;
   const base=env.SUPABASE_URL?.trim();

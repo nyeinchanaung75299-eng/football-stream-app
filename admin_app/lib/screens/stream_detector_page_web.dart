@@ -24,6 +24,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
   final _scanner = const WebsiteDetectorService();
   final _detected = <DetectedStream>[];
 
+  String _scanMode = 'browser';
   bool _approved = false;
   bool _scanning = false;
   bool _partialScan = false;
@@ -60,7 +61,9 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
       _detected.clear();
     });
     try {
-      final result = await _scanner.scan(rawUrl);
+      final result = await _scanner.scan(
+        rawUrl, browser: _scanMode == 'browser',
+      );
       if (!mounted) return;
       final seen = <String>{};
       setState(() {
@@ -230,13 +233,13 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
             children: [
-              Text('Website Stream Scanner',
+              Text('Website Stream Detector',
                   style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 6),
               const Text(
-                'Paste a WEBSITE address (watch page), not an M3U8 link. '
-                'The server searches accessible page HTML and player scripts '
-                'for HLS, DASH, MP4 and FLV URLs.',
+                'Enter a website watch-page link. Browser mode observes '
+                'media requests during a short, authorized page visit. '
+                'HTML mode searches source code without using browser minutes.',
               ),
               const SizedBox(height: 14),
               Card(
@@ -259,6 +262,44 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                         ),
                       ),
                       const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        key: const Key('website-scan-mode'),
+                        value: _scanMode,
+                        decoration: const InputDecoration(
+                          labelText: 'Detection mode',
+                          prefixIcon: Icon(Icons.radar),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'browser',
+                            child: Text('Browser Network Detect (Free quota)'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'html',
+                            child: Text('HTML Scan (no browser usage)'),
+                          ),
+                        ],
+                        onChanged: _scanning ? null : (value) {
+                          if (value == null) return;
+                          setState(() {
+                            _scanMode = value;
+                            _scanNote = null;
+                            _scanError = null;
+                            _partialScan = false;
+                            _detected.clear();
+                          });
+                        },
+                      ),
+                      if (_scanMode == 'browser') ...[
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Uses one short Cloudflare Browser Run session. '
+                          'Only works after Free plan and binding are enabled. '
+                          'Protected videos, manual login and DRM are not bypassed.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
                       CheckboxListTile(
                         key: const Key('scan-authorized'),
                         contentPadding: EdgeInsets.zero,
@@ -280,7 +321,9 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.radar),
-                        label: Text(_scanning ? 'SCANNING WEBSITE...' : 'SCAN WEBSITE'),
+                        label: Text(_scanning ? 'SCANNING WEBSITE...'
+                            : _scanMode == 'browser' ? 'DETECT NETWORK STREAMS'
+                            : 'SCAN WEBSITE HTML'),
                       ),
                     ],
                   ),
@@ -305,7 +348,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                             const SizedBox(width: 8),
                             const Expanded(
                               child: Text(
-                                'No direct stream URLs found',
+                                'No stream URLs detected',
                                 style: TextStyle(fontWeight: FontWeight.bold),
                               ),
                             ),
@@ -313,19 +356,21 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          _partialScan
-                              ? 'Only part of this large website was scanned. '
-                                'There may be media links farther down the page.'
-                              : 'The website responded, but no HLS, DASH or MP4 '
-                                'link was present in the accessible HTML or scripts.',
+                          _scanMode == 'browser'
+                              ? 'The browser session did not observe M3U8, MPD or MP4 requests.'
+                              : _partialScan
+                                  ? 'Only part of this large website was scanned.'
+                                  : 'No media URL was present in accessible HTML or scripts.',
                         ),
                         const SizedBox(height: 8),
-                        const Text(
-                          'Some players request their streaming URLs only '
-                          'after you press Play. This Web source scanner cannot '
-                          'see those network requests. A browser-based network '
-                          'observer is a separate feature; scanning this same '
-                          'URL repeatedly will not reveal playback-only links.',
+                        Text(
+                          _scanMode == 'browser'
+                              ? 'Some players need an explicit Play click, login '
+                                'or a licensed DRM session. Browser mode does not '
+                                'bypass these requirements.'
+                              : 'HTML mode cannot see media requests made after '
+                                'video playback. Select Browser Network Detect '
+                                'to observe those requests when authorized.',
                         ),
                         const SizedBox(height: 10),
                         OutlinedButton.icon(
@@ -363,9 +408,9 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
               ],
               const SizedBox(height: 12),
               const Text(
-                'Limitation: this scans HTML/linked scripts, not live browser '
-                'network traffic. It cannot auto-detect sources that appear '
-                'only after JavaScript video playback, login, or DRM.',
+                'Browser detection observes network URLs; HTML mode scans source '
+                'text. Neither mode bypasses authentication or DRM. Only save '
+                'streams that you are authorized to distribute.',
                 style: TextStyle(fontSize: 12),
               ),
               const SizedBox(height: 14),

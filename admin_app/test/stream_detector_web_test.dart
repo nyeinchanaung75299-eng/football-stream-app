@@ -8,13 +8,14 @@ void main() {
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
 
-    expect(find.text('Website Stream Scanner'), findsOneWidget);
+    expect(find.text('Website Stream Detector'), findsOneWidget);
     expect(find.byKey(const Key('website-scan-url')), findsOneWidget);
     expect(find.byKey(const Key('scan-website')), findsOneWidget);
     final button = tester.widget<FilledButton>(
         find.byKey(const Key('scan-website')));
     expect(button.onPressed, isNull);
-    expect(find.textContaining('Paste a WEBSITE address'), findsOneWidget);
+    expect(find.byKey(const Key('website-scan-mode')), findsOneWidget);
+    expect(find.textContaining('Enter a website watch-page'), findsOneWidget);
   });
 
   testWidgets('website scanner rejects an invalid URL before network access',
@@ -33,7 +34,10 @@ void main() {
   testWidgets('manual fallback accepts authorized direct HLS URL',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
-    await tester.ensureVisible(find.byKey(const Key('manual-mode-expander')));
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('manual-mode-expander')), 180,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.byKey(const Key('manual-mode-expander')));
     await tester.pumpAndSettle();
 
@@ -60,7 +64,10 @@ void main() {
   testWidgets('manual fallback rejects a website watch page',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
-    await tester.ensureVisible(find.byKey(const Key('manual-mode-expander')));
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('manual-mode-expander')), 180,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.byKey(const Key('manual-mode-expander')));
     await tester.pumpAndSettle();
 

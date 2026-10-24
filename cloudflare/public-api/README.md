@@ -71,3 +71,47 @@ Existing deployment secrets are `CLOUDFLARE_API_TOKEN`,
 `PLAYBACK_BACKEND_SECRET`. Builds use the existing `PUBLIC_API_BASE` and
 network-backup configuration. No new playback secret or signing key is
 required by these loading changes.
+
+
+## Optional Admin Browser Run stream detection (Free-only)
+
+The Admin Web `Browser Network Detect` mode calls authenticated
+`POST /admin/stream-detect-browser`. Unlike the basic HTML scanner,
+the Browser Run binding can observe media URL requests from a short headless
+Chromium page visit. This is not a DRM/access-control bypass and cannot
+guarantee that a player which requires a physical Play click will start.
+
+**Free-usage safety:** Do not enable browser scanning merely because the
+Cloudflare account connection is authorized. First verify **Workers Free**
+under the Cloudflare Workers plans page. Cloudflare limits Browser Run on
+Workers Free to 10 minutes per UTC day. Confirm this on the actual account;
+an OAuth plugin may not have Billing Read permission. Only after verifying
+Free, set the Worker plain-text variable
+`ENABLE_FREE_BROWSER_DETECT=true`. Otherwise leave it unset; the endpoint
+returns a descriptive 503 without launching a browser.
+
+`wrangler.toml` declares `[browser] binding = "BROWSER"` and
+`nodejs_compat`. Deploy via Wrangler (preserving existing Supabase
+publishable key and playback secrets), do not upload bare JS without the
+browser binding. The Admin Web retains HTML Scan as a zero-browser-minute
+fallback and uses the existing Supabase Admin access token; no database
+migrations or paid Supabase services are needed. Browser requests return
+URL/type/page-origin hints only; never return cookies, Authorization headers,
+response bodies or DRM keys.
+
+Test using only a page that you own or are explicitly authorized to inspect.
+The backend checks the Supabase Admin role, requires explicit authorization
+confirmation, rate-limits to two browser sessions per minute per client
+in each Worker isolate, observes for about 12 seconds and always closes the
+browser session. Isolate-local limits are **not a global daily billing cap**:
+the Workers Free plan's hard provider quota is essential.
+
+### Troubleshooting
+
+- `browser_disabled`: enable the flag **only after** confirming Free.
+- `browser_unavailable`: browser binding missing in deployed Worker.
+- `browser_scan_failed`: site blocks browser, needs interactive Play/login
+  or the Cloudflare Browser Run daily quota is exhausted.
+- Zero results: the page may not issue detectable media requests without
+  user interaction, or may use DRM. Do not repeatedly spend browser minutes
+  on the same URL without changing the test scenario.

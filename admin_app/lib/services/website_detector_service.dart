@@ -25,7 +25,7 @@ class WebsiteScanResult {
 class WebsiteDetectorService {
   const WebsiteDetectorService();
 
-  Future<WebsiteScanResult> scan(String websiteUrl) async {
+  Future<WebsiteScanResult> scan(String websiteUrl, {bool browser = false}) async {
     final token = Supabase.instance.client.auth.currentSession?.accessToken;
     if (token == null || token.isEmpty) {
       throw StateError('Please sign in to Admin before scanning.');
@@ -38,13 +38,15 @@ class WebsiteDetectorService {
       // authenticated Cloudflare scanner and does not bypass its role checks.
       final bases = publicApiBases(
         primary: 'https://football-api.nyeinchanaung.us.ci',
-        preferVercel: true,
+        preferVercel: !browser,
       );
       String lastFailure = 'No scanner gateway responded.';
       for (final base in bases) {
         try {
           final response = await client.post(
-            Uri.parse(base + '/admin/stream-detect'),
+            Uri.parse(base + (browser
+                ? '/admin/stream-detect-browser'
+                : '/admin/stream-detect')),
             headers: {
               'Authorization': 'Bearer ' + token,
               'Content-Type': 'application/json',
@@ -54,7 +56,7 @@ class WebsiteDetectorService {
               'url': websiteUrl.trim(),
               'authorized': true,
             }),
-          ).timeout(const Duration(seconds: 25));
+          ).timeout(Duration(seconds: browser ? 30 : 25));
           dynamic payload;
           try {
             payload = jsonDecode(response.body);
@@ -68,6 +70,12 @@ class WebsiteDetectorService {
           if (response.statusCode == 404) {
             lastFailure = 'Scanner route not found on ${Uri.parse(base).host}.';
             continue;
+          }
+          if (browser && payload is Map &&
+              (payload['code'] == 'browser_disabled' ||
+               payload['code'] == 'browser_unavailable')) {
+            throw StateError(payload['error']?.toString() ??
+                'Cloudflare Browser Run Free mode is unavailable.');
           }
           if (response.statusCode >= 500) {
             final message = payload is Map ? payload['error']?.toString() : null;

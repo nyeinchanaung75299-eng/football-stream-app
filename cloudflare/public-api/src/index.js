@@ -30,6 +30,12 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
+    if (url.pathname === "/admin/stream-detect-browser" && request.method === "POST") {
+      const { handleBrowserStreamScan } =
+        await import("./browser_stream_scanner.mjs");
+      return handleBrowserStreamScan(request, env, { allowRequest });
+    }
+
     if (url.pathname === "/admin/stream-detect" && request.method === "POST") {
       // Keep this dependency lazy: legacy worker route tests load the main
       // module from a data: URL, where relative imports are not resolvable.
