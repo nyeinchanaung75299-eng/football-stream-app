@@ -29,9 +29,12 @@ def stamp_flutter_web(build_dir: Path, build_id: str) -> None:
         lambda m: f"{m.group('q')}flutter_bootstrap.js?v={version}{m.group('q')}",
         html,
     )
-    if html_count != 1:
+    # The generated HTML can contain multiple bootstrap references (for
+    # example both its normal entrypoint and an error/reload fallback).
+    # Version all of them so no path can load an earlier release.
+    if html_count < 1:
         raise RuntimeError(
-            f"Expected one flutter_bootstrap.js script tag, found {html_count}"
+            "No flutter_bootstrap.js reference was found in index.html"
         )
 
     updated_js, js_count = re.subn(
