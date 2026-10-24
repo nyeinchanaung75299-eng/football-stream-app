@@ -3,14 +3,12 @@ import 'package:flutter/services.dart';
 
 import '../services/manual_source_url.dart';
 import '../services/stream_detector_service.dart';
+import '../services/website_detector_service.dart';
 import 'live_links_page.dart';
 import 'stream_preview_page.dart';
 
-/// Browser-safe Stream Detector mode.
-///
-/// Browsers cannot intercept another site's cross-origin video requests.
-/// Admins can paste authorized direct media URLs, preview where browser codecs
-/// and CORS allow, and hand them to the existing Stream Servers form.
+/// Web edition: server-side HTML/source scan plus manual direct-link fallback.
+/// A web page cannot read cross-origin player network traffic on its own.
 class StreamDetectorPage extends StatefulWidget {
   const StreamDetectorPage({super.key});
 
@@ -19,107 +17,134 @@ class StreamDetectorPage extends StatefulWidget {
 }
 
 class _StreamDetectorPageState extends State<StreamDetectorPage> {
-  final _url = TextEditingController();
+  final _website = TextEditingController();
+  final _manual = TextEditingController();
   final _referer = TextEditingController();
   final _origin = TextEditingController();
-  String _chosenType = 'auto';
-  String? _error;
-  DetectedStream? _result;
+  final _scanner = const WebsiteDetectorService();
+  final _detected = <DetectedStream>[];
+
+  bool _approved = false;
+  bool _scanning = false;
+  String? _scanError;
+  String? _scanNote;
+  String? _manualError;
+  String _manualType = 'auto';
+  DetectedStream? _manualResult;
 
   @override
   void dispose() {
-    _url.dispose();
+    _website.dispose();
+    _manual.dispose();
     _referer.dispose();
     _origin.dispose();
     super.dispose();
   }
 
-  void _invalidate() {
-    if (_result == null && _error == null) return;
+  Future<void> _scanWebsite() async {
+    if (_scanning || !_approved) return;
+    final rawUrl = _website.text.trim();
+    final target = Uri.tryParse(rawUrl);
+    if (target == null ||
+        !const {'http', 'https'}.contains(target.scheme.toLowerCase()) ||
+        target.host.isEmpty || target.userInfo.isNotEmpty) {
+      setState(() => _scanError = 'Enter a full http(s) website URL.');
+      return;
+    }
     setState(() {
-      _result = null;
-      _error = null;
+      _scanning = true;
+      _scanError = null;
+      _scanNote = null;
+      _detected.clear();
     });
+    try {
+      final result = await _scanner.scan(rawUrl);
+      if (!mounted) return;
+      final seen = <String>{};
+      setState(() {
+        for (final row in result.links) {
+          final url = row['url'] ?? '';
+          if (!seen.add(url)) continue;
+          _detected.add(DetectedStream(
+            url: url,
+            type: row['type'] ?? 'auto',
+            referer: row['referer'] ?? '',
+            origin: row['origin'] ?? '',
+          ));
+        }
+        _scanNote = result.notes;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _scanError = e.toString().replaceFirst('Bad state: ', '');
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _scanning = false);
+    }
   }
 
-  String? _validHeader(String value, String label) {
-    final text = value.trim();
-    if (text.isEmpty) return null;
-    final uri = Uri.tryParse(text);
-    if (text.contains('\n') ||
-        text.contains('\r') ||
-        text.length > 2048 ||
+  String? _checkHeader(String text, String name) {
+    if (text.trim().isEmpty) return null;
+    final uri = Uri.tryParse(text.trim());
+    if (text.length > 2048 ||
+        text.contains('\n') || text.contains('\r') ||
         uri == null ||
         !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
-        uri.host.isEmpty ||
-        uri.userInfo.isNotEmpty) {
-      return '$label must be a valid HTTP(S) URL.';
+        uri.host.isEmpty || uri.userInfo.isNotEmpty) {
+      return name + ' must be an HTTP(S) URL.';
     }
     return null;
   }
 
-  void _inspect() {
-    final url = _url.text.trim();
-    if (!isValidManualStreamUrl(url, streamType: _chosenType)) {
+  void _checkDirectLink() {
+    final raw = _manual.text.trim();
+    if (!isValidManualStreamUrl(raw, streamType: _manualType)) {
       setState(() {
-        _error = 'Enter a direct HTTP(S) media URL. For URLs without a known '
-            'file extension, select the stream format.';
-        _result = null;
+        _manualError = 'Enter a direct M3U8/MPD/MP4/FLV link, '
+            'or choose a type for an extensionless media URL.';
+        _manualResult = null;
       });
       return;
     }
-    final refererError = _validHeader(_referer.text, 'Referer');
-    final originError = _validHeader(_origin.text, 'Origin');
-    final error = refererError ?? originError;
+    final error = _checkHeader(_referer.text, 'Referer') ??
+        _checkHeader(_origin.text, 'Origin');
     if (error != null) {
       setState(() {
-        _error = error;
-        _result = null;
+        _manualError = error;
+        _manualResult = null;
       });
       return;
     }
-
-    final detectedType = detectManualStreamType(url);
-    if (_chosenType != 'auto' &&
-        detectedType != null &&
-        _chosenType != detectedType) {
+    final actual = detectManualStreamType(raw);
+    if (_manualType != 'auto' && actual != null && actual != _manualType) {
       setState(() {
-        _error = 'Selected format does not match the media URL extension.';
-        _result = null;
+        _manualError = 'Stream type does not match the URL extension.';
+        _manualResult = null;
       });
       return;
     }
-    final effectiveType = _chosenType == 'auto'
-        ? detectedType
-        : _chosenType;
-    if (effectiveType == null) {
+    final type = _manualType == 'auto' ? actual : _manualType;
+    if (type == null) {
       setState(() {
-        _error = 'Choose the stream type (HLS, DASH, MP4 or FLV).';
-        _result = null;
+        _manualError = 'Select the stream type.';
+        _manualResult = null;
       });
       return;
     }
-
-    final fromUrl = Uri.parse(url);
     final referer = _referer.text.trim();
-    final origin = _origin.text.trim();
-    final fallbackOrigin = referer.isEmpty ? '' : Uri.parse(referer).origin;
     setState(() {
-      _error = null;
-      _result = DetectedStream(
-        url: fromUrl.toString(),
-        type: effectiveType,
+      _manualError = null;
+      _manualResult = DetectedStream(
+        url: raw,
+        type: type,
         referer: referer,
-        origin: origin.isEmpty ? fallbackOrigin : Uri.parse(origin).origin,
+        origin: _origin.text.trim().isNotEmpty
+            ? Uri.parse(_origin.text.trim()).origin
+            : referer.isEmpty ? '' : Uri.parse(referer).origin,
       );
     });
-  }
-
-  void _copy(DetectedStream stream) {
-    Clipboard.setData(ClipboardData(text: stream.url));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Stream URL copied.')),
-    );
   }
 
   Future<void> _test(DetectedStream stream) async {
@@ -142,182 +167,208 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
     );
   }
 
+  Widget _streamCard(DetectedStream stream, {bool suggested = false}) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(stream.type.toUpperCase(),
+                style: const TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            SelectableText(stream.url),
+            if (suggested && stream.referer.isNotEmpty) ...[
+              const SizedBox(height: 5),
+              const Text(
+                'Referer/Origin are suggested from the website, '
+                'not captured request headers.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ],
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => Clipboard.setData(
+                    ClipboardData(text: stream.url),
+                  ),
+                  icon: const Icon(Icons.copy),
+                  label: const Text('Copy URL'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _test(stream),
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Test Stream'),
+                ),
+                FilledButton.icon(
+                  onPressed: () => _add(stream),
+                  icon: const Icon(Icons.add_link),
+                  label: const Text('Add to Servers'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final stream = _result;
+    final colors = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Stream Detector · Web')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 780),
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 36),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
             children: [
-              Text(
-                'Web Stream Tester',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 8),
+              Text('Website Stream Scanner',
+                  style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 6),
               const Text(
-                'Paste a direct link from a video source you are authorized '
-                'to use. Browser security prevents this web app from '
-                'automatically intercepting another website\'s requests. '
-                'Use the Android Admin app for automatic request detection.',
+                'Paste a WEBSITE address (watch page), not an M3U8 link. '
+                'The server searches accessible page HTML and player scripts '
+                'for HLS, DASH, MP4 and FLV URLs.',
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 14),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       TextField(
-                        key: const Key('web-stream-url'),
-                        controller: _url,
-                        onChanged: (_) => _invalidate(),
-                        minLines: 2,
-                        maxLines: 4,
+                        key: const Key('website-scan-url'),
+                        controller: _website,
                         keyboardType: TextInputType.url,
+                        textInputAction: TextInputAction.go,
+                        maxLines: 2,
+                        minLines: 1,
                         decoration: const InputDecoration(
-                          labelText: 'Direct stream URL',
-                          hintText: 'https://example.com/live/master.m3u8',
-                          helperText: 'M3U8 / MPD / MP4 / FLV; not a watch page',
-                          prefixIcon: Icon(Icons.link),
+                          labelText: 'Website / Video page URL',
+                          hintText: 'https://example.com/watch/video',
+                          prefixIcon: Icon(Icons.public),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        key: const Key('web-stream-type'),
-                        value: _chosenType,
-                        decoration: const InputDecoration(
-                          labelText: 'Stream type',
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'auto',
-                            child: Text('Auto (by URL extension)'),
-                          ),
-                          DropdownMenuItem(value: 'hls', child: Text('HLS / M3U8')),
-                          DropdownMenuItem(value: 'dash', child: Text('DASH / MPD')),
-                          DropdownMenuItem(value: 'mp4', child: Text('MP4')),
-                          DropdownMenuItem(value: 'flv', child: Text('FLV')),
-                        ],
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setState(() {
-                            _chosenType = value;
-                            _result = null;
-                            _error = null;
-                          });
-                        },
+                      const SizedBox(height: 10),
+                      CheckboxListTile(
+                        key: const Key('scan-authorized'),
+                        contentPadding: EdgeInsets.zero,
+                        value: _approved,
+                        onChanged: _scanning ? null : (v) =>
+                            setState(() => _approved = v ?? false),
+                        title: const Text('I have permission to inspect this page'),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        dense: true,
                       ),
-                      const SizedBox(height: 6),
-                      ExpansionTile(
-                        tilePadding: EdgeInsets.zero,
-                        title: const Text('Optional playback headers'),
-                        subtitle: const Text(
-                          'Referer / Origin only. Do not paste cookies or '
-                          'access tokens into header fields.',
-                        ),
-                        children: [
-                          TextField(
-                            controller: _referer,
-                            onChanged: (_) => _invalidate(),
-                            keyboardType: TextInputType.url,
-                            decoration: const InputDecoration(
-                              labelText: 'Referer (optional)',
-                              hintText: 'https://example.com/watch',
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: _origin,
-                            onChanged: (_) => _invalidate(),
-                            keyboardType: TextInputType.url,
-                            decoration: const InputDecoration(
-                              labelText: 'Origin (optional)',
-                              hintText: 'https://example.com',
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 8),
                       FilledButton.icon(
-                        key: const Key('web-check-stream'),
-                        onPressed: _inspect,
-                        icon: const Icon(Icons.fact_check_outlined),
-                        label: const Text('CHECK LINK'),
+                        key: const Key('scan-website'),
+                        onPressed: _approved && !_scanning ? _scanWebsite : null,
+                        icon: _scanning
+                            ? const SizedBox(
+                                height: 18,
+                                width: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.radar),
+                        label: Text(_scanning ? 'SCANNING WEBSITE...' : 'SCAN WEBSITE'),
                       ),
-                      if (_error != null) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          _error!,
-                          style: TextStyle(color: theme.colorScheme.error),
-                        ),
-                      ],
                     ],
                   ),
                 ),
               ),
-              if (stream != null) ...[
-                const SizedBox(height: 14),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.movie_filter_outlined),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Ready for testing · ${stream.type.toUpperCase()}',
-                              style: theme.textTheme.titleMedium,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        SelectableText(stream.url),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: () => _copy(stream),
-                              icon: const Icon(Icons.copy),
-                              label: const Text('Copy'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () => _test(stream),
-                              icon: const Icon(Icons.play_circle),
-                              label: const Text('Test Stream'),
-                            ),
-                            FilledButton.icon(
-                              onPressed: () => _add(stream),
-                              icon: const Icon(Icons.add_link),
-                              label: const Text('Add to Servers'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+              if (_scanError != null) ...[
+                const SizedBox(height: 10),
+                Text(_scanError!, style: TextStyle(color: colors.error)),
               ],
-              const SizedBox(height: 14),
+              if (_scanNote != null) ...[
+                const SizedBox(height: 10),
+                Text(_scanNote!),
+              ],
+              if (_scanNote != null || _detected.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text('Found streams (' + _detected.length.toString() + ')',
+                    style: Theme.of(context).textTheme.titleMedium),
+                for (final stream in _detected)
+                  _streamCard(stream, suggested: true),
+              ],
+              const SizedBox(height: 12),
               const Text(
-                'CHECK LINK validates the URL format; it does not verify '
-                'playback. Test Stream opens an actual preview. '
-                'Web playback depends on CORS, codecs, token expiry and '
-                'browser support. Referer/Origin cannot be forced by a browser '
-                'player. DRM-protected video requires proper licensing.',
+                'Limitation: this scans HTML/linked scripts, not live browser '
+                'network traffic. It cannot auto-detect sources that appear '
+                'only after JavaScript video playback, login, or DRM.',
+                style: TextStyle(fontSize: 12),
               ),
+              const SizedBox(height: 14),
+              Card(
+                child: ExpansionTile(
+                  key: const Key('manual-mode-expander'),
+                  title: const Text('Manual direct stream link'),
+                  subtitle: const Text('Optional: test a known M3U8 / MPD / MP4 URL'),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                  children: [
+                    TextField(
+                      key: const Key('web-stream-url'),
+                      controller: _manual,
+                      minLines: 2,
+                      maxLines: 3,
+                      onChanged: (_) => setState(() => _manualResult = null),
+                      decoration: const InputDecoration(
+                        labelText: 'Direct media URL',
+                        hintText: 'https://example.com/master.m3u8',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      key: const Key('web-stream-type'),
+                      value: _manualType,
+                      decoration: const InputDecoration(labelText: 'Stream type'),
+                      items: const [
+                        DropdownMenuItem(value: 'auto', child: Text('Auto')),
+                        DropdownMenuItem(value: 'hls', child: Text('HLS / M3U8')),
+                        DropdownMenuItem(value: 'dash', child: Text('DASH / MPD')),
+                        DropdownMenuItem(value: 'mp4', child: Text('MP4')),
+                        DropdownMenuItem(value: 'flv', child: Text('FLV')),
+                      ],
+                      onChanged: (value) => setState(() {
+                        _manualType = value ?? 'auto';
+                        _manualResult = null;
+                      }),
+                    ),
+                    TextField(
+                      controller: _referer,
+                      decoration: const InputDecoration(
+                          labelText: 'Referer (optional)'),
+                    ),
+                    TextField(
+                      controller: _origin,
+                      decoration: const InputDecoration(
+                          labelText: 'Origin (optional)'),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      key: const Key('web-check-stream'),
+                      onPressed: _checkDirectLink,
+                      icon: const Icon(Icons.fact_check_outlined),
+                      label: const Text('CHECK LINK'),
+                    ),
+                    if (_manualError != null)
+                      Text(_manualError!,
+                          style: TextStyle(color: colors.error)),
+                  ],
+                ),
+              ),
+              if (_manualResult != null) ...[
+                const SizedBox(height: 12),
+                const Text('Ready for testing'),
+                _streamCard(_manualResult!),
+              ],
             ],
           ),
         ),
