@@ -11,11 +11,13 @@ class WebsiteScanResult {
     required this.links,
     required this.notes,
     required this.mode,
+    this.partial = false,
   });
 
   final List<Map<String, String>> links;
   final String notes;
   final String mode;
+  final bool partial;
 }
 
 /// Server-side HTML scan for public, authorized pages. Requests go only to
@@ -106,6 +108,7 @@ class WebsiteDetectorService {
             links: rows,
             notes: (payload['notes'] ?? '').toString(),
             mode: (payload['mode'] ?? 'html-scan').toString(),
+            partial: payload['partial'] == true,
           );
         } on StateError {
           rethrow;
