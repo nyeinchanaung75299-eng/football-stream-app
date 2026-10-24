@@ -126,6 +126,12 @@ async function loadPage(address,kind,fetchImpl) {
       }
       if(!response.ok) {
         await response.body?.cancel().catch(()=>{});
+        if(response.status===403) {
+          throw new Error("Website denied the scanner request (HTTP 403). The website owner may restrict automated access.");
+        }
+        if(response.status===429) {
+          throw new Error("Website rate limited the scanner (HTTP 429). Try later.");
+        }
         throw new Error("Website returned HTTP "+response.status+".");
       }
       const ct=(response.headers.get("Content-Type")||"").toLowerCase();
@@ -232,7 +238,15 @@ export async function handleWebsiteStreamScan(request,env,{fetchImpl=fetch,allow
     });
   }catch(error){
     // Never include credentials, URL query strings, or upstream HTML in error messages.
-    const detail=String(error?.message||"").replace(/https?:\/\/\S+/gi,"[website]");
-    return json({error:detail||"Website scan unavailable."},502);
+    const raw=String(error?.message||"").replace(/https?:\/\/\S+/gi,"[website]");
+    const detail=error?.name==="AbortError"
+      ? "Website request timed out before the page could be read."
+      : raw==="fetch failed" || raw==="Failed to fetch" || !raw
+        ? "Website could not be fetched by the scanner. It may be offline or blocking server requests."
+        : raw;
+    // A site lookup failure is an input/target problem, not an API outage.
+    // 422 lets the Admin Web display the real cause instead of silently
+    // trying other healthy API gateways and reporting 'cannot connect'.
+    return json({error:detail,code:"website_fetch_failed"},422);
   }
 }
