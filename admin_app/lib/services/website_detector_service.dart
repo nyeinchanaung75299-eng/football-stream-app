@@ -31,14 +31,15 @@ class WebsiteDetectorService {
 
     final client = http.Client();
     try {
+      // The alternate Vercel host is often more reachable than the Worker
+      // domains on some mobile networks. Its route forwards to the *same*
+      // authenticated Cloudflare scanner and does not bypass its role checks.
       final bases = publicApiBases(
         primary: 'https://football-api.nyeinchanaung.us.ci',
+        preferVercel: true,
       );
-      final preferred = <String>[
-        ...bases.where((base) => !base.contains('vercel.app')),
-        ...bases.where((base) => base.contains('vercel.app')),
-      ];
-      for (final base in preferred) {
+      String lastFailure = 'No scanner gateway responded.';
+      for (final base in bases) {
         try {
           final response = await client.post(
             Uri.parse(base + '/admin/stream-detect'),
@@ -51,17 +52,26 @@ class WebsiteDetectorService {
               'url': websiteUrl.trim(),
               'authorized': true,
             }),
-          ).timeout(const Duration(seconds: 13));
+          ).timeout(const Duration(seconds: 25));
           dynamic payload;
           try {
             payload = jsonDecode(response.body);
           } catch (_) {
             if (response.statusCode == 404 || response.statusCode >= 500) {
+              lastFailure = 'Gateway returned HTTP ${response.statusCode}.';
               continue;
             }
             throw const FormatException('Invalid website scanner response.');
           }
-          if (response.statusCode == 404 || response.statusCode >= 500) {
+          if (response.statusCode == 404) {
+            lastFailure = 'Scanner route not found on ${Uri.parse(base).host}.';
+            continue;
+          }
+          if (response.statusCode >= 500) {
+            final message = payload is Map ? payload['error']?.toString() : null;
+            lastFailure = message != null && message.isNotEmpty
+                ? 'Scanner backend: $message'
+                : 'Gateway returned HTTP ${response.statusCode}.';
             continue;
           }
           if (response.statusCode >= 400) {
@@ -99,13 +109,17 @@ class WebsiteDetectorService {
           );
         } on StateError {
           rethrow;
+        } on TimeoutException {
+          lastFailure = 'Gateway timed out while scanning the website.';
+        } on http.ClientException {
+          lastFailure = 'Could not reach ${Uri.parse(base).host} from this network.';
         } catch (_) {
-          // A blocked API route may be reachable using another NCA gateway.
+          lastFailure = 'Gateway response could not be read.';
         }
       }
       throw StateError(
-        'Cannot connect to the website scanner. '
-        'Check Cloudflare Worker deployment and try again.',
+        'Website scanner connection failed. $lastFailure '
+        'Try another connection if this continues.',
       );
     } finally {
       client.close();

@@ -103,3 +103,29 @@ test("HTML scan cannot claim to capture runtime network traffic",async()=>{
   assert.equal(payload.count,0);
   assert.match(payload.notes,/JS-only players/);
 });
+
+test("blocked upstream website is reported as a scan error, not a scanner outage",async()=>{
+  const response=await handleWebsiteStreamScan(req("https://blocked.example.org/watch"),env,{
+    fetchImpl:async (url)=>{
+      if(String(url).startsWith(env.SUPABASE_URL))return mockFetch(url);
+      return new Response("Blocked",{status:403});
+    },
+  });
+  assert.equal(response.status,422);
+  const result=await response.json();
+  assert.equal(result.code,"website_fetch_failed");
+  assert.match(result.error,/HTTP 403/);
+  assert.doesNotMatch(result.error,/token|cookie/i);
+});
+
+test("website request timeout/HTTP failures do not masquerade as connectivity problems",async()=>{
+  const response=await handleWebsiteStreamScan(req("https://error.example.org/watch"),env,{
+    fetchImpl:async (url)=>{
+      if(String(url).startsWith(env.SUPABASE_URL))return mockFetch(url);
+      return new Response("Unavailable",{status:503});
+    },
+  });
+  assert.equal(response.status,422);
+  const result=await response.json();
+  assert.match(result.error,/HTTP 503/);
+});
