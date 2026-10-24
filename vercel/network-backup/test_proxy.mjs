@@ -161,3 +161,25 @@ test('Metadata body stalls time out and public service probes cannot claim an OA
     assert.equal(JSON.stringify(result).includes('connected'), false);
   });
 });
+
+test('Browser Run scanner proxy preserves Admin authentication',async()=>{
+  const calls=[];
+  await withFetch(async(url,init)=>{
+    calls.push({url:String(url),auth:init.headers.get('Authorization')});
+    return Response.json({error:'Browser disabled'}, {status:503});
+  },async()=>{
+    const unauth=await proxy(new Request(origin+'/admin/stream-detect-browser',{
+      method:'POST',body:'{}',
+    }));
+    assert.equal(unauth.status,401);
+    const result=await proxy(new Request(origin+'/admin/stream-detect-browser',{
+      method:'POST',headers:{Authorization:'Bearer test-authenticated-admin'},
+      body:JSON.stringify({url:'https://video.example.org/watch',authorized:true}),
+    }));
+    assert.equal(result.status,503);
+    assert.deepEqual(calls,[{
+      url:worker+'/admin/stream-detect-browser',
+      auth:'Bearer test-authenticated-admin',
+    }]);
+  });
+});
