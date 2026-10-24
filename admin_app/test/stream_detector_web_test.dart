@@ -20,6 +20,7 @@ void main() {
     await tester.scrollUntilVisible(
       find.textContaining('Ready for testing'),
       200,
+      scrollable: find.byType(Scrollable).first,
     );
     await tester.pumpAndSettle();
 
