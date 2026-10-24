@@ -40,6 +40,12 @@ jobs:
         run: |
           flutter analyze --no-fatal-infos
           flutter test
+      - name: Generate Admin Web platform
+        working-directory: admin_app
+        run: flutter create --platforms=web .
+      - name: Compile Admin Web release
+        working-directory: admin_app
+        run: flutter build web --release --base-href "/football-stream-app/admin/"
       - name: Compile debug APK
         working-directory: admin_app
         run: flutter build apk --debug
