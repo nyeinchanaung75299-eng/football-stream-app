@@ -8,13 +8,14 @@ void main() {
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
 
-    expect(find.text('Website Stream Scanner'), findsOneWidget);
+    expect(find.text('Website Stream Detector'), findsOneWidget);
     expect(find.byKey(const Key('website-scan-url')), findsOneWidget);
     expect(find.byKey(const Key('scan-website')), findsOneWidget);
     final button = tester.widget<FilledButton>(
         find.byKey(const Key('scan-website')));
     expect(button.onPressed, isNull);
-    expect(find.textContaining('Paste a WEBSITE address'), findsOneWidget);
+    expect(find.byKey(const Key('website-scan-mode')), findsOneWidget);
+    expect(find.textContaining('Enter a website watch-page'), findsOneWidget);
   });
 
   testWidgets('website scanner rejects an invalid URL before network access',
