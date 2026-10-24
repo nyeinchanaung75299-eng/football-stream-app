@@ -99,6 +99,18 @@ export async function captureBrowserMedia(env,pageUrl,{
   if(!target)throw new Error("Invalid public HTTP(S) page URL.");
   if(!env.BROWSER && !launch)throw new Error("Browser Run is not configured.");
   const collector=createMediaCollector(target.href);
+  // Bounded diagnostic counts only. Do not store visited subresource URLs,
+  // cookies, Authorization headers or response bodies.
+  const diagnostics={
+    requestsObserved:0,
+    responsesObserved:0,
+    pageResponses:0,
+    pageHttpStatus:null,
+    navigationConfirmed:false,
+    htmlVideoElements:null,
+    iframeElements:null,
+    videoPlayAttempts:0,
+  };
   const browser=env.BROWSER;
   let session=null, socket=null, cdp=null;
   try {
@@ -119,32 +131,68 @@ export async function captureBrowserMedia(env,pageUrl,{
     cdp=cdpClient(socket,5000);
     cdp.onEvent(msg=>{
       if(msg.method==="Network.requestWillBeSent"){
+        diagnostics.requestsObserved=Math.min(10000,diagnostics.requestsObserved+1);
         // Observe URL only; never inspect request.headers or Cookie.
         collector.observe(msg.params?.request?.url||"");
       }else if(msg.method==="Network.responseReceived"){
+        diagnostics.responsesObserved=Math.min(10000,diagnostics.responsesObserved+1);
+        if(msg.params?.type==="Document"){
+          diagnostics.pageResponses++;
+          // Only the numeric response status, never response headers/body.
+          const status=Number(msg.params?.response?.status);
+          if(Number.isInteger(status)&&status>=100&&status<=599)
+            diagnostics.pageHttpStatus=status;
+        }
         collector.observe(msg.params?.response?.url||"",msg.params?.response?.mimeType||"");
+      }else if(msg.method==="Page.frameNavigated" && !msg.params?.frame?.parentId) {
+        diagnostics.navigationConfirmed=true;
       }
     });
     await cdp.send("Network.enable",{maxPostDataSize:0});
     await cdp.send("Page.enable");
-    await cdp.send("Page.navigate",{url:target.href});
+    const navigation=await cdp.send("Page.navigate",{url:target.href});
+    if(navigation?.errorText) {
+      // Do not return the original error URL or any sensitive page data.
+      throw new Error("Browser page navigation failed.");
+    }
     await delay(1600);
-    // Only trigger HTML video elements, no arbitrary paid/consent/login clicks.
-    // Muted autoplay is permitted by Chrome and may surface media requests.
+    // Read only safe page structure counters. This helps distinguish
+    // an iframe-only/custom player from an HTML5 video page.
     try {
-      await cdp.send("Runtime.evaluate",{
-        expression:"for(const v of document.querySelectorAll('video')){try{v.muted=true;v.play().catch(()=>{});}catch(_){}}",
+      const result=await cdp.send("Runtime.evaluate",{
+        expression:"(()=>({videos:document.querySelectorAll('video').length,frames:document.querySelectorAll('iframe').length}))()",
         returnByValue:true,
         awaitPromise:false,
       });
-    }catch{/* Some pages disallow scripts; Network capture still runs. */}
+      const v=result?.result?.value;
+      if(Number.isInteger(v?.videos))diagnostics.htmlVideoElements=Math.min(1000,v.videos);
+      if(Number.isInteger(v?.frames))diagnostics.iframeElements=Math.min(1000,v.frames);
+    }catch{/* A blocked document may prevent DOM inspection. */}
+    // Only trigger native HTML5 video elements, not third-party player
+    // buttons, login flows, cookie prompts or arbitrary page clicks.
+    try {
+      const result=await cdp.send("Runtime.evaluate",{
+        expression:"(()=>{let n=0;for(const v of document.querySelectorAll('video')){n++;try{v.muted=true;v.play().catch(()=>{});}catch(_){}}return n;})()",
+        returnByValue:true,
+        awaitPromise:false,
+      });
+      const attempts=Number(result?.result?.value);
+      if(Number.isInteger(attempts)&&attempts>=0)
+        diagnostics.videoPlayAttempts=Math.min(1000,attempts);
+    }catch{/* Browser observation still continues if script execution fails. */}
     await delay(MAX_SCAN_MS-1600);
+    const note=collector.links.length
+      ?"Media URLs observed from browser requests. Playback and expiry are not guaranteed."
+      :diagnostics.requestsObserved===0
+        ?"No page network requests were observed. Navigation or the browser target may be blocked."
+        :diagnostics.htmlVideoElements===0&&diagnostics.iframeElements>0
+          ?"The page made network requests but contains iframe players. The stream may load in a separate frame or require a Play click."
+          :diagnostics.htmlVideoElements===0
+            ?"The page made network requests but no HTML5 video element was found. A custom player or user interaction may be required."
+            :"The browser observed requests, but none identified as HLS/DASH/MP4. Playback might need user interaction, authorization or DRM.";
     return {
       ok:true,mode:"browser",count:collector.links.length,links:collector.links,
-      partial:false,
-      notes:collector.links.length
-        ?"Media URLs observed from the browser network. Playback and expiry are not guaranteed."
-        :"No media request URLs were observed. This page may need an explicit Play click, require authentication, block automation or use DRM.",
+      partial:false,diagnostics,notes:note,
     };
   } finally {
     try{cdp?.close();}catch{}
