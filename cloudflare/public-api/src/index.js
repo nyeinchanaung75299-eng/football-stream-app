@@ -1,5 +1,3 @@
-import { handleWebsiteStreamScan } from "./website_stream_scanner.mjs";
-
 const DEFAULT_MIRROR =
   "https://raw.githubusercontent.com/" +
   "nyeinchanaung75299-eng/football-stream-app/" +
@@ -33,6 +31,11 @@ export default {
     }
 
     if (url.pathname === "/admin/stream-detect" && request.method === "POST") {
+      // Keep this dependency lazy: legacy worker route tests load the main
+      // module from a data: URL, where relative imports are not resolvable.
+      // Wrangler bundles this literal dynamic import for production.
+      const { handleWebsiteStreamScan } =
+        await import("./website_stream_scanner.mjs");
       return handleWebsiteStreamScan(request, env, { allowRequest });
     }
 
