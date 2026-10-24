@@ -80,6 +80,15 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
     }
 
     final detectedType = detectManualStreamType(url);
+    if (_chosenType != 'auto' &&
+        detectedType != null &&
+        _chosenType != detectedType) {
+      setState(() {
+        _error = 'Selected format does not match the media URL extension.';
+        _result = null;
+      });
+      return;
+    }
     final effectiveType = _chosenType == 'auto'
         ? detectedType
         : _chosenType;
