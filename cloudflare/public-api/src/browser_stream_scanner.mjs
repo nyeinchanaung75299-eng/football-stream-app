@@ -78,13 +78,17 @@ export function cdpClient(socket, timeoutMs=6000){
   });
   return {
     onEvent(callback){listeners.add(callback);return ()=>listeners.delete(callback);},
-    send(method,params={}){
+    send(method,params={},sessionId=null){
       return new Promise((resolve,reject)=>{
         const id=++nextId;
         const timer=setTimeout(()=>{pending.delete(id);reject(new Error("Browser command timed out."));},timeoutMs);
         pending.set(id,{resolve,reject,timer});
-        try{socket.send(JSON.stringify({id,method,params}));}
-        catch(error){clearTimeout(timer);pending.delete(id);reject(error);}
+        try{
+          socket.send(JSON.stringify({
+            id,method,params,
+            ...(sessionId?{sessionId}:{}),
+          }));
+        }catch(error){clearTimeout(timer);pending.delete(id);reject(error);}
       });
     },
     close(){socket.removeEventListener("message",receive);listeners.clear();},
@@ -130,6 +134,17 @@ export async function captureBrowserMedia(env,pageUrl,{
     socket.accept();
     cdp=cdpClient(socket,5000);
     cdp.onEvent(msg=>{
+      // Cross-origin iframe players can run as out-of-process frame targets.
+      // Observe their network requests too, without reading request headers.
+      if(msg.method==="Target.attachedToTarget"){
+        const id=msg.params?.sessionId;
+        const type=msg.params?.targetInfo?.type;
+        if(id && (type==="iframe" || type==="page")){
+          void cdp.send("Network.enable",{maxPostDataSize:0},id)
+            .catch(()=>{ /* OOPIF may disappear during navigation. */ });
+        }
+        return;
+      }
       if(msg.method==="Network.requestWillBeSent"){
         diagnostics.requestsObserved=Math.min(10000,diagnostics.requestsObserved+1);
         // Observe URL only; never inspect request.headers or Cookie.
@@ -148,6 +163,13 @@ export async function captureBrowserMedia(env,pageUrl,{
         diagnostics.navigationConfirmed=true;
       }
     });
+    // Best-effort inspection of out-of-process iframe requests. The browser
+    // may not support auto-attach on all target configurations.
+    try {
+      await cdp.send("Target.setAutoAttach",{
+        autoAttach:true,waitForDebuggerOnStart:false,flatten:true,
+      });
+    } catch { /* Keep top-level frame monitoring available. */ }
     await cdp.send("Network.enable",{maxPostDataSize:0});
     await cdp.send("Page.enable");
     const navigation=await cdp.send("Page.navigate",{url:target.href});
