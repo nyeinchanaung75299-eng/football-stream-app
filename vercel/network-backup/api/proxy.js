@@ -18,7 +18,7 @@ function routeKind(path) {
       /^\/matches\/[A-Za-z0-9_-]+\/streams$/.test(path) ||
       /^\/p\/[A-Za-z0-9_-]+(?:\/.*)?$/.test(path) ||
       /^\/sources\/(soco|yyzb|fawa|cola|tflix|streame)\/(matches|streams)$/.test(path)) return "public";
-  if (path === "/admin/stream-detect") return "admin";
+  if (path === "/admin/stream-detect" || path === "/admin/stream-detect-browser") return "admin";
   if (new RegExp("^/admin/functions/(" + functionNames + ")$").test(path)) return "admin";
   if (/^\/(auth|rest|storage)\/v1(?:\/.*)?$/.test(path) ||
       new RegExp("^/functions/v1/(" + functionNames + ")$").test(path)) return "backend";
