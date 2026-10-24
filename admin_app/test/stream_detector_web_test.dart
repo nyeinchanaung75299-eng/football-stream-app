@@ -37,6 +37,10 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('Ready for testing'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Add to Servers'), 100,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Add to Servers'), findsOneWidget);
   });
 
