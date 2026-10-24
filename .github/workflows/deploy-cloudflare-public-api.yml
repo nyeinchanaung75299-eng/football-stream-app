@@ -16,6 +16,7 @@ on:
       - "scripts/test_tflix_source.mjs"
       - "scripts/test_streame_source.mjs"
       - "scripts/test_fawa_source.mjs"
+      - "scripts/test_website_stream_scanner.mjs"
       - "supabase/functions/source-match-list/index.ts"
       - "supabase/functions/soco-links/index.ts"
       - "supabase/functions/football-fixtures/index.ts"
@@ -72,6 +73,9 @@ jobs:
 
       - name: Verify Admin-only StreamCenter extraction
         run: node --test scripts/test_streame_source.mjs
+
+      - name: Test website stream scanner
+        run: node --test scripts/test_website_stream_scanner.mjs
 
       - name: Test Fawa literal stream extraction
         run: node --test scripts/test_fawa_source.mjs
