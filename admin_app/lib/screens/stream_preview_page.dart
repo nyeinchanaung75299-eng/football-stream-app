@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -26,14 +27,15 @@ class _StreamPreviewPageState extends State<StreamPreviewPage> {
     };
     _player = VideoPlayerController.networkUrl(
       Uri.parse(widget.stream.url),
-      httpHeaders: headers,
+      // Browsers prevent overriding Referer/Origin on video requests.
+      httpHeaders: kIsWeb ? const <String, String>{} : headers,
     );
     _ready = _initialize();
   }
 
   Future<void> _initialize() async {
     await _player.initialize().timeout(const Duration(seconds: 20));
-    await _player.play();
+    if (!kIsWeb) await _player.play();
   }
 
   @override
