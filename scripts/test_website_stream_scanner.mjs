@@ -129,3 +129,65 @@ test("website request timeout/HTTP failures do not masquerade as connectivity pr
   const result=await response.json();
   assert.match(result.error,/HTTP 503/);
 });
+
+test("large advertised HTML still returns embedded HLS instead of HTTP 422",async()=>{
+  const response=await handleWebsiteStreamScan(req("https://large.example.org/watch"),env,{
+    fetchImpl:async (url)=>{
+      if(String(url).startsWith(env.SUPABASE_URL))return mockFetch(url);
+      return new Response(
+        '<video src="https://cdn.example.org/live/main.m3u8"></video>',
+        {headers:{"Content-Type":"text/html","Content-Length":"20000000"}},
+      );
+    },
+  });
+  assert.equal(response.status,200);
+  const data=await response.json();
+  assert.equal(data.count,1);
+  assert.equal(data.links[0].type,"hls");
+  assert.equal(data.partial,true);
+  assert.match(data.notes,/results may be incomplete/);
+});
+
+test("oversized chunked HTML is truncated and scan still succeeds",async()=>{
+  const huge= '<video src="/live/main.mpd"></video>' + "x".repeat(1100000);
+  const response=await handleWebsiteStreamScan(req("https://large.example.org/watch"),env,{
+    fetchImpl:async (url)=>{
+      if(String(url).startsWith(env.SUPABASE_URL))return mockFetch(url);
+      return new Response(huge,{headers:{"Content-Type":"text/html"}});
+    },
+  });
+  assert.equal(response.status,200);
+  const data=await response.json();
+  assert.equal(data.count,1);
+  assert.equal(data.links[0].url,"https://large.example.org/live/main.mpd");
+  assert.equal(data.partial,true);
+  assert.match(data.notes,/only the first part was scanned/);
+});
+
+test("oversized linked JavaScript yields partial results without losing HTML media",async()=>{
+  const response=await handleWebsiteStreamScan(req("https://large.example.org/watch"),env,{
+    fetchImpl:async (url)=>{
+      if(String(url).startsWith(env.SUPABASE_URL))return mockFetch(url);
+      if(String(url).endsWith("/player.js"))
+        return new Response('const src="/second.m3u8";'+"x".repeat(270000),{
+          headers:{"Content-Type":"application/javascript"},
+        });
+      return new Response(
+        '<video src="/first.mp4"></video><script src="/player.js"></script>',
+        {headers:{"Content-Type":"text/html"}},
+      );
+    },
+  });
+  assert.equal(response.status,200);
+  const data=await response.json();
+  assert.equal(data.count,2);
+  assert.deepEqual(data.links.map(x=>x.type).sort(),["hls","mp4"]);
+  assert.equal(data.partial,true);
+});
+
+test("small normal HTML is reported as fully scanned",async()=>{
+  const response=await handleWebsiteStreamScan(req(),env,{fetchImpl:mockFetch});
+  assert.equal(response.status,200);
+  const data=await response.json();
+  assert.equal(data.partial,false);
+});

@@ -26,6 +26,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
 
   bool _approved = false;
   bool _scanning = false;
+  bool _partialScan = false;
   String? _scanError;
   String? _scanNote;
   String? _manualError;
@@ -55,6 +56,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
       _scanning = true;
       _scanError = null;
       _scanNote = null;
+      _partialScan = false;
       _detected.clear();
     });
     try {
@@ -73,6 +75,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
           ));
         }
         _scanNote = result.notes;
+        _partialScan = result.partial;
       });
     } catch (e) {
       if (mounted) {
@@ -293,8 +296,18 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
               ],
               if (_scanNote != null || _detected.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                Text('Found streams (' + _detected.length.toString() + ')',
-                    style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  'Found streams (${_detected.length})'
+                  + (_partialScan ? ' · Partial scan' : ''),
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                if (_partialScan) ...[
+                  const SizedBox(height: 5),
+                  const Text(
+                    'This website is large, so only the beginning of its '
+                    'HTML/scripts was checked. Some stream links may be missed.',
+                  ),
+                ],
                 for (final stream in _detected)
                   _streamCard(stream, suggested: true),
               ],
