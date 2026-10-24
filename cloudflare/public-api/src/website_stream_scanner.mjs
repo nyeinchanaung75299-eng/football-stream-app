@@ -2,8 +2,9 @@
 // it can discover links in HTML and same-site JS but cannot observe JS runtime
 // requests or bypass DRM, paywalls, sign-in, or anti-bot restrictions.
 const TYPES = Object.freeze({m3u8:"hls", mpd:"dash", mp4:"mp4", flv:"flv"});
-const MAX_PAGE_BYTES = 320 * 1024;
-const MAX_SCRIPT_BYTES = 160 * 1024;
+// Bounded reading: scan useful HTML even if the upstream page is larger.
+const MAX_PAGE_BYTES = 1024 * 1024;
+const MAX_SCRIPT_BYTES = 256 * 1024;
 const SCAN_TIMEOUT_MS = 9000;
 
 function rejectTarget(input) {
@@ -82,23 +83,37 @@ function json(data,status=200) {
 }
 
 async function boundedResponseBody(response, maxBytes) {
-  if (!response.body) return "";
+  if (!response.body) return {text:"",truncated:false};
   const reader=response.body.getReader();
   let total=0;
+  let truncated=false;
   const buffers=[];
   try {
     while (true) {
       const part=await reader.read();
       if (part.done) break;
-      total+=part.value.byteLength;
-      if (total>maxBytes) throw new Error("Page content exceeds scanner limit.");
-      buffers.push(part.value);
+      const remaining=maxBytes-total;
+      if (remaining<=0) {
+        truncated=true;
+        break;
+      }
+      // Do not retain bytes beyond the cap even if the server sends a
+      // huge stream chunk or does not provide Content-Length.
+      const take=Math.min(remaining,part.value.byteLength);
+      if (take>0) {
+        buffers.push(part.value.subarray(0,take));
+        total+=take;
+      }
+      if (take<part.value.byteLength) {
+        truncated=true;
+        break;
+      }
     }
   } finally { await reader.cancel().catch(()=>{}); }
   const result=new Uint8Array(total);
   let offset=0;
   for(const chunk of buffers){ result.set(chunk,offset);offset+=chunk.length; }
-  return new TextDecoder().decode(result);
+  return {text:new TextDecoder().decode(result),truncated};
 }
 
 async function loadPage(address,kind,fetchImpl) {
@@ -137,18 +152,22 @@ async function loadPage(address,kind,fetchImpl) {
       const ct=(response.headers.get("Content-Type")||"").toLowerCase();
       if(kind==="script" && !/javascript|text\/plain|octet-stream/.test(ct)){
         await response.body?.cancel().catch(()=>{});
-        return {url:uri,text:""};
+        return {url:uri,text:"",partial:false};
       }
       if(kind==="page" && ct && !/html|text\/plain/.test(ct)){
         await response.body?.cancel().catch(()=>{});
         throw new Error("The URL does not return an HTML website.");
       }
+      const limit=kind==="script"?MAX_SCRIPT_BYTES:MAX_PAGE_BYTES;
       const length=Number(response.headers.get("Content-Length")||"0");
-      if(length>(kind==="script"?MAX_SCRIPT_BYTES:MAX_PAGE_BYTES)){
-        await response.body?.cancel().catch(()=>{});
-        throw new Error("Website content is larger than the scan limit.");
-      }
-      return {url:uri,text:await boundedResponseBody(response,kind==="script"?MAX_SCRIPT_BYTES:MAX_PAGE_BYTES)};
+      // Content-Length is advisory: NEVER reject a large page outright.
+      // Scan a limited prefix and cancel the rest of the response.
+      const body=await boundedResponseBody(response,limit);
+      return {
+        url:uri,
+        text:body.text,
+        partial:body.truncated || (Number.isFinite(length) && length>limit),
+      };
     }
     throw new Error("Too many website redirects.");
   } finally {clearTimeout(timer);controller.abort();}
@@ -204,6 +223,7 @@ export async function handleWebsiteStreamScan(request,env,{fetchImpl=fetch,allow
   try {
     const page=await loadPage(target.href,"page",fetchImpl);
     let found=extractStreamLinks(page.text,page.url);
+    let partial=page.partial;
     const visited=new Set([page.url]);
     // Only inspect a few same-host JavaScript files or iframe documents.
     // Running scripts requires a browser engine and is not performed here.
@@ -222,6 +242,7 @@ export async function handleWebsiteStreamScan(request,env,{fetchImpl=fetch,allow
     for(const res of resources) {
       try{
         const result=await loadPage(res.url,res.kind,fetchImpl);
+        if(result.partial) partial=true;
         for(const link of extractStreamLinks(result.text,page.url))
           if(!found.some(x=>x.url===link.url))found.push(link);
       }catch{
@@ -232,9 +253,11 @@ export async function handleWebsiteStreamScan(request,env,{fetchImpl=fetch,allow
     found=found.slice(0,35);
     return json({
       ok:true,mode:"html-scan",page_url:page.url,links:found,count:found.length,
-      notes:found.length
+      partial,
+      notes:(found.length
         ?"Found media URLs embedded in website source. Playback and expiry are not verified."
-        :"No direct media URLs in the accessible HTML/scripts. JS-only players require a real browser network observer; this scanner cannot intercept playback requests.",
+        :"No direct media URLs in the accessible HTML/scripts. JS-only players require a real browser network observer; this scanner cannot intercept playback requests.")
+        +(partial?" Some pages were large: only the first part was scanned, so results may be incomplete.":""),
     });
   }catch(error){
     // Never include credentials, URL query strings, or upstream HTML in error messages.
