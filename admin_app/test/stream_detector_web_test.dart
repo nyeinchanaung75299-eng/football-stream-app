@@ -34,7 +34,10 @@ void main() {
   testWidgets('manual fallback accepts authorized direct HLS URL',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
-    await tester.ensureVisible(find.byKey(const Key('manual-mode-expander')));
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('manual-mode-expander')), 180,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.byKey(const Key('manual-mode-expander')));
     await tester.pumpAndSettle();
 
@@ -61,7 +64,10 @@ void main() {
   testWidgets('manual fallback rejects a website watch page',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
-    await tester.ensureVisible(find.byKey(const Key('manual-mode-expander')));
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('manual-mode-expander')), 180,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.byKey(const Key('manual-mode-expander')));
     await tester.pumpAndSettle();
 
