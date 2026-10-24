@@ -1,3 +1,5 @@
+import { handleWebsiteStreamScan } from "./website_stream_scanner.mjs";
+
 const DEFAULT_MIRROR =
   "https://raw.githubusercontent.com/" +
   "nyeinchanaung75299-eng/football-stream-app/" +
@@ -28,6 +30,10 @@ export default {
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders() });
+    }
+
+    if (url.pathname === "/admin/stream-detect" && request.method === "POST") {
+      return handleWebsiteStreamScan(request, env, { allowRequest });
     }
 
     const adminFunctionRoute = url.pathname.match(
