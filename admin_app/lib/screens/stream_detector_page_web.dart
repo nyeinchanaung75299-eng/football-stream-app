@@ -363,7 +363,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                                   : 'No media URL was present in accessible HTML or scripts.',
                         ),
                         const SizedBox(height: 8),
-                        const Text(
+                        Text(
                           _scanMode == 'browser'
                               ? 'Some players need an explicit Play click, login '
                                 'or a licensed DRM session. Browser mode does not '
