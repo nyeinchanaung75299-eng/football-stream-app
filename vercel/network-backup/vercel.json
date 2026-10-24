@@ -12,6 +12,7 @@
     { "source": "/matches/:ncaId/streams", "destination": "/api/proxy?route=matches/:ncaId/streams" },
     { "source": "/sources/:ncaSource/:ncaAction", "destination": "/api/proxy?route=sources/:ncaSource/:ncaAction" },
     { "source": "/admin/stream-detect", "destination": "/api/proxy?route=admin/stream-detect" },
+    { "source": "/admin/stream-detect-browser", "destination": "/api/proxy?route=admin/stream-detect-browser" },
     { "source": "/admin/functions/:ncaFunction", "destination": "/api/proxy?route=admin/functions/:ncaFunction" },
     { "source": "/p/:ncaPath*", "destination": "/api/proxy?route=p/:ncaPath*" },
     { "source": "/auth/v1/:ncaPath*", "destination": "/api/proxy?route=auth/v1/:ncaPath*" },
