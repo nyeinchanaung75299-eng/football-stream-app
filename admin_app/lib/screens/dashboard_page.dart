@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -21,6 +22,19 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   int _tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // A direct URL works after the admin session is restored. This avoids
+    // forcing people to find the card on a previously cached Control Center.
+    if (kIsWeb && Uri.base.queryParameters['tool'] == 'stream-detector') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        open(context, const StreamDetectorPage(), 'stream-detector');
+      });
+    }
+  }
 
   void open(BuildContext context, Widget page, String section) {
     AnalyticsService.capture(
@@ -96,6 +110,17 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       const SizedBox(height: 18),
       _ActionCard(
+        icon: Icons.radar_rounded,
+        title: 'Stream Detector',
+        subtitle: kIsWeb
+            ? 'Paste a stream URL, test playback and add to servers.'
+            : 'Open a website, detect streams, test and add servers.',
+        iconColor: const Color(0xFF059669),
+        onTap: () =>
+            open(context, const StreamDetectorPage(), 'stream-detector'),
+      ),
+      const SizedBox(height: 10),
+      _ActionCard(
         icon: Icons.star_rounded,
         title: 'Pick Big Matches',
         subtitle:
@@ -127,15 +152,6 @@ class _DashboardPageState extends State<DashboardPage> {
         subtitle: 'Add primary/backup links and edit or disable them.',
         iconColor: const Color(0xFF7C3AED),
         onTap: () => open(context, const LiveLinksPage(), 'stream-servers'),
-      ),
-      const SizedBox(height: 10),
-      _ActionCard(
-        icon: Icons.radar_rounded,
-        title: 'Stream Detector',
-        subtitle: 'Open a website, detect authorized streams, test and add servers.',
-        iconColor: const Color(0xFF059669),
-        onTap: () =>
-            open(context, const StreamDetectorPage(), 'stream-detector'),
       ),
       const SizedBox(height: 10),
       _ActionCard(

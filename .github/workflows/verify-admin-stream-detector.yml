@@ -46,6 +46,13 @@ jobs:
       - name: Compile Admin Web release
         working-directory: admin_app
         run: flutter build web --release --base-href "/football-stream-app/admin/"
+      - name: Verify cache stamping on generated Flutter Web build
+        working-directory: admin_app
+        run: |
+          python3 -m unittest discover -s ../scripts -p 'test_stamp_flutter_web_cache.py'
+          python3 ../scripts/stamp_flutter_web_cache.py build/web "$GITHUB_SHA"
+          grep -q 'main.dart.js?v=' build/web/flutter_bootstrap.js
+          grep -q 'flutter_bootstrap.js?v=' build/web/index.html
       - name: Compile debug APK
         working-directory: admin_app
         run: flutter build apk --debug

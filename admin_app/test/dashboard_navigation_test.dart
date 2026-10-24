@@ -17,6 +17,7 @@ void main() {
     await http.runWithClient(() async {
       await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
       expect(find.byType(NavigationDestination), findsNWidgets(2));
+      expect(find.text('Stream Detector'), findsOneWidget);
       expect(find.text('Pick Big Matches'), findsOneWidget);
       expect(find.text('Refresh monitor'), findsNothing);
       await tester.tap(find.text('System Health').last);
