@@ -17,6 +17,19 @@ void main() {
     expect(find.textContaining('Paste a WEBSITE address'), findsOneWidget);
   });
 
+  testWidgets('website scanner rejects an invalid URL before network access',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
+    await tester.enterText(
+      find.byKey(const Key('website-scan-url')), 'not a URL',
+    );
+    await tester.tap(find.byKey(const Key('scan-authorized')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('scan-website')));
+    await tester.pump();
+    expect(find.text('Enter a full http(s) website URL.'), findsOneWidget);
+  });
+
   testWidgets('manual fallback accepts authorized direct HLS URL',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
