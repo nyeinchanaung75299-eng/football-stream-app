@@ -28,6 +28,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
   bool _approved = false;
   bool _scanning = false;
   bool _partialScan = false;
+  Map<String, Object?> _diagnostics = const {};
   String? _scanError;
   String? _scanNote;
   String? _manualError;
@@ -58,6 +59,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
       _scanError = null;
       _scanNote = null;
       _partialScan = false;
+      _diagnostics = const {};
       _detected.clear();
     });
     try {
@@ -79,6 +81,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
         }
         _scanNote = result.notes;
         _partialScan = result.partial;
+        _diagnostics = result.diagnostics;
       });
     } catch (e) {
       if (mounted) {
@@ -372,6 +375,46 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                                 'video playback. Select Browser Network Detect '
                                 'to observe those requests when authorized.',
                         ),
+                        if (_scanMode == 'browser' &&
+                            _diagnostics.isNotEmpty) ...[
+                          const Divider(height: 22),
+                          const Text(
+                            'Browser inspection details',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            'Page navigation confirmed: '
+                            '${_diagnostics['navigationConfirmed'] == true ? 'Yes' : 'Not confirmed'}',
+                          ),
+                          Text(
+                            'Network requests observed: '
+                            '${_diagnostics['requestsObserved'] ?? 'Unknown'}',
+                          ),
+                          Text(
+                            'Network responses observed: '
+                            '${_diagnostics['responsesObserved'] ?? 'Unknown'}',
+                          ),
+                          Text(
+                            'HTML5 video elements: '
+                            '${_diagnostics['htmlVideoElements'] ?? 'Unknown'}',
+                          ),
+                          Text(
+                            'Iframes on page: '
+                            '${_diagnostics['iframeElements'] ?? 'Unknown'}',
+                          ),
+                          Text(
+                            'HTML5 play attempts: '
+                            '${_diagnostics['videoPlayAttempts'] ?? 'Unknown'}',
+                          ),
+                          if (_diagnostics['pageHttpStatus'] != null)
+                            Text(
+                              'Page HTTP status: ${_diagnostics['pageHttpStatus']}',
+                            ),
+                          const SizedBox(height: 8),
+                          if (_scanNote != null)
+                            Text(_scanNote!),
+                        ],
                         const SizedBox(height: 10),
                         OutlinedButton.icon(
                           onPressed: () => Clipboard.setData(

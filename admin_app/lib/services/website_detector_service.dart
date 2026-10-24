@@ -12,12 +12,14 @@ class WebsiteScanResult {
     required this.notes,
     required this.mode,
     this.partial = false,
+    this.diagnostics = const {},
   });
 
   final List<Map<String, String>> links;
   final String notes;
   final String mode;
   final bool partial;
+  final Map<String, Object?> diagnostics;
 }
 
 /// Server-side HTML scan for public, authorized pages. Requests go only to
@@ -117,6 +119,14 @@ class WebsiteDetectorService {
             notes: (payload['notes'] ?? '').toString(),
             mode: (payload['mode'] ?? 'html-scan').toString(),
             partial: payload['partial'] == true,
+            diagnostics: payload['diagnostics'] is Map
+                ? (payload['diagnostics'] as Map).map(
+                    (k, v) => MapEntry(
+                      k.toString(),
+                      (v is int || v is bool) ? v : null,
+                    ),
+                  )
+                : const {},
           );
         } on StateError {
           rethrow;
