@@ -7,6 +7,7 @@ on:
       - 'admin_app/**'
       - 'cloudflare/public-api/src/website_stream_scanner.mjs'
       - 'scripts/test_website_stream_scanner.mjs'
+      - 'scripts/test_browser_stream_scanner.mjs'
       - 'vercel/network-backup/**'
       - '.github/workflows/verify-admin-stream-detector.yml'
   workflow_dispatch:
@@ -23,6 +24,7 @@ jobs:
       - name: Test website scanner API and network backup
         run: |
           node --test scripts/test_website_stream_scanner.mjs
+          node --test scripts/test_browser_stream_scanner.mjs
           node --test vercel/network-backup/test_proxy.mjs
       - name: Set up Java
         uses: actions/setup-java@v4
