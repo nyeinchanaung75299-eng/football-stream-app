@@ -4,43 +4,58 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/screens/stream_detector_page_web.dart';
 
 void main() {
-  testWidgets('web detector accepts authorized direct HLS URLs', (tester) async {
-    await tester.pumpWidget(
-      const MaterialApp(home: StreamDetectorPage()),
-    );
+  testWidgets('website scanner is the primary mode and requires consent',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
 
-    expect(find.textContaining('Web Stream Tester'), findsOneWidget);
-    await tester.enterText(
-      find.byKey(const Key('web-stream-url')),
-      'https://cdn.example.com/live/master.m3u8',
-    );
-    await tester.tap(find.byKey(const Key('web-check-stream')));
-    await tester.pump();
-    // The result card is below the form; scroll the lazy ListView to build it.
-    await tester.scrollUntilVisible(
-      find.textContaining('Ready for testing'),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
+    expect(find.text('Website Stream Scanner'), findsOneWidget);
+    expect(find.byKey(const Key('website-scan-url')), findsOneWidget);
+    expect(find.byKey(const Key('scan-website')), findsOneWidget);
+    final button = tester.widget<FilledButton>(
+        find.byKey(const Key('scan-website')));
+    expect(button.onPressed, isNull);
+    expect(find.textContaining('Paste a WEBSITE address'), findsOneWidget);
+  });
+
+  testWidgets('manual fallback accepts authorized direct HLS URL',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
+    await tester.ensureVisible(find.byKey(const Key('manual-mode-expander')));
+    await tester.tap(find.byKey(const Key('manual-mode-expander')));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Ready for testing'), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('web-stream-url')));
+    await tester.enterText(
+      find.byKey(const Key('web-stream-url')),
+      'https://cdn.example.org/live/master.m3u8',
+    );
+    await tester.ensureVisible(find.byKey(const Key('web-check-stream')));
+    await tester.tap(find.byKey(const Key('web-check-stream')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Ready for testing'), 170,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Ready for testing'), findsOneWidget);
     expect(find.text('Add to Servers'), findsOneWidget);
   });
 
-  testWidgets('web detector rejects a normal website watch page', (tester) async {
-    await tester.pumpWidget(
-      const MaterialApp(home: StreamDetectorPage()),
-    );
+  testWidgets('manual fallback rejects a website watch page',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
+    await tester.ensureVisible(find.byKey(const Key('manual-mode-expander')));
+    await tester.tap(find.byKey(const Key('manual-mode-expander')));
+    await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.byKey(const Key('web-stream-url')));
     await tester.enterText(
       find.byKey(const Key('web-stream-url')),
-      'https://example.com/watch',
+      'https://example.org/watch',
     );
+    await tester.ensureVisible(find.byKey(const Key('web-check-stream')));
     await tester.tap(find.byKey(const Key('web-check-stream')));
     await tester.pump();
-
-    expect(find.textContaining('Enter a direct HTTP(S) media URL'), findsOneWidget);
+    expect(find.textContaining('Enter a direct M3U8'), findsOneWidget);
     expect(find.text('Add to Servers'), findsNothing);
   });
 }
