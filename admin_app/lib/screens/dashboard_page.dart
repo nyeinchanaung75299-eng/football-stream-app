@@ -8,6 +8,8 @@ import 'fixture_import_page.dart';
 import 'live_links_page.dart';
 import 'live_upload_page.dart';
 import 'soco_import_page.dart';
+import 'stream_detector_page.dart'
+    if (dart.library.js_interop) 'stream_detector_page_web.dart';
 import 'system_health_page.dart';
 
 class DashboardPage extends StatefulWidget {
@@ -125,6 +127,15 @@ class _DashboardPageState extends State<DashboardPage> {
         subtitle: 'Add primary/backup links and edit or disable them.',
         iconColor: const Color(0xFF7C3AED),
         onTap: () => open(context, const LiveLinksPage(), 'stream-servers'),
+      ),
+      const SizedBox(height: 10),
+      _ActionCard(
+        icon: Icons.radar_rounded,
+        title: 'Stream Detector',
+        subtitle: 'Open a website, detect authorized streams, test and add servers.',
+        iconColor: const Color(0xFF059669),
+        onTap: () =>
+            open(context, const StreamDetectorPage(), 'stream-detector'),
       ),
       const SizedBox(height: 10),
       _ActionCard(

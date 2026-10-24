@@ -1,0 +1,51 @@
+name: Verify Admin Stream Detector
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'admin_app/**'
+      - '.github/workflows/verify-admin-stream-detector.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  admin-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android project
+        working-directory: admin_app
+        run: |
+          flutter create --platforms=android .
+          rm -f test/widget_test.dart
+      - name: Install dependencies
+        working-directory: admin_app
+        run: flutter pub get
+      - name: Analyze and test
+        working-directory: admin_app
+        run: |
+          flutter analyze --no-fatal-infos
+          flutter test
+      - name: Generate Admin Web platform
+        working-directory: admin_app
+        run: flutter create --platforms=web .
+      - name: Compile Admin Web release
+        working-directory: admin_app
+        run: flutter build web --release --base-href "/football-stream-app/admin/"
+      - name: Compile debug APK
+        working-directory: admin_app
+        run: flutter build apk --debug

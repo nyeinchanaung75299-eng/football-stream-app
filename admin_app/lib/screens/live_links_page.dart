@@ -9,9 +9,18 @@ import '../services/function_gateway.dart';
 import 'soco_import_page.dart';
 
 class LiveLinksPage extends StatefulWidget {
-  const LiveLinksPage({super.key, this.initialMatchId});
+  const LiveLinksPage({
+    super.key,
+    this.initialMatchId,
+    this.initialStreamUrl,
+    this.initialReferer,
+    this.initialOrigin,
+  });
 
   final String? initialMatchId;
+  final String? initialStreamUrl;
+  final String? initialReferer;
+  final String? initialOrigin;
 
   @override
   State<LiveLinksPage> createState() => _LiveLinksPageState();
@@ -48,6 +57,12 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   void initState() {
     super.initState();
     matchId = widget.initialMatchId;
+    if (widget.initialStreamUrl != null) {
+      link.text = widget.initialStreamUrl!;
+      streamType = detectStreamType(link.text);
+    }
+    referer.text = widget.initialReferer ?? '';
+    origin.text = widget.initialOrigin ?? '';
     _matchesFuture = _startMatchesLoad();
     if (matchId != null) {
       _linksFuture = _startLinksLoad();
