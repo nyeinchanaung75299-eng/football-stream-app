@@ -188,8 +188,9 @@ async function catalog(ctx, requested) {
     // Some deployments answer 200 with a status/message envelope rather
     // than actual public catalog arrays. Do not treat that as an empty
     // schedule; the supported legacy public route can still have rows.
-    const arrays = payload && typeof payload === "object" &&
-      ["events", "streams", "channels"].some((key) => Array.isArray(payload[key]));
+    const arrays = (kind === "channels" && Array.isArray(payload)) ||
+      (payload && typeof payload === "object" &&
+        ["events", "streams", "channels"].some((key) => Array.isArray(payload[key])));
     if (!arrays) throw new Error("Public catalog has no supported arrays.");
   } catch (error) {
     // Compatibility fallback: only for missing/denied unified public
