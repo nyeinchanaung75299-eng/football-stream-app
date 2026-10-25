@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/stream_detector_service.dart';
 import '../services/stream_preview_diagnostics.dart';
+import 'source_player_page.dart';
 
 /// An actual playback check, rather than treating HTTP 200 as a playable video.
 class StreamPreviewPage extends StatefulWidget {
@@ -137,6 +138,19 @@ class _StreamPreviewPageState extends State<StreamPreviewPage> {
                               ],
                               const SizedBox(height: 14),
                               if (sourcePlayerPage(widget.stream.referer) != null) ...[
+                                OutlinedButton.icon(
+                                  key: const Key('try-popup-restricted-player'),
+                                  onPressed: () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => SourcePlayerPage(
+                                        sourcePage: widget.stream.referer,
+                                      ),
+                                    ),
+                                  ),
+                                  icon: const Icon(Icons.shield_outlined),
+                                  label: const Text('Try Pop-up Restricted Player'),
+                                ),
+                                const SizedBox(height: 10),
                                 FilledButton.icon(
                                   onPressed: _openSourcePage,
                                   icon: const Icon(Icons.open_in_new),

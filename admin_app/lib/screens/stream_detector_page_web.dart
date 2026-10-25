@@ -10,6 +10,7 @@ import '../services/stream_preview_diagnostics.dart';
 import '../services/website_detector_service.dart';
 import 'live_links_page.dart';
 import 'stream_preview_page.dart';
+import 'source_player_page.dart';
 
 /// Web edition: server-side HTML/source scan plus manual direct-link fallback.
 /// A web page cannot read cross-origin player network traffic on its own.
@@ -167,6 +168,15 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
     });
   }
 
+  Future<void> _tryRestrictedSourcePlayer(String referer) async {
+    if (sourcePlayerPage(referer) == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SourcePlayerPage(sourcePage: referer),
+      ),
+    );
+  }
+
   Future<void> _openSourcePlayer(String referer) async {
     final source = sourcePlayerPage(referer);
     if (source == null) return;
@@ -246,12 +256,19 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Test Stream'),
                 ),
-                if (sourcePlayerPage(stream.referer) != null)
+                if (sourcePlayerPage(stream.referer) != null) ...[
+                  OutlinedButton.icon(
+                    key: const Key('try-popup-restricted-player'),
+                    onPressed: () => _tryRestrictedSourcePlayer(stream.referer),
+                    icon: const Icon(Icons.shield_outlined),
+                    label: const Text('Try Pop-up Restricted Player'),
+                  ),
                   OutlinedButton.icon(
                     onPressed: () => _openSourcePlayer(stream.referer),
                     icon: const Icon(Icons.open_in_new),
                     label: const Text('Open Original Player'),
                   ),
+                ],
                 FilledButton.icon(
                   onPressed: () => _add(stream),
                   icon: const Icon(Icons.add_link),
