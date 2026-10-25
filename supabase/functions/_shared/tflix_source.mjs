@@ -649,6 +649,7 @@ export async function tflixStreams(body = {}, options = {}) {
   }
   const failures = [];
   const found = new Map();
+  let incompatibleMedia = false;
 
   async function checkServer(embed) {
     try {
@@ -665,6 +666,13 @@ export async function tflixStreams(body = {}, options = {}) {
       for (const candidate of candidates.slice(0, 4)) {
         try {
           const verified = await verifyTflixMedia(candidate, candidate.referer, { ctx });
+          // Verification can succeed on the source server while its media
+          // session cannot be used by the app's playback gateway. Do not stop
+          // at that candidate or report it as a ready import.
+          if (verified.gateway_compatible === false) {
+            incompatibleMedia = true;
+            continue;
+          }
           return { ...verified, server_name: embed.server_name, label: embed.server_name + " • " + verified.label };
         } catch (error) {
           failures.push(error instanceof Error ? error.message : "Source media could not be verified.");
@@ -691,6 +699,7 @@ export async function tflixStreams(body = {}, options = {}) {
     title: item.kind === "channel" ? item.home_team : item.home_team + " vs " + item.away_team,
     line_count: lines.length, ready: lines.length > 0, live_status: lines.length ? item.is_live : false,
     lines, message: lines.length ? "Verified manifest and media sample."
+      : incompatibleMedia ? "The source verified its media, but does not allow playback through this app. Choose another server."
       : failures[0] ?? "The public player does not expose a supported direct stream configuration.",
     generated_at: new Date().toISOString(),
   };

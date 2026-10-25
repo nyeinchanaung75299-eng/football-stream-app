@@ -3,6 +3,9 @@
 // bounded media sample is offered to Admin; no page script is executed.
 const CATALOG = "https://streamcenter.st/game-cards/embed";
 const CATALOG_ORIGIN = "https://streamcenter.st";
+// Both names are public player destinations returned by the catalog's own
+// source redirect. Keep exact host checks when the provider rotates aliases.
+const PLAYER_HOSTS = new Set(["streame.center", "streamec.st", "embedcenter.st"]);
 const USER_AGENT = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36";
 const MAX_HTML_BYTES = 1024 * 1024;
 const MAX_MANIFEST_BYTES = 512 * 1024;
@@ -26,7 +29,7 @@ export function safeStreameUrl(raw, base = CATALOG_ORIGIN) {
   let url;
   try { url = new URL(clean(raw), base); } catch { throw new Error("Unsupported source URL."); }
   const host = url.hostname.toLowerCase();
-  const allowed = host === "streamcenter.st" || host === "streame.center" ||
+  const allowed = host === "streamcenter.st" || PLAYER_HOSTS.has(host) ||
     /^edgestream(?:[1-9]|[1-9][0-9])\.pro$/.test(host);
   if (url.protocol !== "https:" || url.username || url.password ||
     (url.port && url.port !== "443") || !allowed) {
@@ -216,33 +219,84 @@ export async function streameStreams(body = {}, options = {}) {
   }
 
   const redirect = await fetchBounded(ctx, anchor.page_url, { referer: match.page_url });
-  const playerPage = new TextDecoder().decode(redirect.bytes);
-  const iframeTag = playerPage.match(/<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/i)?.[1];
-  if (!iframeTag) throw new Error("StreamCenter player is unavailable.");
-  const iframe = safeStreameUrl(decode(iframeTag), redirect.url);
-  if (iframe.hostname !== "streame.center" || iframe.pathname !== "/embed/hls2.php" ||
-    !/^[A-Za-z0-9_-]{6,96}$/.test(iframe.searchParams.get("stream") ?? "")) {
+  return resolvePlayerPage(ctx, redirect, anchor, match, idMatch[2], {
+    visited: new Set(), remaining: 6,
+  });
+}
+
+function playerKind(url) {
+  if (!PLAYER_HOSTS.has(url.hostname)) return null;
+  if (["/embed/hls2.php", "/embed/hls_cdn.php"].includes(url.pathname) &&
+    /^[A-Za-z0-9_-]{6,96}$/.test(url.searchParams.get("stream") ?? "")) return "hls";
+  if (/^\/embed\/ch[1-9][0-9]{0,2}\.php$/.test(url.pathname)) return "wrapper";
+  return null;
+}
+
+async function resolvePlayerPage(ctx, page, anchor, match, sourceId, state, depth = 0) {
+  if (state.visited.has(page.url)) throw new Error("StreamCenter player contains a loop.");
+  state.visited.add(page.url);
+  if (playerKind(new URL(page.url)) === "hls") {
+    return verifyPlayer(ctx, page, anchor, match, sourceId);
+  }
+  if (depth >= 3) throw new Error("StreamCenter player nesting is unsupported.");
+  const playerPage = new TextDecoder().decode(page.bytes);
+  // Public wrappers can put an advertisement iframe before the actual player.
+  // Select the known player shape; never fetch unrelated or rejected frames.
+  const iframeTags = [...playerPage.matchAll(/<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi)];
+  if (!iframeTags.length) throw new Error("StreamCenter player is unavailable.");
+  const players = [];
+  for (const tag of iframeTags) {
+    try {
+      const iframe = safeStreameUrl(decode(tag[1]), page.url);
+      if (playerKind(iframe) && !state.visited.has(iframe.href)) {
+        if (!players.some((value) => value.href === iframe.href)) players.push(iframe);
+      }
+    } catch { /* An unrelated iframe is not a stream source. */ }
+  }
+  if (!players.length) {
     throw new Error("Unsupported StreamCenter player.");
   }
-  const player = await fetchBounded(ctx, iframe, { referer: redirect.url });
+  let failure;
+  for (const iframe of players.slice(0, 4)) {
+    if (state.remaining-- <= 0) break;
+    try {
+      const child = await fetchBounded(ctx, iframe, { referer: page.url });
+      return await resolvePlayerPage(ctx, child, anchor, match, sourceId, state, depth + 1);
+    } catch (error) {
+      failure = error;
+    }
+  }
+  throw failure ?? new Error("StreamCenter player is unavailable.");
+}
+
+async function verifyPlayer(ctx, player, anchor, match, sourceId) {
   const playerText = new TextDecoder().decode(player.bytes);
   // A site can expose the same public URL either as a top-level variable
   // or a literal property; neither requires executing page JavaScript.
-  const mediaRaw = playerText.match(
-    /\b(?:const|let|var)\s+streamUrl\s*=\s*(["'])(https:[^"'\r\n]+)\1/i,
-  )?.[2] ?? playerText.match(
-    /(?:\bstreamUrl\b|["']streamUrl["'])\s*[:=]\s*(["'])(https:[^"'\r\n]+)\1/i,
-  )?.[2];
-  if (!mediaRaw) throw new Error("StreamCenter player has no public HLS source.");
-  const media = safeStreameUrl(decode(mediaRaw).replace(/\\\//g, "/"), player.url);
-  if (!media.pathname.toLowerCase().endsWith(".m3u8")) {
+  const mediaUrls = [];
+  for (const hit of playerText.matchAll(
+    /(?:\bstreamUrl\b|["']streamUrl["'])\s*[:=]\s*(["'])(https:[^"'\r\n]+)\1/gi,
+  )) {
+    try {
+      const media = safeStreameUrl(decode(hit[2]).replace(/\\\//g, "/"), player.url);
+      if (media.pathname.toLowerCase().endsWith(".m3u8") && !mediaUrls.includes(media.href)) {
+        mediaUrls.push(media.href);
+      }
+    } catch { /* Do not let an unrelated URL hide a supported source. */ }
+  }
+  if (!mediaUrls.length) {
     throw new Error("StreamCenter player has no supported HLS source.");
   }
   const started = Date.now();
-  const verified = await verifyHls(ctx, media, player.url);
+  let verified, failure;
+  for (const media of mediaUrls.slice(0, 4)) {
+    try { verified = await verifyHls(ctx, media, player.url); break; }
+    catch (error) { failure = error; }
+  }
+  if (!verified) throw failure ?? new Error("StreamCenter media could not be verified.");
   const checkedAt = new Date().toISOString();
   const line = {
-    id: "streame:" + idMatch[2], label: anchor.nick_name || "English",
+    id: "streame:" + sourceId, label: anchor.nick_name || "English",
     server_name: anchor.nick_name || "English", resolution: "Auto",
     url: verified, stream_type: "hls", referer: player.url,
     origin: new URL(player.url).origin, key_id: null, key_data: null,

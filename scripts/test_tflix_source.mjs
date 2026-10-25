@@ -202,10 +202,35 @@ test("current public catalog replaces signed-in legacy routes without leaking em
     [media]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
     [new URL("video.ts", media).toString()]: new Response(tsBytes()),
   }));
-  assert.equal(checked.ready, true);
-  assert.equal(checked.line_count, 1);
-  assert.equal(checked.lines[0].server_name, "Sky Sports Main Event");
-  assert.equal(checked.lines[0].media_verified, true);
+  assert.equal(checked.ready, false);
+  assert.equal(checked.line_count, 0);
+  assert.deepEqual(checked.lines, []);
+  assert.match(checked.message, /does not allow playback through this app/);
+});
+
+test("a gateway-incompatible candidate does not hide a working backup in the same player", async () => {
+  const player = "https://mix1.eeeertwfvsgs.xyz/embed/current-football";
+  const blocked = "https://saka.kpores.ru/live/fixture.m3u8";
+  const working = hlsUrl();
+  const channel = { id: "backup-fixture", name: "Fixture server", enabled: 1, embed_url: player };
+  const result = await tflixStreams({ room_num: "match:backup-fixture" }, fakeFetch({
+    "https://tflix.su/api/public": {
+      events: [{ sport: "Football", status: "live", competition: "Fixture league",
+        watch_url: "/watch/backup-fixture", home_name: "Home", away_name: "Away",
+        starts_at: "2026-10-25T12:00:00Z", channels: [channel] }],
+      channels: [channel],
+    },
+    [player]: new Response("var player={sources:[{file:'" + blocked + "'},{file:'" + working + "'}]};"),
+    [blocked]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [new URL("video.ts", blocked).toString()]: new Response(tsBytes()),
+    [working]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [new URL("video.ts", working).toString()]: new Response(tsBytes()),
+  }));
+  assert.equal(result.ready, true);
+  assert.equal(result.line_count, 1);
+  assert.equal(result.lines[0].url, working);
+  assert.equal(result.lines[0].gateway_compatible, true);
+  assert.equal(result.message, "Verified manifest and media sample.");
 });
 
 test("Viewer NCA, TFLIX, and StreamCenter streams are protected and verified", () => {

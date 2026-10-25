@@ -91,6 +91,9 @@ test("public iframe chain returns one verified gateway-compatible HLS line", asy
 test("StreamCenter adapter rejects forged hosts and source IDs before media fetch", async () => {
   for (const value of [
     "http://streame.center/embed/x", "https://evil.streame.center/x",
+    "https://evil.streamec.st/x", "https://streamec.st.evil.example/x",
+    "https://evil.embedcenter.st/x", "https://embedcenter.st.evil.example/x",
+    "https://streamec.st:444/embed/x", "https://user:password@streamec.st/embed/x",
     "https://edgestream7.pro.evil.example/live.m3u8",
     "https://edgestream100.pro/live.m3u8", "https://example.com/live.m3u8",
   ]) assert.throws(() => safeStreameUrl(value), /Unsupported source host/);
@@ -98,6 +101,40 @@ test("StreamCenter adapter rejects forged hosts and source IDs before media fetc
   const mock = fakeFetch({});
   await assert.rejects(streameStreams({ room_num: "../private" }, mock), /Invalid StreamCenter source/);
   assert.equal(mock.calls.length, 0);
+});
+
+test("the catalog's current streamec.st player alias resolves a verified HLS line", async () => {
+  const wrapper = "https://streamec.st/embed/ch6.php";
+  const nested = "https://embedcenter.st/embed/ch6.php";
+  const player = "https://embedcenter.st/embed/hls_cdn.php?stream=publicFixture24";
+  const mock = fakeFetch({
+    [CATALOG]: new Response(card()),
+    [LINK]: new Response(null, { status: 302, headers: { Location: wrapper } }),
+    [wrapper]: new Response('<iframe src="' + nested + '"></iframe>'),
+    [nested]: new Response('<iframe src="' + player + '"></iframe>'),
+    [player]: new Response('<script>const streamUrl="' + MEDIA + '";</script>'),
+    [MEDIA]: new Response("#EXTM3U\n#EXTINF:6,\nsegment.ts"),
+    ["https://edgestream7.pro/live/segment.ts"]: new Response(mediaBytes()),
+  });
+  const result = await streameStreams({ room_num: EVENT + ":" + SOURCE }, mock);
+  assert.equal(result.ready, true);
+  assert.equal(result.lines[0].referer, player);
+  assert.equal(result.lines[0].origin, "https://embedcenter.st");
+  assert.equal(result.lines[0].media_verified, true);
+  assert.equal(mock.calls.find(({url}) => url === player).init.headers.Referer, nested);
+});
+
+test("cyclic public wrappers stop without arbitrary fetches", async () => {
+  const wrapper = "https://streamec.st/embed/ch6.php";
+  const nested = "https://embedcenter.st/embed/ch6.php";
+  const mock = fakeFetch({
+    [CATALOG]: new Response(card()),
+    [LINK]: new Response(null, { status: 302, headers: { Location: wrapper } }),
+    [wrapper]: new Response('<iframe src="' + nested + '"></iframe>'),
+    [nested]: new Response('<iframe src="' + wrapper + '"></iframe>'),
+  });
+  await assert.rejects(streameStreams({ room_num: EVENT + ":" + SOURCE }, mock), /Unsupported StreamCenter player/);
+  assert.equal(mock.calls.length, 4);
 });
 
 test("encrypted HLS is excluded", async () => {
@@ -128,4 +165,36 @@ test("StreamCenter public player tolerates spaced iframe src and object literal 
   assert.equal(result.lines.length, 1);
   assert.equal(result.lines[0].media_verified, true);
   assert.equal(result.lines[0].url, MEDIA);
+});
+
+test("an unrelated iframe and URL cannot hide the supported StreamCenter player", async () => {
+  const mock = fakeFetch({
+    [CATALOG]: new Response(card()),
+    [LINK]: new Response(null, { status: 302, headers: { Location: EMBED } }),
+    [EMBED]: new Response('<iframe src="https://ads.example/ad"></iframe>' +
+      '<iframe src="http://127.0.0.1/private"></iframe><iframe src="' + PLAYER + '"></iframe>'),
+    [PLAYER]: new Response('<script>var ad={streamUrl:"https://ads.example/ad.m3u8"};' +
+      'const streamUrl="' + MEDIA + '";</script>'),
+    [MEDIA]: new Response("#EXTM3U\n#EXTINF:6,\nsegment.ts"),
+    ["https://edgestream7.pro/live/segment.ts"]: new Response(mediaBytes()),
+  });
+  const result = await streameStreams({ room_num: EVENT + ":" + SOURCE }, mock);
+  assert.equal(result.ready, true);
+  assert.equal(result.lines[0].url, MEDIA);
+  assert.equal(mock.calls.some(({url}) => /ads\.example|127\.0\.0\.1/.test(url)), false);
+});
+
+test("a failed supported frame does not stop a working backup frame", async () => {
+  const failed = "https://streame.center/embed/hls2.php?stream=failedFixture";
+  const mock = fakeFetch({
+    [CATALOG]: new Response(card()),
+    [LINK]: new Response('<iframe src="' + failed + '"></iframe><iframe src="' + PLAYER + '"></iframe>'),
+    [failed]: new Response("Unavailable", { status: 503 }),
+    [PLAYER]: new Response('<script>const streamUrl="' + MEDIA + '";</script>'),
+    [MEDIA]: new Response("#EXTM3U\n#EXTINF:6,\nsegment.ts"),
+    ["https://edgestream7.pro/live/segment.ts"]: new Response(mediaBytes()),
+  });
+  const result = await streameStreams({ room_num: EVENT + ":" + SOURCE }, mock);
+  assert.equal(result.ready, true);
+  assert.equal(result.line_count, 1);
 });
