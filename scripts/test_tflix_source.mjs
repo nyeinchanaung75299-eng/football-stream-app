@@ -778,3 +778,76 @@ test("TFLIX malformed unified public response retries legacy public catalog", as
   assert.equal(result.results,1);
   assert.equal(mock.calls.length,2);
 });
+
+
+test("TFLIX public player streamUrl literal is verified as media, not assumed playable", async () => {
+  const match = "direct-public-player";
+  const url = hlsUrl();
+  const embed = "https://vixembed.bid/embed/direct-public-player";
+  const mock = fakeFetch({
+    "https://tflix.su/api/public": {
+      events: [{
+        sport: "Football", status: "live", watch_url: "/watch/" + match,
+        competition: "Fixture", home_name: "Team A", away_name: "Team B",
+        channels: [{ name: "Public player", embed_url: embed }],
+      }],
+    },
+    [embed]: new Response('<script>const config={streamUrl:"' + url + '"}</script>'),
+    [url]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [new URL("video.ts", url).toString()]: new Response(tsBytes()),
+  });
+  const result = await tflixViewerStreams({ source_id: "match:" + match, label_prefix: "TFLIX" }, mock);
+  assert.equal(result.line_count, 1);
+  assert.equal(result.lines[0].media_verified, true);
+  assert.equal(result.lines[0].key_id, null);
+  assert.equal(result.lines[0].key_data, null);
+});
+
+test("TFLIX can recover a different public page player after broken catalog embed", async () => {
+  const match = "fallback-public-player";
+  const page = "https://tflix.su/watch/" + match;
+  const first = "https://xtrahut.xyz/embed/failed-public-fixture";
+  const backup = "https://vixembed.bid/embed/public-page-backup";
+  const url = hlsUrl();
+  const mock = fakeFetch({
+    "https://tflix.su/api/public": {
+      events: [{
+        sport: "Football", status: "live", watch_url: "/watch/" + match,
+        competition: "Fixture", home_name: "Team A", away_name: "Team B",
+        channels: [{ name: "Main", embed_url: first }],
+      }],
+    },
+    [first]: new Response("Unavailable", { status: 503 }),
+    [page]: new Response('<script>const player={streamUrl:"' + backup + '"};</script>'),
+    [backup]: new Response('<script>const opts={streamUrl:"' + url + '"};</script>'),
+    [url]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [new URL("video.ts", url).toString()]: new Response(tsBytes()),
+  });
+  const result = await tflixViewerStreams({ source_id: "match:" + match, label_prefix: "TFLIX" }, mock);
+  assert.equal(result.ready, true);
+  assert.equal(result.line_count, 1);
+  assert.equal(result.lines[0].stream_url, url);
+  assert.equal(mock.calls.some(x => x.url === first), true);
+  assert.equal(mock.calls.some(x => x.url === page), true);
+  assert.equal(mock.calls.some(x => x.url === backup), true);
+});
+
+test("TFLIX rejects a direct literal on an unauthorized host without media access", async () => {
+  const match = "blocked-public-player";
+  const embed = "https://vixembed.bid/embed/blocked-public-player";
+  const mock = fakeFetch({
+    "https://tflix.su/api/public": {
+      events: [{
+        sport: "Football", status: "live", watch_url: "/watch/" + match,
+        competition: "Fixture", home_name: "A", away_name: "B",
+        channels: [{ name: "Public player", embed_url: embed }],
+      }],
+    },
+    [embed]: new Response(
+      '<script>const config={streamUrl:"https://private.example/live.m3u8"}</script>',
+    ),
+  });
+  const result = await tflixViewerStreams({ source_id: "match:" + match, label_prefix: "TFLIX" }, mock);
+  assert.equal(result.line_count, 0);
+  assert.equal(mock.calls.some(x => x.url.includes("private.example")), false);
+});
