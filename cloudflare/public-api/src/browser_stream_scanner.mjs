@@ -4,7 +4,8 @@
 // It observes only URLs of public media requests while loading authorized pages.
 import { classifyStream, rejectTarget, isVerifiedAdmin } from "./website_stream_scanner.mjs";
 
-const MAX_SCAN_MS = 12000;
+const MAX_SCAN_MS = 9500;
+const FIRST_MEDIA_GRACE_MS = 3000;
 const MAX_RESULTS = 30;
 const MAX_RESPONSE_BYTES = 4096;
 
@@ -202,7 +203,16 @@ export async function captureBrowserMedia(env,pageUrl,{
       if(Number.isInteger(attempts)&&attempts>=0)
         diagnostics.videoPlayAttempts=Math.min(1000,attempts);
     }catch{/* Browser observation still continues if script execution fails. */}
-    await delay(MAX_SCAN_MS-1600);
+    // Return promptly after an initial media URL is observed, while giving
+    // a brief grace period for variant playlists. If no media is seen, keep
+    // observing until the bounded scan window ends.
+    let elapsed=1600;
+    while(elapsed<MAX_SCAN_MS){
+      const step=Math.min(700,MAX_SCAN_MS-elapsed);
+      await delay(step);
+      elapsed+=step;
+      if(collector.links.length>0 && elapsed>=FIRST_MEDIA_GRACE_MS)break;
+    }
     const note=collector.links.length
       ?"Media URLs observed from browser requests. Playback and expiry are not guaranteed."
       :diagnostics.requestsObserved===0
