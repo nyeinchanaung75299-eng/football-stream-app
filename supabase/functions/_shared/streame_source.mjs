@@ -217,7 +217,7 @@ export async function streameStreams(body = {}, options = {}) {
 
   const redirect = await fetchBounded(ctx, anchor.page_url, { referer: match.page_url });
   const playerPage = new TextDecoder().decode(redirect.bytes);
-  const iframeTag = playerPage.match(/<iframe\b[^>]*src=["']([^"']+)["'][^>]*>/i)?.[1];
+  const iframeTag = playerPage.match(/<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/i)?.[1];
   if (!iframeTag) throw new Error("StreamCenter player is unavailable.");
   const iframe = safeStreameUrl(decode(iframeTag), redirect.url);
   if (iframe.hostname !== "streame.center" || iframe.pathname !== "/embed/hls2.php" ||
@@ -226,7 +226,13 @@ export async function streameStreams(body = {}, options = {}) {
   }
   const player = await fetchBounded(ctx, iframe, { referer: redirect.url });
   const playerText = new TextDecoder().decode(player.bytes);
-  const mediaRaw = playerText.match(/\b(?:const|let|var)\s+streamUrl\s*=\s*(["'])(https:[^"'\r\n]+)\1/)?.[2];
+  // A site can expose the same public URL either as a top-level variable
+  // or a literal property; neither requires executing page JavaScript.
+  const mediaRaw = playerText.match(
+    /\b(?:const|let|var)\s+streamUrl\s*=\s*(["'])(https:[^"'\r\n]+)\1/i,
+  )?.[2] ?? playerText.match(
+    /(?:\bstreamUrl\b|["']streamUrl["'])\s*[:=]\s*(["'])(https:[^"'\r\n]+)\1/i,
+  )?.[2];
   if (!mediaRaw) throw new Error("StreamCenter player has no public HLS source.");
   const media = safeStreameUrl(decode(mediaRaw).replace(/\\\//g, "/"), player.url);
   if (!media.pathname.toLowerCase().endsWith(".m3u8")) {
