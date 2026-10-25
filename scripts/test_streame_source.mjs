@@ -121,7 +121,7 @@ test("StreamCenter public player tolerates spaced iframe src and object literal 
     [LINK]: new Response(null, { status: 302, headers: { Location: EMBED } }),
     [EMBED]: new Response('<iframe class="player" src = "' + PLAYER + '" allowfullscreen></iframe>'),
     [PLAYER]: new Response('<script>window.player = { streamUrl: "' + MEDIA + '" };</script>'),
-    [MEDIA]: new Response("#EXTM3U\\n#EXTINF:6,\\nsegment.ts"),
+    [MEDIA]: new Response("#EXTM3U\n#EXTINF:6,\nsegment.ts"),
     ["https://edgestream7.pro/live/segment.ts"]: new Response(mediaBytes(), { status: 206 }),
   });
   const result = await streameStreams({ room_num: EVENT + ":" + SOURCE, page_url: LINK }, mock);
