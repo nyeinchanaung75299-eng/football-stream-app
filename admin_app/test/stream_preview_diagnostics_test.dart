@@ -36,6 +36,18 @@ void main() {
     expect(message, contains('cannot identify'));
   });
 
+
+  test('source website link is safe and separate from detected media URL', () {
+    final page = sourcePlayerPage(
+      'https://example.org/watch.php?id=343',
+    );
+    expect(page?.toString(), 'https://example.org/watch.php?id=343');
+    expect(sourcePlayerPage('javascript:alert(1)'), isNull);
+    expect(sourcePlayerPage('file:///secret'), isNull);
+    expect(sourcePlayerPage('https://user:password@example.org/watch'), isNull);
+    expect(sourcePlayerPage(''), isNull);
+  });
+
   test('network and timeout errors are distinguished', () {
     expect(explainPreviewError('MEDIA_ERR_NETWORK', isWeb: true),
         contains('network'));

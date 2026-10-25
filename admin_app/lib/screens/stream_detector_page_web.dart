@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/manual_source_url.dart';
 import '../services/stream_detector_service.dart';
+import '../services/stream_preview_diagnostics.dart';
 import '../services/website_detector_service.dart';
 import 'live_links_page.dart';
 import 'stream_preview_page.dart';
@@ -165,6 +167,29 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
     });
   }
 
+  Future<void> _openSourcePlayer(String referer) async {
+    final source = sourcePlayerPage(referer);
+    if (source == null) return;
+    try {
+      final launched = await launchUrl(
+        source,
+        mode: LaunchMode.platformDefault,
+        webOnlyWindowName: '_blank',
+      );
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open source website.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open source website.')),
+        );
+      }
+    }
+  }
+
   Future<void> _test(DetectedStream stream) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -221,6 +246,12 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Test Stream'),
                 ),
+                if (sourcePlayerPage(stream.referer) != null)
+                  OutlinedButton.icon(
+                    onPressed: () => _openSourcePlayer(stream.referer),
+                    icon: const Icon(Icons.open_in_new),
+                    label: const Text('Open Original Player'),
+                  ),
                 FilledButton.icon(
                   onPressed: () => _add(stream),
                   icon: const Icon(Icons.add_link),
