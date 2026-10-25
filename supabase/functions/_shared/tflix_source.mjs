@@ -707,7 +707,10 @@ export async function tflixStreams(body = {}, options = {}) {
     }
   }
   await scanServers(embeds);
-  if (!found.size && !incompatibleMedia && embeds.length &&
+  // A valid manifest may still be blocked by the Viewer gateway. That must
+  // NOT prevent checking a separately published, supported backup player.
+  // Keep the exact host allowlist and media verification for every candidate.
+  if (!found.size && embeds.length &&
       ctx.deadline - Date.now() > 1200) {
     try {
       const page = await fetchBounded(ctx, item.page_url);
