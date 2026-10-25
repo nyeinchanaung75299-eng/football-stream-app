@@ -32,7 +32,9 @@ void main() {
               );
               expect(find.text('Loading lines…'), findsNothing);
               expect(
-                find.textContaining('stream is available now.'),
+                find.textContaining(provider == 'tflix'
+                    ? 'No app-compatible TFLIX stream is available.'
+                    : 'stream is available now.'),
                 findsOneWidget,
               );
               await tester.pump(const Duration(seconds: 5));
