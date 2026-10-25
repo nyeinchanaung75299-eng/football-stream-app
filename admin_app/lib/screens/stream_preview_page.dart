@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/stream_detector_service.dart';
 import '../services/stream_preview_diagnostics.dart';
@@ -37,6 +38,31 @@ class _StreamPreviewPageState extends State<StreamPreviewPage> {
   Future<void> _initialize() async {
     await _player.initialize().timeout(const Duration(seconds: 20));
     if (!kIsWeb) await _player.play();
+  }
+
+  Future<void> _openSourcePage() async {
+    final source = sourcePlayerPage(widget.stream.referer);
+    if (source == null) return;
+    try {
+      // The originating website can run its normal player in its own browser
+      // context. This is NOT a direct-HLS playback workaround or auth bypass.
+      final opened = await launchUrl(
+        source,
+        mode: LaunchMode.platformDefault,
+        webOnlyWindowName: '_blank',
+      );
+      if (!opened && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open source website.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open source website.')),
+        );
+      }
+    }
   }
 
   @override
@@ -110,6 +136,21 @@ class _StreamPreviewPageState extends State<StreamPreviewPage> {
                                 ),
                               ],
                               const SizedBox(height: 14),
+                              if (sourcePlayerPage(widget.stream.referer) != null) ...[
+                                FilledButton.icon(
+                                  onPressed: _openSourcePage,
+                                  icon: const Icon(Icons.open_in_new),
+                                  label: const Text('Open Original Player'),
+                                ),
+                                const SizedBox(height: 10),
+                                const Text(
+                                  'Opens the source page in your browser, not '
+                                  'the extracted M3U8 URL. The website may '
+                                  'play there even when standalone playback fails.',
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 12),
+                              ],
                               OutlinedButton.icon(
                                 onPressed: () => Navigator.of(context).pop(),
                                 icon: const Icon(Icons.arrow_back),
@@ -119,7 +160,7 @@ class _StreamPreviewPageState extends State<StreamPreviewPage> {
                           ),
                         );
                       }
-                                            if (snapshot.connectionState != ConnectionState.done) {
+                      if (snapshot.connectionState != ConnectionState.done) {
                         return const CircularProgressIndicator();
                       }
                       return AspectRatio(
