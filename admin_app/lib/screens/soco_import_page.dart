@@ -691,10 +691,20 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
       if (!current()) return;
       if (lines.isEmpty) {
+        // Only display a short, redacted source status returned by our
+        // authenticated resolver. No signed URL or token is shown.
+        final upstream = data is Map ? data['message']?.toString() ?? '' : '';
+        final note = upstream
+            .replaceAll(RegExp(r'https?://[^\s]+'), '[source]')
+            .replaceAll(RegExp(r'[\r\n\t]+'), ' ')
+            .trim();
+        final safeNote = note.length > 180 ? '${note.substring(0, 180)}…' : note;
         message(
-          provider == 'tflix' || provider == 'streame'
-              ? 'No gateway-compatible verified stream is available for this ${_sourceLabel(provider)} source.'
-              : 'No playable line is available for this streamer.',
+          (provider == 'tflix' || provider == 'streame') && safeNote.isNotEmpty
+              ? '${_sourceLabel(provider)}: $safeNote'
+              : provider == 'tflix' || provider == 'streame'
+                  ? 'No verified HLS/DASH link is available for ${_sourceLabel(provider)}. Refresh or choose another server.'
+                  : 'No playable line is available for this streamer.',
         );
         return;
       }
