@@ -702,3 +702,54 @@ test("both Edge adapters require a verified user and freshly checked Admin role 
     globalThis.Deno = original.Deno; globalThis.fetch = original.fetch; globalThis.createClient = original.createClient;
   }
 });
+
+
+test("TFLIX matches resolve public events payload even when channels array is omitted", async () => {
+  const slug = "public-events-only";
+  const page = "https://tflix.su/watch/" + slug;
+  const media = hlsUrl();
+  const mock = fakeFetch({
+    "https://tflix.su/api/public": {
+      events: [{
+        sport: "Football", status: "live", watch_url: "/watch/" + slug,
+        competition: "England: Premier League", home_name: "Home", away_name: "Away",
+        channels: [{ name: "Sports", embed_url: EMBED }],
+      }],
+    },
+    [EMBED]: new Response("var config={file:'" + media + "',type:'hls'}"),
+    [media]: new Response("#EXTM3U\n#EXTINF:6,\nsegment.ts"),
+    [new URL("segment.ts",media).toString()]: new Response(tsBytes()),
+  });
+  const result = await tflixStreams({ room_num: "match:" + slug, page_url: page }, mock);
+  assert.equal(result.ready,true);
+  assert.equal(result.lines.length,1);
+  assert.equal(result.lines[0].media_verified,true);
+});
+
+test("TFLIX channels resolve a public channels-only payload", async () => {
+  const media = hlsUrl();
+  const id = "bein-sports-demo";
+  const mock = fakeFetch({
+    "https://tflix.su/api/public": {
+      channels: [{ slug: id, name: "BeIN Sports Demo", enabled: true, embed_url: EMBED }],
+    },
+    [EMBED]: new Response("var source={file:'" + media + "'}"),
+    [media]: new Response("#EXTM3U\n#EXTINF:6,\nsegment.ts"),
+    [new URL("segment.ts",media).toString()]: new Response(tsBytes()),
+  });
+  const result = await tflixStreams({ room_num: "channel:" + id }, mock);
+  assert.equal(result.ready,true);
+  assert.equal(result.lines.length,1);
+});
+
+test("TFLIX malformed unified public response retries legacy public catalog", async () => {
+  const mock = fakeFetch({
+    "https://tflix.su/api/public": { status: "ok" },
+    "https://tflix.su/api/channels": [{
+      slug: "bein-sports-demo", name: "BeIN Sports Demo", enabled: true,
+    }],
+  });
+  const result = await tflixMatches({catalog:"channels"},mock);
+  assert.equal(result.results,1);
+  assert.equal(mock.calls.length,2);
+});
