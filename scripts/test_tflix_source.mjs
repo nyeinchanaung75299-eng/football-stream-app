@@ -890,3 +890,66 @@ test("TFLIX verifies a slow four-hop public stream within the Viewer request bud
   assert.deepEqual(slow.calls.map(x => x.url),
     ["https://tflix.su/api/public", EMBED, media, segment]);
 });
+
+
+test("gateway-incompatible primary still checks a different published backup page player", async () => {
+  const match = "gateway-bound-with-page-backup";
+  const page = "https://tflix.su/watch/" + match;
+  const blockedEmbed = "https://xtrahut.xyz/embed/gateway-bound-primary";
+  const backupEmbed = "https://vixembed.bid/embed/approved-backup";
+  const blocked = "https://saka.kpores.ru/live/blocked-fixture.m3u8";
+  const working = hlsUrl();
+  const mock = fakeFetch({
+    "https://tflix.su/api/public": {
+      events: [{ sport: "Football", status: "live",
+        watch_url: "/watch/" + match,
+        competition: "Fixture", home_name: "Team A", away_name: "Team B",
+        channels: [{ name: "Primary", embed_url: blockedEmbed }],
+      }],
+    },
+    [blockedEmbed]: new Response('<script>const player={streamUrl:"' + blocked + '"}</script>'),
+    [blocked]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [new URL("video.ts", blocked).toString()]: new Response(tsBytes()),
+    [page]: new Response('<script>const opts={streamUrl2:"' + backupEmbed + '"}</script>'),
+    [backupEmbed]: new Response('<script>const setup={streamUrl:"' + working + '"}</script>'),
+    [working]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [new URL("video.ts", working).toString()]: new Response(tsBytes()),
+  });
+  const result = await tflixViewerStreams(
+    { source_id: "match:" + match, label_prefix: "TFLIX" }, mock,
+  );
+  assert.equal(result.ready, true);
+  assert.equal(result.line_count, 1);
+  assert.equal(result.lines[0].stream_url, working);
+  assert.equal(result.lines[0].media_verified, true);
+  assert.equal(result.lines[0].key_id, null);
+  assert.equal(result.lines[0].key_data, null);
+  assert.equal(mock.calls.some(({url}) => url === page), true);
+  assert.equal(mock.calls.some(({url}) => url === backupEmbed), true);
+  assert.equal(result.lines.some((line) => line.stream_url === blocked), false);
+});
+
+test("an incompatible primary with no advertised usable backup stays unavailable", async () => {
+  const match = "gateway-bound-only";
+  const page = "https://tflix.su/watch/" + match;
+  const player = "https://xtrahut.xyz/embed/gateway-bound-only";
+  const media = "https://saka.kpores.ru/live/gateway-bound-only.m3u8";
+  const mock = fakeFetch({
+    "https://tflix.su/api/public": {
+      events: [{ sport: "Football", status: "live",
+        watch_url: "/watch/" + match,
+        competition: "Fixture", home_name: "A", away_name: "B",
+        channels: [{name:"Primary", embed_url:player}],
+      }],
+    },
+    [player]: new Response('<script>const player={streamUrl:"' + media + '"}</script>'),
+    [media]: new Response("#EXTM3U\n#EXTINF:6,\nvideo.ts"),
+    [new URL("video.ts", media).toString()]: new Response(tsBytes()),
+    [page]: new Response('<script>const config={streamUrl:"' + player + '"}</script>'),
+  });
+  const result = await tflixStreams({room_num:"match:" + match},mock);
+  assert.equal(result.ready,false);
+  assert.equal(result.line_count,0);
+  assert.match(result.message,/does not allow playback through this app/);
+  assert.equal(mock.calls.filter(({url}) => url === player).length,1);
+});
