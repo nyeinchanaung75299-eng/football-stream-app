@@ -15,7 +15,10 @@ const ALLOWED_HOSTS = new Set([
 ]);
 const MAX_TEXT_BYTES = 1024 * 1024;
 const MAX_MANIFEST_BYTES = 512 * 1024;
-const BUDGET_MS = 6500;
+// Allow a public catalog fetch, known player page, HLS manifest and media sample
+// to finish without hitting the former 6.5s deadline. All reads remain bounded;
+// Viewer calls have a separate 12s HTTP timeout and Worker calls a 16s cap.
+const BUDGET_MS = 10000;
 const USER_AGENT = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36";
 const sportExclusion = /\b(cricket|golf|tennis|rugby|motogp|formula\s*1|formula\s*one|f1|racing|horse|cycling|basketball|nba|baseball|mlb|nfl|nhl|ufc|boxing|wrestling)\b/i;
 const sportsChannel = /\b(bein|sky\s*sports|tnt\s*sports|bt\s*sport|espn|dazn|super\s*sport|supersport|sport\s*tv|sports|football|soccer|premier\s*league|laliga|bundesliga|ligue|serie\s*a|arenasport|arena\s*sport|eleven|optus|fubo|ziggo|canal\+?\s*sport|willow)\b/i;
