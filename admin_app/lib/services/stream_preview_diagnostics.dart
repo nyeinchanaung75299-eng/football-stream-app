@@ -50,3 +50,17 @@ String explainPreviewError(Object? error, {required bool isWeb}) {
       : 'The player could not start this stream. Check its source, validity '
         'and supported encoding.';
 }
+
+/// Launch only a genuine source website page, never the extracted media URL.
+/// Browsers must open the source in its own origin so its normal player,
+/// cookies and authorization remain controlled by the source website.
+Uri? sourcePlayerPage(String rawReferer) {
+  final uri = Uri.tryParse(rawReferer.trim());
+  if (uri == null ||
+      !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
+      uri.host.isEmpty ||
+      uri.userInfo.isNotEmpty) {
+    return null;
+  }
+  return uri;
+}
