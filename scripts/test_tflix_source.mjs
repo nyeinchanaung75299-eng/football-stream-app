@@ -110,7 +110,10 @@ test("new player host permission remains exact and validates redirects", async (
   });
   const result = await tflixViewerStreams({ source_id: "match:redirect-test" }, mock);
   assert.equal(result.line_count, 0);
-  assert.equal(mock.calls.length, 3);
+  // The single added request attempts the same source's public page for
+  // an alternate server; an unapproved redirect is never followed.
+  assert.equal(mock.calls.length, 4);
+  assert.equal(mock.calls.some(({ url }) => url.includes("evil.sjncvuaq.xyz")), false);
 });
 
 test("NCA public resolver rejects forged channel or arbitrary URL IDs before HTTP", async () => {
