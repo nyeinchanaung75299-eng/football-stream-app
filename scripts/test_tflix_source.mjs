@@ -854,3 +854,39 @@ test("TFLIX rejects a direct literal on an unauthorized host without media acces
   assert.equal(result.line_count, 0);
   assert.equal(mock.calls.some(x => x.url.includes("private.example")), false);
 });
+
+
+test("TFLIX verifies a slow four-hop public stream within the Viewer request budget", async () => {
+  const slug = "slow-four-hop-fixture";
+  const media = hlsUrl();
+  const segment = new URL("part.ts", media).toString();
+  const responses = {
+    "https://tflix.su/api/public": {
+      events: [{ sport: "Football", status: "live",
+        watch_url: "/watch/" + slug, home_name: "Home", away_name: "Away",
+        channels: [{ name: "Public server", embed_url: EMBED }] }],
+    },
+    [EMBED]: new Response('<script>const player={streamUrl:"' + media + '"};</script>'),
+    [media]: new Response("#EXTM3U\n#EXTINF:6,\npart.ts"),
+    [segment]: new Response(tsBytes()),
+  };
+  const slow = fakeFetch(async (url, init) => {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, 1800);
+      init.signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(new Error("Request aborted"));
+      }, { once: true });
+    });
+    return responses[url];
+  });
+  const result = await tflixViewerStreams({
+    source_id: "match:" + slug, label_prefix: "TFLIX",
+  }, slow);
+  assert.equal(result.line_count, 1);
+  assert.equal(result.ready, true);
+  assert.equal(result.lines[0].media_verified, true);
+  assert.equal(result.lines[0].stream_url, media);
+  assert.deepEqual(slow.calls.map(x => x.url),
+    ["https://tflix.su/api/public", EMBED, media, segment]);
+});
