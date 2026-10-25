@@ -38,12 +38,23 @@ class WebsiteDetectorService {
       // The alternate Vercel host is often more reachable than the Worker
       // domains on some mobile networks. Its route forwards to the *same*
       // authenticated Cloudflare scanner and does not bypass its role checks.
-      final bases = publicApiBases(
-        primary: 'https://football-api.nyeinchanaung.us.ci',
-        preferVercel: !browser,
-      );
+      // Browser Run spends scarce Free browser minutes. Never fan out a
+      // long-running scan across several gateways: the other gateways would
+      // start duplicate Cloudflare browser sessions for the same page.
+      // Use the direct Worker first, Vercel only if connection fails quickly.
+      final bases = browser
+          ? <String>[
+              'https://football-public-api.nyeinchanaung75299-eng.workers.dev',
+              vercelBackupBase,
+            ]
+          : publicApiBases(
+              primary: 'https://football-api.nyeinchanaung.us.ci',
+              preferVercel: true,
+            );
+      final clock = Stopwatch()..start();
       String lastFailure = 'No scanner gateway responded.';
       for (final base in bases) {
+        if (browser && clock.elapsed >= const Duration(seconds: 5)) break;
         try {
           final response = await client.post(
             Uri.parse(base + (browser
@@ -58,7 +69,7 @@ class WebsiteDetectorService {
               'url': websiteUrl.trim(),
               'authorized': true,
             }),
-          ).timeout(Duration(seconds: browser ? 30 : 25));
+          ).timeout(Duration(seconds: browser ? 23 : 25));
           dynamic payload;
           try {
             payload = jsonDecode(response.body);
@@ -84,6 +95,11 @@ class WebsiteDetectorService {
             lastFailure = message != null && message.isNotEmpty
                 ? 'Scanner backend: $message'
                 : 'Gateway returned HTTP ${response.statusCode}.';
+            if (browser) {
+              // Do not accidentally launch the same Browser Run session via
+              // another gateway after a backend error.
+              throw StateError(lastFailure);
+            }
             continue;
           }
           if (response.statusCode >= 400) {
@@ -131,7 +147,10 @@ class WebsiteDetectorService {
         } on StateError {
           rethrow;
         } on TimeoutException {
-          lastFailure = 'Gateway timed out while scanning the website.';
+          lastFailure = browser
+              ? 'Browser scan timed out. Try again once or use HTML mode.'
+              : 'Gateway timed out while scanning the website.';
+          if (browser) break;
         } on http.ClientException {
           lastFailure = 'Could not reach ${Uri.parse(base).host} from this network.';
         } catch (_) {
@@ -139,8 +158,10 @@ class WebsiteDetectorService {
         }
       }
       throw StateError(
-        'Website scanner connection failed. $lastFailure '
-        'Try another connection if this continues.',
+        browser
+          ? 'Browser network detection did not finish. $lastFailure'
+          : 'Website scanner connection failed. $lastFailure '
+              'Try another connection if this continues.',
       );
     } finally {
       client.close();

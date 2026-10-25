@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -65,6 +67,13 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
     try {
       final result = await _scanner.scan(
         rawUrl, browser: _scanMode == 'browser',
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw TimeoutException(
+          'Scan did not finish within 30 seconds. Check the network '
+          'or switch to HTML Scan. Avoid repeated Browser Run scans '
+          'to conserve the Free quota.',
+        ),
       );
       if (!mounted) return;
       final seen = <String>{};
@@ -313,6 +322,15 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                         controlAffinity: ListTileControlAffinity.leading,
                         dense: true,
                       ),
+                      if (_scanning && _scanMode == 'browser') ...[
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Checking browser requests. The scan has a '
+                          '30-second limit and will show an error if '
+                          'the connection stalls.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       FilledButton.icon(
                         key: const Key('scan-website'),
