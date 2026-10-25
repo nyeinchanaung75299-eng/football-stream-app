@@ -574,11 +574,31 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final provider = sourceName ?? source;
       if (provider == 'tflix' || provider == 'streame') {
-        throw StateError(
-          '${provider == 'tflix' ? 'TFLIX' : 'StreamCenter'} service could not '
-          'verify this stream (HTTP ${response.statusCode}). '
-          'Try again later or choose another source.',
-        );
+        final label = provider == 'tflix' ? 'TFLIX' : 'StreamCenter';
+        // Only recognize fixed, non-sensitive upstream error codes. Never
+        // show an arbitrary provider response, URL, cookie, or access token.
+        String? upstream;
+        try {
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map && decoded['error'] is String) {
+            upstream = decoded['error'] as String;
+          }
+        } catch (_) {}
+        final reason = switch (upstream) {
+          'Source returned HTTP 403.' =>
+            '$label source access was denied (HTTP 403). Choose another server.',
+          'Source returned HTTP 404.' =>
+            '$label source was not found (HTTP 404). Refresh the match list.',
+          'Unsupported StreamCenter player.' =>
+            'StreamCenter changed its public player. Choose another server.',
+          'Unsupported source host.' =>
+            'StreamCenter player uses an unsupported host. Choose another server.',
+          'Source verification timed out.' =>
+            '$label source verification timed out. Try again later.',
+          _ => '$label service could not verify this stream '
+              '(HTTP ${response.statusCode}). Try again later or choose another source.',
+        };
+        throw StateError(reason);
       }
       throw Exception('Stream API HTTP ' + response.statusCode.toString());
     }

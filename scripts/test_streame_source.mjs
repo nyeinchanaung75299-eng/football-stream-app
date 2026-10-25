@@ -198,3 +198,61 @@ test("a failed supported frame does not stop a working backup frame", async () =
   assert.equal(result.ready, true);
   assert.equal(result.line_count, 1);
 });
+
+
+test("known StreamCenter wrapper can expose a direct public HLS literal", async () => {
+  const wrapper = "https://embedcenter.st/embed/ch6.php";
+  const mock = fakeFetch({
+    [CATALOG]: new Response(card()),
+    [LINK]: new Response(null, { status: 302, headers: { Location: wrapper } }),
+    [wrapper]: new Response('<script>window.player={streamUrl:"' + MEDIA + '"};</script>'),
+    [MEDIA]: new Response("#EXTM3U\n#EXTINF:6,\nsegment.ts"),
+    ["https://edgestream7.pro/live/segment.ts"]: new Response(mediaBytes(), { status: 206 }),
+  });
+  const result = await streameStreams({ room_num: EVENT + ":" + SOURCE }, mock);
+  assert.equal(result.ready, true);
+  assert.equal(result.lines[0].referer, wrapper);
+  assert.equal(result.lines[0].url, MEDIA);
+  assert.equal(result.lines[0].media_verified, true);
+});
+
+test("known wrapper uses literal backup only after a failed iframe", async () => {
+  const failed = "https://streame.center/embed/hls2.php?stream=failedFixture";
+  const mock = fakeFetch({
+    [CATALOG]: new Response(card()),
+    [LINK]: new Response(null, { status: 302, headers: { Location: EMBED } }),
+    [EMBED]: new Response('<iframe src="' + failed + '"></iframe>' +
+      '<script>const streamUrl="' + MEDIA + '";</script>'),
+    [failed]: new Response("Unavailable", { status: 503 }),
+    [MEDIA]: new Response("#EXTM3U\n#EXTINF:6,\nsegment.ts"),
+    ["https://edgestream7.pro/live/segment.ts"]: new Response(mediaBytes()),
+  });
+  const result = await streameStreams({ room_num: EVENT + ":" + SOURCE }, mock);
+  assert.equal(result.ready, true);
+  assert.equal(result.lines[0].referer, EMBED);
+});
+
+test("direct wrapper literals remain host and encryption restricted", async () => {
+  const blocked = fakeFetch({
+    [CATALOG]: new Response(card()),
+    [LINK]: new Response(null, { status: 302, headers: { Location: EMBED } }),
+    [EMBED]: new Response('<script>const streamUrl="https://untrusted.example/live.m3u8";</script>'),
+  });
+  await assert.rejects(
+    streameStreams({ room_num: EVENT + ":" + SOURCE }, blocked),
+    /StreamCenter player is unavailable/,
+  );
+  assert.equal(blocked.calls.length, 3);
+
+  const encrypted = fakeFetch({
+    [CATALOG]: new Response(card()),
+    [LINK]: new Response(null, { status: 302, headers: { Location: EMBED } }),
+    [EMBED]: new Response('<script>const streamUrl="' + MEDIA + '";</script>'),
+    [MEDIA]: new Response('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n#EXTINF:6,\nsegment.ts'),
+  });
+  await assert.rejects(
+    streameStreams({ room_num: EVENT + ":" + SOURCE }, encrypted),
+    /Encrypted HLS/,
+  );
+  assert.equal(encrypted.calls.some(({url}) => url.endsWith("segment.ts")), false);
+});

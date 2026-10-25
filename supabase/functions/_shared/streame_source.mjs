@@ -232,30 +232,47 @@ function playerKind(url) {
   return null;
 }
 
+// Inspect only static, public HLS literals. Do not execute player scripts,
+// follow unknown hosts, or accept a URL until its manifest and segment verify.
+function publicHlsCandidates(playerText, base) {
+  const urls = [];
+  for (const hit of playerText.matchAll(
+    /(?:\bstreamUrl\b|["']streamUrl["'])\s*[:=]\s*(["'])(https:[^"'\r\n]+)\1/gi,
+  )) {
+    try {
+      const media = safeStreameUrl(decode(hit[2]).replace(/\\\//g, "/"), base);
+      if (media.pathname.toLowerCase().endsWith(".m3u8") && !urls.includes(media.href)) {
+        urls.push(media.href);
+      }
+    } catch { /* Ignore unknown hosts and non-media literals. */ }
+  }
+  return urls.slice(0, 4);
+}
+
 async function resolvePlayerPage(ctx, page, anchor, match, sourceId, state, depth = 0) {
   if (state.visited.has(page.url)) throw new Error("StreamCenter player contains a loop.");
   state.visited.add(page.url);
-  if (playerKind(new URL(page.url)) === "hls") {
-    return verifyPlayer(ctx, page, anchor, match, sourceId);
-  }
-  if (depth >= 3) throw new Error("StreamCenter player nesting is unsupported.");
+  const kind = playerKind(new URL(page.url));
+  if (kind === "hls") return verifyPlayer(ctx, page, anchor, match, sourceId);
+
   const playerPage = new TextDecoder().decode(page.bytes);
-  // Public wrappers can put an advertisement iframe before the actual player.
-  // Select the known player shape; never fetch unrelated or rejected frames.
+  // A known public wrapper may contain a direct, literal streamUrl instead
+  // of a second iframe. This is not permission to follow other player hosts.
+  const direct = kind === "wrapper" && publicHlsCandidates(playerPage, page.url).length > 0;
   const iframeTags = [...playerPage.matchAll(/<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi)];
-  if (!iframeTags.length) throw new Error("StreamCenter player is unavailable.");
   const players = [];
-  for (const tag of iframeTags) {
-    try {
-      const iframe = safeStreameUrl(decode(tag[1]), page.url);
-      if (playerKind(iframe) && !state.visited.has(iframe.href)) {
-        if (!players.some((value) => value.href === iframe.href)) players.push(iframe);
-      }
-    } catch { /* An unrelated iframe is not a stream source. */ }
+  if (depth < 3) {
+    for (const tag of iframeTags) {
+      try {
+        const iframe = safeStreameUrl(decode(tag[1]), page.url);
+        if (playerKind(iframe) && !state.visited.has(iframe.href) &&
+            !players.some((value) => value.href === iframe.href)) {
+          players.push(iframe);
+        }
+      } catch { /* Never fetch unrelated/ad/private iframe hosts. */ }
+    }
   }
-  if (!players.length) {
-    throw new Error("Unsupported StreamCenter player.");
-  }
+
   let failure;
   for (const iframe of players.slice(0, 4)) {
     if (state.remaining-- <= 0) break;
@@ -266,24 +283,21 @@ async function resolvePlayerPage(ctx, page, anchor, match, sourceId, state, dept
       failure = error;
     }
   }
-  throw failure ?? new Error("StreamCenter player is unavailable.");
+  if (direct) {
+    try { return await verifyPlayer(ctx, page, anchor, match, sourceId); }
+    catch (error) { failure ??= error; }
+  }
+  if (failure) throw failure;
+  if (depth >= 3) throw new Error("StreamCenter player nesting is unsupported.");
+  throw new Error(iframeTags.length ? "Unsupported StreamCenter player." :
+    "StreamCenter player is unavailable.");
 }
 
 async function verifyPlayer(ctx, player, anchor, match, sourceId) {
   const playerText = new TextDecoder().decode(player.bytes);
   // A site can expose the same public URL either as a top-level variable
   // or a literal property; neither requires executing page JavaScript.
-  const mediaUrls = [];
-  for (const hit of playerText.matchAll(
-    /(?:\bstreamUrl\b|["']streamUrl["'])\s*[:=]\s*(["'])(https:[^"'\r\n]+)\1/gi,
-  )) {
-    try {
-      const media = safeStreameUrl(decode(hit[2]).replace(/\\\//g, "/"), player.url);
-      if (media.pathname.toLowerCase().endsWith(".m3u8") && !mediaUrls.includes(media.href)) {
-        mediaUrls.push(media.href);
-      }
-    } catch { /* Do not let an unrelated URL hide a supported source. */ }
-  }
+  const mediaUrls = publicHlsCandidates(playerText, player.url);
   if (!mediaUrls.length) {
     throw new Error("StreamCenter player has no supported HLS source.");
   }
