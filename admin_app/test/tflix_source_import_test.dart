@@ -273,6 +273,10 @@ void main() {
   testWidgets('empty verification is retryable and never labelled offline', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     databaseHandler = (_) async => jsonResponse([]);
     var attempts = 0;
     await http.runWithClient(
@@ -282,6 +286,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         await tester.ensureVisible(find.textContaining('CHECK STREAMS'));
+        await tester.pumpAndSettle();
         await tester.tap(find.textContaining('CHECK STREAMS'));
         await tester.pumpAndSettle();
         expect(find.textContaining('NOT VERIFIED · RETRY'), findsOneWidget);
