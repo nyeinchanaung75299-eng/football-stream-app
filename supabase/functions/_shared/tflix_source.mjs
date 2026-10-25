@@ -316,7 +316,7 @@ export function extractPublicPlayerConfig(html, base) {
   const vars = new Map();
   for (const hit of text.matchAll(/\b(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*(["'])([^"'\r\n]+)\2/g)) vars.set(hit[1], hit[3]);
   const values = [];
-  for (const hit of text.matchAll(/(?:file|src|source|hlsUrl|dashUrl|manifest)\s*["']?\s*:\s*(?:(["'])([^"'\r\n]+)\1|([A-Za-z_$][\w$]*))/g)) values.push(hit[2] ?? vars.get(hit[3]));
+  for (const hit of text.matchAll(/(?:file|src|source|streamUrl|stream_url|hlsUrl|dashUrl|manifest)\s*["']?\s*:\s*(?:(["'])([^"'\r\n]+)\1|([A-Za-z_$][\w$]*))/g)) values.push(hit[2] ?? vars.get(hit[3]));
   const keys = publicClearKey(text);
   const found = new Map();
   for (const value of values) {
@@ -334,9 +334,9 @@ function sourceEmbedUrls(html, base) {
   const embeds = new Map();
   // Preserve each source position from the public match/channel page. The site
   // does not always provide a reliable display name, so never invent one.
-  for (const hit of text.matchAll(/["'](streamUrl2?)["']\s*:\s*["']([^"']+)["']/g)) {
+  for (const hit of text.matchAll(/(?:["']?(streamUrl2?)["']?)\s*[:=]\s*(["'])([^"'\r\n]+)\2/g)) {
     try {
-      const url = safeTflixUrl(decodeEntities(hit[2]).replace(/\\\//g, "/"), base).toString();
+      const url = safeTflixUrl(decodeEntities(hit[3]).replace(/\\\//g, "/"), base).toString();
       const order = hit[1] === "streamUrl2" ? 2 : 1;
       const previous = embeds.get(url);
       if (!previous || order < previous.order) {
@@ -684,13 +684,35 @@ export async function tflixStreams(body = {}, options = {}) {
     return null;
   }
 
-  // Bound concurrency to two. This lets a slow primary and a working backup
-  // progress within the same deadline, without increasing upstream load wildly.
-  for (let offset = 0; offset < embeds.length; offset += 2) {
-    if (Date.now() >= ctx.deadline) break;
-    const batch = await Promise.all(embeds.slice(offset, offset + 2).map(checkServer));
-    for (const line of batch) {
-      if (line && !found.has(line.url)) found.set(line.url, line);
+  // Prefer public-catalog slots. If every listed player fails, try
+  // different, explicitly published slots on the same match/channel page.
+  // All requests retain the original deadline, exact host allowlist and
+  // required manifest plus media-sample verification.
+  const attempted = new Set();
+  async function scanServers(sources) {
+    const candidates = sources.filter((embed) => {
+      if (attempted.has(embed.url)) return false;
+      attempted.add(embed.url);
+      return true;
+    }).slice(0, 4);
+    for (let offset = 0; offset < candidates.length; offset += 2) {
+      if (Date.now() >= ctx.deadline) break;
+      const batch = await Promise.all(candidates.slice(offset, offset + 2).map(checkServer));
+      for (const line of batch) {
+        if (line && !found.has(line.url)) found.set(line.url, line);
+      }
+    }
+  }
+  await scanServers(embeds);
+  if (!found.size && !incompatibleMedia && embeds.length &&
+      ctx.deadline - Date.now() > 1200) {
+    try {
+      const page = await fetchBounded(ctx, item.page_url);
+      const alternates = sourceEmbedUrls(new TextDecoder().decode(page.bytes), item.page_url);
+      await scanServers(alternates);
+    } catch (error) {
+      // A fallback page failure cannot change a previous verified result.
+      failures.push(error instanceof Error ? error.message : "Source page unavailable.");
     }
   }
   const lines = [...found.values()];
