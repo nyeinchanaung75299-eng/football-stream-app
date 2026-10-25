@@ -79,8 +79,34 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         'streame' => 6,
         _ => 1,
       };
-  List<String> get bases => publicApiBases(
-        primary: _primary, preferVercel: usesVercelBackend);
+  String? _workingApiBase;
+  List<Future<List<Map<String, dynamic>>> Function()> _apiJobs(
+    Future<List<Map<String, dynamic>>> Function(String) load,
+  ) {
+    var selected = false;
+    return bases
+        .map<Future<List<Map<String, dynamic>>> Function()>(
+          (base) => () async {
+            final result = await load(base);
+            if (!selected) {
+              selected = true;
+              _workingApiBase = base;
+            }
+            return result;
+          },
+        )
+        .toList();
+  }
+
+  List<String> get bases {
+    final routes = publicApiBases(
+      primary: _primary,
+      preferVercel: usesVercelBackend,
+    );
+    final working = _workingApiBase;
+    if (working != null && routes.remove(working)) routes.insert(0, working);
+    return routes;
+  }
 
   @override
   void initState() {
@@ -88,10 +114,15 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     _todayOnly = source == 'yyzb';
     _feed = LiveFeedController(_loadMatches);
     unawaited(_feed.refresh());
-    _sourceRefreshTimer = Timer.periodic(
-      const Duration(minutes: 1),
-      (_) => unawaited(_refresh(silent: true)),
-    );
+    _sourceRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      final state = WidgetsBinding.instance.lifecycleState;
+      if (mounted &&
+          !_openingPlayer &&
+          (state == null || state == AppLifecycleState.resumed) &&
+          ModalRoute.of(context)?.isCurrent != false) {
+        unawaited(_refresh(silent: true));
+      }
+    });
   }
 
   @override
@@ -457,11 +488,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       if (bases.isEmpty) {
         throw StateError('No live source API is configured.');
       }
-      return _authoritativeHedged(
-        bases.map<Future<List<Map<String, dynamic>>> Function()>(
-          (base) => () => _loadFrom(base),
-        ).toList(),
-      );
+      return _authoritativeHedged(_apiJobs(_loadFrom));
     }
 
     Object? authoritativeError;
@@ -558,18 +585,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final decoded = jsonDecode(response.body);
     final raw = decoded is Map ? decoded['streams'] : null;
     if (raw is! List) throw const FormatException('Invalid source streams.');
-    if (raw.isEmpty && (sourceName ?? source) == 'tflix') {
-      throw StateError(
-        'TFLIX: No verified, unencrypted stream is currently available. '
-        'Try another match/channel or refresh later.',
-      );
-    }
-    if (raw.isEmpty && (sourceName ?? source) == 'streame') {
-      throw StateError(
-        'StreamCenter: No verified, unencrypted HLS stream is currently '
-        'available. Try another source or refresh later.',
-      );
-    }
+    // An empty verified-source response is a source result, not a failed
+    // network route. Retrying it on every alias repeats the same slow scan.
     return raw.asMap().entries
         .map((entry) {
           final row = Map<String, dynamic>.from(entry.value as Map);
@@ -670,6 +687,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     Map<String, dynamic> anchor,
   ) {
     final provider = source;
+    if (provider == 'tflix' || provider == 'streame') {
+      return _authoritativeHedged(
+        _apiJobs((base) => _anchorFrom(base, m, anchor, sourceName: provider)),
+      );
+    }
     if (!_enableNoVpnFallback) {
       if (bases.isEmpty) {
         return Future.error(StateError('No live source API is configured.'));

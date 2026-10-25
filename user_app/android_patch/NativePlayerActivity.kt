@@ -31,6 +31,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
 import androidx.media3.exoplayer.drm.FrameworkMediaDrm
 import androidx.media3.exoplayer.drm.LocalMediaDrmCallback
@@ -537,6 +538,11 @@ class NativePlayerActivity : Activity() {
             trackSelector = selector
             val exo = ExoPlayer.Builder(this)
                 .setTrackSelector(selector)
+                // Start after one second of media, then build a bounded live
+                // buffer. Rebuffering still waits longer to absorb mobile jitter.
+                .setLoadControl(DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(15000, 30000, 1000, 2500)
+                    .build())
                 .setMediaSourceFactory(mediaSourceFactory)
                 .setAudioAttributes(AudioAttributes.DEFAULT, true)
                 .setHandleAudioBecomingNoisy(true)

@@ -48,6 +48,15 @@ void main() {
           expect(find.text('Team Alpha'), findsOneWidget);
           expect(hosts, contains('football-api.nyeinchanaung.us.ci'));
           expect(hosts.length, greaterThan(1));
+          hosts.clear();
+          await tester.pump(const Duration(seconds: 61));
+          await tester.pumpAndSettle();
+          expect(hosts, isNotEmpty);
+          expect(
+            hosts,
+            isNot(contains('football-api.nyeinchanaung.us.ci')),
+            reason: 'Refresh reuses the route that already succeeded.',
+          );
           await tester.pumpWidget(const SizedBox());
         },
         () => MockClient((request) async {

@@ -979,6 +979,9 @@
           if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
           const iosDash=isIOS() && type==='dash';
           const shakaConfig={
+            // Begin on a modest rendition on mobile links. ABR can raise
+            // quality after measuring real segment throughput; Auto stays on.
+            abr:{enabled:true, defaultBandwidthEstimate:800000},
             manifest:{
               retryParameters:{
                 maxAttempts:5,

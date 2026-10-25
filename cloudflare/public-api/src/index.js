@@ -17,6 +17,26 @@ const METADATA_TIMEOUT_MS = 8000;
 const MEDIA_HEADER_TIMEOUT_MS = 10000;
 const MANIFEST_BODY_TIMEOUT_MS = 10000;
 const MAX_METADATA_BYTES = 2 * 1024 * 1024;
+const VIEWER_LOOKUPS = new WeakMap();
+
+// Alias failover can reach the same Worker several times while a provider is
+// still answering. Share only work already in progress, scoped to this env.
+// Never retain completed results: removals and successful empty lists stay fresh.
+function coalesceViewerLookup(env, key, load) {
+  let pending = VIEWER_LOOKUPS.get(env);
+  if (!pending) {
+    pending = new Map();
+    VIEWER_LOOKUPS.set(env, pending);
+  }
+  const existing = pending.get(key);
+  if (existing) return existing;
+  if (pending.size >= 64) return load();
+  const request = Promise.resolve().then(load).finally(() => {
+    if (pending.get(key) === request) pending.delete(key);
+  });
+  pending.set(key, request);
+  return request;
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -362,6 +382,11 @@ async function handleMatches(env) {
 }
 
 async function invokeViewerSourceFunction(env, body) {
+  return coalesceViewerLookup(env, 'source:' + JSON.stringify(body),
+    () => invokeViewerSourceFunctionOnce(env, body));
+}
+
+async function invokeViewerSourceFunctionOnce(env, body) {
   const base = env.SUPABASE_URL?.trim() || "";
   const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() || "";
   if (!base || !key) {
@@ -668,6 +693,10 @@ async function loadStreamMetadata(env, matchId) {
 }
 
 async function loadMatchRows(env) {
+  return coalesceViewerLookup(env, 'published-matches', () => loadMatchRowsOnce(env));
+}
+
+async function loadMatchRowsOnce(env) {
   const base = env.SUPABASE_URL?.trim() || "";
   const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() || "";
 

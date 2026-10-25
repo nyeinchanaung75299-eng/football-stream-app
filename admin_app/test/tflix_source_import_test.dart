@@ -270,6 +270,45 @@ void main() {
         }));
   });
 
+  testWidgets('empty verification is retryable and never labelled offline', (
+    tester,
+  ) async {
+    databaseHandler = (_) async => jsonResponse([]);
+    var attempts = 0;
+    await http.runWithClient(
+      () async {
+        await tester.pumpWidget(
+          const MaterialApp(home: SocoImportPage(initialSource: 'tflix')),
+        );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.textContaining('CHECK STREAMS'));
+        await tester.tap(find.textContaining('CHECK STREAMS'));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('NOT VERIFIED · RETRY'), findsOneWidget);
+        expect(find.textContaining('OFFLINE'), findsNothing);
+        await tester.pump(const Duration(seconds: 5));
+        await tester.tap(find.textContaining('NOT VERIFIED · RETRY'));
+        await tester.pumpAndSettle();
+        expect(attempts, 2);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+      () => MockClient((request) async {
+        if (request.url.path.endsWith('/soco-links')) {
+          attempts++;
+          return jsonResponse({
+            'source': 'tflix',
+            'lines': [],
+            'message': 'The source could not be verified.',
+          });
+        }
+        return jsonResponse({
+          'source': 'tflix',
+          'matches': [sourceRow()],
+        });
+      }),
+    );
+  });
+
   for (final savePath in ['insert', 'exact', 'logical']) {
     testWidgets(
         'TFLIX $savePath saves only verified lines and preserves ClearKey',

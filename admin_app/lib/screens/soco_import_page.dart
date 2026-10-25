@@ -154,6 +154,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
   Future<void> _refreshSourceInBackground() async {
     if (!mounted || _isManualSource || loading || _backgroundRefreshBusy)
       return;
+    final state = WidgetsBinding.instance.lifecycleState;
+    if (_extractingAnchorKey != null ||
+        (state != null && state != AppLifecycleState.resumed) ||
+        ModalRoute.of(context)?.isCurrent == false) return;
     _backgroundRefreshBusy = true;
     try {
       await _loadSoco(silent: true);
@@ -671,7 +675,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
           _anchorLineCounts[statusKey] = lines.length;
           _anchorStatuses[statusKey] = sourceIsLive
               ? 'live'
-              : (hasHealthy || lines.isNotEmpty ? 'ready' : 'offline');
+              : (hasHealthy || lines.isNotEmpty
+                  ? 'ready'
+                  : (provider == 'tflix' || provider == 'streame'
+                      ? 'unverified'
+                      : 'offline'));
         });
       }
 
@@ -2075,6 +2083,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                       ? ' • READY ($lineCount)'
                                       : ' • READY',
                                   'offline' => ' • OFFLINE',
+                                  'unverified' => ' • NOT VERIFIED · RETRY',
                                   'checking' => ' • CHECKING',
                                   _ => ' • UNKNOWN',
                                 };

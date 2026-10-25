@@ -57,6 +57,61 @@ test('stream metadata is one secret-gated RPC and preserves empty versus missing
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('concurrent source aliases share a lookup but completed empty responses are never cached', async () => {
+  let calls = 0, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  globalThis.fetch = async () => {
+    calls++;
+    await gate;
+    return Response.json({ lines: [], ok: true });
+  };
+  const request = (origin = 'https://api.example', room = 'one') =>
+    new Request(origin + '/sources/tflix/streams', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_id: 'match:' + room }),
+    });
+  try {
+    const first = worker.fetch(request(), env);
+    const alias = worker.fetch(request('https://backup.example'), env);
+    await pause(5);
+    assert.equal(calls, 1);
+    release();
+    for (const response of await Promise.all([first, alias])) {
+      assert.equal(response.status, 200);
+      assert.deepEqual((await response.json()).streams, []);
+    }
+    await worker.fetch(request(), env);
+    assert.equal(calls, 2, 'manual retry must recheck current availability');
+  } finally { release(); globalThis.fetch = originalFetch; }
+});
+
+test('failed shared lookups recover and distinct source IDs/environments stay isolated', async () => {
+  let calls = 0, fail = true;
+  globalThis.fetch = async () => {
+    calls++;
+    await pause(5);
+    return fail ? new Response('Unavailable', { status: 503 })
+      : Response.json({ lines: [], ok: true });
+  };
+  const request = room => new Request('https://api.example/sources/tflix/streams', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source_id: 'match:' + room }),
+  });
+  try {
+    await Promise.all([worker.fetch(request('one'), env), worker.fetch(request('one'), env)]);
+    assert.equal(calls, 1);
+    fail = false;
+    const result = await worker.fetch(request('one'), env);
+    assert.equal(result.status, 200);
+    assert.equal(calls, 2);
+    await Promise.all([
+      worker.fetch(request('one'), env), worker.fetch(request('two'), env),
+      worker.fetch(request('one'), { ...env }),
+    ]);
+    assert.equal(calls, 5);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('TFLIX Viewer catalogs are public metadata and streams are secret-gated protected URLs', async () => {
   const streamUrl = 'https://media.example/tflix/live.m3u8';
   globalThis.fetch = async (url, options) => {

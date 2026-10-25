@@ -11,6 +11,7 @@ class StampFlutterWebTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             (base / "index.html").write_text(
+                '<link rel="preload" href="main.dart.js" as="script">'
                 '<script src="flutter_bootstrap.js" async></script>',
                 encoding="utf-8",
             )
@@ -26,6 +27,10 @@ class StampFlutterWebTests(unittest.TestCase):
             self.assertIn(
                 'main.dart.js?v=abc123-5',
                 (base / "flutter_bootstrap.js").read_text(),
+            )
+            self.assertIn(
+                'href="main.dart.js?v=abc123-5"',
+                (base / "index.html").read_text(),
             )
             self.assertEqual(
                 (base / "index.html").read_text(),

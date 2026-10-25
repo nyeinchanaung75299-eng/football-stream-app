@@ -42,6 +42,13 @@ def stamp_flutter_web(build_dir: Path, build_id: str) -> None:
         lambda m: f"{m.group('q')}main.dart.js?v={version}{m.group('q')}",
         js,
     )
+    # Match the preload URL to FlutterLoader's versioned entrypoint. Otherwise
+    # the browser would download both an old URL and the new release bundle.
+    updated_html = re.sub(
+        r'''(?P<q>['"])main\.dart\.js(?P=q)''',
+        lambda m: f"{m.group('q')}main.dart.js?v={version}{m.group('q')}",
+        updated_html,
+    )
     if js_count < 1:
         raise RuntimeError(
             "Flutter bootstrap has no main.dart.js entrypoint; "

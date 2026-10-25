@@ -72,12 +72,21 @@ class _HomePageState extends State<HomePage> {
   final Map<String, _StreamCacheEntry> _streamLinkCache = {};
   final Map<String, Future<List<Map<String, dynamic>>>> _streamLinkInflight = {};
 
+  String? _workingApiBase;
+
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
     defaultValue: 'https://football-api.nyeinchanaung.us.ci',
   );
-  List<String> get _publicApiBases => publicApiBases(
-        primary: _publicApiBase, preferVercel: usesVercelBackend);
+  List<String> get _publicApiBases {
+    final bases = publicApiBases(
+      primary: _publicApiBase,
+      preferVercel: usesVercelBackend,
+    );
+    final working = _workingApiBase;
+    if (working != null && bases.remove(working)) bases.insert(0, working);
+    return bases;
+  }
 
   static const _ncaCatalogEndpoint =
       'https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links';
@@ -178,6 +187,22 @@ class _HomePageState extends State<HomePage> {
     return completer.future;
   }
 
+  List<Future<T> Function()> _apiJobs<T>(Future<T> Function(String) load) {
+    var selected = false;
+    return _publicApiBases
+        .map<Future<T> Function()>(
+          (base) => () async {
+            final result = await load(base);
+            if (!selected) {
+              selected = true;
+              _workingApiBase = base;
+            }
+            return result;
+          },
+        )
+        .toList();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -199,7 +224,13 @@ class _HomePageState extends State<HomePage> {
 
     // Keep metadata fresh even when Realtime is unavailable.
     _feedRefresh = Timer.periodic(const Duration(seconds: 60), (_) {
-      if (mounted) unawaited(refresh(silent: true));
+      final state = WidgetsBinding.instance.lifecycleState;
+      if (mounted &&
+          !_openingPlayer &&
+          (state == null || state == AppLifecycleState.resumed) &&
+          ModalRoute.of(context)?.isCurrent != false) {
+        unawaited(refresh(silent: true));
+      }
     });
   }
 
@@ -352,11 +383,7 @@ class _HomePageState extends State<HomePage> {
     // These are aliases of the live API. DNS failures should not strand the
     // Viewer on one hostname, even when mirror fallbacks are disabled.
     return _hedged(
-      _publicApiBases
-          .map<Future<List<Map<String, dynamic>>> Function()>(
-            (base) => () => _loadPublicApiFrom(base),
-          )
-          .toList(),
+      _apiJobs(_loadPublicApiFrom),
       delay: const Duration(milliseconds: 400),
     );
   }
@@ -424,11 +451,7 @@ class _HomePageState extends State<HomePage> {
   ) {
 
     return _hedged(
-      _publicApiBases
-          .map<Future<List<Map<String, dynamic>>> Function()>(
-            (base) => () => _loadPublicApiStreamsFrom(base, matchId),
-          )
-          .toList(),
+      _apiJobs((base) => _loadPublicApiStreamsFrom(base, matchId)),
       delay: const Duration(milliseconds: 250),
     );
   }
@@ -503,11 +526,7 @@ class _HomePageState extends State<HomePage> {
     if (!RegExp(r'^match:[a-zA-Z0-9][a-zA-Z0-9_-]{0,159}$')
         .hasMatch(sourceId)) return const [];
     return _hedged(
-      _publicApiBases
-          .map<Future<List<Map<String, dynamic>>> Function()>(
-            (base) => () => _loadNcaAutoStreamsFrom(base, sourceId),
-          )
-          .toList(),
+      _apiJobs((base) => _loadNcaAutoStreamsFrom(base, sourceId)),
       delay: const Duration(milliseconds: 250),
     );
   }

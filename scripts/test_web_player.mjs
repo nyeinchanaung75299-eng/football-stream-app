@@ -965,6 +965,16 @@ test('untrusted metadata cannot become URL or credential telemetry', async () =>
   assert.ok(!JSON.stringify(h.events).includes('upstream.invalid'));
 });
 
+test('Chrome starts with conservative adaptive quality without imposing a resolution cap', async () => {
+  const h = createHarness({ ios: false });
+  await h.open([source('dash')]);
+  const config = h.players[0].configurations.find(config => config.abr);
+  assert.equal(config.abr.enabled, true);
+  assert.equal(config.abr.defaultBandwidthEstimate, 800000);
+  assert.equal(config.abr.restrictions, undefined);
+  assert.equal(h.plays.length, 1);
+});
+
 for (const { name, run } of tests) {
   await run();
   process.stdout.write(`PASS ${name}\n`);
