@@ -668,6 +668,15 @@ export async function tflixStreams(body = {}, options = {}) {
       // server, but do not stop scanning other servers after the first success.
       for (const candidate of candidates.slice(0, 4)) {
         try {
+          // This known media host binds its session to a different egress and
+          // Cloudflare playback returns HTTP 403. Do not spend the shared
+          // verification deadline probing media we cannot legally play.
+          // Continue to independent, public, app-compatible backup candidates.
+          const mediaUrl = safeTflixUrl(candidate.url);
+          if (mediaUrl.hostname === "saka.kpores.ru") {
+            incompatibleMedia = true;
+            continue;
+          }
           const verified = await verifyTflixMedia(candidate, candidate.referer, { ctx });
           // Verification can succeed on the source server while its media
           // session cannot be used by the app's playback gateway. Do not stop
@@ -727,7 +736,7 @@ export async function tflixStreams(body = {}, options = {}) {
     title: item.kind === "channel" ? item.home_team : item.home_team + " vs " + item.away_team,
     line_count: lines.length, ready: lines.length > 0, live_status: lines.length ? item.is_live : false,
     lines, message: lines.length ? "Verified manifest and media sample."
-      : incompatibleMedia ? "The source verified its media, but does not allow playback through this app. Choose another server."
+      : incompatibleMedia ? "The source does not allow playback through this app. Choose another server."
       : failures[0] ?? "The public player does not expose a supported direct stream configuration.",
     generated_at: new Date().toISOString(),
   };
