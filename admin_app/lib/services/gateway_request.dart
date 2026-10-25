@@ -74,8 +74,18 @@ class GatewayRequest {
       {Object? body}) async {
     final repeatable = canRetry(functionName, body);
     final monitor = functionName == 'system-monitor';
-    final limit = totalTimeout ?? Duration(seconds: monitor ? 25 : 20);
-    final perRoute = routeTimeout ?? Duration(seconds: monitor ? 12 : 8);
+    // Admin verified-source lookups include a provider catalog fetch plus
+    // bounded manifest and sample checks. Give those legitimate requests
+    // a little more gateway overhead without changing other CRUD timeouts.
+    final verifiedSource = functionName == 'soco-links' &&
+        body is Map &&
+        const {'tflix', 'streame'}
+            .contains(body['source']?.toString().toLowerCase()) &&
+        body['action'] == 'streams';
+    final limit = totalTimeout ??
+        Duration(seconds: monitor ? 25 : verifiedSource ? 30 : 20);
+    final perRoute = routeTimeout ??
+        Duration(seconds: monitor ? 12 : verifiedSource ? 12 : 8);
     final elapsed = Stopwatch()..start();
     String accessToken = token;
     bool refreshed = false;
