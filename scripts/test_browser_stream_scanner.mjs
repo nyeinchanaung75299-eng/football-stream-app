@@ -112,7 +112,13 @@ test("CDP observes requests, closes the browser and never reads cookies",async()
     }}),
     closeSession:async()=>{closeCount++;},
   };
-  const result=await captureBrowserMedia({...env,BROWSER:browser},"https://video.example.org/watch",{delay:async()=>{}});
+  let simulatedWaitMs=0;
+  const result=await captureBrowserMedia({...env,BROWSER:browser},
+    "https://video.example.org/watch",{
+      delay:async(ms)=>{simulatedWaitMs+=ms;},
+    });
+  assert.equal(simulatedWaitMs,3000,
+    "Found media should end the short observation early.");
   assert.equal(result.count,3);
   assert.deepEqual(result.links.map(x=>x.type),["hls","hls","dash"]);
   assert.equal(result.diagnostics.navigationConfirmed,true);
@@ -155,8 +161,13 @@ test("empty result distinguishes no requests from a loaded iframe player",async(
     }}),
     closeSession:async()=>{},
   };
+  let simulatedWaitMs=0;
   const result=await captureBrowserMedia({...env,BROWSER:browser},
-    "https://video.example.org/watch",{delay:async()=>{}});
+    "https://video.example.org/watch",{
+      delay:async(ms)=>{simulatedWaitMs+=ms;},
+    });
+  assert.equal(simulatedWaitMs,9500,
+    "An empty scan must stop after the bounded observation window.");
   assert.equal(result.count,0);
   assert.equal(result.diagnostics.requestsObserved,1);
   assert.equal(result.diagnostics.iframeElements,1);
