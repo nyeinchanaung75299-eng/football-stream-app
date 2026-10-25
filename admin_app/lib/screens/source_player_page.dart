@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/stream_preview_diagnostics.dart';
@@ -82,14 +83,33 @@ class _SourcePlayerPageState extends State<SourcePlayerPage> {
                     key: const Key('open-source-browser'),
                     onPressed: () => _openExternally(source),
                     icon: const Icon(Icons.open_in_new),
-                    label: const Text('Open in Browser (Chrome if default)'),
+                    label: const Text('Open Original Website'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    key: const Key('copy-original-for-chrome'),
+                    onPressed: () async {
+                      await Clipboard.setData(
+                        ClipboardData(text: source.toString()),
+                      );
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Link copied. Paste it into Chrome.'),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.copy),
+                    label: const Text('Copy Link for Chrome'),
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'If Chrome is your default browser, the external '
-                    'button can open there. Chrome has its own pop-up '
-                    'settings, which NCA cannot control. On iPhone, '
-                    'Chrome cannot use ordinary desktop ad-block extensions.',
+                    'On the web, Open Original Website uses your current '
+                    'browser tab or window, not necessarily your default '
+                    'browser. To use Chrome from Safari, copy the link and '
+                    'paste it into Chrome. NCA cannot switch on Chrome ad '
+                    'blocking or remove advertisements inside that site.',
                     style: TextStyle(fontSize: 12),
                   ),
                 ],
