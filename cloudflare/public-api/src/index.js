@@ -523,11 +523,21 @@ async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
     }));
 
     const streams = await protectedClientLinks(normalized, env, publicOrigin);
+    const noVerifiedMedia = protectedSource && streams.length === 0;
+    // A valid catalog row is not proof of an active, playable stream. Keep
+    // source availability separate from network errors and do not leak raw
+    // upstream URLs, headers, or provider exception messages to public Web.
     return json({
       ok: true,
       source,
       streams,
       stream_count: streams.length,
+      ...(noVerifiedMedia ? {
+        availability: "unverified",
+        message: source === "tflix"
+          ? "TFLIX has no verified, unencrypted stream for this source right now. Try another source or later."
+          : "StreamCenter has no verified, unencrypted HLS stream for this source right now. Try another source or later.",
+      } : {}),
       live_status: payload?.live_status ?? null,
       generated_at: new Date().toISOString(),
     }, 200, { "Cache-Control": "no-store, max-age=0" });

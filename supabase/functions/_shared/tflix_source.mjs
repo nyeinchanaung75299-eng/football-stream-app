@@ -185,10 +185,19 @@ async function catalog(ctx, requested) {
   let payload;
   try {
     payload = await fetchJson(ctx, PUBLIC_URL);
+    // Some deployments answer 200 with a status/message envelope rather
+    // than actual public catalog arrays. Do not treat that as an empty
+    // schedule; the supported legacy public route can still have rows.
+    const arrays = (kind === "channels" && Array.isArray(payload)) ||
+      (payload && typeof payload === "object" &&
+        ["events", "streams", "channels"].some((key) => Array.isArray(payload[key])));
+    if (!arrays) throw new Error("Public catalog has no supported arrays.");
   } catch (error) {
-    // Older deployments used separate public catalog routes. Keep that narrow
-    // compatibility path only when the unified public route is unavailable.
-    if (!/Source returned HTTP (?:401|404)\./.test(error instanceof Error ? error.message : "")) throw error;
+    // Compatibility fallback: only for missing/denied unified public
+    // catalog or its unsupported response schema, never for an arbitrary
+    // 5xx/network error where another request could increase load.
+    const detail = error instanceof Error ? error.message : "";
+    if (!/Source returned HTTP (?:401|404)\.|Public catalog has no supported arrays\./.test(detail)) throw error;
     payload = await fetchJson(ctx, kind === "channels" ? CHANNEL_URL : CATALOG_URL);
   }
   const rows = kind === "channels" ? channelRows(payload) : footballRows(payload);
@@ -345,14 +354,19 @@ function sourceEmbedUrls(html, base) {
 }
 
 function publicApiEmbedUrls(payload, item) {
-  if (!Array.isArray(payload?.events) || !Array.isArray(payload?.channels)) return [];
+  // The public catalog occasionally omits an unrelated array: a match only
+  // needs events, while a channel only needs channels. Requiring *both*
+  // silently loses known public player slots when one is absent.
+  if (!payload || typeof payload !== "object") return [];
   let channels = [];
   if (item.kind === "match") {
     const path = new URL(item.page_url).pathname;
-    channels = payload.events.find((row) => clean(row?.watch_url) === path)?.channels ?? [];
+    channels = (Array.isArray(payload.events) ? payload.events : [])
+      .find((row) => clean(row?.watch_url) === path)?.channels ?? [];
   } else {
     const slug = item.source_id.slice("channel:".length);
-    const channel = payload.channels.find((row) => clean(row?.slug) === slug);
+    const channel = (Array.isArray(payload.channels) ? payload.channels : [])
+      .find((row) => clean(row?.slug) === slug);
     if (channel) channels = [channel];
   }
   const embeds = new Map();

@@ -478,7 +478,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       // reviving rows from an older GitHub mirror.
       final rows = await _authoritativeHedged([
         ...workerJobs,
-        () => _loadFromSupabase(),
+        if (source != 'tflix' && source != 'streame')
+          () => _loadFromSupabase(),
       ]);
       unawaited(_saveLastGood(rows));
       return rows;
@@ -544,11 +545,31 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         )
         .timeout(const Duration(seconds: 12));
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      final provider = sourceName ?? source;
+      if (provider == 'tflix' || provider == 'streame') {
+        throw StateError(
+          '${provider == 'tflix' ? 'TFLIX' : 'StreamCenter'} service could not '
+          'verify this stream (HTTP ${response.statusCode}). '
+          'Try again later or choose another source.',
+        );
+      }
       throw Exception('Stream API HTTP ' + response.statusCode.toString());
     }
     final decoded = jsonDecode(response.body);
     final raw = decoded is Map ? decoded['streams'] : null;
     if (raw is! List) throw const FormatException('Invalid source streams.');
+    if (raw.isEmpty && (sourceName ?? source) == 'tflix') {
+      throw StateError(
+        'TFLIX: No verified, unencrypted stream is currently available. '
+        'Try another match/channel or refresh later.',
+      );
+    }
+    if (raw.isEmpty && (sourceName ?? source) == 'streame') {
+      throw StateError(
+        'StreamCenter: No verified, unencrypted HLS stream is currently '
+        'available. Try another source or refresh later.',
+      );
+    }
     return raw.asMap().entries
         .map((entry) {
           final row = Map<String, dynamic>.from(entry.value as Map);
@@ -662,7 +683,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       [
         if (bases.isNotEmpty)
           () => _anchorFrom(bases.first, m, anchor, sourceName: provider),
-        () => _anchorFromSupabase(m, anchor, sourceName: provider),
+        // Protected providers require Worker-held playback credentials;
+        // the unauthenticated GET fallback cannot legitimately resolve them.
+        if (provider != 'tflix' && provider != 'streame')
+          () => _anchorFromSupabase(m, anchor, sourceName: provider),
         ...bases.skip(1).map<Future<List<Map<String, dynamic>>> Function()>(
           (base) => () => _anchorFrom(base, m, anchor, sourceName: provider),
         ),
