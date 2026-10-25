@@ -867,7 +867,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       );
       if (rows.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No ' + title + ' stream is available now.')),
+          SnackBar(
+            content: Text(selectedSource == 'tflix'
+                ? 'No app-compatible TFLIX stream is available. Try another server.'
+                : 'No ' + title + ' stream is available now.'),
+          ),
         );
         return;
       }

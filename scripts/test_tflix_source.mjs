@@ -953,3 +953,52 @@ test("an incompatible primary with no advertised usable backup stays unavailable
   assert.match(result.message,/does not allow playback through this app/);
   assert.equal(mock.calls.filter(({url}) => url === player).length,1);
 });
+
+
+test("known gateway-blocked media is never probed and usable public backup is still verified", async () => {
+  const slug = "skip-unusable-media";
+  const page = "https://tflix.su/watch/" + slug;
+  const primary = "https://mix1.eeeertwfvsgs.xyz/embed/blocked-and-backup";
+  const blocked = "https://saka.kpores.ru/live/fixture-blocked.m3u8";
+  const working = hlsUrl();
+  const mock = fakeFetch({
+    "https://tflix.su/api/public": { events: [{
+      sport: "Football", status: "live", watch_url: "/watch/" + slug,
+      home_name: "Team A", away_name: "Team B",
+      channels: [{ name: "Public", embed_url: primary }],
+    }] },
+    [primary]: new Response("var player={sources:[{file:'" + blocked + "'},{file:'" + working + "'}]};"),
+    [working]: new Response("#EXTM3U\n#EXTINF:6,\nsegment.ts"),
+    [new URL("segment.ts", working).toString()]: new Response(tsBytes()),
+  });
+  const result = await tflixViewerStreams({
+    source_id: "match:" + slug, label_prefix: "TFLIX",
+  }, mock);
+  assert.equal(result.line_count, 1);
+  assert.equal(result.lines[0].stream_url, working);
+  assert.equal(result.lines[0].media_verified, true);
+  assert.equal(mock.calls.some(({ url }) => url === blocked), false);
+  assert.equal(mock.calls.some(({ url }) => url === working), true);
+});
+
+test("known gateway-blocked media remains unavailable, never reports verified playback", async () => {
+  const slug = "only-unusable-media";
+  const player = "https://mix1.eeeertwfvsgs.xyz/embed/unusable-fixture";
+  const blocked = "https://saka.kpores.ru/live/unusable.m3u8";
+  const page = "https://tflix.su/watch/" + slug;
+  const mock = fakeFetch({
+    "https://tflix.su/api/public": { events: [{
+      sport: "Football", status: "live", watch_url: "/watch/" + slug,
+      home_name: "Team A", away_name: "Team B",
+      channels: [{ name: "Public", embed_url: player }],
+    }] },
+    [player]: new Response("var player={file:'" + blocked + "'};"),
+    [page]: new Response("<html>No other public source</html>"),
+  });
+  const result = await tflixStreams({ room_num: "match:" + slug }, mock);
+  assert.equal(result.ready, false);
+  assert.equal(result.line_count, 0);
+  assert.match(result.message, /does not allow playback through this app/);
+  assert.equal(mock.calls.some(({ url }) => url === blocked), false);
+  assert.equal(JSON.stringify(result).includes("media_verified"), false);
+});
