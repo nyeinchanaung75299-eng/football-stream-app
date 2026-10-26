@@ -6,6 +6,13 @@ import 'package:flutter/widgets.dart';
 @JS('window.location.assign')
 external void _navigateTopLevel(JSString url);
 
+@JS('window.open')
+external void _openExternalTab(
+  JSString url,
+  JSString target,
+  JSString features,
+);
+
 @JS('openFootballPlayer')
 external void _openFootballPlayer(
   JSString sourcesJson,
@@ -25,6 +32,10 @@ external void _updateFootballPlayerSources(
 external void _prewarmFootballPlayer(JSString sourcesJson);
 
 class NativePlayer {
+  static void openExternalPage(String url) {
+    _openExternalTab(url.toJS, '_blank'.toJS, 'noopener,noreferrer'.toJS);
+  }
+
   static void prewarm({required List<Map<String, dynamic>> sources}) {
     if (sources.isEmpty) return;
     _prewarmFootballPlayer(jsonEncode(sources).toJS);

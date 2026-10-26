@@ -10,6 +10,7 @@ import '../analytics_service.dart';
 import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 import '../native_player.dart';
+import '../tflix_public_page.dart';
 import 'home_page.dart';
 import '../live_feed_controller.dart';
 import '../player_loading.dart';
@@ -1204,11 +1205,17 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                         )?.toLocal();
 
                         if (m['kind'] == 'channel') {
+                          final originalPage = kIsWeb &&
+                                  defaultTargetPlatform != TargetPlatform.android &&
+                                  defaultTargetPlatform != TargetPlatform.iOS
+                              ? tflixPublicChannelPage(m['source_id'])
+                              : null;
                           return _TflixChannelCard(
                             name: (m['home_team'] ?? 'Sports channel').toString(),
                             category: (m['league'] ?? 'Sports channels').toString(),
                             canWatch: ready,
                             onWatch: () => _watch(m),
+                            originalPage: originalPage,
                           );
                         }
 
@@ -1296,12 +1303,14 @@ class _TflixChannelCard extends StatelessWidget {
     required this.category,
     required this.canWatch,
     required this.onWatch,
+    this.originalPage,
   });
 
   final String name;
   final String category;
   final bool canWatch;
   final VoidCallback onWatch;
+  final String? originalPage;
 
   @override
   Widget build(BuildContext context) {
@@ -1316,9 +1325,22 @@ class _TflixChannelCard extends StatelessWidget {
         leading: Icon(Icons.live_tv_rounded, color: colors.primary),
         title: Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
         subtitle: Text(category),
-        trailing: FilledButton.tonal(
-          onPressed: canWatch ? onWatch : null,
-          child: const Text('CHECK STREAMS'),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (originalPage != null) ...[
+              OutlinedButton.icon(
+                onPressed: () => NativePlayer.openExternalPage(originalPage!),
+                icon: const Icon(Icons.open_in_new, size: 16),
+                label: const Text('ORIGINAL SITE'),
+              ),
+              const SizedBox(width: 8),
+            ],
+            FilledButton.tonal(
+              onPressed: canWatch ? onWatch : null,
+              child: const Text('CHECK STREAMS'),
+            ),
+          ],
         ),
         onTap: canWatch ? onWatch : null,
       ),

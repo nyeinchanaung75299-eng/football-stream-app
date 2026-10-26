@@ -9,6 +9,10 @@ import 'analytics_service.dart';
 import 'screens/ios_player_page.dart';
 
 class NativePlayer {
+  static void openExternalPage(String url) {
+    throw UnsupportedError('External source pages are available on Web only.');
+  }
+
   static const MethodChannel _channel = MethodChannel(
     'football_stream/native_player',
   );
