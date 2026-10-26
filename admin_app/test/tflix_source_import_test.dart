@@ -182,6 +182,8 @@ void main() {
       await tester.tap(find.text('Channels'));
       await tester.pumpAndSettle();
       expect(catalogs, ['matches', 'channels']);
+      await tester.dragUntilVisible(find.text('Fixture sports channel'),
+          find.byType(ListView).first, const Offset(0, -250));
       expect(find.text('Fixture sports channel'), findsOneWidget);
       expect(find.textContaining('Fixture sports channel vs'), findsNothing);
       expect(find.text('Broadcast channel'), findsOneWidget);
@@ -329,7 +331,8 @@ void main() {
           const MaterialApp(home: SocoImportPage(initialSource: 'tflix')),
         );
         await tester.pumpAndSettle();
-        await tester.ensureVisible(find.textContaining('CHECK STREAMS'));
+        await tester.dragUntilVisible(find.textContaining('CHECK STREAMS'),
+            find.byType(ListView).first, const Offset(0, -250));
         await tester.pumpAndSettle();
         await tester.tap(find.textContaining('CHECK STREAMS'));
         await tester.pumpAndSettle();
