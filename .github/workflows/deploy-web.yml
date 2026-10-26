@@ -102,6 +102,7 @@ jobs:
       - name: Verify Admin Web source
         working-directory: admin_app
         run: |
+          node ../scripts/test_admin_companion_extension.mjs
           flutter analyze --no-fatal-infos
           if find test -type f -name '*_test.dart' -print -quit 2>/dev/null | grep -q .; then
             flutter test
@@ -116,6 +117,12 @@ jobs:
 
           BUILD_ID="${GITHUB_SHA::12}-${GITHUB_RUN_NUMBER}"
           python3 ../scripts/stamp_flutter_web_cache.py build/web "$BUILD_ID"
+
+      - name: Package Admin Web PC companion
+        run: |
+          cd admin_app/companion_extension
+          python3 -m zipfile -c ../build/web/companion-extension.zip \
+            manifest.json bridge.js worker.js
 
       - name: Add Admin Web to Viewer Pages build
         run: |

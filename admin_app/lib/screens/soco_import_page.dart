@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 21143)
+Total output lines: 2244
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -14,6 +17,9 @@ import '../services/manual_source_url.dart';
 import '../services/function_gateway.dart';
 import '../services/stream_library_service.dart';
 import '../source_line_validation.dart';
+import '../services/browser_companion_stub.dart'
+    if (dart.library.html) '../services/browser_companion_web.dart'
+    as browser_companion;
 
 @visibleForTesting
 List<Map<String, dynamic>> validateSourceMatchRows(
@@ -636,6 +642,22 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     final extractingKey = _anchorKey(match, anchor);
     final provider = source;
+    // PC Web observes the original page's media requests in its own tab.
+    // Native Admin retains the existing authenticated resolver unchanged.
+    if (kIsWeb && (provider == 'tflix' || provider == 'streame')) {
+      final rawPage = (match['page_url'] ?? anchor['page_url'] ?? '').toString();
+      final page = Uri.tryParse(rawPage);
+      if (page == null || page.scheme != 'https' || page.host.isEmpty) {
+        message('The original source page is unavailable.');
+        return;
+      }
+      await browser_companion.showCapture(
+        context,
+        title: _sourceMatchTitle(match),
+        pageUrl: page.toString(),
+      );
+      return;
+    }
     final epoch = _sourceSelectionEpoch;
     bool current() =>
         mounted && source == provider && epoch == _sourceSelectionEpoch;
@@ -968,379 +990,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                 line: line,
                                 anchorName: importName,
                               );
-                              if (added && sheetContext.mounted) {
-                                Navigator.pop(sheetContext);
-                              }
-                            },
-                            child: const Text('ADD'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }),
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    targetMatchId == null
-                        ? 'Each ADD will ask which NCA match to use.'
-                        : 'Each ADD will still ask for the NCA match. The selected destination is shown first.',
-                    style: TextStyle(
-                      color: colors.onSurfaceVariant,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<bool> _addLine({
-    required Map<String, dynamic> line,
-    required String anchorName,
-  }) async {
-    if (_addingLine) return false;
-    setState(() => _addingLine = true);
-    final provider = source;
-    try {
-      if ((provider == 'tflix' || provider == 'streame') &&
-          !isRecentlyVerifiedSourceLine(line)) {
-        message(
-          'This ${_sourceLabel(provider)} stream needs a new gateway-compatible media check. Refresh the source.',
-        );
-        return false;
-      }
-      // Always require an explicit destination confirmation. The dropdown and
-      // initial match only suggest which match should appear first.
-      final presetTarget = targetMatchId;
-      final target = await _chooseDestination();
-      if (target == null) return false;
-      if ((provider == 'tflix' || provider == 'streame') &&
-          !isRecentlyVerifiedSourceLine(line)) {
-        message(
-          'This ${_sourceLabel(provider)} stream needs a new gateway-compatible media check. Refresh the source.',
-        );
-        return false;
-      }
-
-      final url = (line['url'] ?? '').toString().trim();
-      if (url.isEmpty) return false;
-
-      final sourceName = _sourceLabel(provider);
-      final label = (line['label'] ?? sourceName).toString();
-      final type = (line['stream_type'] ?? 'auto').toString();
-      final resolution = (line['resolution'] ?? label).toString();
-      final fullLabel = '$sourceName • $anchorName • $label';
-
-      final exact = await Supabase.instance.client
-          .from('stream_links')
-          .select('id,is_active,expires_at')
-          .eq('match_id', target)
-          .eq('stream_url', url)
-          .maybeSingle()
-          .timeout(const Duration(seconds: 10));
-
-      Map<String, dynamic> saved;
-      if (exact != null) {
-        // A previously imported short-lived line may have been disabled after
-        // its signed URL expired. Re-enable it when the source returns the same
-        // URL again instead of treating it as an unusable duplicate.
-        saved = await Supabase.instance.client
-            .from('stream_links')
-            .update({
-              'label': fullLabel,
-              'resolution': resolution,
-              'stream_type': type,
-              'referer': nullable(line['referer']?.toString()),
-              'origin': nullable(line['origin']?.toString()),
-              ...sourceLineKeyFields(line),
-              'is_active': true,
-              'expires_at': line['expires_at'],
-              'health_status': 'unknown',
-              'health_latency_ms': null,
-              'last_checked_at': null,
-            })
-            .eq('id', exact['id'])
-            .select('id')
-            .single()
-            .timeout(const Duration(seconds: 12));
-      } else {
-        // Soco/YYZB/Cola signed URLs rotate. Match the logical line by its
-        // stable label/type/resolution and replace the expired URL in-place so
-        // the viewer gets the fresh token without accumulating dead rows.
-        final sameLogical = await Supabase.instance.client
-            .from('stream_links')
-            .select('id')
-            .eq('match_id', target)
-            .eq('label', fullLabel)
-            .eq('stream_type', type)
-            .eq('resolution', resolution)
-            .maybeSingle()
-            .timeout(const Duration(seconds: 10));
-
-        if (sameLogical != null) {
-          saved = await Supabase.instance.client
-              .from('stream_links')
-              .update({
-                'stream_url': url,
-                'referer': nullable(line['referer']?.toString()),
-                'origin': nullable(line['origin']?.toString()),
-                ...sourceLineKeyFields(line),
-                'is_active': true,
-                'expires_at': line['expires_at'],
-                'health_status': 'unknown',
-                'health_latency_ms': null,
-                'last_checked_at': null,
-              })
-              .eq('id', sameLogical['id'])
-              .select('id')
-              .single()
-              .timeout(const Duration(seconds: 12));
-        } else {
-          saved = await Supabase.instance.client
-              .from('stream_links')
-              .insert({
-                'match_id': target,
-                'label': fullLabel,
-                'resolution': resolution,
-                'stream_type': type,
-                'stream_url': url,
-                'referer': nullable(line['referer']?.toString()),
-                'origin': nullable(line['origin']?.toString()),
-                ...sourceLineKeyFields(line),
-                'use_webview': false,
-                'webview_url': null,
-                'send_notification': false,
-                'is_active': true,
-                'expires_at': line['expires_at'],
-              })
-              .select('id')
-              .single()
-              .timeout(const Duration(seconds: 12));
-        }
-      }
-
-      // Saving is complete. A slow health check must not keep ADD waiting or
-      // invite a duplicate submission. Its result is keyed to the saved row,
-      // never to whichever provider/destination the UI later selects.
-      unawaited(_checkSavedLine(saved['id'].toString(), provider));
-      unawaited(
-        AnalyticsService.capture(
-          'source line imported',
-          properties: {
-            'source': provider,
-            'stream_type': type,
-            'resolution': resolution,
-            'destination_preset': presetTarget != null,
-            'health_status': 'pending',
-          },
-        ),
-      );
-
-      final shownLabel = provider == 'yyzb' ? englishStreamLabel(label) : label;
-      message('$sourceName $shownLabel added. Health check is pending.');
-      return true;
-    } on TimeoutException {
-      message('Could not confirm the save. Refresh before trying again.');
-      return false;
-    } catch (_) {
-      message('Could not add the server. Please retry.');
-      return false;
-    } finally {
-      if (mounted) {
-        setState(() => _addingLine = false);
-      } else {
-        _addingLine = false;
-      }
-    }
-  }
-
-  Future<void> _checkSavedLine(String id, String provider) async {
-    try {
-      final checked = await FunctionGateway.invoke(
-        'stream-health',
-        body: {'link_id': id},
-      ).timeout(const Duration(seconds: 12));
-      unawaited(
-        AnalyticsService.capture(
-          'stream health checked',
-          properties: {
-            'scope': 'link',
-            'source': provider,
-            if (checked is Map && checked['health_status'] != null)
-              'health_status': checked['health_status'].toString(),
-          },
-        ),
-      );
-    } catch (_) {
-      // System Health and Stream Servers show the eventual persisted result.
-      // Do not show an error on a newer source/destination screen.
-    }
-  }
-
-  String? nullable(String? value) {
-    final text = value?.trim() ?? '';
-    return text.isEmpty ? null : text;
-  }
-
-  void _refreshLibrary() {
-    if (!mounted) return;
-    setState(() => _libraryFuture = _streamLibrary.list());
-  }
-
-  Future<void> _saveHlsToLibrary() async {
-    if (_savingLibrary) return;
-    final url = _playzUrl.text.trim();
-    final inferred = detectManualStreamType(url);
-    final type = _playzType == 'auto' ? inferred : _playzType;
-    if (type != 'hls') {
-      message('Only HLS / M3U8 can be saved to the Library.');
-      return;
-    }
-
-    final name = _playzServerName.text.trim().isEmpty
-        ? 'Server 1'
-        : _playzServerName.text.trim();
-    final validation = validateHlsLibraryInput(
-      label: name,
-      streamUrl: url,
-      referer: _playzReferer.text,
-      origin: _playzOrigin.text,
-    );
-    if (validation != null) {
-      message(validation);
-      return;
-    }
-
-    setState(() => _savingLibrary = true);
-    try {
-      await _streamLibrary.save(
-        label: name,
-        streamUrl: url,
-        referer: _playzReferer.text,
-        origin: _playzOrigin.text,
-      );
-      unawaited(
-        AnalyticsService.capture(
-          'stream library saved',
-          properties: const {'stream_type': 'hls'},
-        ),
-      );
-      _refreshLibrary();
-      message('$name saved to the private HLS Library.');
-    } on TimeoutException {
-      message('Library save timed out. Refresh before trying again.');
-    } catch (_) {
-      message('Could not save this HLS entry. Please retry.');
-    } finally {
-      if (mounted) setState(() => _savingLibrary = false);
-    }
-  }
-
-  void _useLibraryEntry(StreamLibraryEntry entry) {
-    setState(() {
-      _playzServerName.text = entry.label;
-      _playzUrl.text = entry.streamUrl;
-      _playzReferer.text = entry.referer ?? '';
-      _playzOrigin.text = entry.origin ?? '';
-      _playzKeyId.clear();
-      _playzKeyData.clear();
-      _playzType = 'hls';
-    });
-    message('${entry.label} loaded into the manual form.');
-  }
-
-  Future<void> _addLibraryEntry(StreamLibraryEntry entry) async {
-    final added = await _addLine(
-      anchorName: 'Library',
-      line: entry.toPlaybackLine(),
-    );
-    if (!added) return;
-    unawaited(
-      _streamLibrary.markUsed(entry.id).then((_) {
-        if (mounted) _refreshLibrary();
-      }).catchError((_) {}),
-    );
-  }
-
-  Future<void> _deleteLibraryEntry(StreamLibraryEntry entry) async {
-    if (_deletingLibraryId != null) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete saved HLS?'),
-        content: Text(
-          'Delete “${entry.label}” from the private Library? '
-          'Lines already added to matches will not be changed.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('CANCEL'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('DELETE'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    setState(() => _deletingLibraryId = entry.id);
-    try {
-      await _streamLibrary.delete(entry.id);
-      _refreshLibrary();
-      message('${entry.label} removed from the Library.');
-    } catch (_) {
-      message('Could not delete this Library entry.');
-    } finally {
-      if (mounted) setState(() => _deletingLibraryId = null);
-    }
-  }
-
-  Future<void> _addManualLine() async {
-    final url = _playzUrl.text.trim();
-    final inferred = detectManualStreamType(url);
-    final type = _playzType == 'auto' ? inferred : _playzType;
-    if (type == null || !isValidManualStreamUrl(url, streamType: type)) {
-      message(
-        'Enter an authorized direct HTTP(S) media URL (M3U8, MPD, '
-        'FLV or MP4). For extensionless URLs, select the stream type.',
-      );
-      return;
-    }
-
-    final keyId = _playzKeyId.text.trim();
-    final keyData = _playzKeyData.text.trim();
-    final keyError = manualClearKeyError(
-      streamType: type,
-      keyId: keyId,
-      keyData: keyData,
-    );
-    if (keyError != null) {
-      message(keyError);
-      return;
-    }
-
-    final name = _playzServerName.text.trim().isEmpty
-        ? 'Server 1'
-        : _playzServerName.text.trim();
-    final added = await _addLine(
-      anchorName: 'Manual',
-      line: {
-        'label': name,
-        'url': url,
-        'stream_type': type,
-        'resolution': type.toUpperCase(),
-        'referer': _playzReferer.text.trim(),
-        'origin': _playzOrigin.text.trim(),
-        'key_id': keyId,
-        'key_data': keyData,
+                              if …3143 tokens truncated…ata,
       },
     );
     if (added && mounted) {
@@ -2108,7 +1758,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                             style: TextStyle(color: colors.onSurfaceVariant),
                           ),
                           const SizedBox(height: 12),
-                          if (tflixPage != null) ...[
+                          if (tflixPage != null && !kIsWeb) ...[
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
@@ -2153,7 +1803,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                   'checking' => Icons.sync_rounded,
                                   _ => Icons.help_outline_rounded,
                                 };
-                                final suffix = switch (status) {
+                                final suffix = kIsWeb &&
+                                        (source == 'tflix' ||
+                                            source == 'streame')
+                                    ? ' • DETECT LINKS'
+                                    : switch (status) {
                                   'live' => ' • LIVE',
                                   'ready' => lineCount > 0
                                       ? ' • READY ($lineCount)'
