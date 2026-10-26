@@ -213,6 +213,50 @@ void main() {
             }));
   });
 
+  testWidgets('TFLIX match opens an extension handoff with its page referer',
+      (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    databaseHandler = (_) async => jsonResponse([]);
+    var streamCalls = 0;
+
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(
+        home: SocoImportPage(initialSource: 'tflix'),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('OPEN TFLIX PAGE'), findsOneWidget);
+      await tester.ensureVisible(find.text('PASTE DETECTED LINK'));
+      await tester.tap(find.text('PASTE DETECTED LINK'));
+      await tester.pumpAndSettle();
+      expect(find.text('Source: Manual HLS Library'), findsOneWidget);
+      expect(find.text('Direct stream URL'), findsOneWidget);
+      final handoff = tester.widget<SocoImportPage>(find.byType(SocoImportPage));
+      expect(handoff.initialReferer,
+          'https://tflix.su/watch/fixture-home-vs-away');
+      expect(streamCalls, 0, reason: 'Handoff must not claim a verified line.');
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, () => MockClient((request) async {
+          if (request.url.path.endsWith('/soco-links')) streamCalls++;
+          if (request.url.path.endsWith('/source-match-list')) {
+            return jsonResponse({
+              'source': 'tflix',
+              'matches': [
+                {
+                  ...sourceRow(),
+                  'source_id': 'match:fixture-home-vs-away',
+                  'page_url': 'https://tflix.su/watch/fixture-home-vs-away',
+                },
+              ],
+            });
+          }
+          return jsonResponse([]);
+        }));
+  });
+
   testWidgets(
       'StreamCenter provider lists public candidates without background extraction',
       (tester) async {

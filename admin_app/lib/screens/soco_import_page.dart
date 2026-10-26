@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../analytics_service.dart';
 import '../football_english.dart';
@@ -52,10 +53,12 @@ class SocoImportPage extends StatefulWidget {
     super.key,
     this.initialMatchId,
     this.initialSource = 'soco',
+    this.initialReferer,
   });
 
   final String? initialMatchId;
   final String initialSource;
+  final String? initialReferer;
 
   @override
   State<SocoImportPage> createState() => _SocoImportPageState();
@@ -109,6 +112,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
     super.initState();
     _streamLibrary = StreamLibraryService(Supabase.instance.client);
     targetMatchId = widget.initialMatchId;
+    if (widget.initialReferer != null) {
+      _playzReferer.text = widget.initialReferer!;
+      final page = Uri.tryParse(widget.initialReferer!);
+      if (page != null) _playzOrigin.text = page.origin;
+    }
     _targetMatchesFuture = _loadTargetMatches();
     final requested = widget.initialSource.trim().toLowerCase();
     source = const {
@@ -1700,6 +1708,43 @@ class _SocoImportPageState extends State<SocoImportPage> {
     return '$home vs ${match['away_team'] ?? ''}';
   }
 
+  Uri? _tflixPublicPage(Map<String, dynamic> match) {
+    final page = Uri.tryParse((match['page_url'] ?? '').toString());
+    if (page == null ||
+        page.scheme != 'https' ||
+        !const {'tflix.su', 'www.tflix.su', 'tflix1.su', 'www.tflix1.su'}
+            .contains(page.host.toLowerCase()) ||
+        page.userInfo.isNotEmpty ||
+        page.hasQuery ||
+        page.hasFragment ||
+        !RegExp(r'^/(watch|channel)/[a-z0-9][a-z0-9-]{0,159}$',
+                caseSensitive: false)
+            .hasMatch(page.path)) {
+      return null;
+    }
+    return page;
+  }
+
+  Future<void> _openTflixPublicPage(Uri page) async {
+    try {
+      final opened = await launchUrl(page,
+          mode: LaunchMode.platformDefault, webOnlyWindowName: '_blank');
+      if (!opened) message('Could not open the TFLIX match page.');
+    } catch (_) {
+      message('Could not open the TFLIX match page.');
+    }
+  }
+
+  void _prepareTflixManualLine(Uri page) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => SocoImportPage(
+        initialMatchId: targetMatchId,
+        initialSource: 'playz',
+        initialReferer: page.toString(),
+      ),
+    ));
+  }
+
   Widget _tflixCatalogButton(String value, String label) {
     void selectCatalog() {
       setState(() {
@@ -1900,6 +1945,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     'Choose a source to check its M3U8 or MPD stream. '
                     'Only recently verified media can be added.',
                   ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'On desktop, open a match in its original tab to use your '
+                    'browser extension. Copy an authorized direct media URL, '
+                    'then paste it in the manual form. Browser tabs cannot '
+                    'share their network requests with Admin Web; signed '
+                    'session links may not work in this app.',
+                  ),
                 ],
                 if (_isManualSource) _manualSourceCard(colors),
                 if (!_isManualSource)
@@ -1984,6 +2037,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   final kickoff = DateTime.tryParse(
                     match['match_time']?.toString() ?? '',
                   )?.toLocal();
+                  final tflixPage =
+                      source == 'tflix' ? _tflixPublicPage(match) : null;
                   final anchors = List<Map<String, dynamic>>.from(
                     match['anchors'] ?? const [],
                   )..sort((a, b) {
@@ -2053,6 +2108,27 @@ class _SocoImportPageState extends State<SocoImportPage> {
                             style: TextStyle(color: colors.onSurfaceVariant),
                           ),
                           const SizedBox(height: 12),
+                          if (tflixPage != null) ...[
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: () =>
+                                      _openTflixPublicPage(tflixPage),
+                                  icon: const Icon(Icons.open_in_new_rounded),
+                                  label: const Text('OPEN TFLIX PAGE'),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: () =>
+                                      _prepareTflixManualLine(tflixPage),
+                                  icon: const Icon(Icons.content_paste_rounded),
+                                  label: const Text('PASTE DETECTED LINK'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                          ],
                           if (anchors.isEmpty)
                             Text(
                               'No streamer is listed yet.',
