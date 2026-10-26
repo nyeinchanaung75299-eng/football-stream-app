@@ -1205,9 +1205,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                         )?.toLocal();
 
                         if (m['kind'] == 'channel') {
-                          final originalPage = kIsWeb &&
-                                  defaultTargetPlatform != TargetPlatform.android &&
-                                  defaultTargetPlatform != TargetPlatform.iOS
+                          final originalPage = kIsWeb
                               ? tflixPublicChannelPage(m['source_id'])
                               : null;
                           return _TflixChannelCard(
@@ -1315,35 +1313,56 @@ class _TflixChannelCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.surfaceContainerHighest.withValues(alpha: .55),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colors.outlineVariant.withValues(alpha: .3)),
-      ),
-      child: ListTile(
-        leading: Icon(Icons.live_tv_rounded, color: colors.primary),
-        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
-        subtitle: Text(category),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (originalPage != null) ...[
-              OutlinedButton.icon(
-                onPressed: () => NativePlayer.openExternalPage(originalPage!),
-                icon: const Icon(Icons.open_in_new, size: 16),
-                label: const Text('ORIGINAL SITE'),
-              ),
-              const SizedBox(width: 8),
-            ],
-            FilledButton.tonal(
-              onPressed: canWatch ? onWatch : null,
-              child: const Text('CHECK STREAMS'),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 600;
+        final buttons = <Widget>[
+          if (originalPage != null)
+            OutlinedButton.icon(
+              onPressed: () => NativePlayer.openExternalPage(originalPage!),
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: const Text('ORIGINAL SITE'),
             ),
-          ],
-        ),
-        onTap: canWatch ? onWatch : null,
-      ),
+          FilledButton.tonal(
+            onPressed: canWatch ? onWatch : null,
+            child: const Text('CHECK STREAMS'),
+          ),
+        ];
+        return Container(
+          decoration: BoxDecoration(
+            color: colors.surfaceContainerHighest.withValues(alpha: .55),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.outlineVariant.withValues(alpha: .3)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: Icon(Icons.live_tv_rounded, color: colors.primary),
+                title: Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: Text(category),
+                trailing: compact
+                    ? null
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (var i = 0; i < buttons.length; i++) ...[
+                            if (i > 0) const SizedBox(width: 8),
+                            buttons[i],
+                          ],
+                        ],
+                      ),
+                onTap: canWatch ? onWatch : null,
+              ),
+              if (compact)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: Wrap(spacing: 8, runSpacing: 4, children: buttons),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
