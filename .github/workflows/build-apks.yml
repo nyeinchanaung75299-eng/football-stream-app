@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   verify-ios:
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[admin-web-only]') }}
     name: Verify iOS Viewer simulator build
     runs-on: macos-latest
     steps:
@@ -70,6 +71,7 @@ jobs:
           flutter build ios --simulator --debug --no-codesign
 
   build:
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[admin-web-only]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
