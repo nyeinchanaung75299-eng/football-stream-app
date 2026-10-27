@@ -322,12 +322,14 @@ export function extractPublicPlayerConfig(html, base) {
   for (const hit of text.matchAll(/(?:file|src|source|streamUrl|stream_url|hlsUrl|dashUrl|manifest)\s*["']?\s*:\s*(?:(["'])([^"'\r\n]+)\1|([A-Za-z_$][\w$]*))/g)) values.push(hit[2] ?? vars.get(hit[3]));
   let keys = { key_id: null, key_data: null };
   let invalidKeys = false;
+  let keyError;
   try { keys = publicClearKey(text); }
   catch (error) {
     // Malformed DASH keys cannot be used. A separate, clear HLS candidate on
     // the same public player may still verify independently. Its manifest
     // must reject encryption and its media sample must pass as before.
     invalidKeys = true;
+    keyError = error;
   }
   const found = new Map();
   for (const value of values) {
@@ -340,6 +342,7 @@ export function extractPublicPlayerConfig(html, base) {
       }
     } catch {}
   }
+  if (invalidKeys && !found.size) throw keyError;
   return [...found.values()];
 }
 

@@ -337,8 +337,8 @@ test("only a complete singular public ClearKey pair is preserved", () => {
   const config = extractPublicPlayerConfig("var setupOpts={file:'" + mpd + "',clearKeys:{'" + KID.toUpperCase() + "':'" + KEY + "'}}", EMBED);
   assert.equal(config[0].key_id, KID);
   assert.equal(config[0].key_data, KEY);
-  assert.deepEqual(extractPublicPlayerConfig("file:'" + mpd + "',key_id:'" + KID + "'", EMBED), []);
-  assert.deepEqual(extractPublicPlayerConfig("file:'" + mpd + "',clearKeys:{'" + KID + "':'" + KEY + "','11111111111111111111111111111111':'" + KEY + "'}", EMBED), []);
+  assert.throws(() => extractPublicPlayerConfig("file:'" + mpd + "',key_id:'" + KID + "'", EMBED), /incomplete/);
+  assert.throws(() => extractPublicPlayerConfig("file:'" + mpd + "',clearKeys:{'" + KID + "':'" + KEY + "','11111111111111111111111111111111':'" + KEY + "'}", EMBED), /Multiple/);
   const clear = extractPublicPlayerConfig("var p={file:'" + hlsUrl() + "',clearKeys:{invalid:'missing'}}", EMBED);
   assert.equal(clear.length, 1);
   assert.equal(clear[0].stream_type, "hls");
