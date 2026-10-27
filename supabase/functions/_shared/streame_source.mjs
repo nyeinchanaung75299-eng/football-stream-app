@@ -9,7 +9,9 @@ const PLAYER_HOSTS = new Set(["streame.center", "streamec.st", "embedcenter.st"]
 const USER_AGENT = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36";
 const MAX_HTML_BYTES = 1024 * 1024;
 const MAX_MANIFEST_BYTES = 512 * 1024;
-const BUDGET_MS = 7000;
+// The Admin gateway allows a 12s route. Leave room for response overhead while
+// allowing a bounded redirect, manifest and media-sample chain to finish.
+const BUDGET_MS = 10000;
 
 const clean = (value) => String(value ?? "").trim();
 const decode = (value) => clean(value)
@@ -210,14 +212,18 @@ export async function streameStreams(body = {}, options = {}) {
   const target = clean(body.room_num ?? body.source_id ?? body.schedule_id);
   const idMatch = target.match(/^(event-[a-z0-9-]{1,190}):([0-9a-f-]{36})$/i);
   if (!idMatch) throw new Error("Invalid StreamCenter source.");
-  const catalog = await streameMatches({}, { ...options, fetcher: ctx.fetcher,
-    timeoutMs: Math.max(1, ctx.deadline - Date.now()) });
-  const match = catalog.matches.find((row) => row.source_id === idMatch[1]);
-  const anchor = match?.anchors.find((row) => row.uid === idMatch[2]);
-  if (!anchor || (body.page_url && safeStreameUrl(body.page_url).toString() !== anchor.page_url)) {
-    throw new Error("StreamCenter source is no longer available.");
+  // The picker already obtained the public catalog. Re-fetching it for every
+  // selected group consumes the same short deadline as the manifest and media
+  // sample. Construct only the catalog's exact public source route; never use
+  // a caller-provided fetch URL. A missing/expired group fails at that route.
+  const match = { is_live: false, page_url: CATALOG_ORIGIN + "/watch/" + idMatch[1] };
+  const anchor = {
+    nick_name: "English",
+    page_url: CATALOG_ORIGIN + "/api/stream-link/iframe/" + idMatch[1] + "/" + idMatch[2],
+  };
+  if (body.page_url && safeStreameUrl(body.page_url).toString() !== anchor.page_url) {
+    throw new Error("StreamCenter source does not match the selected page.");
   }
-
   const redirect = await fetchBounded(ctx, anchor.page_url, { referer: match.page_url });
   return resolvePlayerPage(ctx, redirect, anchor, match, idMatch[2], {
     visited: new Set(), remaining: 6,

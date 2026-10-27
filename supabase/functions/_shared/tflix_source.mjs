@@ -320,13 +320,24 @@ export function extractPublicPlayerConfig(html, base) {
   for (const hit of text.matchAll(/\b(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*(["'])([^"'\r\n]+)\2/g)) vars.set(hit[1], hit[3]);
   const values = [];
   for (const hit of text.matchAll(/(?:file|src|source|streamUrl|stream_url|hlsUrl|dashUrl|manifest)\s*["']?\s*:\s*(?:(["'])([^"'\r\n]+)\1|([A-Za-z_$][\w$]*))/g)) values.push(hit[2] ?? vars.get(hit[3]));
-  const keys = publicClearKey(text);
+  let keys = { key_id: null, key_data: null };
+  let invalidKeys = false;
+  try { keys = publicClearKey(text); }
+  catch (error) {
+    // Malformed DASH keys cannot be used. A separate, clear HLS candidate on
+    // the same public player may still verify independently. Its manifest
+    // must reject encryption and its media sample must pass as before.
+    invalidKeys = true;
+  }
   const found = new Map();
   for (const value of values) {
     try {
       const url = safeTflixUrl(decodeEntities(clean(value)).replace(/\\\//g, "/"), base).toString();
       const type = mediaType(url);
-      if (type) found.set(url, { url, stream_type: type, ...keys });
+      if (type && !(invalidKeys && type === "dash")) {
+        found.set(url, { url, stream_type: type,
+          ...(type === "dash" ? keys : { key_id: null, key_data: null }) });
+      }
     } catch {}
   }
   return [...found.values()];

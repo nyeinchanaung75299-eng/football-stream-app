@@ -86,6 +86,17 @@ test("public iframe chain returns one verified gateway-compatible HLS line", asy
     verified: true, gateway: true, keyId: null, keyData: null,
   });
   assert.equal(mock.calls.at(-1).init.headers.Range, "bytes=0-4095");
+  assert.equal(mock.calls.some(({url}) => url === CATALOG), false);
+});
+
+test("a mismatched selected StreamCenter page is rejected before any fetch", async () => {
+  const mock = fakeFetch({});
+  await assert.rejects(
+    streameStreams({room_num: EVENT + ":" + SOURCE,
+      page_url: "https://streamcenter.st/api/stream-link/iframe/" + EVENT + "/00000000-0000-0000-0000-000000000000"}, mock),
+    /does not match/,
+  );
+  assert.equal(mock.calls.length, 0);
 });
 
 test("StreamCenter adapter rejects forged hosts and source IDs before media fetch", async () => {
@@ -134,7 +145,7 @@ test("cyclic public wrappers stop without arbitrary fetches", async () => {
     [nested]: new Response('<iframe src="' + wrapper + '"></iframe>'),
   });
   await assert.rejects(streameStreams({ room_num: EVENT + ":" + SOURCE }, mock), /Unsupported StreamCenter player/);
-  assert.equal(mock.calls.length, 4);
+  assert.equal(mock.calls.length, 3);
 });
 
 test("encrypted HLS is excluded", async () => {
@@ -242,7 +253,7 @@ test("direct wrapper literals remain host and encryption restricted", async () =
     streameStreams({ room_num: EVENT + ":" + SOURCE }, blocked),
     /StreamCenter player is unavailable/,
   );
-  assert.equal(blocked.calls.length, 3);
+  assert.equal(blocked.calls.length, 2);
 
   const encrypted = fakeFetch({
     [CATALOG]: new Response(card()),

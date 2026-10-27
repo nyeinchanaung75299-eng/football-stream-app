@@ -337,8 +337,36 @@ test("only a complete singular public ClearKey pair is preserved", () => {
   const config = extractPublicPlayerConfig("var setupOpts={file:'" + mpd + "',clearKeys:{'" + KID.toUpperCase() + "':'" + KEY + "'}}", EMBED);
   assert.equal(config[0].key_id, KID);
   assert.equal(config[0].key_data, KEY);
-  assert.throws(() => extractPublicPlayerConfig("file:'" + mpd + "',key_id:'" + KID + "'", EMBED), /incomplete/);
-  assert.throws(() => extractPublicPlayerConfig("file:'" + mpd + "',clearKeys:{'" + KID + "':'" + KEY + "','11111111111111111111111111111111':'" + KEY + "'}", EMBED), /Multiple/);
+  assert.deepEqual(extractPublicPlayerConfig("file:'" + mpd + "',key_id:'" + KID + "'", EMBED), []);
+  assert.deepEqual(extractPublicPlayerConfig("file:'" + mpd + "',clearKeys:{'" + KID + "':'" + KEY + "','11111111111111111111111111111111':'" + KEY + "'}", EMBED), []);
+  const clear = extractPublicPlayerConfig("var p={file:'" + hlsUrl() + "',clearKeys:{invalid:'missing'}}", EMBED);
+  assert.equal(clear.length, 1);
+  assert.equal(clear[0].stream_type, "hls");
+  assert.equal(clear[0].key_id, null);
+  assert.equal(clear[0].key_data, null);
+});
+
+test("malformed DASH keys do not hide a separate verified clear HLS source", async () => {
+  const slug = "mixed-broken-dash-and-clear-hls";
+  const page = "https://tflix.su/watch/" + slug;
+  const dash = CDN + "/unusable.mpd";
+  const hls = hlsUrl();
+  const mock = fakeFetch({
+    "https://tflix.su/api/public": {events: [{
+      sport: "Football", status: "live", watch_url: "/watch/" + slug,
+      home_name: "Home", away_name: "Away",
+      channels: [{name: "Public", embed_url: EMBED}],
+    }]},
+    [EMBED]: new Response("var p={sources:[{file:'" + dash + "'},{file:'" + hls + "'}],clearKeys:{broken:'key'}};"),
+    [hls]: new Response("#EXTM3U\n#EXTINF:6,\nsegment.ts"),
+    [new URL("segment.ts", hls).toString()]: new Response(tsBytes()),
+  });
+  const result = await tflixStreams({room_num: "match:" + slug}, mock);
+  assert.equal(result.ready, true);
+  assert.equal(result.lines[0].url, hls);
+  assert.equal(result.lines[0].key_id, null);
+  assert.equal(result.lines[0].key_data, null);
+  assert.equal(mock.calls.some(({url}) => url === dash), false);
 });
 
 test("HLS master and child media segment are verified, with actual source headers and signed expiry", async () => {
