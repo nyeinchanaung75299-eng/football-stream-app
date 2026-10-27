@@ -11,18 +11,18 @@ const _prefix = 'NCA_ADMIN_CAPTURE_V1:';
 const _download =
     'https://nyeinchanaung75299-eng.github.io/football-stream-app/admin/companion-extension.zip';
 
-Future<void> showCapture(
+Future<bool> showCapture(
   BuildContext context, {
   required String title,
   required String pageUrl,
 }) =>
-    showModalBottomSheet<void>(
+    showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
       builder: (_) => _CaptureSheet(title: title, pageUrl: pageUrl),
-    );
+    ).then((result) => result ?? false);
 
 class _CaptureSheet extends StatefulWidget {
   const _CaptureSheet({required this.title, required this.pageUrl});
@@ -164,6 +164,14 @@ class _CaptureSheetState extends State<_CaptureSheet> {
             const SizedBox(height: 8),
             Text(_status),
             const SizedBox(height: 12),
+            const Text('Phone Web: use the existing server check. '
+                'PC Chrome: play the original page with the companion installed.'),
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('CHECK VIA SERVER'),
+            ),
+            const SizedBox(height: 8),
             if (!_connected) ...[
               const Text('One-time setup on PC: download the ZIP, extract it, '
                   'open chrome://extensions, turn on Developer mode, '

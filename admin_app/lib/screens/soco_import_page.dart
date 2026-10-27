@@ -649,12 +649,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
         message('The original source page is unavailable.');
         return;
       }
-      await browser_companion.showCapture(
+      final useServer = await browser_companion.showCapture(
         context,
         title: _sourceMatchTitle(match),
         pageUrl: page.toString(),
       );
-      return;
+      if (!mounted || !useServer) return;
     }
     final epoch = _sourceSelectionEpoch;
     bool current() =>
