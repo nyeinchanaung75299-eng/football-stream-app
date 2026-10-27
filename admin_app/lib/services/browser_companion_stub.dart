@@ -6,6 +6,4 @@ Future<bool> showCapture(
   BuildContext context, {
   required String title,
   required String pageUrl,
-  String? streamCenterMatchId,
-  String? streamCenterSourceUrl,
 }) async => false;

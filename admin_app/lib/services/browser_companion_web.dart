@@ -5,7 +5,6 @@ import 'dart:html' as html;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 const _prefix = 'NCA_ADMIN_CAPTURE_V1:';
@@ -16,33 +15,19 @@ Future<bool> showCapture(
   BuildContext context, {
   required String title,
   required String pageUrl,
-  String? streamCenterMatchId,
-  String? streamCenterSourceUrl,
 }) =>
     showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (_) => _CaptureSheet(
-        title: title,
-        pageUrl: pageUrl,
-        streamCenterMatchId: streamCenterMatchId,
-        streamCenterSourceUrl: streamCenterSourceUrl,
-      ),
+      builder: (_) => _CaptureSheet(title: title, pageUrl: pageUrl),
     ).then((result) => result ?? false);
 
 class _CaptureSheet extends StatefulWidget {
-  const _CaptureSheet({
-    required this.title,
-    required this.pageUrl,
-    this.streamCenterMatchId,
-    this.streamCenterSourceUrl,
-  });
+  const _CaptureSheet({required this.title, required this.pageUrl});
   final String title;
   final String pageUrl;
-  final String? streamCenterMatchId;
-  final String? streamCenterSourceUrl;
 
   @override
   State<_CaptureSheet> createState() => _CaptureSheetState();
@@ -57,139 +42,19 @@ class _CaptureSheetState extends State<_CaptureSheet> {
   bool _connected = false;
   bool _started = false;
   String _status = 'Connecting to the PC browser companion…';
-  String _playerStatus = 'Loading public StreamCenter player links…';
-  final _players = <String, Uri>{};
 
   @override
   void initState() {
     super.initState();
     _messages = html.window.onMessage.listen(_receive);
-    if (widget.streamCenterMatchId != null) {
-      unawaited(_loadStreamCenterPlayers());
-    }
     scheduleMicrotask(() => _send('PING'));
     _handshake = Timer(const Duration(seconds: 2), () {
       if (mounted && !_connected) {
         setState(() => _status =
-            widget.streamCenterMatchId == null
-                ? 'Install the companion extension in desktop Chrome, then reload Admin Web.'
-                : 'Public player links are below. PC link detection needs the companion extension.');
+            'Install the companion extension in desktop Chrome, then reload Admin Web.');
       }
     });
   }
-
-  Uri? _httpsPlayer(String? raw) {
-    if (raw == null || raw.length > 2048) return null;
-    final uri = Uri.tryParse(raw);
-    return uri != null && uri.scheme == 'https' && uri.host.isNotEmpty &&
-            uri.userInfo.isEmpty
-        ? uri
-        : null;
-  }
-
-  Uri? _originalSourcePage() {
-    final uri = _httpsPlayer(widget.streamCenterSourceUrl);
-    final path = uri?.pathSegments ?? const <String>[];
-    if (uri?.host != 'streamcenter.st' || path.length != 5 ||
-        path[0] != 'api' || path[1] != 'stream-link' ||
-        path[2] != 'iframe' || path[3] != widget.streamCenterMatchId) {
-      return null;
-    }
-    return uri;
-  }
-
-  Future<void> _loadStreamCenterPlayers() async {
-    final id = widget.streamCenterMatchId;
-    if (id == null || !RegExp(r'^event-[a-z0-9-]{1,190}$', caseSensitive: false)
-        .hasMatch(id)) {
-      if (mounted) setState(() => _playerStatus = 'Public match ID is unavailable.');
-      return;
-    }
-    final client = http.Client();
-    try {
-      final catalog = await client.get(
-        Uri.https('streamcenter.st', '/api/matches/football'),
-      ).timeout(const Duration(seconds: 7));
-      if (catalog.statusCode != 200 || catalog.bodyBytes.length > 1024 * 1024) {
-        throw const FormatException('Public match catalog is unavailable.');
-      }
-      final rows = jsonDecode(catalog.body);
-      if (rows is! List) throw const FormatException('Invalid match catalog.');
-      Map? match;
-      for (final row in rows) {
-        if (row is Map && row['id'] == id) { match = row; break; }
-      }
-      final groups = match?['sources'];
-      if (groups is! List || groups.isEmpty) {
-        throw const FormatException('No advertised player group for this match.');
-      }
-      final resolved = await Future.wait(groups.take(3).map((group) async {
-        if (group is! Map) return <String, Uri>{};
-        final source = group['source']?.toString() ?? '';
-        final groupId = group['id']?.toString() ?? '';
-        if (source.isEmpty || source.length > 100 ||
-            groupId.isEmpty || groupId.length > 200) return <String, Uri>{};
-        try {
-          final response = await client.get(Uri(
-            scheme: 'https', host: 'streamcenter.st',
-            pathSegments: ['api', 'stream', source, groupId],
-          )).timeout(const Duration(seconds: 7));
-          if (response.statusCode != 200 ||
-              response.bodyBytes.length > 256 * 1024) return <String, Uri>{};
-          final streams = jsonDecode(response.body);
-          if (streams is! List) return <String, Uri>{};
-          final found = <String, Uri>{};
-          for (final row in streams.take(8)) {
-            if (row is! Map) continue;
-            final uri = _httpsPlayer(row['embedUrl']?.toString());
-            if (uri == null) continue;
-            final language = row['language']?.toString().trim() ?? '';
-            final number = row['streamNo']?.toString() ?? '';
-            found['${language.isEmpty ? 'Player' : language} #$number'] = uri;
-          }
-          return found;
-        } catch (_) { return <String, Uri>{}; }
-      }));
-      if (!mounted) return;
-      setState(() {
-        for (final group in resolved) {
-          for (final entry in group.entries) {
-            if (!_players.containsValue(entry.value)) _players[entry.key] = entry.value;
-          }
-        }
-        _playerStatus = _players.isEmpty
-            ? 'The public API has no player link for this match.'
-            : 'Player pages from StreamCenter. These are not verified M3U8/MPD links.';
-      });
-    } catch (_) {
-      if (mounted) setState(() => _playerStatus =
-          'Could not load public player links. Use the source page below.');
-    } finally {
-      client.close();
-    }
-  }
-
-  Widget _playerLink(String label, Uri url) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-        SelectableText(url.toString()),
-        Wrap(spacing: 8, children: [
-          TextButton.icon(
-            onPressed: () => launchUrl(url, mode: LaunchMode.externalApplication),
-            icon: const Icon(Icons.open_in_new),
-            label: Text(label == 'Original source page'
-                ? 'OPEN SOURCE PAGE' : 'OPEN PLAYER'),
-          ),
-          TextButton.icon(
-            onPressed: () => Clipboard.setData(ClipboardData(text: url.toString())),
-            icon: const Icon(Icons.copy), label: const Text('COPY PLAYER LINK'),
-          ),
-        ]),
-      ]),
-    ),
-  );
 
   void _send(String type) {
     html.window.postMessage(
@@ -256,7 +121,7 @@ class _CaptureSheetState extends State<_CaptureSheet> {
             _links.length >= 30) return;
         setState(() {
           _links[url] = type;
-          _status = 'Detected links below. Playback is not verified.';
+          _status = 'Detected HLS/DASH media requests below. Playback is not verified.';
         });
         return;
       case 'STOPPED':
@@ -287,78 +152,6 @@ class _CaptureSheetState extends State<_CaptureSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final sourcePage = _originalSourcePage();
-    if (widget.streamCenterMatchId != null) {
-      return FractionallySizedBox(
-        heightFactor: .8,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(widget.title, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            const Text('StreamCenter player pages. These are not verified M3U8/MPD links.'),
-            const SizedBox(height: 8),
-            Expanded(
-              child: ListView(children: [
-                Text(_playerStatus),
-                if (sourcePage != null)
-                  _playerLink('Original source page', sourcePage),
-                for (final entry in _players.entries)
-                  _playerLink(entry.key, entry.value),
-                if (_links.isNotEmpty) ...[
-                  const Divider(),
-                  const Text('PC DETECTED HLS/DASH LINKS'),
-                  for (final entry in _links.entries)
-                    Card(child: ListTile(
-                      title: Text(entry.value.toUpperCase()),
-                      subtitle: SelectableText(entry.key),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.copy),
-                        onPressed: () => Clipboard.setData(
-                            ClipboardData(text: entry.key)),
-                      ),
-                    )),
-                ],
-                ExpansionTile(
-                  title: const Text('PC LINK DETECTOR / SERVER CHECK'),
-                  children: [
-                    Text(_status),
-                    if (!_connected) ...[
-                      const Text('Install the companion extension in desktop Chrome and reload Admin Web.'),
-                      TextButton.icon(
-                        onPressed: () => launchUrl(Uri.parse(_download),
-                            mode: LaunchMode.externalApplication),
-                        icon: const Icon(Icons.download),
-                        label: const Text('DOWNLOAD PC COMPANION'),
-                      ),
-                      TextButton(
-                        onPressed: () => _send('PING'),
-                        child: const Text('RETRY CONNECTION'),
-                      ),
-                    ] else ...[
-                      if (!_started)
-                        OutlinedButton(
-                          onPressed: () => _send('START'),
-                          child: const Text('OPEN SOURCE & CAPTURE'),
-                        )
-                      else
-                        OutlinedButton(
-                          onPressed: () => _send('STOP'),
-                          child: const Text('STOP CAPTURE'),
-                        ),
-                    ],
-                    OutlinedButton(
-                      onPressed: () => Navigator.of(context).pop(true),
-                      child: const Text('CHECK VIA SERVER'),
-                    ),
-                  ],
-                ),
-              ]),
-            ),
-          ]),
-        ),
-      );
-    }
     return FractionallySizedBox(
       heightFactor: .8,
       child: Padding(
@@ -371,8 +164,9 @@ class _CaptureSheetState extends State<_CaptureSheet> {
             const SizedBox(height: 8),
             Text(_status),
             const SizedBox(height: 12),
-            const Text('Phone Web: use the existing server check. '
-                'PC Chrome: play the original page with the companion installed.'),
+            const Text('PC Chrome: play the video in the opened source tab, '
+                'then return here to copy its HLS/DASH media URL. '
+                'Phone Web: use the existing server check.'),
             const SizedBox(height: 8),
             OutlinedButton(
               onPressed: () => Navigator.of(context).pop(true),
@@ -414,21 +208,18 @@ class _CaptureSheetState extends State<_CaptureSheet> {
             ],
             const Divider(),
             Expanded(
-              child: ListView(
-                children: [
-                  if (_links.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 20),
-                      child: Center(child: Text('No HLS/DASH links detected yet.')),
-                    ),
-                  for (final entry in _links.entries)
-                    Card(
+              child: _links.isEmpty
+                  ? const Center(child: Text('No HLS/DASH links detected yet.'))
+                  : ListView(
+                      children: [
+                        for (final entry in _links.entries)
+                          Card(
                             child: Padding(
                               padding: const EdgeInsets.all(12),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(entry.value.toUpperCase(),
+                                  Text(entry.value == 'hls' ? 'HLS (M3U8)' : 'DASH (MPD)',
                                       style: const TextStyle(
                                           fontWeight: FontWeight.bold)),
                                   SelectableText(entry.key),
@@ -443,8 +234,8 @@ class _CaptureSheetState extends State<_CaptureSheet> {
                               ),
                             ),
                           ),
-                ],
-              ),
+                      ],
+                    ),
             ),
           ],
         ),

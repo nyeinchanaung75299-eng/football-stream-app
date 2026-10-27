@@ -40,7 +40,10 @@ test("Admin Web companion watches only the user-opened source tab", async () => 
       get: async key => key === null ? {...session} : {[key]: session[key]},
       remove: async key => {delete session[key];},
     }},
-    webRequest: {onBeforeRequest: {addListener: fn => {listeners.media = fn;}}},
+    webRequest: {
+      onBeforeRequest: {addListener: fn => {listeners.media = fn;}},
+      onHeadersReceived: {addListener: fn => {listeners.response = fn;}},
+    },
   };
   vm.runInNewContext(workerCode, {chrome, URL, Date, Set, Object, Number}, {
     filename: "worker.js",
@@ -55,8 +58,12 @@ test("Admin Web companion watches only the user-opened source tab", async () => 
   listeners.media({tabId: 38, url: "https://cdn.example.org/live/second.mpd?x=1"});
   listeners.media({tabId: 38, url: "https://cdn.example.org/license"});
   listeners.media({tabId: 38, url: "http://cdn.example.org/insecure.m3u8"});
+  listeners.response({tabId: 38, url: "https://cdn.example.org/tokenized/playlist?key=abc",
+    responseHeaders: [{name: "Content-Type", value: "application/vnd.apple.mpegurl"}]});
+  listeners.response({tabId: 38, url: "https://cdn.example.org/license",
+    responseHeaders: [{name: "Content-Type", value: "application/octet-stream"}]});
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(sent.map(x => x.message.format), ["hls", "dash"]);
+  assert.deepEqual(sent.map(x => x.message.format), ["hls", "dash", "hls"]);
   assert.ok(sent.every(x => x.tabId === 9 && x.message.requestId === requestId));
   assert.ok(!JSON.stringify(sent).includes("license"));
   assert.ok(!JSON.stringify(session).includes("cdn.example.org"));
@@ -75,7 +82,10 @@ test("untrusted page and unsupported source cannot start capture", async () => {
       throw Error("unexpected tab");
     }},
     storage: {session: {get: async () => ({})}},
-    webRequest: {onBeforeRequest: {addListener() {}}},
+    webRequest: {
+      onBeforeRequest: {addListener() {}},
+      onHeadersReceived: {addListener() {}},
+    },
   };
   vm.runInNewContext(workerCode, {chrome, URL, Date, Set, Object, Number});
   assert.equal(listeners.command({

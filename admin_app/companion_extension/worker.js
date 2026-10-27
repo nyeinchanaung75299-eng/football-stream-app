@@ -30,6 +30,21 @@ function mediaLink(raw) {
   return null;
 }
 
+function mediaContentType(details) {
+  try {
+    const type = details.responseHeaders?.find(header =>
+      header.name?.toLowerCase() === "content-type")?.value?.toLowerCase() || "";
+    const format = /(?:application|audio)\/(?:vnd\.apple\.mpegurl|x-mpegurl)/.test(type)
+      ? "hls"
+      : /application\/dash\+xml/.test(type) ? "dash" : null;
+    if (!format) return null;
+    const url = new URL(details.url);
+    if (url.protocol !== "https:" || url.username || url.password ||
+        details.url.length > 4096) return null;
+    return {url: url.href, format};
+  } catch { return null; }
+}
+
 chrome.runtime.onMessage.addListener((command, sender, respond) => {
   if (!sender.url?.startsWith(adminPrefix) ||
       !Number.isInteger(sender.tab?.id) ||
@@ -65,8 +80,7 @@ chrome.runtime.onMessage.addListener((command, sender, respond) => {
   return true;
 });
 
-chrome.webRequest.onBeforeRequest.addListener((details) => {
-  const media = mediaLink(details.url);
+function reportMedia(details, media) {
   if (!media || details.tabId < 0) return;
   // A source tab can belong to only one actively requested Admin capture.
   chrome.storage.session.get(null).then((items) => {
@@ -83,7 +97,18 @@ chrome.webRequest.onBeforeRequest.addListener((details) => {
       type: "LINK", requestId: session.requestId, ...media,
     }).catch(() => chrome.storage.session.remove(key));
   }).catch(() => {});
+}
+
+chrome.webRequest.onBeforeRequest.addListener((details) => {
+  reportMedia(details, mediaLink(details.url));
 }, {urls: ["https://*/*"]});
+
+// Some players request a manifest through a path without a .m3u8/.mpd
+// suffix. Read the MIME type only; never forward response headers or bodies.
+chrome.webRequest.onHeadersReceived.addListener((details) => {
+  if (mediaLink(details.url)) return;
+  reportMedia(details, mediaContentType(details));
+}, {urls: ["https://*/*"]}, ["responseHeaders"]);
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   void chrome.storage.session.get(null).then((items) => {

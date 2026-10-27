@@ -643,7 +643,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
     // PC Web observes the original page's media requests in its own tab.
     // Native Admin retains the existing authenticated resolver unchanged.
     if (kIsWeb && (provider == 'tflix' || provider == 'streame')) {
-      final rawPage = (match['page_url'] ?? anchor['page_url'] ?? '').toString();
+      // StreamCenter's selected iframe route leads to its player. Capture
+      // requests from that tab so the returned links are media manifests.
+      final rawPage = (provider == 'streame'
+              ? anchor['page_url'] ?? match['page_url']
+              : match['page_url'] ?? anchor['page_url'] ?? '')
+          .toString();
       final page = Uri.tryParse(rawPage);
       if (page == null || page.scheme != 'https' || page.host.isEmpty) {
         message('The original source page is unavailable.');
@@ -653,10 +658,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
         context,
         title: _sourceMatchTitle(match),
         pageUrl: page.toString(),
-        streamCenterMatchId:
-            provider == 'streame' ? match['source_id']?.toString() : null,
-        streamCenterSourceUrl:
-            provider == 'streame' ? anchor['page_url']?.toString() : null,
       );
       if (!mounted || !useServer) return;
     }
