@@ -653,6 +653,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
         context,
         title: _sourceMatchTitle(match),
         pageUrl: page.toString(),
+        streamCenterMatchId:
+            provider == 'streame' ? match['source_id']?.toString() : null,
+        streamCenterSourceUrl:
+            provider == 'streame' ? anchor['page_url']?.toString() : null,
       );
       if (!mounted || !useServer) return;
     }
