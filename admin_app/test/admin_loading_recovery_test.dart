@@ -91,7 +91,7 @@ void main() {
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
     expect(find.text('Could not load matches.'), findsNothing);
-    expect(find.text('ADD SERVER'), findsOneWidget);
+    expect(find.text('No published matches yet.'), findsOneWidget);
     expect(attempts, 2);
     expect(tester.takeException(), isNull);
   });
