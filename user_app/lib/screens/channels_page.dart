@@ -21,34 +21,67 @@ class _ChannelsPageState extends State<ChannelsPage> {
   String? workingBase;
   bool opening = false;
   Future<Map<String, dynamic>> request(String path) async {
-    Object? last;
     final bases = publicApiBases();
     if (workingBase != null && bases.remove(workingBase))
       bases.insert(0, workingBase!);
-    for (final base in bases) {
-      try {
-        final response = await http
-            .get(
-              Uri.parse('$base$path'),
-              headers: const {'Accept': 'application/json'},
-            )
-            .timeout(const Duration(seconds: 7));
-        if (response.statusCode != 200) {
-          last = 'HTTP ${response.statusCode}';
-          continue;
+    final result = Completer<Map<String, dynamic>>();
+    Object? lastError;
+    var next = 0;
+    var pending = 0;
+
+    void startNext() {
+      if (result.isCompleted || next >= bases.length) return;
+      final base = bases[next++];
+      pending++;
+      () async {
+        try {
+          final response = await http
+              .get(
+                Uri.parse('$base$path'),
+                headers: const {'Accept': 'application/json'},
+              )
+              .timeout(const Duration(seconds: 7));
+          if (response.statusCode != 200) {
+            throw StateError('HTTP ${response.statusCode}');
+          }
+          final decoded = jsonDecode(response.body);
+          if (decoded is! Map || decoded['ok'] != true) {
+            throw const FormatException('Invalid channel response');
+          }
+          if (!result.isCompleted) {
+            workingBase = base;
+            result.complete(Map<String, dynamic>.from(decoded));
+          }
+        } catch (error) {
+          lastError = error;
+        } finally {
+          pending--;
+          if (!result.isCompleted) {
+            // A failed route should not delay the next candidate.
+            if (next < bases.length) startNext();
+            if (next == bases.length && pending == 0) {
+              result.completeError(
+                StateError('Channel service unavailable: $lastError'),
+              );
+            }
+          }
         }
-        final decoded = jsonDecode(response.body);
-        if (decoded is! Map || decoded['ok'] != true) {
-          last = 'Invalid response';
-          continue;
-        }
-        workingBase = base;
-        return Map<String, dynamic>.from(decoded);
-      } catch (error) {
-        last = error;
-      }
+      }();
     }
-    throw StateError('Channel service unavailable: $last');
+
+    startNext();
+    final hedge = Timer.periodic(const Duration(milliseconds: 400), (timer) {
+      if (result.isCompleted || next >= bases.length) {
+        timer.cancel();
+      } else {
+        startNext();
+      }
+    });
+    try {
+      return await result.future;
+    } finally {
+      hedge.cancel();
+    }
   }
 
   Future<List<Map<String, dynamic>>> load() async {
