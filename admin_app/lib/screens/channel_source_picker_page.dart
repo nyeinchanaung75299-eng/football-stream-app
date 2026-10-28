@@ -24,6 +24,7 @@ class _ChannelSourcePickerPageState extends State<ChannelSourcePickerPage> {
 
   Future<void> choose(Map<String, dynamic> row) async {
     if (openingId != null) return;
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() => openingId = row['id'].toString());
     try {
       final selected = await service.select(row);

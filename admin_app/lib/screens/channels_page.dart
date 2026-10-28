@@ -27,6 +27,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
 
   Future<void> addToMatch(Map<String, dynamic> channel) async {
     if (addingChannelId != null) return;
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() => addingChannelId = channel['id'].toString());
     try {
       final selected =

@@ -69,8 +69,12 @@ void main() {
         () async {
           await tester.pumpWidget(const MaterialApp(home: ChannelsPage()));
           await tester.pumpAndSettle();
+          await tester.enterText(find.byType(TextField), 'channel');
+          await tester.pumpAndSettle();
+          expect(tester.testTextInput.isVisible, isTrue);
           await tester.tap(find.text('Channel'));
           await tester.pumpAndSettle();
+          expect(tester.testTextInput.isVisible, isFalse);
           expect(opened, isNotNull);
           final lines = jsonDecode(opened!['sourcesJson'] as String) as List;
           expect(lines.first['portraitStart'], true);

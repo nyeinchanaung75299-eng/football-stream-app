@@ -123,6 +123,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
 
   Future<void> watch(Map<String, dynamic> channel) async {
     if (opening) return;
+    FocusManager.instance.primaryFocus?.unfocus();
     final id = channel['id']?.toString() ?? '';
     if (!RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)) return;
     setState(() => opening = true);
