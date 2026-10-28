@@ -266,7 +266,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
       if (!mounted) return;
 
-      message('Server added.');
+      message('Link added.');
       serverName.clear();
       link.clear();
       referer.clear();
@@ -506,7 +506,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                         children: [
                           const Expanded(
                             child: Text(
-                              'Edit Server',
+                              'Edit Link',
                               style: TextStyle(
                                 fontSize: 21,
                                 fontWeight: FontWeight.w900,
@@ -659,7 +659,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         );
 
         if (mounted) {
-          message('Server updated.');
+          message('Link updated.');
           reloadLinks();
         }
       } catch (e) {
@@ -1065,7 +1065,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                 Row(
                   children: [
                     Text(
-                      'Existing Servers',
+                      'Existing Links',
                       style: Theme.of(context).textTheme.titleLarge
                           ?.copyWith(fontWeight: FontWeight.w900),
                     ),
@@ -1101,7 +1101,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                   builder: (context, linkSnapshot) {
                     if (linkSnapshot.hasError) {
                       return _loadFailure(
-                        'Could not load servers.',
+                        'Could not load links.',
                         reloadLinks,
                       );
                     }
@@ -1121,7 +1121,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                         child: Padding(
                           padding: const EdgeInsets.all(18),
                           child: Text(
-                            'No servers added yet.',
+                            'No links added yet.',
                             style: TextStyle(color: colors.onSurfaceVariant),
                           ),
                         ),
