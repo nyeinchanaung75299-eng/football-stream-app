@@ -179,3 +179,20 @@ test('Browser Run scanner proxy preserves Admin authentication',async()=>{
     }]);
   });
 });
+
+test('channel catalog exposes saved image by channel ID', async () => {
+  const id = '56025ef6-a968-426d-a22c-90cc093eeef2';
+  const image = 'https://cdn.example.org/channel.png';
+  await withFetch(async (url) => {
+    assert.equal(String(url), worker + '/channels');
+    return Response.json({ ok: true, channels: [{ id, image_url: image }] });
+  }, async () => {
+    const response = await proxy(new Request(origin + '/channels'));
+    assert.equal(response.status, 200);
+    const catalog = await response.json();
+    const url = new URL(catalog.channels[0].image_url);
+    assert.equal(url.pathname, '/api/channel-logo');
+    assert.equal(url.searchParams.get('id'), id);
+    assert.equal(url.searchParams.get('v'), image);
+  });
+});
