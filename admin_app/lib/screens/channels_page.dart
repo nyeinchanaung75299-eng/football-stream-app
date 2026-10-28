@@ -53,9 +53,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
             child: Text('Could not load channels: ${snapshot.error}'),
           );
         if (snapshot.data!.isEmpty)
-          return const Center(
-            child: Text('No channels yet. Add one with a stream line.'),
-          );
+          return const Center(child: Text('No channels yet.'));
         return ListView.builder(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
           itemCount: snapshot.data!.length,
@@ -151,7 +149,8 @@ class _ChannelEditorState extends State<_ChannelEditor> {
           .order('sort_order');
       if (!mounted) return;
       setState(() {
-        lines.addAll(List<Map<String, dynamic>>.from(rows).map(_Line.new));
+        if (rows.isNotEmpty)
+          lines.add(_Line(Map<String, dynamic>.from(rows.first)));
         if (lines.isEmpty) lines.add(_Line());
         loading = false;
       });
@@ -203,9 +202,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
               (line.keyId.text.trim().isEmpty !=
                   line.keyData.text.trim().isEmpty),
         )) {
-      notice(
-        'Add a name, category and valid stream URL for every line. Keys must be a pair.',
-      );
+      notice('Add a name, category and valid stream URL. Keys must be a pair.');
       return;
     }
     setState(() => saving = true);
@@ -329,16 +326,6 @@ class _ChannelEditorState extends State<_ChannelEditor> {
                 value: active,
                 onChanged: (value) => setState(() => active = value),
               ),
-              Row(
-                children: [
-                  const Expanded(child: Text('Stream lines')),
-                  TextButton.icon(
-                    onPressed: () => setState(() => lines.add(_Line())),
-                    icon: const Icon(Icons.add),
-                    label: const Text('ADD LINE'),
-                  ),
-                ],
-              ),
               for (var i = 0; i < lines.length; i++)
                 Card(
                   key: ObjectKey(lines[i]),
@@ -346,25 +333,6 @@ class _ChannelEditorState extends State<_ChannelEditor> {
                     padding: const EdgeInsets.all(12),
                     child: Column(
                       children: [
-                        Row(
-                          children: [
-                            Expanded(child: Text('Line ${i + 1}')),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline),
-                              onPressed: lines.length <= 1
-                                  ? null
-                                  : () => setState(
-                                      () => removed.add(lines.removeAt(i)),
-                                    ),
-                            ),
-                          ],
-                        ),
-                        TextField(
-                          controller: lines[i].label,
-                          decoration: const InputDecoration(
-                            labelText: 'Server name',
-                          ),
-                        ),
                         TextField(
                           controller: lines[i].url,
                           decoration: const InputDecoration(

@@ -33,6 +33,8 @@
     #football-player-ios-fullscreen{display:none}
     #football-player-line-rail{position:relative;z-index:4;flex:0 0 auto;min-height:54px;box-sizing:border-box;padding:7px 10px calc(7px + env(safe-area-inset-bottom));border-top:1px solid rgba(255,255,255,.12);background:#080b0a;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none}
     #football-player-line-rail.hidden{display:none}
+    #football-player-overlay.channel-player #football-player-server{display:none!important}
+    #football-player-overlay.ios-native-mode.channel-player #football-player-rotate{display:inline-flex!important}
     #football-player-line-rail::-webkit-scrollbar{display:none}
     #football-player-line-rail:empty{display:none}
     #football-player-line-items{display:flex;align-items:stretch;gap:8px;width:max-content;min-width:100%}
@@ -751,7 +753,9 @@
 
     function renderLineRail(){
       lineItems.innerHTML='';
-      lineRail.classList.toggle('hidden',sources.length===0);
+      const singleChannel=sources.length===1&&sources[0]?.portraitStart===true;
+      lineRail.classList.toggle('hidden',sources.length===0||singleChannel);
+      serverButton.style.display=singleChannel?'none':'';
       sources.forEach((source,index)=>{
         const item=document.createElement('button');
         const selected=index===currentSourceIndex;
@@ -1497,9 +1501,12 @@
       fitButton.textContent='Fill';
       clearManualRotation();
       syncIOSSystemRotationControls();
+      overlay.classList.toggle('channel-player',sources[startIndex]?.portraitStart===true);
       overlay.classList.add('open');overlay.setAttribute('aria-hidden','false');
       layoutIOSVideoFrame();
-      if(!isIOS())hideControls();
+      if(!isIOS()){
+        if(sources[startIndex]?.portraitStart)revealControls();else hideControls();
+      }
       await loadSource(startIndex);
     };
   })();

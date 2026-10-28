@@ -28,6 +28,7 @@ jobs:
           node --test scripts/test_protected_dash_proxy.mjs
           node --test scripts/test_supabase_relay.mjs
           node --test scripts/test_public_match_feed.mjs
+          node --test scripts/test_website_sources.mjs
           node --test scripts/test_website_stream_scanner.mjs
           node --test scripts/test_browser_stream_scanner.mjs
       - name: Dry-run Cloudflare worker bundle

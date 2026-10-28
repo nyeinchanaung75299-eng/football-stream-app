@@ -1687,6 +1687,8 @@ class _HomePageState extends State<HomePage> {
             2 => 'yyzb',
             3 => 'fawa',
             4 => 'cola',
+            6 => 'xoilac',
+            7 => 'camel',
             _ => 'soco',
           };
           await Navigator.of(context).push(

@@ -10,6 +10,8 @@ on:
       - "scripts/test_backend_startup.mjs"
       - "scripts/test_football_names.mjs"
       - "supabase/functions/_shared/football_names.mjs"
+      - "supabase/functions/_shared/website_sources.mjs"
+      - "scripts/test_website_sources.mjs"
       - "supabase/functions/_shared/source_match_rows.mjs"
       - "scripts/test_fawa_source.mjs"
       - "scripts/test_website_stream_scanner.mjs"
@@ -54,6 +56,9 @@ jobs:
 
       - name: Test Supabase relay
         run: node scripts/test_supabase_relay.mjs
+
+      - name: Test public website providers
+        run: node --test scripts/test_website_sources.mjs
 
       - name: Test public match feed
         run: node --test scripts/test_public_match_feed.mjs

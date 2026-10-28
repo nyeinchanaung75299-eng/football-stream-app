@@ -1,3 +1,5 @@
+import 'package:url_launcher/url_launcher.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -34,21 +36,19 @@ List<Map<String, dynamic>> validateSourceMatchRows(
     throw const FormatException('Source match list is invalid.');
   }
 
-  return rows
-      .map<Map<String, dynamic>>((row) {
-        if (row is! Map) {
-          throw const FormatException('Source match row is invalid.');
-        }
-        final parsed = Map<String, dynamic>.from(row);
-        final rowSource = parsed['source']?.toString().trim().toLowerCase();
-        if (rowSource != expected) {
-          throw FormatException(
-            'Source response mismatch: expected $expected.',
-          );
-        }
-        return parsed;
-      })
-      .toList(growable: false);
+  return rows.map<Map<String, dynamic>>((row) {
+    if (row is! Map) {
+      throw const FormatException('Source match row is invalid.');
+    }
+    final parsed = Map<String, dynamic>.from(row);
+    final rowSource = parsed['source']?.toString().trim().toLowerCase();
+    if (rowSource != expected) {
+      throw FormatException(
+        'Source response mismatch: expected $expected.',
+      );
+    }
+    return parsed;
+  }).toList(growable: false);
 }
 
 class SocoImportPage extends StatefulWidget {
@@ -75,8 +75,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   static const _rawMirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/sources';
 
-  static final bool _enableNoVpnFallback =
-      const String.fromEnvironment(
+  static final bool _enableNoVpnFallback = const String.fromEnvironment(
         'ENABLE_NO_VPN_FALLBACK',
         defaultValue: '0',
       ).trim() ==
@@ -122,11 +121,23 @@ class _SocoImportPageState extends State<SocoImportPage> {
     }
     _targetMatchesFuture = _loadTargetMatches();
     final requested = widget.initialSource.trim().toLowerCase();
-    source = const {'soco', 'yyzb', 'fawa', 'cola', 'playz'}.contains(requested)
+    source = const {
+      'soco',
+      'yyzb',
+      'fawa',
+      'cola',
+      'xoilac',
+      'camel',
+      'playz',
+    }.contains(requested)
         ? requested
         : 'soco';
     if (_isManualSource) _libraryFuture = _streamLibrary.list();
-    dayFilter = (source == 'fawa' || source == 'cola' || _isManualSource)
+    dayFilter = (source == 'fawa' ||
+            source == 'cola' ||
+            source == 'xoilac' ||
+            source == 'camel' ||
+            _isManualSource)
         ? 'all'
         : 'today';
     _loadSoco();
@@ -156,8 +167,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final state = WidgetsBinding.instance.lifecycleState;
     if (_extractingAnchorKey != null ||
         (state != null && state != AppLifecycleState.resumed) ||
-        ModalRoute.of(context)?.isCurrent == false)
-      return;
+        ModalRoute.of(context)?.isCurrent == false) return;
     _backgroundRefreshBusy = true;
     try {
       await _loadSoco(silent: true);
@@ -188,10 +198,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
     const staleKickoffGrace = Duration(hours: 5);
 
     return List<Map<String, dynamic>>.from(data).where((row) {
-      final kickoff = DateTime.tryParse(row['kickoff_at']?.toString() ?? '')
-          ?.toLocal();
-      final stale =
-          row['is_live'] != true &&
+      final kickoff =
+          DateTime.tryParse(row['kickoff_at']?.toString() ?? '')?.toLocal();
+      final stale = row['is_live'] != true &&
           kickoff != null &&
           now.difference(kickoff) > staleKickoffGrace;
 
@@ -209,16 +218,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
     Map<String, dynamic>? emptyFallback;
     for (final base in const [_pagesMirrorBase, _rawMirrorBase]) {
       try {
-        final response = await http
-            .get(
-              Uri.parse(base + '/' + provider + '.json').replace(
-                queryParameters: {
-                  't': DateTime.now().millisecondsSinceEpoch.toString(),
-                },
-              ),
-              headers: const {'Accept': 'application/json'},
-            )
-            .timeout(const Duration(seconds: 18));
+        final response = await http.get(
+          Uri.parse(base + '/' + provider + '.json').replace(
+            queryParameters: {
+              't': DateTime.now().millisecondsSinceEpoch.toString(),
+            },
+          ),
+          headers: const {'Accept': 'application/json'},
+        ).timeout(const Duration(seconds: 18));
         if (response.statusCode < 200 || response.statusCode >= 300) {
           throw Exception(
             'Source mirror HTTP ' + response.statusCode.toString(),
@@ -244,8 +251,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   bool _staleSourceMatch(Map<String, dynamic> row) {
-    final kickoff = DateTime.tryParse(row['match_time']?.toString() ?? '')
-        ?.toUtc();
+    final kickoff =
+        DateTime.tryParse(row['match_time']?.toString() ?? '')?.toUtc();
     if (kickoff == null) return false;
     return DateTime.now().toUtc().difference(kickoff) >
         const Duration(hours: 4);
@@ -306,15 +313,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
       parsed.sort((a, b) {
         final at =
             DateTime.tryParse(a['match_time']?.toString() ?? '')?.toLocal() ??
-            DateTime(9999);
+                DateTime(9999);
         final bt =
             DateTime.tryParse(b['match_time']?.toString() ?? '')?.toLocal() ??
-            DateTime(9999);
+                DateTime(9999);
         final byTime = at.compareTo(bt);
         if (byTime != 0) return byTime;
         return (a['home_team'] ?? '').toString().toLowerCase().compareTo(
-          (b['home_team'] ?? '').toString().toLowerCase(),
-        );
+              (b['home_team'] ?? '').toString().toLowerCase(),
+            );
       });
 
       unawaited(
@@ -399,6 +406,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   Future<void> _probeVisibleAnchorStatuses() async {
+    if (source == 'camel') return;
     if (!mounted || loading) return;
 
     final provider = source;
@@ -414,7 +422,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
         final key = _anchorKey(match, anchor, provider: provider);
         if (_anchorStatuses.containsKey(key)) continue;
 
-        if (provider == 'cola' || provider == 'fawa') {
+        if (provider == 'cola' ||
+            provider == 'fawa' ||
+            provider == 'xoilac' ||
+            provider == 'camel') {
           _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'ready';
           continue;
         }
@@ -437,6 +448,16 @@ class _SocoImportPageState extends State<SocoImportPage> {
           final key = item['key'].toString();
 
           try {
+            if (source == 'camel') {
+              final target = Uri.tryParse(
+                (anchor['page_url'] ?? match['page_url'] ?? '').toString(),
+              );
+              if (target?.scheme == 'https' &&
+                  target?.host == 'www.camel1.tv') {
+                await launchUrl(target!, mode: LaunchMode.externalApplication);
+              }
+              return;
+            }
             final room = anchor['room_num']?.toString().trim() ?? '';
             if (room.isEmpty) {
               _anchorStatuses[key] = 'offline';
@@ -506,7 +527,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
       });
     }
 
-    if (source == 'fawa' || source == 'cola' || dayFilter == 'all') {
+    if (source == 'fawa' ||
+        source == 'cola' ||
+        source == 'xoilac' ||
+        source == 'camel' ||
+        dayFilter == 'all') {
       return rows.toList();
     }
 
@@ -516,8 +541,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
         : DateTime(now.year, now.month, now.day);
 
     return rows.where((row) {
-      final time = DateTime.tryParse(row['match_time']?.toString() ?? '')
-          ?.toLocal();
+      final time =
+          DateTime.tryParse(row['match_time']?.toString() ?? '')?.toLocal();
       return time != null && _sameDate(time, wanted);
     }).toList();
   }
@@ -578,9 +603,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    tileColor: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerLow,
+                    tileColor:
+                        Theme.of(context).colorScheme.surfaceContainerLow,
                     leading: const Icon(Icons.sports_soccer_rounded),
                     title: Text(
                       '${englishKnownFootballName('${m['home_team']}')} vs ${englishKnownFootballName('${m['away_team']}')}',
@@ -668,8 +692,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
           properties: {
             'source': provider,
             'line_count': lines.length,
-            'source_live':
-                data is Map &&
+            'source_live': data is Map &&
                 (data['live_status'] == true ||
                     data['live_status'] == 1 ||
                     data['live_status']?.toString() == '1'),
@@ -686,9 +709,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
             .replaceAll(RegExp(r'https?://[^\s]+'), '[source]')
             .replaceAll(RegExp(r'[\r\n\t]+'), ' ')
             .trim();
-        final safeNote = note.length > 180
-            ? '${note.substring(0, 180)}…'
-            : note;
+        final safeNote =
+            note.length > 180 ? '${note.substring(0, 180)}…' : note;
         message(
           safeNote.isNotEmpty
               ? safeNote
@@ -698,9 +720,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
       }
 
       final resolvedAnchor = Map<String, dynamic>.from(anchor);
-      final freshName = data is Map
-          ? (data['anchor_name'] ?? '').toString().trim()
-          : '';
+      final freshName =
+          data is Map ? (data['anchor_name'] ?? '').toString().trim() : '';
       if (provider == 'yyzb' &&
           freshName.isNotEmpty &&
           _genericAnchorIdentity(anchor)) {
@@ -728,7 +749,24 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
       if (!current()) return;
       final detail = e.toString().replaceFirst('Exception: ', '');
-      message('Could not load ${_sourceLabel(provider)} stream links. $detail');
+      if (provider == 'xoilac') {
+        final page = Uri.tryParse(
+            (anchor['page_url'] ?? match['page_url'] ?? '').toString());
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                const Text('Xoilac is not providing stream links right now.'),
+            action: page?.scheme == 'https' && page?.host == 'xoilaczcb.tv'
+                ? SnackBarAction(
+                    label: 'Open Xoilac',
+                    onPressed: () {
+                      unawaited(launchUrl(page!,
+                          mode: LaunchMode.externalApplication));
+                    })
+                : null));
+      } else {
+        message(
+            'Could not load ${_sourceLabel(provider)} stream links. $detail');
+      }
     } finally {
       if (mounted && _extractingAnchorKey == extractingKey) {
         setState(() => _extractingAnchorKey = null);
@@ -743,9 +781,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
     dynamic sourceLiveStatus,
   }) async {
     final anchorName = (anchor['nick_name'] ?? 'Streamer').toString().trim();
-    final importName = source == 'yyzb'
-        ? _anchorImportName(anchor)
-        : anchorName;
+    final importName =
+        source == 'yyzb' ? _anchorImportName(anchor) : anchorName;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -763,7 +800,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
               children: [
                 Text(
                   'Select Stream Quality',
-                  style: Theme.of(sheetContext).textTheme.titleLarge
+                  style: Theme.of(sheetContext)
+                      .textTheme
+                      .titleLarge
                       ?.copyWith(fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 4),
@@ -775,8 +814,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   const SizedBox(height: 8),
                   Builder(
                     builder: (context) {
-                      final live =
-                          sourceLiveStatus == true ||
+                      final live = sourceLiveStatus == true ||
                           sourceLiveStatus == 1 ||
                           sourceLiveStatus.toString() == '1';
                       return Align(
@@ -807,15 +845,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 const SizedBox(height: 12),
                 ...lines.map((line) {
                   final label = (line['label'] ?? 'Stream').toString();
-                  final type = (line['stream_type'] ?? 'auto')
-                      .toString()
-                      .toUpperCase();
+                  final type =
+                      (line['stream_type'] ?? 'auto').toString().toUpperCase();
                   final url = (line['url'] ?? '').toString();
                   final referer = (line['referer'] ?? '').toString().trim();
                   final origin = (line['origin'] ?? '').toString().trim();
-                  final health = (line['health_status'] ?? '')
-                      .toString()
-                      .toLowerCase();
+                  final health =
+                      (line['health_status'] ?? '').toString().toLowerCase();
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 8),
@@ -853,14 +889,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                           vertical: 3,
                                         ),
                                         decoration: BoxDecoration(
-                                          color:
-                                              (health == 'healthy'
-                                                      ? Colors.green
-                                                      : health == 'failed' ||
-                                                            health == 'dead'
+                                          color: (health == 'healthy'
+                                                  ? Colors.green
+                                                  : health == 'failed' ||
+                                                          health == 'dead'
                                                       ? Colors.red
                                                       : Colors.orange)
-                                                  .withValues(alpha: .12),
+                                              .withValues(alpha: .12),
                                           borderRadius: BorderRadius.circular(
                                             999,
                                           ),
@@ -871,9 +906,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                             color: health == 'healthy'
                                                 ? Colors.green
                                                 : health == 'failed' ||
-                                                      health == 'dead'
-                                                ? Colors.red
-                                                : Colors.orange,
+                                                        health == 'dead'
+                                                    ? Colors.red
+                                                    : Colors.orange,
                                             fontSize: 9.5,
                                             fontWeight: FontWeight.w900,
                                           ),
@@ -1222,12 +1257,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
     );
     if (!added) return;
     unawaited(
-      _streamLibrary
-          .markUsed(entry.id)
-          .then((_) {
-            if (mounted) _refreshLibrary();
-          })
-          .catchError((_) {}),
+      _streamLibrary.markUsed(entry.id).then((_) {
+        if (mounted) _refreshLibrary();
+      }).catchError((_) {}),
     );
   }
 
@@ -1378,103 +1410,101 @@ class _SocoImportPageState extends State<SocoImportPage> {
             }
 
             return Column(
-              children: entries
-                  .map((entry) {
-                    final deleting = _deletingLibraryId == entry.id;
-                    return Card.outlined(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+              children: entries.map((entry) {
+                final deleting = _deletingLibraryId == entry.id;
+                return Card.outlined(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           children: [
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.video_library_outlined,
-                                  size: 22,
-                                ),
-                                const SizedBox(width: 9),
-                                Expanded(
-                                  child: Text(
-                                    entry.label,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                ),
-                                const Text(
-                                  'HLS',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ],
+                            const Icon(
+                              Icons.video_library_outlined,
+                              size: 22,
                             ),
-                            const SizedBox(height: 5),
-                            Text(
-                              safeStreamLocation(entry.streamUrl),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: colors.onSurfaceVariant,
-                                fontSize: 12,
+                            const SizedBox(width: 9),
+                            Expanded(
+                              child: Text(
+                                entry.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              children: [
-                                OutlinedButton.icon(
-                                  onPressed: deleting
-                                      ? null
-                                      : () => _useLibraryEntry(entry),
-                                  icon: const Icon(
-                                    Icons.edit_outlined,
-                                    size: 18,
-                                  ),
-                                  label: const Text('USE'),
-                                ),
-                                FilledButton.icon(
-                                  onPressed: deleting || _addingLine
-                                      ? null
-                                      : () => _addLibraryEntry(entry),
-                                  icon: const Icon(
-                                    Icons.add_link_rounded,
-                                    size: 18,
-                                  ),
-                                  label: const Text('ADD TO MATCH'),
-                                ),
-                                IconButton(
-                                  tooltip: 'Delete saved HLS',
-                                  onPressed: deleting
-                                      ? null
-                                      : () => _deleteLibraryEntry(entry),
-                                  icon: deleting
-                                      ? const SizedBox(
-                                          width: 18,
-                                          height: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Icon(
-                                          Icons.delete_outline_rounded,
-                                        ),
-                                ),
-                              ],
+                            const Text(
+                              'HLS',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                    );
-                  })
-                  .toList(growable: false),
+                        const SizedBox(height: 5),
+                        Text(
+                          safeStreamLocation(entry.streamUrl),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: deleting
+                                  ? null
+                                  : () => _useLibraryEntry(entry),
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                size: 18,
+                              ),
+                              label: const Text('USE'),
+                            ),
+                            FilledButton.icon(
+                              onPressed: deleting || _addingLine
+                                  ? null
+                                  : () => _addLibraryEntry(entry),
+                              icon: const Icon(
+                                Icons.add_link_rounded,
+                                size: 18,
+                              ),
+                              label: const Text('ADD TO MATCH'),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete saved HLS',
+                              onPressed: deleting
+                                  ? null
+                                  : () => _deleteLibraryEntry(entry),
+                              icon: deleting
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.delete_outline_rounded,
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(growable: false),
             );
           },
         ),
@@ -1683,6 +1713,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
         return 'Fawa';
       case 'cola':
         return 'ColaTV';
+      case 'xoilac':
+        return 'Xoilac';
+      case 'camel':
+        return 'Camel1';
       default:
         return 'Soco';
     }
@@ -1699,10 +1733,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
               if (value == 'playz') {
                 _libraryFuture ??= _streamLibrary.list();
               }
-              dayFilter =
-                  (value == 'fawa' ||
+              dayFilter = (value == 'fawa' ||
                       value == 'cola' ||
                       value == 'playz' ||
+                      value == 'xoilac' ||
+                      value == 'camel' ||
                       false)
                   ? 'all'
                   : 'today';
@@ -1816,6 +1851,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     _sourceButton('yyzb', 'YYZB'),
                     _sourceButton('fawa', 'Fawa'),
                     _sourceButton('cola', 'ColaTV'),
+                    _sourceButton('xoilac', 'Xoilac'),
+                    _sourceButton('camel', 'Camel1 (Website)'),
                     _sourceButton('playz', 'Manual HLS'),
                   ],
                 ),
@@ -1827,8 +1864,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+                if (source == 'camel')
+                  const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text('Opens Camel1 website • sign-in required.')),
                 if (_isManualSource) _manualSourceCard(colors),
-                if (!_isManualSource)
+                if (!_isManualSource && source != 'camel')
                   SwitchListTile.adaptive(
                     value: availableOnly,
                     contentPadding: EdgeInsets.zero,
@@ -1844,7 +1885,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 if (!_isManualSource &&
                     source != 'fawa' &&
                     source != 'cola' &&
-                    true)
+                    source != 'xoilac' &&
+                    source != 'camel')
                   Row(
                     children: [
                       _dayButton('today', 'Today'),
@@ -1897,15 +1939,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   final kickoff = DateTime.tryParse(
                     match['match_time']?.toString() ?? '',
                   )?.toLocal();
-                  final anchors =
-                      List<Map<String, dynamic>>.from(
-                        match['anchors'] ?? const [],
-                      )..sort((a, b) {
-                        final aStatus = _anchorStatuses[_anchorKey(match, a)];
-                        final bStatus = _anchorStatuses[_anchorKey(match, b)];
-                        return _anchorStatusRank(aStatus)
-                            .compareTo(_anchorStatusRank(bStatus));
-                      });
+                  final anchors = List<Map<String, dynamic>>.from(
+                    match['anchors'] ?? const [],
+                  )..sort((a, b) {
+                      final aStatus = _anchorStatuses[_anchorKey(match, a)];
+                      final bStatus = _anchorStatuses[_anchorKey(match, b)];
+                      return _anchorStatusRank(aStatus)
+                          .compareTo(_anchorStatusRank(bStatus));
+                    });
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 10),
@@ -1959,11 +2000,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
                             match['kind'] == 'channel'
                                 ? 'Broadcast channel'
                                 : kickoff == null
-                                ? 'Unknown time'
-                                : DateFormat(
-                                    'dd MMM • h:mm a',
-                                    'en_US',
-                                  ).format(kickoff),
+                                    ? 'Unknown time'
+                                    : DateFormat(
+                                        'dd MMM • h:mm a',
+                                        'en_US',
+                                      ).format(kickoff),
                             style: TextStyle(color: colors.onSurfaceVariant),
                           ),
                           const SizedBox(height: 12),
@@ -1993,10 +2034,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                 };
                                 final suffix = switch (status) {
                                   'live' => ' • LIVE',
-                                  'ready' =>
-                                    lineCount > 0
-                                        ? ' • READY ($lineCount)'
-                                        : ' • READY',
+                                  'ready' => lineCount > 0
+                                      ? ' • READY ($lineCount)'
+                                      : ' • READY',
                                   'offline' => ' • OFFLINE',
                                   'checking' => ' • CHECKING',
                                   _ => ' • UNKNOWN',
@@ -2018,8 +2058,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                       color: color.withValues(alpha: .55),
                                     ),
                                   ),
-                                  onPressed:
-                                      status == 'checking' ||
+                                  onPressed: status == 'checking' ||
                                           _extractingAnchorKey != null
                                       ? null
                                       : () => _openAnchor(match, anchor),

@@ -32,7 +32,8 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
         add: (...names) => names.forEach(name => this.classes.add(name)),
         remove: (...names) => names.forEach(name => this.classes.delete(name)),
         contains: name => this.classes.has(name),
-        toggle: name => {
+        toggle: (name, force) => {
+          if (force !== undefined) { if (force) this.classes.add(name); else this.classes.delete(name); return !!force; }
           if (this.classes.has(name)) { this.classes.delete(name); return false; }
           this.classes.add(name); return true;
         },
@@ -135,6 +136,7 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
   document.createElement = () => new Element();
   document.head = new Element('head');
   document.baseURI = pageBase;
+  document.documentElement = {clientWidth:390,clientHeight:844};
   document.fullscreenElement = null;
   document.exitFullscreen = async () => {
     document.fullscreenElement = null;
@@ -210,6 +212,16 @@ const source = (type, name = type) => ({
 const tests = [];
 function test(name, run) { tests.push({ name, run }); }
 const failures = h => h.events.filter(event => event.name === 'playback line failed');
+
+test('single channel starts upright without a line chooser and rotates only on tap', async () => {
+  const h = createHarness({ios:false});
+  await h.open([{...source('hls'),portraitStart:true}]);
+  assert.equal(h.overlay.style.transform, '');
+  assert.equal(h.elements.get('football-player-server').style.display, 'none');
+  assert.equal(h.elements.get('football-player-line-rail').classList.contains('hidden'),true);
+  h.elements.get('football-player-rotate').click();await flush();
+  assert.ok(h.overlay.style.transform.includes('rotate(90deg)'));
+});
 
 test('line chip rail marks the selected server and switches through the existing player path', async () => {
   const first = { ...source('hls', 'Primary'), resolution: '720p' };

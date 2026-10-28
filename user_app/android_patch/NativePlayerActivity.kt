@@ -1,6 +1,8 @@
 package com.example.football_viewer
 
 import android.app.Activity
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -247,6 +249,9 @@ class NativePlayerActivity : Activity() {
         selectedServerIndex = intent.getIntExtra("selectedIndex", 0)
             .coerceIn(0, sources.length() - 1)
 
+        val portraitStart = sources.optJSONObject(selectedServerIndex)?.optBoolean("portraitStart", false) == true
+        requestedOrientation = if (portraitStart) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+
         // Put a content view on screen first. Some Android 12 / OEM builds can
         // be fragile if immersive-window calls happen before a decor view exists.
         val root = FrameLayout(this).apply {
@@ -337,6 +342,14 @@ class NativePlayerActivity : Activity() {
             setOnClickListener { toggleDisplayMode() }
         }
 
+        val rotateButton = overlayButton("↻").apply {
+            contentDescription = "Rotate video"
+            setOnClickListener {
+                requestedOrientation = if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
+                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            }
+        }
+        if (sources.length() == 1) serverButton.visibility = View.GONE
         topBar.addView(back, LinearLayout.LayoutParams(dp(48), dp(42)))
         topBar.addView(
             titleText,
@@ -363,6 +376,8 @@ class NativePlayerActivity : Activity() {
                 dp(42)
             )
         )
+
+        topBar.addView(rotateButton, LinearLayout.LayoutParams(dp(48), dp(42)))
 
         root.addView(
             topBar,
@@ -419,7 +434,7 @@ class NativePlayerActivity : Activity() {
             PlayerView.ControllerVisibilityListener { visibility ->
                 if (visibility == View.VISIBLE && userRequestedControls) {
                     topBar.visibility = View.VISIBLE
-                    serverRailScroll.visibility = View.VISIBLE
+                    serverRailScroll.visibility = if (portraitStart && sources.length() == 1) View.GONE else View.VISIBLE
                 } else {
                     topBar.visibility = View.GONE
                     serverRailScroll.visibility = View.GONE

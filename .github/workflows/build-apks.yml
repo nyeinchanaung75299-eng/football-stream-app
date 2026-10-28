@@ -170,7 +170,7 @@ jobs:
           perms=['<uses-permission android:name="android.permission.INTERNET"/>','<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>','<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>']
           missing=[x for x in perms if x not in s]
           if missing: s=s.replace(marker, marker+'\n    '+'\n    '.join(missing))
-          activity='        <activity android:name=".NativePlayerActivity" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="false" android:theme="@style/LaunchTheme" />\n'
+          activity='        <activity android:name=".NativePlayerActivity" android:screenOrientation="unspecified" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="false" android:theme="@style/LaunchTheme" />\n'
           if 'NativePlayerActivity' not in s: s=s.replace('    </application>', activity+'    </application>')
           posthog_meta='        <meta-data android:name="com.posthog.posthog.AUTO_INIT" android:value="false" />\n'
           if 'com.posthog.posthog.AUTO_INIT' not in s:

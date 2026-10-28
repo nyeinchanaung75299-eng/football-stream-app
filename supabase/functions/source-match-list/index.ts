@@ -1,3 +1,4 @@
+import { websiteMatches, websiteStreams } from "../_shared/website_sources.mjs";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
@@ -64,6 +65,11 @@ Deno.serve(async (req) => {
       return json({ error: "Unsupported source." }, 400);
     }
 
+    if (source === "xoilac" || source === "camel") {
+      const payload = { ok: true, source, matches: await websiteMatches(source), generated_at: new Date().toISOString() };
+      return json(payload);
+    }
+
     if (source === "fawa") {
       return await fawaMatches();
     }
@@ -85,10 +91,10 @@ Deno.serve(async (req) => {
   }
 });
 
-function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | null {
+function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "xoilac" | "camel" | null {
   const source = String(value ?? "").trim().toLowerCase();
   if (!source) return "soco";
-  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola") {
+  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "xoilac" || source === "camel") {
     return source;
   }
   return null;
