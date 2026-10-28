@@ -136,6 +136,20 @@ async function proxy(request) {
       for (const part of parts) { body.set(part, offset); offset += part.byteLength; }
       let text = new TextDecoder().decode(body);
       if (!backend && response.ok) text = text.replaceAll(publicOrigin + "/p/", incoming.origin + "/p/");
+      if (path === "/channels" && response.ok && /json/i.test(type)) {
+        try {
+          const catalog = JSON.parse(text);
+          if (Array.isArray(catalog.channels)) {
+            for (const channel of catalog.channels) {
+              if (channel.id && channel.image_url) {
+                channel.image_url = "https://nca-network-backup-test.vercel.app/api/channel-logo?id=" +
+                  encodeURIComponent(channel.id) + "&v=" + encodeURIComponent(channel.image_url);
+              }
+            }
+            text = JSON.stringify(catalog);
+          }
+        } catch (_) { /* Return the upstream response unchanged. */ }
+      }
       return new Response(text, { status: response.status, headers: outputHeaders });
     }
     // A media response can remain open after its headers arrive. A header
