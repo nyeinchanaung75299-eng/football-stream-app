@@ -8,6 +8,50 @@ import 'package:football_viewer/screens/channels_page.dart';
 
 void main() {
   testWidgets(
+    'search finds channels beyond the initial viewport without refetching',
+    (tester) async {
+      var reads = 0;
+      await http.runWithClient(
+        () async {
+          await tester.pumpWidget(const MaterialApp(home: ChannelsPage()));
+          await tester.pumpAndSettle();
+          expect(find.text('Channel 200'), findsNothing);
+          await tester.enterText(find.byType(TextField), 'channel200');
+          await tester.pumpAndSettle();
+          expect(find.text('Channel 200'), findsOneWidget);
+          expect(find.text('Channel 1'), findsNothing);
+          expect(reads, 1);
+          await tester.enterText(find.byType(TextField), 'no such channel');
+          await tester.pumpAndSettle();
+          expect(find.text('No matching channels.'), findsOneWidget);
+          await tester.tap(find.byTooltip('Clear search'));
+          await tester.pumpAndSettle();
+          expect(find.text('Channel 1'), findsOneWidget);
+          expect(find.text('Channel 200'), findsNothing);
+          expect(reads, 1);
+        },
+        () => MockClient((_) async {
+          reads++;
+          return http.Response(
+            jsonEncode({
+              'ok': true,
+              'channels': List.generate(
+                200,
+                (i) => {
+                  'id': 'id-$i',
+                  'name': 'Channel ${i + 1}',
+                  'category': 'Sport',
+                },
+              ),
+            }),
+            200,
+          );
+        }),
+      );
+    },
+  );
+
+  testWidgets(
     'channel logo opens the first protected video directly in portrait',
     (tester) async {
       Map? opened;

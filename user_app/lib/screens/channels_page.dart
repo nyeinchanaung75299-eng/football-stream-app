@@ -17,9 +17,29 @@ class ChannelsPage extends StatefulWidget {
 }
 
 class _ChannelsPageState extends State<ChannelsPage> {
+  final search = TextEditingController();
   late Future<List<Map<String, dynamic>>> catalog = load();
   String? workingBase;
   bool opening = false;
+
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
+
+  bool matchesSearch(Map<String, dynamic> row) {
+    String normalized(String value) => value
+        .toLowerCase()
+        .replaceAllMapped(RegExp(r'([a-z])([0-9])'), (m) => '${m[1]} ${m[2]}')
+        .replaceAll(RegExp(r'[\s_-]+'), ' ')
+        .trim();
+    final text = normalized('${row['name'] ?? ''} ${row['category'] ?? ''}');
+    return normalized(
+      search.text,
+    ).split(' ').where((s) => s.isNotEmpty).every(text.contains);
+  }
+
   Future<Map<String, dynamic>> request(String path) async {
     final bases = publicApiBases();
     if (workingBase != null && bases.remove(workingBase))
@@ -193,6 +213,38 @@ class _ChannelsPageState extends State<ChannelsPage> {
       actions: [
         IconButton(onPressed: refresh, icon: const Icon(Icons.refresh)),
       ],
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(64),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          child: TextField(
+            controller: search,
+            onChanged: (_) => setState(() {}),
+            autocorrect: false,
+            enableSuggestions: false,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Search channels',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: search.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Clear search',
+                      onPressed: () {
+                        search.clear();
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.close),
+                    ),
+              isDense: true,
+              filled: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+        ),
+      ),
     ),
     body: FutureBuilder<List<Map<String, dynamic>>>(
       future: catalog,
@@ -205,75 +257,91 @@ class _ChannelsPageState extends State<ChannelsPage> {
             child: Text('Channel catalog unavailable: ${snapshot.error}'),
           );
         final groups = <String, List<Map<String, dynamic>>>{};
-        for (final row in snapshot.data!) {
+        for (final row in snapshot.data!.where(matchesSearch)) {
           final category = row['category']?.toString().trim() ?? 'Other';
           groups
               .putIfAbsent(category.isEmpty ? 'Other' : category, () => [])
               .add(row);
         }
-        if (groups.isEmpty)
-          return const Center(child: Text('No published channels yet.'));
         return RefreshIndicator(
           onRefresh: refresh,
-          child: ListView(
-            padding: const EdgeInsets.all(12),
-            children: [
-              for (final group in groups.entries) ...[
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
-                  child: Text(
-                    '${group.key} (${group.value.length})',
-                    style: Theme.of(context).textTheme.titleMedium,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              if (groups.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: Text(
+                      snapshot.data!.isEmpty
+                          ? 'No published channels yet.'
+                          : 'No matching channels.',
+                    ),
                   ),
                 ),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 12,
-                    mainAxisExtent: 150,
+              for (final group in groups.entries) ...[
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
+                  sliver: SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text(
+                        '${group.key} (${group.value.length})',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
                   ),
-                  itemCount: group.value.length,
-                  itemBuilder: (context, index) {
-                    final channel = group.value[index];
-                    final image = channel['image_url']?.toString() ?? '';
-                    final title = channel['name']?.toString() ?? 'Channel';
-                    return SizedBox(
-                      width: 160,
-                      child: InkWell(
-                        onTap: () => watch(channel),
-                        child: Column(
-                          children: [
-                            Expanded(
-                              child: Card(
-                                clipBehavior: Clip.antiAlias,
-                                child: Center(
-                                  child: image.startsWith('https://')
-                                      ? Image.network(
-                                          image,
-                                          fit: BoxFit.contain,
-                                          errorBuilder: (_, __, ___) =>
-                                              const Icon(Icons.tv),
-                                        )
-                                      : const Icon(Icons.tv, size: 38),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  sliver: SliverGrid.builder(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 10,
+                          mainAxisSpacing: 12,
+                          mainAxisExtent: 150,
+                        ),
+                    itemCount: group.value.length,
+                    itemBuilder: (context, index) {
+                      final channel = group.value[index];
+                      final image = channel['image_url']?.toString() ?? '';
+                      final title = channel['name']?.toString() ?? 'Channel';
+                      return SizedBox(
+                        width: 160,
+                        child: InkWell(
+                          onTap: () => watch(channel),
+                          child: Column(
+                            children: [
+                              Expanded(
+                                child: Card(
+                                  clipBehavior: Clip.antiAlias,
+                                  child: Center(
+                                    child: image.startsWith('https://')
+                                        ? Image.network(
+                                            image,
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (_, __, ___) =>
+                                                const Icon(Icons.tv),
+                                          )
+                                        : const Icon(Icons.tv, size: 38),
+                                  ),
                                 ),
                               ),
-                            ),
-                            Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
+                              Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
               ],
             ],

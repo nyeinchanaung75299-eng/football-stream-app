@@ -5,7 +5,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
 import '../football_english.dart';
 import '../services/function_gateway.dart';
+import '../services/channel_source_service.dart';
 import '../widgets/match_stream_card.dart';
+import 'channel_source_picker_page.dart';
 
 class LiveLinksPage extends StatefulWidget {
   const LiveLinksPage({
@@ -14,18 +16,21 @@ class LiveLinksPage extends StatefulWidget {
     this.initialStreamUrl,
     this.initialReferer,
     this.initialOrigin,
+    this.initialChannel,
   });
 
   final String? initialMatchId;
   final String? initialStreamUrl;
   final String? initialReferer;
   final String? initialOrigin;
+  final ChannelStreamSelection? initialChannel;
 
   @override
   State<LiveLinksPage> createState() => _LiveLinksPageState();
 }
 
 class _LiveLinksPageState extends State<LiveLinksPage> {
+  String? selectedChannelName;
   final serverName = TextEditingController(text: 'Server 1');
   final link = TextEditingController();
   final referer = TextEditingController();
@@ -62,10 +67,33 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     }
     referer.text = widget.initialReferer ?? '';
     origin.text = widget.initialOrigin ?? '';
+    if (widget.initialChannel != null) fillFromChannel(widget.initialChannel!);
     _matchesFuture = _startMatchesLoad();
     if (matchId != null) {
       _linksFuture = _startLinksLoad();
     }
+  }
+
+  void fillFromChannel(ChannelStreamSelection selected) {
+    selectedChannelName = selected.channelName;
+    serverName.text = selected.channelName;
+    link.text = selected.streamUrl;
+    referer.text = selected.referer;
+    origin.text = selected.origin;
+    keyId.text = selected.keyId;
+    keyData.text = selected.keyData;
+    streamType =
+        detectStreamType(selected.streamUrl, fallback: selected.streamType);
+    useWebView = false;
+    webViewUrl.clear();
+  }
+
+  Future<void> chooseChannel() async {
+    if (loading) return;
+    final selected = await Navigator.of(context).push<ChannelStreamSelection>(
+      MaterialPageRoute(builder: (_) => const ChannelSourcePickerPage()),
+    );
+    if (selected != null && mounted) setState(() => fillFromChannel(selected));
   }
 
   @override
@@ -148,9 +176,9 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         const SizedBox(width: 8),
         Expanded(
           child: Text(
-            'The protected Viewer now proxies non-DRM DASH/MPD as well as HLS. '
-            'ClearKey/keyed DASH is still kept private; add an authorized HLS/FairPlay-compatible backup for iPhone when needed. '
-            'HTTP health checks report reachability only.',
+            'DASH/MPD and saved ClearKey settings work with compatible players. '
+            'Keep an HLS backup for devices that cannot play this source. '
+            'Health checks report reachability only.',
             style: TextStyle(
               color: colors.onSurfaceVariant,
               fontSize: 12,
@@ -270,6 +298,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       webViewUrl.clear();
       streamType = 'auto';
       useWebView = false;
+      selectedChannelName = null;
       reloadLinks();
     } on TimeoutException {
       if (mounted) {
@@ -735,7 +764,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                     alignment: Alignment.center,
                     child: Icon(
                       keyedDash ? Icons.lock_rounded : Icons.dns_rounded,
-                      color: keyedDash ? colors.error : colors.primary,
+                      color: colors.primary,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -827,14 +856,14 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: colors.errorContainer.withValues(alpha: .45),
+                    color: colors.primaryContainer.withValues(alpha: .45),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    'KEYED DASH • Viewer shows this as blocked. '
-                    'Use HLS or non-DRM DASH for public playback.',
+                    'ClearKey DASH • Uses the saved Key ID and Key Data. '
+                    'Playback depends on the device and source.',
                     style: TextStyle(
-                      color: colors.onErrorContainer,
+                      color: colors.onPrimaryContainer,
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                     ),
@@ -943,14 +972,26 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
             if (matchId == null || selected.isEmpty) {
               if (matches.isEmpty)
                 return const Center(child: Text('No published matches yet.'));
-              return ListView.separated(
+              return ListView.builder(
                   padding: const EdgeInsets.all(12),
-                  itemCount: matches.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (_, index) => MatchStreamCard(
-                      match: matches[index],
-                      onTap: () =>
-                          selectMatch(matches[index]['id'] as String)));
+                  itemCount:
+                      matches.length + (selectedChannelName == null ? 0 : 1),
+                  itemBuilder: (_, index) {
+                    if (selectedChannelName != null && index == 0) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Text('Choose a match for $selectedChannelName'),
+                      );
+                    }
+                    final row =
+                        matches[index - (selectedChannelName == null ? 0 : 1)];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: MatchStreamCard(
+                          match: row,
+                          onTap: () => selectMatch(row['id'] as String)),
+                    );
+                  });
             }
             return ListView(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
@@ -959,6 +1000,12 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                       '${englishKnownFootballName(selected.first['home_team'].toString())} vs ${englishKnownFootballName(selected.first['away_team'].toString())}',
                       style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 18),
+                  OutlinedButton.icon(
+                    onPressed: loading ? null : chooseChannel,
+                    icon: const Icon(Icons.tv),
+                    label: const Text('USE CHANNEL'),
+                  ),
+                  const SizedBox(height: 14),
                   _input('Resolution', serverName),
                   _input('Link', link, enabled: !useWebView),
                   _input('Referer', referer),

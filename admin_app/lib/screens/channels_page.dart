@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/channel_source_service.dart';
+import '../widgets/channel_search_field.dart';
+import 'live_links_page.dart';
 
 class ChannelsPage extends StatefulWidget {
   const ChannelsPage({super.key});
@@ -10,15 +13,37 @@ class ChannelsPage extends StatefulWidget {
 }
 
 class _ChannelsPageState extends State<ChannelsPage> {
+  final search = TextEditingController();
+  String? addingChannelId;
   late Future<List<Map<String, dynamic>>> catalog = load();
-  Future<List<Map<String, dynamic>>> load() async {
-    final rows = await Supabase.instance.client
-        .from('channels')
-        .select('id,name,category,image_url,is_active,sort_order')
-        .order('category')
-        .order('sort_order')
-        .order('name');
-    return List<Map<String, dynamic>>.from(rows);
+  Future<List<Map<String, dynamic>>> load() =>
+      ChannelSourceService(Supabase.instance.client).list();
+
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
+
+  Future<void> addToMatch(Map<String, dynamic> channel) async {
+    if (addingChannelId != null) return;
+    setState(() => addingChannelId = channel['id'].toString());
+    try {
+      final selected =
+          await ChannelSourceService(Supabase.instance.client).select(channel);
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(MaterialPageRoute(
+        builder: (_) => LiveLinksPage(initialChannel: selected),
+      ));
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Could not load this channel. Please retry.')),
+        );
+    } finally {
+      if (mounted) setState(() => addingChannelId = null);
+    }
   }
 
   void refresh() => setState(() => catalog = load());
@@ -31,59 +56,91 @@ class _ChannelsPageState extends State<ChannelsPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Channels'),
-      actions: [
-        IconButton(onPressed: refresh, icon: const Icon(Icons.refresh)),
-      ],
-    ),
-    floatingActionButton: FloatingActionButton.extended(
-      onPressed: () => edit(),
-      icon: const Icon(Icons.add),
-      label: const Text('ADD CHANNEL'),
-    ),
-    body: FutureBuilder<List<Map<String, dynamic>>>(
-      future: catalog,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData && !snapshot.hasError) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError)
-          return Center(
-            child: Text('Could not load channels: ${snapshot.error}'),
-          );
-        if (snapshot.data!.isEmpty)
-          return const Center(child: Text('No channels yet.'));
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
-          itemCount: snapshot.data!.length,
-          itemBuilder: (context, index) {
-            final row = snapshot.data![index];
-            final image = row['image_url']?.toString() ?? '';
-            return Card(
-              child: ListTile(
-                leading: image.startsWith('https://')
-                    ? Image.network(
-                        image,
-                        width: 52,
-                        height: 42,
-                        fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => const Icon(Icons.tv),
-                      )
-                    : const Icon(Icons.tv),
-                title: Text(row['name']?.toString() ?? ''),
-                subtitle: Text(
-                  '${row['category']} • ${row['is_active'] == true ? 'Visible' : 'Hidden'}',
-                ),
-                trailing: const Icon(Icons.edit_outlined),
-                onTap: () => edit(row),
-              ),
+        appBar: AppBar(
+          title: const Text('Channels'),
+          actions: [
+            IconButton(onPressed: refresh, icon: const Icon(Icons.refresh)),
+          ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(64),
+            child: ChannelSearchField(
+                controller: search, onChanged: (_) => setState(() {})),
+          ),
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: addingChannelId == null ? () => edit() : null,
+          icon: const Icon(Icons.add),
+          label: const Text('ADD CHANNEL'),
+        ),
+        body: FutureBuilder<List<Map<String, dynamic>>>(
+          future: catalog,
+          builder: (context, snapshot) {
+            if (!snapshot.hasData && !snapshot.hasError) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError)
+              return Center(
+                child: Text('Could not load channels: ${snapshot.error}'),
+              );
+            if (snapshot.data!.isEmpty)
+              return const Center(child: Text('No channels yet.'));
+            final rows = snapshot.data!
+                .where((r) => channelMatchesSearch(r, search.text))
+                .toList();
+            if (rows.isEmpty)
+              return const Center(child: Text('No matching channels.'));
+            return ListView.builder(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
+              itemCount: rows.length,
+              itemBuilder: (context, index) {
+                final row = rows[index];
+                final image = row['image_url']?.toString() ?? '';
+                return Card(
+                  child: ListTile(
+                  enabled: addingChannelId == null,
+                    leading: image.startsWith('https://')
+                        ? Image.network(
+                            image,
+                            width: 52,
+                            height: 42,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => const Icon(Icons.tv),
+                          )
+                        : const Icon(Icons.tv),
+                    title: Text(row['name']?.toString() ?? ''),
+                    subtitle: Text(
+                      '${row['category']} • ${row['is_active'] == true ? 'Visible' : 'Hidden'}',
+                    ),
+                    trailing: addingChannelId == row['id'].toString()
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : PopupMenuButton<String>(
+                            tooltip: 'Channel actions',
+                            enabled: addingChannelId == null,
+                            onSelected: (action) {
+                              if (action == 'match') {
+                                addToMatch(row);
+                              } else {
+                                edit(row);
+                              }
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                  value: 'match', child: Text('Add to match')),
+                              PopupMenuItem(
+                                  value: 'edit', child: Text('Edit channel')),
+                            ],
+                          ),
+                    onTap: () => edit(row),
+                  ),
+                );
+              },
             );
           },
-        );
-      },
-    ),
-  );
+        ),
+      );
 }
 
 class _Line {
