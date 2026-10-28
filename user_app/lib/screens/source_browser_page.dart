@@ -10,8 +10,8 @@ import '../analytics_service.dart';
 import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 import '../native_player.dart';
-import '../tflix_public_page.dart';
 import 'home_page.dart';
+import 'channels_page.dart';
 import '../live_feed_controller.dart';
 import '../player_loading.dart';
 import '../source_line_loader.dart';
@@ -60,26 +60,21 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   String _query = '';
   String? _league;
   bool _todayOnly = false;
-  String _tflixCatalog = 'matches';
 
   String get source => widget.source.toLowerCase();
   String get title => switch (source) {
-        'yyzb' => 'YYZB',
-        'fawa' => 'Fawa',
-        'cola' => 'ColaTV',
-        'tflix' => 'TFLIX',
-        'streame' => 'StreamCenter',
-        _ => 'Soco',
-      };
+    'yyzb' => 'YYZB',
+    'fawa' => 'Fawa',
+    'cola' => 'ColaTV',
+    _ => 'Soco',
+  };
   int get navIndex => switch (source) {
-        'soco' => 1,
-        'yyzb' => 2,
-        'fawa' => 3,
-        'cola' => 4,
-        'tflix' => 5,
-        'streame' => 6,
-        _ => 1,
-      };
+    'soco' => 1,
+    'yyzb' => 2,
+    'fawa' => 3,
+    'cola' => 4,
+    _ => 1,
+  };
   String? _workingApiBase;
   List<Future<List<Map<String, dynamic>>> Function()> _apiJobs(
     Future<List<Map<String, dynamic>>> Function(String) load,
@@ -184,27 +179,29 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       }
       final job = jobs[next++];
       running++;
-      job().then((value) {
-        running--;
-        if (c.isCompleted) return;
-        if (value.isNotEmpty) {
-          timer?.cancel();
-          c.complete(value);
-          return;
-        }
+      job()
+          .then((value) {
+            running--;
+            if (c.isCompleted) return;
+            if (value.isNotEmpty) {
+              timer?.cancel();
+              c.complete(value);
+              return;
+            }
 
-        // An empty source is still a valid last-resort result, but do not let
-        // it win the hedge while another VPN-off/live fallback may have rows.
-        emptyFallback ??= value;
-        if (next < jobs.length) start();
-        finishIfDone();
-      }).catchError((Object e, StackTrace s) {
-        running--;
-        error = e;
-        stack = s;
-        if (!c.isCompleted && next < jobs.length) start();
-        finishIfDone();
-      });
+            // An empty source is still a valid last-resort result, but do not let
+            // it win the hedge while another VPN-off/live fallback may have rows.
+            emptyFallback ??= value;
+            if (next < jobs.length) start();
+            finishIfDone();
+          })
+          .catchError((Object e, StackTrace s) {
+            running--;
+            error = e;
+            stack = s;
+            if (!c.isCompleted && next < jobs.length) start();
+            finishIfDone();
+          });
     }
 
     start();
@@ -251,7 +248,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       if (error != null) {
         c.completeError(error!, stack);
       } else {
-        c.completeError(Exception('No authoritative source endpoint succeeded.'));
+        c.completeError(
+          Exception('No authoritative source endpoint succeeded.'),
+        );
       }
     }
 
@@ -262,24 +261,28 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       }
       final job = jobs[next++];
       running++;
-      job().then((value) {
-        running--;
-        if (c.isCompleted) return;
-        // A valid empty live response is authoritative: do not resurrect
-        // disappeared matches from a stale mirror.
-        timer?.cancel();
-        c.complete(value);
-      }).catchError((Object e, StackTrace s) {
-        running--;
-        error = e;
-        stack = s;
-        if (!c.isCompleted && next < jobs.length) start();
-        finishIfDone();
-      });
+      job()
+          .then((value) {
+            running--;
+            if (c.isCompleted) return;
+            // A valid empty live response is authoritative: do not resurrect
+            // disappeared matches from a stale mirror.
+            timer?.cancel();
+            c.complete(value);
+          })
+          .catchError((Object e, StackTrace s) {
+            running--;
+            error = e;
+            stack = s;
+            if (!c.isCompleted && next < jobs.length) start();
+            finishIfDone();
+          });
     }
 
     if (jobs.isEmpty) {
-      return Future.error(Exception('No authoritative source endpoint configured.'));
+      return Future.error(
+        Exception('No authoritative source endpoint configured.'),
+      );
     }
 
     start();
@@ -306,8 +309,14 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     // LIVE; otherwise show the provider kickoff time.
     for (final value in [m['match_status'], m['status']]) {
       final status = value?.toString().trim().toUpperCase() ?? '';
-      if (const {'LIVE', 'INPLAY', 'IN_PLAY', '1H', '2H', 'HT'}
-          .contains(status)) {
+      if (const {
+        'LIVE',
+        'INPLAY',
+        'IN_PLAY',
+        '1H',
+        '2H',
+        'HT',
+      }.contains(status)) {
         return true;
       }
     }
@@ -318,31 +327,27 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       rows.sort((a, b) => compareSourceMatches(a, b, isLive: _live));
 
   void _clearFilters() => setState(() {
-        _query = '';
-        _searchController.clear();
-        _league = null;
-        _todayOnly = false;
-      });
+    _query = '';
+    _searchController.clear();
+    _league = null;
+    _todayOnly = false;
+  });
 
-  String _matchName(Map<String, dynamic> m) =>
-      m['kind'] == 'channel'
-          ? (m['home_team'] ?? 'Sports channel').toString()
-          : (m['home_team'] ?? 'Home').toString() +
-              ' vs ' +
-              (m['away_team'] ?? 'Away').toString();
+  String _matchName(Map<String, dynamic> m) => m['kind'] == 'channel'
+      ? (m['home_team'] ?? 'Sports channel').toString()
+      : (m['home_team'] ?? 'Home').toString() +
+            ' vs ' +
+            (m['away_team'] ?? 'Away').toString();
 
   Future<List<Map<String, dynamic>>> _loadFrom(String base) async {
     final response = await http
         .get(
           Uri.parse(base + '/sources/' + source + '/matches').replace(
             queryParameters: {
-              if (source == 'tflix') 'catalog': _tflixCatalog,
               't': DateTime.now().millisecondsSinceEpoch.toString(),
             },
           ),
-          headers: const {
-            'Accept': 'application/json',
-          },
+          headers: const {'Accept': 'application/json'},
         )
         .timeout(const Duration(seconds: 9));
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -400,7 +405,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               'viewer_public': '1',
               'action': 'matches',
               'source': source,
-              if (source == 'tflix') 'catalog': _tflixCatalog,
               't': DateTime.now().millisecondsSinceEpoch.toString(),
             },
           ),
@@ -414,7 +418,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
     final decoded = jsonDecode(response.body);
     final raw = decoded is Map ? decoded['matches'] : null;
-    if (raw is! List) throw const FormatException('Invalid direct source list.');
+    if (raw is! List)
+      throw const FormatException('Invalid direct source list.');
     final rows = raw
         .map((x) => Map<String, dynamic>.from(x as Map))
         .map((row) => englishSourceMatch(row, source))
@@ -424,27 +429,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return rows;
   }
 
-  String get _cacheKey => 'viewer_source_cache_v1_' + source +
-      (source == 'tflix' ? '_$_tflixCatalog' : '');
-
-  void _selectProvider(String provider) {
-    if (provider == source || !mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(
-        builder: (_) => SourceBrowserPage(source: provider),
-      ),
-    );
-  }
-
-  void _selectTflixCatalog(String catalog) {
-    if (catalog == _tflixCatalog || !mounted) return;
-    setState(() {
-      _tflixCatalog = catalog;
-      _todayOnly = false;
-      _league = null;
-    });
-    unawaited(_refresh());
-  }
+  String get _cacheKey => 'viewer_source_cache_v1_$source';
 
   Future<void> _saveLastGood(List<Map<String, dynamic>> rows) async {
     try {
@@ -495,10 +480,12 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     Object? authoritativeError;
     StackTrace? authoritativeStack;
 
-    final workerJobs =
-        bases.map<Future<List<Map<String, dynamic>>> Function()>(
-          (base) => () => _loadFrom(base),
-        ).toList();
+    final workerJobs = bases
+        .map<Future<List<Map<String, dynamic>>> Function()>(
+          (base) =>
+              () => _loadFrom(base),
+        )
+        .toList();
 
     try {
       // Live source endpoints are authoritative. A successful empty response
@@ -506,8 +493,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       // reviving rows from an older GitHub mirror.
       final rows = await _authoritativeHedged([
         ...workerJobs,
-        if (source != 'tflix' && source != 'streame')
-          () => _loadFromSupabase(),
+        () => _loadFromSupabase(),
       ]);
       unawaited(_saveLastGood(rows));
       return rows;
@@ -527,10 +513,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     } catch (_) {
       final cached = await _loadLastGood();
       if (cached != null) return cached;
-      Error.throwWithStackTrace(
-        authoritativeError,
-        authoritativeStack,
-      );
+      Error.throwWithStackTrace(authoritativeError, authoritativeStack);
     }
   }
 
@@ -539,7 +522,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     await _feed.refresh();
     if (!silent && mounted && _feed.hasData && _feed.error != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not refresh. Showing the previous results.')),
+        const SnackBar(
+          content: Text('Could not refresh. Showing the previous results.'),
+        ),
       );
     }
   }
@@ -573,34 +558,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         )
         .timeout(const Duration(seconds: 12));
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      final provider = sourceName ?? source;
-      if (provider == 'tflix' || provider == 'streame') {
-        final label = provider == 'tflix' ? 'TFLIX' : 'StreamCenter';
-        // Only recognize fixed, non-sensitive upstream error codes. Never
-        // show an arbitrary provider response, URL, cookie, or access token.
-        String? upstream;
-        try {
-          final decoded = jsonDecode(response.body);
-          if (decoded is Map && decoded['error'] is String) {
-            upstream = decoded['error'] as String;
-          }
-        } catch (_) {}
-        final reason = switch (upstream) {
-          'Source returned HTTP 403.' =>
-            '$label source access was denied (HTTP 403). Choose another server.',
-          'Source returned HTTP 404.' =>
-            '$label source was not found (HTTP 404). Refresh the match list.',
-          'Unsupported StreamCenter player.' =>
-            'StreamCenter changed its public player. Choose another server.',
-          'Unsupported source host.' =>
-            'StreamCenter player uses an unsupported host. Choose another server.',
-          'Source verification timed out.' =>
-            '$label source verification timed out. Try again later.',
-          _ => '$label service could not verify this stream '
-              '(HTTP ${response.statusCode}). Try again later or choose another source.',
-        };
-        throw StateError(reason);
-      }
       throw Exception('Stream API HTTP ' + response.statusCode.toString());
     }
     final decoded = jsonDecode(response.body);
@@ -608,7 +565,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     if (raw is! List) throw const FormatException('Invalid source streams.');
     // An empty verified-source response is a source result, not a failed
     // network route. Retrying it on every alias repeats the same slow scan.
-    return raw.asMap().entries
+    return raw
+        .asMap()
+        .entries
         .map((entry) {
           final row = Map<String, dynamic>.from(entry.value as Map);
           if ((sourceName ?? source) == 'yyzb') {
@@ -639,13 +598,16 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               'action': 'streams',
               'source': provider,
               'room_num':
-                  (anchor['room_num'] ?? m['source_id'] ?? m['schedule_id'] ?? '')
+                  (anchor['room_num'] ??
+                          m['source_id'] ??
+                          m['schedule_id'] ??
+                          '')
                       .toString(),
-              'schedule_id':
-                  (m['schedule_id'] ?? m['source_id'] ?? '').toString(),
+              'schedule_id': (m['schedule_id'] ?? m['source_id'] ?? '')
+                  .toString(),
               'source_id': (m['source_id'] ?? '').toString(),
-              'page_url':
-                  (anchor['page_url'] ?? m['page_url'] ?? '').toString(),
+              'page_url': (anchor['page_url'] ?? m['page_url'] ?? '')
+                  .toString(),
               't': DateTime.now().millisecondsSinceEpoch.toString(),
             },
           ),
@@ -667,40 +629,46 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final room =
         (anchor['room_num'] ?? m['source_id'] ?? m['schedule_id'] ?? '')
             .toString();
-    final schedule =
-        (m['schedule_id'] ?? m['source_id'] ?? 'match').toString();
+    final schedule = (m['schedule_id'] ?? m['source_id'] ?? 'match').toString();
 
-    return raw.asMap().entries.map((entry) {
-      final row = Map<String, dynamic>.from(entry.value as Map);
-      final url = (row['url'] ?? row['stream_url'] ?? '').toString().trim();
-      final providerLabel = (row['label'] ??
-              row['resolution'] ??
-              ('Line ' + (entry.key + 1).toString()))
-          .toString();
-      final rawLabel = provider == 'yyzb'
-          ? englishStreamLabel(providerLabel, index: entry.key)
-          : providerLabel;
-      return <String, dynamic>{
-        'id': provider +
-            ':' +
-            schedule +
-            ':' +
-            room +
-            ':' +
-            entry.key.toString(),
-        'label': name.isEmpty ? rawLabel : name + ' • ' + rawLabel,
-        'resolution': row['resolution'],
-        'stream_type': row['stream_type'] ?? 'auto',
-        'stream_url': url,
-        'referer': row['referer'],
-        'origin': row['origin'],
-        'key_id': null,
-        'key_data': null,
-        'is_active': true,
-        'priority': row['priority'] ?? 100,
-        'health_status': row['health_status'] ?? 'unknown',
-      };
-    }).where((x) => (x['stream_url']?.toString() ?? '').isNotEmpty).toList();
+    return raw
+        .asMap()
+        .entries
+        .map((entry) {
+          final row = Map<String, dynamic>.from(entry.value as Map);
+          final url = (row['url'] ?? row['stream_url'] ?? '').toString().trim();
+          final providerLabel =
+              (row['label'] ??
+                      row['resolution'] ??
+                      ('Line ' + (entry.key + 1).toString()))
+                  .toString();
+          final rawLabel = provider == 'yyzb'
+              ? englishStreamLabel(providerLabel, index: entry.key)
+              : providerLabel;
+          return <String, dynamic>{
+            'id':
+                provider +
+                ':' +
+                schedule +
+                ':' +
+                room +
+                ':' +
+                entry.key.toString(),
+            'label': name.isEmpty ? rawLabel : name + ' • ' + rawLabel,
+            'resolution': row['resolution'],
+            'stream_type': row['stream_type'] ?? 'auto',
+            'stream_url': url,
+            'referer': row['referer'],
+            'origin': row['origin'],
+            'key_id': null,
+            'key_data': null,
+            'is_active': true,
+            'priority': row['priority'] ?? 100,
+            'health_status': row['health_status'] ?? 'unknown',
+          };
+        })
+        .where((x) => (x['stream_url']?.toString() ?? '').isNotEmpty)
+        .toList();
   }
 
   Future<List<Map<String, dynamic>>> _anchor(
@@ -708,33 +676,31 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     Map<String, dynamic> anchor,
   ) {
     final provider = source;
-    if (provider == 'tflix' || provider == 'streame') {
-      return _authoritativeHedged(
-        _apiJobs((base) => _anchorFrom(base, m, anchor, sourceName: provider)),
-      );
-    }
     if (!_enableNoVpnFallback) {
       if (bases.isEmpty) {
         return Future.error(StateError('No live source API is configured.'));
       }
-      return _hedged(bases.map<Future<List<Map<String, dynamic>>> Function()>(
-        (base) => () => _anchorFrom(base, m, anchor, sourceName: provider),
-      ).toList());
+      return _hedged(
+        bases
+            .map<Future<List<Map<String, dynamic>>> Function()>(
+              (base) =>
+                  () => _anchorFrom(base, m, anchor, sourceName: provider),
+            )
+            .toList(),
+      );
     }
 
-    return _hedged(
-      [
-        if (bases.isNotEmpty)
-          () => _anchorFrom(bases.first, m, anchor, sourceName: provider),
-        // Protected providers require Worker-held playback credentials;
-        // the unauthenticated GET fallback cannot legitimately resolve them.
-        if (provider != 'tflix' && provider != 'streame')
-          () => _anchorFromSupabase(m, anchor, sourceName: provider),
-        ...bases.skip(1).map<Future<List<Map<String, dynamic>>> Function()>(
-          (base) => () => _anchorFrom(base, m, anchor, sourceName: provider),
-        ),
-      ],
-    );
+    return _hedged([
+      if (bases.isNotEmpty)
+        () => _anchorFrom(bases.first, m, anchor, sourceName: provider),
+      () => _anchorFromSupabase(m, anchor, sourceName: provider),
+      ...bases
+          .skip(1)
+          .map<Future<List<Map<String, dynamic>>> Function()>(
+            (base) =>
+                () => _anchorFrom(base, m, anchor, sourceName: provider),
+          ),
+    ]);
   }
 
   int _compareLines(Map<String, dynamic> a, Map<String, dynamic> b) {
@@ -829,7 +795,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         !operation.cancelled;
 
     void publishBackups() {
-      if (!current() || !playerOpened || operation.rows.length <= publishedCount) {
+      if (!current() ||
+          !playerOpened ||
+          operation.rows.length <= publishedCount) {
         return;
       }
       publishedCount = operation.rows.length;
@@ -849,10 +817,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       }, onCancelled: operation.cancel);
       resolution.stop();
       if (rows == null || !current()) return;
-      final providerMatchId =
-          (m['source_id'] ?? m['schedule_id'] ?? '').toString();
-      final safeMatchId = RegExp(r'^[a-zA-Z0-9_-]{1,100}$')
-              .hasMatch(providerMatchId)
+      final providerMatchId = (m['source_id'] ?? m['schedule_id'] ?? '')
+          .toString();
+      final safeMatchId =
+          RegExp(r'^[a-zA-Z0-9_-]{1,100}$').hasMatch(providerMatchId)
           ? providerMatchId
           : 'unknown';
       unawaited(
@@ -868,11 +836,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       );
       if (rows.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(selectedSource == 'tflix'
-                ? 'No app-compatible TFLIX stream is available. Try another server.'
-                : 'No ' + title + ' stream is available now.'),
-          ),
+          SnackBar(content: Text('No ' + title + ' stream is available now.')),
         );
         return;
       }
@@ -1032,25 +996,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
     if (index == 5) {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(
-          builder: (_) => const SourceBrowserPage(source: 'tflix'),
-        ),
-      );
-      return;
-    }
-    if (index == 6) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(
-          builder: (_) => const SourceBrowserPage(source: 'streame'),
-        ),
-      );
-      return;
-    }
-    if (index == 7) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(
-          builder: (_) => const HomePage(ncaView: true),
-        ),
+        MaterialPageRoute<void>(builder: (_) => const ChannelsPage()),
       );
       return;
     }
@@ -1061,9 +1007,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       _ => 'soco',
     };
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(
-        builder: (_) => SourceBrowserPage(source: next),
-      ),
+      MaterialPageRoute<void>(builder: (_) => SourceBrowserPage(source: next)),
     );
   }
 
@@ -1082,17 +1026,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           ),
         ),
         actions: [
-          if (source == 'tflix' || source == 'streame')
-            PopupMenuButton<String>(
-              tooltip: 'Choose stream source',
-              icon: const Icon(Icons.swap_horiz_rounded),
-              initialValue: source,
-              onSelected: _selectProvider,
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'tflix', child: Text('TFLIX')),
-                PopupMenuItem(value: 'streame', child: Text('StreamCenter')),
-              ],
-            ),
           IconButton(
             tooltip: 'Refresh source',
             onPressed: _refresh,
@@ -1120,12 +1053,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           final allMatches = _feed.data ?? const <Map<String, dynamic>>[];
           if (allMatches.isEmpty) {
             return _StateView(
-              title: source == 'tflix'
-                  ? 'No TFLIX ' + _tflixCatalog
-                  : 'No ' + title + ' matches',
-              text: source == 'tflix'
-                  ? 'TFLIX has no ' + _tflixCatalog + ' listed right now.'
-                  : 'No matches are available from this source right now.',
+              title: 'No $title matches',
+              text: 'No matches are available from this source right now.',
               onRefresh: _refresh,
             );
           }
@@ -1142,24 +1071,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               slivers: [
-                if (source == 'tflix')
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
-                      child: SegmentedButton<String>(
-                        segments: const [
-                          ButtonSegment(value: 'matches', label: Text('Matches')),
-                          ButtonSegment(value: 'channels', label: Text('Channels')),
-                        ],
-                        selected: {_tflixCatalog},
-                        onSelectionChanged: (selection) {
-                          if (selection.isNotEmpty) {
-                            _selectTflixCatalog(selection.first);
-                          }
-                        },
-                      ),
-                    ),
-                  ),
                 SliverToBoxAdapter(
                   child: SourceMatchFilters(
                     controller: _searchController,
@@ -1168,7 +1079,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                     leagues: sourceMatchLeagues(allMatches),
                     visibleCount: matches.length,
                     onQueryChanged: (value) => setState(() => _query = value),
-                    onTodayChanged: (value) => setState(() => _todayOnly = value),
+                    onTodayChanged: (value) =>
+                        setState(() => _todayOnly = value),
                     onLeagueChanged: (value) => setState(() => _league = value),
                   ),
                 ),
@@ -1204,36 +1116,23 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                           m['match_time']?.toString() ?? '',
                         )?.toLocal();
 
-                        if (m['kind'] == 'channel') {
-                          final originalPage = kIsWeb
-                              ? tflixPublicChannelPage(m['source_id'])
-                              : null;
-                          return _TflixChannelCard(
-                            name: (m['home_team'] ?? 'Sports channel').toString(),
-                            category: (m['league'] ?? 'Sports channels').toString(),
-                            canWatch: ready,
-                            onWatch: () => _watch(m),
-                            originalPage: originalPage,
-                          );
-                        }
-
                         return PremiumMatchCard(
                           league: (m['league'] ?? 'Football').toString(),
                           homeName: (m['home_team'] ?? 'Home').toString(),
                           awayName: (m['away_team'] ?? 'Away').toString(),
-                          homeLogo:
-                              (m['home_logo'] ?? m['home_logo_url'])?.toString(),
-                          awayLogo:
-                              (m['away_logo'] ?? m['away_logo_url'])?.toString(),
+                          homeLogo: (m['home_logo'] ?? m['home_logo_url'])
+                              ?.toString(),
+                          awayLogo: (m['away_logo'] ?? m['away_logo_url'])
+                              ?.toString(),
                           kickoff: time,
                           isLive: live,
                           canWatch: ready,
                           actionLabel: ready
                               ? (anchors.length > 1
-                                  ? 'WATCH  •  ' +
-                                      anchors.length.toString() +
-                                      ' SOURCES'
-                                  : 'WATCH')
+                                    ? 'WATCH  •  ' +
+                                          anchors.length.toString() +
+                                          ' SOURCES'
+                                    : 'WATCH')
                               : 'NOT READY',
                           onWatch: () => _watch(m),
                         );
@@ -1295,78 +1194,6 @@ class _SourceLoading extends StatelessWidget {
   }
 }
 
-class _TflixChannelCard extends StatelessWidget {
-  const _TflixChannelCard({
-    required this.name,
-    required this.category,
-    required this.canWatch,
-    required this.onWatch,
-    this.originalPage,
-  });
-
-  final String name;
-  final String category;
-  final bool canWatch;
-  final VoidCallback onWatch;
-  final String? originalPage;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compact = constraints.maxWidth < 600;
-        final buttons = <Widget>[
-          if (originalPage != null)
-            OutlinedButton.icon(
-              onPressed: () => NativePlayer.openExternalPage(originalPage!),
-              icon: const Icon(Icons.open_in_new, size: 16),
-              label: const Text('ORIGINAL SITE'),
-            ),
-          FilledButton.tonal(
-            onPressed: canWatch ? onWatch : null,
-            child: const Text('CHECK STREAMS'),
-          ),
-        ];
-        return Container(
-          decoration: BoxDecoration(
-            color: colors.surfaceContainerHighest.withValues(alpha: .55),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: colors.outlineVariant.withValues(alpha: .3)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: Icon(Icons.live_tv_rounded, color: colors.primary),
-                title: Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
-                subtitle: Text(category),
-                trailing: compact
-                    ? null
-                    : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          for (var i = 0; i < buttons.length; i++) ...[
-                            if (i > 0) const SizedBox(width: 8),
-                            buttons[i],
-                          ],
-                        ],
-                      ),
-                onTap: canWatch ? onWatch : null,
-              ),
-              if (compact)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                  child: Wrap(spacing: 8, runSpacing: 4, children: buttons),
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
 class _StateView extends StatelessWidget {
   const _StateView({
     required this.title,
@@ -1424,10 +1251,7 @@ class _StateView extends StatelessWidget {
               Text(
                 text,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: colors.onSurfaceVariant,
-                  height: 1.35,
-                ),
+                style: TextStyle(color: colors.onSurfaceVariant, height: 1.35),
               ),
               const SizedBox(height: 18),
               FilledButton.icon(

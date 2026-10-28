@@ -87,38 +87,3 @@ test('metadata deadline also cancels a body stalled after successful headers', a
     assert.equal(aborted, true);
   } finally { globalThis.fetch = original; }
 });
-
-test('unapproved StreamCenter redirect is an unavailable source, not a client failure', async () => {
-  const original = globalThis.fetch;
-  globalThis.fetch = async () => Response.json(
-    { error: 'Unsupported source host.' },
-    { status: 500 },
-  );
-  try {
-    const response = await worker.fetch(
-      new Request('https://worker.example/sources/streame/streams', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      }),
-      {
-        SUPABASE_URL: 'https://database.example',
-        SUPABASE_PUBLISHABLE_KEY: 'test-public-key',
-        PLAYBACK_BACKEND_SECRET: 'test-backend-secret',
-      },
-      {},
-    );
-    assert.equal(response.status, 200);
-    const payload = await response.json();
-    assert.equal(payload.ok, true);
-    assert.equal(payload.source, 'streame');
-    assert.deepEqual(payload.streams, []);
-    assert.equal(payload.stream_count, 0);
-    assert.equal(payload.availability, 'unverified');
-    assert.equal(
-      payload.message,
-      'No verified, keyless StreamCenter stream is available right now.',
-    );
-    assert.ok(Number.isFinite(Date.parse(payload.generated_at)));
-  } finally { globalThis.fetch = original; }
-});

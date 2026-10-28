@@ -27,7 +27,7 @@ void main() {
     expect(
       validateHlsLibraryInput(
         label: 'Website',
-        streamUrl: 'https://tflix.su/football',
+        streamUrl: 'https://example.com/football',
       ),
       contains('HLS'),
     );

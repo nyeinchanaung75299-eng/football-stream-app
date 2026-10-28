@@ -31,26 +31,8 @@ class PremiumBottomNav extends StatelessWidget {
       selected: Icons.language_rounded,
       label: 'Fawa',
     ),
-    (
-      icon: Icons.tv_outlined,
-      selected: Icons.tv_rounded,
-      label: 'ColaTV',
-    ),
-    (
-      icon: Icons.sports_soccer_outlined,
-      selected: Icons.sports_soccer_rounded,
-      label: 'TFLIX',
-    ),
-    (
-      icon: Icons.hub_outlined,
-      selected: Icons.hub_rounded,
-      label: 'StreamCtr',
-    ),
-    (
-      icon: Icons.verified_outlined,
-      selected: Icons.verified_rounded,
-      label: 'NCA',
-    ),
+    (icon: Icons.tv_outlined, selected: Icons.tv_rounded, label: 'ColaTV'),
+    (icon: Icons.tv_outlined, selected: Icons.tv_rounded, label: 'Channels'),
   ];
 
   @override
@@ -61,9 +43,7 @@ class PremiumBottomNav extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.surface.withValues(alpha: .98),
         border: Border(
-          top: BorderSide(
-            color: colors.outlineVariant.withValues(alpha: .35),
-          ),
+          top: BorderSide(color: colors.outlineVariant.withValues(alpha: .35)),
         ),
         boxShadow: [
           BoxShadow(
@@ -121,8 +101,9 @@ class PremiumBottomNav extends StatelessWidget {
                               maxLines: 1,
                               style: TextStyle(
                                 fontSize: 10.5,
-                                fontWeight:
-                                    selected ? FontWeight.w800 : FontWeight.w600,
+                                fontWeight: selected
+                                    ? FontWeight.w800
+                                    : FontWeight.w600,
                                 color: selected
                                     ? colors.primary
                                     : colors.onSurfaceVariant,

@@ -3,29 +3,29 @@ import 'package:football_admin/screens/soco_import_page.dart';
 
 void main() {
   Map<String, dynamic> row(String source, String home) => {
-        'source': source,
-        'source_id': home.toLowerCase().replaceAll(' ', '-'),
-        'home_team': home,
-        'away_team': 'Away',
-        'anchors': const [],
-      };
+    'source': source,
+    'source_id': home.toLowerCase().replaceAll(' ', '-'),
+    'home_team': home,
+    'away_team': 'Away',
+    'anchors': const [],
+  };
 
   test('accepts only rows proven to belong to the selected provider', () {
     final rows = validateSourceMatchRows({
-      'source': 'streame',
-      'matches': [row('streame', 'StreamCenter fixture')],
-    }, 'streame');
+      'source': 'cola',
+      'matches': [row('cola', 'ColaTV fixture')],
+    }, 'cola');
 
     expect(rows, hasLength(1));
-    expect(rows.single['home_team'], 'StreamCenter fixture');
+    expect(rows.single['home_team'], 'ColaTV fixture');
   });
 
-  test('rejects a Soco payload shown under StreamCenter', () {
+  test('rejects a Soco payload shown under ColaTV', () {
     expect(
       () => validateSourceMatchRows({
         'source': 'soco',
         'matches': [row('soco', 'Deportivo Pasto')],
-      }, 'streame'),
+      }, 'cola'),
       throwsA(isA<FormatException>()),
     );
   });
@@ -33,9 +33,9 @@ void main() {
   test('rejects a mixed-provider row even when the envelope is correct', () {
     expect(
       () => validateSourceMatchRows({
-        'source': 'streame',
+        'source': 'cola',
         'matches': [row('soco', 'Wrong fixture')],
-      }, 'streame'),
+      }, 'cola'),
       throwsA(isA<FormatException>()),
     );
   });

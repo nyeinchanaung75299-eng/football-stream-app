@@ -3,8 +3,6 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
 import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
 import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
-import { tflixMatches, tflixStreams, tflixPublicMatches, tflixPublicCatalog, tflixViewerStreams } from "../_shared/tflix_source.mjs";
-import { streameMatches, streameStreams } from "../_shared/streame_source.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,30 +44,6 @@ Deno.serve(async (req) => {
       return json({ error: "Unsupported source." }, 400);
     }
     const action = body.action === "streams" ? "streams" : "matches";
-    // NCA, TFLIX, and StreamCenter Viewer access is metadata-only plus
-    // verified, keyless HLS/DASH. Resolution requires the Worker-held secret.
-    if (source === "nca") {
-      if (!viewerPublic) return json({ error: "Viewer mode required." }, 403);
-      if (action === "streams") {
-        if (!await verifyPlaybackBackendSecret(body.playback_secret)) {
-          return json({ error: "Protected source lookup unavailable." }, 403);
-        }
-        return json(await tflixViewerStreams({ ...body, label_prefix: "NCA" }));
-      }
-      return json(await tflixPublicMatches());
-    }
-    if ((source === "tflix" || source === "streame") && viewerPublic) {
-      if (action === "streams") {
-        if (!await verifyPlaybackBackendSecret(body.playback_secret)) {
-          return json({ error: "Protected source lookup unavailable." }, 403);
-        }
-        if (source === "streame") return json(await streameStreams(body));
-        return json(await tflixViewerStreams({ ...body, label_prefix: "TFLIX" }));
-      }
-      if (source === "streame") return json(await streameMatches(body));
-      return json(await tflixPublicCatalog(body.catalog));
-    }
-
     // Admin continues to require a verified admin session. The Viewer may use
     // this function only in explicit read-only source-browser mode; this
     // function fetches public provider match/stream metadata and never writes
@@ -107,17 +81,6 @@ Deno.serve(async (req) => {
       if (profile?.role !== "admin") {
         return json({ error: "Admin access required." }, 403);
       }
-    }
-
-    if (source === "tflix") {
-      return json(action === "streams"
-        ? await tflixStreams(body)
-        : await tflixMatches(body));
-    }
-    if (source === "streame") {
-      return json(action === "streams"
-        ? await streameStreams(body)
-        : await streameMatches(body));
     }
 
     if (action === "streams") {
@@ -178,29 +141,13 @@ Deno.serve(async (req) => {
   }
 });
 
-function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "tflix" | "streame" | "nca" | null {
+function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | null {
   const source = String(value ?? "").trim().toLowerCase();
   if (!source) return "soco";
-  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "tflix" || source === "streame" || source === "nca") {
+  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola") {
     return source;
   }
   return null;
-}
-
-async function verifyPlaybackBackendSecret(secret: unknown): Promise<boolean> {
-  if (typeof secret !== "string" || secret.trim().length === 0) return false;
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-  const publishableKey = Deno.env.get("SUPABASE_ANON_KEY") ??
-    Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
-  if (!supabaseUrl || !publishableKey) return false;
-  const client = createClient(supabaseUrl, publishableKey, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-  });
-  const { error } = await client.rpc("get_stream_metadata_for_gateway", {
-    p_match_id: "00000000-0000-0000-0000-000000000000",
-    p_secret: secret,
-  });
-  return error == null;
 }
 
 async function jsonpMatches(args: {

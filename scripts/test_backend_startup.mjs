@@ -57,110 +57,33 @@ test('stream metadata is one secret-gated RPC and preserves empty versus missing
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('concurrent source aliases share a lookup but completed empty responses are never cached', async () => {
-  let calls = 0, release;
-  const gate = new Promise(resolve => { release = resolve; });
-  globalThis.fetch = async () => {
-    calls++;
-    await gate;
-    return Response.json({ lines: [], ok: true });
-  };
-  const request = (origin = 'https://api.example', room = 'one') =>
-    new Request(origin + '/sources/tflix/streams', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source_id: 'match:' + room }),
-    });
-  try {
-    const first = worker.fetch(request(), env);
-    const alias = worker.fetch(request('https://backup.example'), env);
-    await pause(5);
-    assert.equal(calls, 1);
-    release();
-    for (const response of await Promise.all([first, alias])) {
-      assert.equal(response.status, 200);
-      assert.deepEqual((await response.json()).streams, []);
-    }
-    await worker.fetch(request(), env);
-    assert.equal(calls, 2, 'manual retry must recheck current availability');
-  } finally { release(); globalThis.fetch = originalFetch; }
-});
-
-test('failed shared lookups recover and distinct source IDs/environments stay isolated', async () => {
-  let calls = 0, fail = true;
-  globalThis.fetch = async () => {
-    calls++;
-    await pause(5);
-    return fail ? new Response('Unavailable', { status: 503 })
-      : Response.json({ lines: [], ok: true });
-  };
-  const request = room => new Request('https://api.example/sources/tflix/streams', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source_id: 'match:' + room }),
-  });
-  try {
-    await Promise.all([worker.fetch(request('one'), env), worker.fetch(request('one'), env)]);
-    assert.equal(calls, 1);
-    fail = false;
-    const result = await worker.fetch(request('one'), env);
-    assert.equal(result.status, 200);
-    assert.equal(calls, 2);
-    await Promise.all([
-      worker.fetch(request('one'), env), worker.fetch(request('two'), env),
-      worker.fetch(request('one'), { ...env }),
-    ]);
-    assert.equal(calls, 5);
-  } finally { globalThis.fetch = originalFetch; }
-});
-
-test('TFLIX Viewer catalogs are public metadata and streams are secret-gated protected URLs', async () => {
-  const streamUrl = 'https://media.example/tflix/live.m3u8';
+test('channel catalog and lines use a secret-gated protected gateway', async () => {
+  const channelId = '00000000-0000-4000-8000-000000000002';
+  const upstream = 'https://media.example/live.m3u8';
   globalThis.fetch = async (url, options) => {
-    assert.equal(new URL(url).pathname, '/functions/v1/soco-links');
-    const body = JSON.parse(options.body);
-    assert.equal(body.viewer_public, true);
-    if (body.action === 'matches') {
-      assert.equal(body.source, 'tflix');
-      assert.equal(body.catalog, 'channels');
-      return Response.json({ source: 'tflix', catalog: 'channels', matches: [
-        { source_id: 'channel:sky-sports', kind: 'channel', home_team: 'Sky Sports' },
-      ] });
-    }
-    assert.equal(body.source, 'tflix');
-    assert.equal(body.source_id, 'channel:sky-sports');
-    assert.equal(body.playback_secret, env.PLAYBACK_BACKEND_SECRET);
-    return Response.json({ lines: [
-      { id: 'good', label: 'TFLIX Server 1', stream_url: streamUrl, stream_type: 'hls',
-        media_verified: true, key_id: null, key_data: null, is_active: true,
-        expires_at: new Date(Date.now() + 120000).toISOString() },
-      { id: 'keyed', stream_url: 'https://media.example/keyed.mpd', stream_type: 'dash',
-        media_verified: true, key_id: 'secret-kid', key_data: 'secret-key', is_active: true },
-      { id: 'unverified', stream_url: 'https://media.example/unverified.m3u8', stream_type: 'hls',
-        media_verified: false, is_active: true },
-    ] });
+    const path = new URL(url).pathname;
+    if (path === '/rest/v1/channels') return Response.json([
+      {id: channelId, name: 'Sports', category: 'Sports'}]);
+    assert.equal(path, '/rest/v1/rpc/get_channel_metadata_for_gateway');
+    assert.deepEqual(JSON.parse(options.body), {
+      p_channel_id: channelId, p_secret: env.PLAYBACK_BACKEND_SECRET});
+    return Response.json({channel_valid: true, streams: [{
+      id: 'one', label: 'Server 1', stream_url: upstream,
+      stream_type: 'hls', is_active: true, health_status: 'unknown',
+    }]});
   };
   try {
-    const catalogResponse = await worker.fetch(new Request(
-      'https://api.example/sources/tflix/matches?catalog=channels'), env);
-    assert.equal(catalogResponse.status, 200);
-    const catalog = await catalogResponse.json();
-    assert.equal(catalog.catalog, 'channels');
-    assert.equal(catalog.matches[0].kind, 'channel');
-
-    const streamsResponse = await worker.fetch(new Request(
-      'https://api.example/sources/tflix/streams', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source_id: 'channel:sky-sports' }),
-      }), env);
-    assert.equal(streamsResponse.status, 200);
-    const result = await streamsResponse.json();
-    assert.equal(result.stream_count, 1);
-    assert.equal(result.streams[0].protected_proxy, true);
-    assert.equal(result.streams[0].key_id, null);
-    assert.equal(result.streams[0].key_data, null);
-    assert.notEqual(result.streams[0].stream_url, streamUrl);
-    const serialized = JSON.stringify(result);
-    assert.equal(serialized.includes(streamUrl), false);
-    assert.equal(serialized.includes(env.PLAYBACK_BACKEND_SECRET), false);
+    const catalog = await worker.fetch(new Request('https://api.example/channels'), env);
+    assert.equal(catalog.status, 200);
+    assert.equal((await catalog.json()).channels[0].name, 'Sports');
+    const response = await worker.fetch(new Request(
+      `https://api.example/channels/${channelId}/streams`), env);
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.stream_count, 1);
+    assert.equal(data.streams[0].protected_proxy, true);
+    assert.ok(data.streams[0].stream_url.startsWith('https://api.example/p/'));
+    assert.equal(JSON.stringify(data).includes(upstream), false);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -312,8 +235,6 @@ test('all four source providers skip Viewer probes without claiming healthy; def
   let ts = readFileSync(sourceUrl, 'utf8').replace(/^import .*jsr:.*;\n/gm, '');
   ts = ts.replace('"../_shared/stream_probe.mjs"', JSON.stringify(sharedUrl.href))
     .replace('"../_shared/source_match_rows.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/source_match_rows.mjs', import.meta.url).href))
-    .replace('"../_shared/tflix_source.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/tflix_source.mjs', import.meta.url).href))
-    .replace('"../_shared/streame_source.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/streame_source.mjs', import.meta.url).href))
     .replace('"../_shared/football_names.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/football_names.mjs', import.meta.url).href));
   try {
     await import('data:text/javascript;base64,' + Buffer.from(stripTypeScriptTypes(ts)).toString('base64'));

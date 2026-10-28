@@ -26,7 +26,7 @@ class GatewayRequest {
 
   final List<String> bases;
   final Future<http.Response> Function(Uri uri, String bearer, Duration timeout)
-      send;
+  send;
   final Future<String?> Function() refresh;
   final Future<dynamic> Function() direct;
   final void Function(String reason)? onFallback;
@@ -38,7 +38,7 @@ class GatewayRequest {
         'source-match-list',
         'football-fixtures',
         'soco-links',
-        'stream-health'
+        'stream-health',
       }.contains(functionName) ||
       (functionName == 'system-monitor' &&
           body is Map &&
@@ -54,7 +54,10 @@ class GatewayRequest {
   }
 
   static bool _matchesRequestedSource(
-      String functionName, Object? body, dynamic data) {
+    String functionName,
+    Object? body,
+    dynamic data,
+  ) {
     final expected = _requestedSource(functionName, body);
     if (expected == null) return true;
     if (data is! Map ||
@@ -65,27 +68,22 @@ class GatewayRequest {
 
     final matches = data['matches'];
     if (matches is! List) return false;
-    return matches.every((row) =>
-        row is Map &&
-        (row['source'] ?? '').toString().trim().toLowerCase() == expected);
+    return matches.every(
+      (row) =>
+          row is Map &&
+          (row['source'] ?? '').toString().trim().toLowerCase() == expected,
+    );
   }
 
-  Future<GatewayResult> run(String functionName, String token,
-      {Object? body}) async {
+  Future<GatewayResult> run(
+    String functionName,
+    String token, {
+    Object? body,
+  }) async {
     final repeatable = canRetry(functionName, body);
     final monitor = functionName == 'system-monitor';
-    // Admin verified-source lookups include a provider catalog fetch plus
-    // bounded manifest and sample checks. Give those legitimate requests
-    // a little more gateway overhead without changing other CRUD timeouts.
-    final verifiedSource = functionName == 'soco-links' &&
-        body is Map &&
-        const {'tflix', 'streame'}
-            .contains(body['source']?.toString().toLowerCase()) &&
-        body['action'] == 'streams';
-    final limit = totalTimeout ??
-        Duration(seconds: monitor ? 25 : verifiedSource ? 30 : 20);
-    final perRoute = routeTimeout ??
-        Duration(seconds: monitor ? 12 : verifiedSource ? 12 : 8);
+    final limit = totalTimeout ?? Duration(seconds: monitor ? 25 : 20);
+    final perRoute = routeTimeout ?? Duration(seconds: monitor ? 12 : 8);
     final elapsed = Stopwatch()..start();
     String accessToken = token;
     bool refreshed = false;
@@ -106,7 +104,8 @@ class GatewayRequest {
 
     for (final base in bases) {
       final uri = Uri.parse(
-          '$base/admin/functions/${Uri.encodeComponent(functionName)}');
+        '$base/admin/functions/${Uri.encodeComponent(functionName)}',
+      );
       http.Response response;
       try {
         var timeout = remaining(repeatable ? perRoute : null);
@@ -124,7 +123,8 @@ class GatewayRequest {
       } catch (error) {
         if (!repeatable) {
           throw StateError(
-              'Could not confirm the result. Refresh before trying again.');
+            'Could not confirm the result. Refresh before trying again.',
+          );
         }
         // The phase timeout already consumed the final request budget. A
         // timer can fire just before Stopwatch reports the exact deadline;
@@ -149,8 +149,11 @@ class GatewayRequest {
           remaining();
           continue;
         }
-        return GatewayResult(decoded,
-            base: base, statusCode: response.statusCode);
+        return GatewayResult(
+          decoded,
+          base: base,
+          statusCode: response.statusCode,
+        );
       }
       final missing = response.statusCode == 404;
       final unavailable = const {502, 503, 504}.contains(response.statusCode);
@@ -161,7 +164,8 @@ class GatewayRequest {
       }
       if (!repeatable && unavailable) {
         throw StateError(
-            'Could not confirm the result. Refresh before trying again.');
+          'Could not confirm the result. Refresh before trying again.',
+        );
       }
       final detail = decoded is Map && decoded['error'] != null
           ? decoded['error'].toString()
@@ -178,13 +182,15 @@ class GatewayRequest {
     } catch (_) {
       if (!repeatable) {
         throw StateError(
-            'Could not confirm the result. Refresh before trying again.');
+          'Could not confirm the result. Refresh before trying again.',
+        );
       }
       throw Exception('Could not connect. Check your connection and retry.');
     }
     if (!_matchesRequestedSource(functionName, body, directData)) {
       throw const FormatException(
-          'The server returned data for a different stream source. Please retry.');
+        'The server returned data for a different stream source. Please retry.',
+      );
     }
     return GatewayResult(directData);
   }

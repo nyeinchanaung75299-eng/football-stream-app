@@ -7,6 +7,8 @@
     { "source": "/", "destination": "/api/proxy?route=" },
     { "source": "/health", "destination": "/api/proxy?route=health" },
     { "source": "/matches", "destination": "/api/proxy?route=matches" },
+    { "source": "/channels", "destination": "/api/proxy?route=channels" },
+    { "source": "/channels/:ncaId/streams", "destination": "/api/proxy?route=channels/:ncaId/streams" },
     { "source": "/backend-health", "destination": "/api/proxy?route=backend-health" },
     { "source": "/service-health", "destination": "/api/proxy?route=service-health" },
     { "source": "/matches/:ncaId/streams", "destination": "/api/proxy?route=matches/:ncaId/streams" },

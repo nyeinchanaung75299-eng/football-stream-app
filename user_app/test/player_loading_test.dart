@@ -1,47 +1,20 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:football_viewer/player_loading.dart';
 import 'package:football_viewer/source_line_loader.dart';
 
 void main() {
-  test('verified source errors are useful but untrusted details stay hidden', () {
-    expect(
-      safeLineLoadError(StateError(
-        'StreamCenter source access was denied (HTTP 403). Choose another server.',
-      )),
-      'StreamCenter source access was denied (HTTP 403). Choose another server.',
-    );
-    expect(
-      safeLineLoadError(StateError(
-        'TFLIX service could not verify this stream (HTTP 502). Try again later or choose another source.',
-      )),
-      contains('TFLIX service could not verify'),
-    );
-    const fallback = 'Could not load lines. Check your connection and try again.';
+  test('line errors do not expose upstream details', () {
+    const fallback =
+        'Could not load lines. Check your connection and try again.';
     expect(safeLineLoadError(StateError('Network failed')), fallback);
-    expect(safeLineLoadError(StateError(
-      'StreamCenter source https://private.example/media.m3u8?token=secret',
-    )), fallback);
-    expect(safeLineLoadError(StateError('StreamCenter error\nAuthorization:secret')), fallback);
-  });
-
-  testWidgets('a known protected-source error reaches the user', (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(body: Builder(
-        builder: (context) => TextButton(
-          onPressed: () => loadPlayerSources(context, () async {
-            throw StateError('StreamCenter source was not found (HTTP 404). Refresh the match list.');
-          }),
-          child: const Text('Watch'),
-        ),
-      )),
-    ));
-    await tester.tap(find.text('Watch'));
-    await tester.pumpAndSettle();
     expect(
-      find.text('StreamCenter source was not found (HTTP 404). Refresh the match list.'),
-      findsOneWidget,
+      safeLineLoadError(
+        StateError('https://private.example/media.m3u8?token=secret'),
+      ),
+      fallback,
     );
   });
 

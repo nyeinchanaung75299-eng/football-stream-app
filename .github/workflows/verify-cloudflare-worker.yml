@@ -10,10 +10,6 @@ on:
       - "scripts/test_public_match_feed.mjs"
       - "scripts/test_website_stream_scanner.mjs"
       - "scripts/test_browser_stream_scanner.mjs"
-      - "scripts/test_tflix_source.mjs"
-      - "scripts/test_streame_source.mjs"
-      - "supabase/functions/_shared/tflix_source.mjs"
-      - "supabase/functions/_shared/streame_source.mjs"
       - ".github/workflows/verify-cloudflare-worker.yml"
 
 permissions:
@@ -34,8 +30,6 @@ jobs:
           node --test scripts/test_public_match_feed.mjs
           node --test scripts/test_website_stream_scanner.mjs
           node --test scripts/test_browser_stream_scanner.mjs
-          node --test scripts/test_tflix_source.mjs
-          node --test scripts/test_streame_source.mjs
       - name: Dry-run Cloudflare worker bundle
         working-directory: cloudflare/public-api
         run: npx --yes wrangler@4 deploy --dry-run --outdir /tmp/nca-worker-bundle

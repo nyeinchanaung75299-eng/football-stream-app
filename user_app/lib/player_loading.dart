@@ -1,20 +1,12 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
 
+import 'package:flutter/material.dart';
 
 // Surface only locally-authored, fixed source error text. Never echo raw
 // upstream exceptions, private stream URLs, tokens, or response payloads.
 String safeLineLoadError(Object? error) {
   const fallback = 'Could not load lines. Check your connection and try again.';
-  if (error is! StateError) return fallback;
-  final message = error.message.toString().trim();
-  if (!(message.startsWith('TFLIX ') || message.startsWith('TFLIX:') ||
-      message.startsWith('StreamCenter ') ||
-      message.startsWith('StreamCenter:'))) return fallback;
-  if (message.length > 230 ||
-      RegExp(r'[\r\n<>]|https?://|Bearer\s|token=|key=', caseSensitive: false)
-          .hasMatch(message)) return fallback;
-  return message;
+  return fallback;
 }
 
 /// Dismissing the loading dialog cancels opening the chooser. Only remove our
@@ -69,9 +61,8 @@ Future<T?> loadPlayerSources<T>(
   }
   if (cancelled || !context.mounted) return null;
   if (failure != null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(safeLineLoadError(failure))),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(safeLineLoadError(failure))));
     return null;
   }
   return result;

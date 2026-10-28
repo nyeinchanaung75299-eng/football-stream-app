@@ -88,7 +88,7 @@ export default {
     }
 
     const sourceStreamsRoute = url.pathname.match(
-      /^\/sources\/(soco|yyzb|fawa|cola|tflix|streame)\/streams$/,
+      /^\/sources\/(soco|yyzb|fawa|cola)\/streams$/,
     );
     if (sourceStreamsRoute && request.method === "POST") {
       return handleSourceBrowserStreams(
@@ -121,8 +121,12 @@ export default {
       return handleMatches(env);
     }
 
+    if (url.pathname === "/channels") return handleChannels(env);
+    const channelRoute = url.pathname.match(/^\/channels\/([0-9a-fA-F-]{36})\/streams$/);
+    if (channelRoute) return handleChannelStreams(request, channelRoute[1], env, url.origin);
+
     const sourceMatchesRoute = url.pathname.match(
-      /^\/sources\/(soco|yyzb|fawa|cola|tflix|streame)\/matches$/,
+      /^\/sources\/(soco|yyzb|fawa|cola)\/matches$/,
     );
     if (sourceMatchesRoute && request.method === "GET") {
       return handleSourceBrowserMatches(
@@ -446,19 +450,13 @@ async function handleSourceBrowserMatches(request, source, env) {
   }
 
   try {
-    const catalog = source === "tflix"
-      ? (new URL(request.url).searchParams.get("catalog") === "channels" ? "channels" : "matches")
-      : undefined;
     const payload = await invokeViewerSourceFunction(env, {
-      action: "matches",
-      source,
-      ...(catalog ? { catalog } : {}),
+      action: "matches", source,
     });
     const matches = Array.isArray(payload?.matches) ? payload.matches : [];
     return json({
       ok: true,
       source,
-      ...(catalog ? { catalog } : {}),
       matches,
       results: matches.length,
       generated_at: payload?.generated_at || new Date().toISOString(),
@@ -474,123 +472,46 @@ async function handleSourceBrowserMatches(request, source, env) {
 
 async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
   if (!(await allowRequest(request, env, "source-streams-" + source, 30))) {
-    return json({ error: "Too many source requests. Try again shortly." }, 429, {
-      "Retry-After": "60",
-      "Cache-Control": "no-store, max-age=0",
-    });
+    return json({error: "Too many source requests."}, 429,
+      {"Retry-After": "60", "Cache-Control": "no-store"});
   }
-
   let input = {};
+  try { input = await request.json(); } catch (_) {}
   try {
-    input = await request.json();
-  } catch (_) {}
-
-  const protectedSource = source === "tflix" || source === "streame";
-  try {
-    const backendSecret = protectedSource ? env.PLAYBACK_BACKEND_SECRET?.trim() || "" : "";
-    if (protectedSource && !backendSecret) {
-      return json({ error: "Protected source playback is not configured." }, 503, {
-        "Cache-Control": "no-store, max-age=0",
-      });
-    }
     const payload = await invokeViewerSourceFunction(env, {
-      action: "streams",
-      source,
-      room_num: source === "tflix"
-        ? input?.source_id ?? input?.room_num ?? null
-        : source === "streame"
-          ? input?.room_num ?? input?.source_id ?? null
-          : input?.room_num ?? null,
+      action: "streams", source,
+      room_num: input?.room_num ?? null,
       schedule_id: input?.schedule_id ?? null,
       page_url: input?.page_url ?? null,
       source_id: input?.source_id ?? null,
       anchor_name: input?.anchor_name ?? null,
-      ...(protectedSource ? { playback_secret: backendSecret } : {}),
-      // The Viewer needs a playable candidate promptly. Admin extraction and
-      // explicit health actions still probe; skipped candidates are unknown.
       skip_probe: true,
     });
-
     const candidates = Array.isArray(payload?.lines) ? payload.lines : [];
-    const rawLines = protectedSource ? candidates.filter((line) => {
-      const type = String(line?.stream_type || "").toLowerCase();
-      const url = String(line?.stream_url || line?.url || "");
-      const expiry = Date.parse(String(line?.expires_at || ""));
-      return line?.media_verified === true &&
-        !line?.key_id && !line?.key_data &&
-        line?.gateway_compatible !== false &&
-        ["hls", "dash"].includes(type) &&
-        url.startsWith("https://") &&
-        (!Number.isFinite(expiry) || expiry > Date.now() + 30000);
-    }) : candidates;
-    const roomKey = String(input?.room_num || input?.source_id || "room");
-    const anchorName = String(input?.anchor_name || "").trim();
-    const normalized = rawLines.map((line, index) => ({
+    const room = String(input?.room_num || "room");
+    const anchor = String(input?.anchor_name || "").trim();
+    const normalized = candidates.map((line, index) => ({
       id: String(line?.id || source + ":" +
-        String(input?.schedule_id || "match") + ":" + roomKey + ":" + index),
-      label: anchorName
-        ? anchorName + " • " + String(line?.label || line?.resolution || ("Line " + (index + 1)))
-        : line?.label || line?.resolution || ("Line " + (index + 1)),
+        String(input?.schedule_id || "match") + ":" + room + ":" + index),
+      label: anchor ? anchor + " • " + String(line?.label || ("Line " + (index + 1)))
+        : line?.label || ("Line " + (index + 1)),
       resolution: line?.resolution || "Auto",
       stream_type: line?.stream_type || "auto",
       stream_url: line?.url || line?.stream_url || "",
-      referer: line?.referer || "",
-      origin: line?.origin || "",
-      key_id: null,
-      key_data: null,
-      use_webview: false,
-      webview_url: null,
-      is_active: true,
-      priority: Number(line?.priority || 100),
-      available_from: null,
-      expires_at: line?.expires_at || null,
+      referer: line?.referer || "", origin: line?.origin || "",
+      key_id: null, key_data: null, use_webview: false,
+      is_active: true, priority: Number(line?.priority || 100),
+      available_from: null, expires_at: line?.expires_at || null,
       health_status: line?.health_status || "unknown",
     }));
-
     const streams = await protectedClientLinks(normalized, env, publicOrigin);
-    const noVerifiedMedia = protectedSource && streams.length === 0;
-    // A valid catalog row is not proof of an active, playable stream. Keep
-    // source availability separate from network errors and do not leak raw
-    // upstream URLs, headers, or provider exception messages to public Web.
-    return json({
-      ok: true,
-      source,
-      streams,
-      stream_count: streams.length,
-      ...(noVerifiedMedia ? {
-        availability: "unverified",
-        message: source === "tflix"
-          ? "TFLIX has no verified, unencrypted stream for this source right now. Try another source or later."
-          : "StreamCenter has no verified, unencrypted HLS stream for this source right now. Try another source or later.",
-      } : {}),
+    return json({ok: true, source, streams, stream_count: streams.length,
       live_status: payload?.live_status ?? null,
-      generated_at: new Date().toISOString(),
-    }, 200, { "Cache-Control": "no-store, max-age=0" });
+      generated_at: new Date().toISOString()}, 200,
+      {"Cache-Control": "no-store, max-age=0"});
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    // StreamCenter can rotate its public player host.  Keep the strict
-    // allow-list in place, but treat a rejected provider destination as an
-    // empty source rather than a client/network failure.  The Viewer will
-    // then accurately say that no stream is available instead of telling the
-    // user to troubleshoot their own connection.
-    if (source === "streame" && detail === "Unsupported source host.") {
-      return json({
-        ok: true,
-        source,
-        streams: [],
-        stream_count: 0,
-        availability: "unverified",
-        message: "No verified, keyless StreamCenter stream is available right now.",
-        generated_at: new Date().toISOString(),
-      }, 200, { "Cache-Control": "no-store, max-age=0" });
-    }
-    return json({
-      error: protectedSource
-        ? "No verified, keyless source stream is available right now."
-        : detail,
-    }, Number(error?.status) || 502, {
-      "Cache-Control": "no-store, max-age=0",
-    });
+    return json({error: error instanceof Error ? error.message : String(error)},
+      Number(error?.status) || 502, {"Cache-Control": "no-store, max-age=0"});
   }
 }
 
@@ -645,6 +566,59 @@ async function handleStreams(request, matchId, env, publicOrigin) {
     return json({ error: "Stream configuration upstream unavailable." }, 502, {
       "Cache-Control": "no-store, max-age=0",
     });
+  }
+}
+
+async function handleChannels(env) {
+  const base = env.SUPABASE_URL?.trim() || "";
+  const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() || "";
+  if (!base || !key) return json({error: "Channel catalog is not configured."}, 503);
+  try {
+    const url = new URL(base.replace(/\/+$/, "") + "/rest/v1/channels");
+    url.searchParams.set("select", "id,name,category,image_url,sort_order");
+    url.searchParams.set("is_active", "eq.true");
+    url.searchParams.set("order", "category.asc,sort_order.asc,name.asc");
+    url.searchParams.set("limit", "250");
+    const {data} = await fetchJsonWithTimeout(url, {
+      headers: {apikey: key, Accept: "application/json"},
+    }, METADATA_TIMEOUT_MS);
+    if (!Array.isArray(data)) throw new Error("Invalid channel catalog.");
+    return json({ok: true, channels: data}, 200,
+      {"Cache-Control": "public, max-age=15"});
+  } catch (_) {
+    return json({error: "Channel catalog is unavailable."}, 502);
+  }
+}
+
+async function handleChannelStreams(request, channelId, env, publicOrigin) {
+  const base = env.SUPABASE_URL?.trim() || "";
+  const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() || "";
+  const secret = env.PLAYBACK_BACKEND_SECRET?.trim() || "";
+  if (!base || !key || !secret) {
+    return json({error: "Channel playback is not configured."}, 503);
+  }
+  if (!(await allowRequest(request, env, "stream-list", 30))) {
+    return json({error: "Too many stream requests."}, 429,
+      {"Retry-After": "60", "Cache-Control": "no-store"});
+  }
+  try {
+    const {data} = await fetchJsonWithTimeout(
+      base.replace(/\/+$/, "") + "/rest/v1/rpc/get_channel_metadata_for_gateway",
+      {method: "POST", headers: {
+        apikey: key, Accept: "application/json", "Content-Type": "application/json",
+      }, body: JSON.stringify({p_channel_id: channelId, p_secret: secret})},
+      METADATA_TIMEOUT_MS,
+    );
+    if (typeof data?.channel_valid !== "boolean" || !Array.isArray(data.streams)) {
+      throw new Error("Invalid channel metadata.");
+    }
+    if (!data.channel_valid) return json({error: "Channel not found."}, 404);
+    const streams = await protectedClientLinks(data.streams, env, publicOrigin);
+    return json({ok: true, channel_id: channelId, streams,
+      stream_count: streams.length}, 200, {"Cache-Control": "no-store"});
+  } catch (_) {
+    return json({error: "Channel lines are unavailable."}, 502,
+      {"Cache-Control": "no-store"});
   }
 }
 

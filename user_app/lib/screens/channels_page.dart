@@ -1,0 +1,275 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+import '../native_player.dart';
+import '../network_endpoints.dart';
+import '../widgets/premium_bottom_nav.dart';
+import 'home_page.dart';
+import 'source_browser_page.dart';
+
+class ChannelsPage extends StatefulWidget {
+  const ChannelsPage({super.key});
+  @override
+  State<ChannelsPage> createState() => _ChannelsPageState();
+}
+
+class _ChannelsPageState extends State<ChannelsPage> {
+  late Future<List<Map<String, dynamic>>> catalog = load();
+  String? workingBase;
+  bool opening = false;
+  Future<Map<String, dynamic>> request(String path) async {
+    Object? last;
+    final bases = publicApiBases();
+    if (workingBase != null && bases.remove(workingBase))
+      bases.insert(0, workingBase!);
+    for (final base in bases) {
+      try {
+        final response = await http
+            .get(
+              Uri.parse('$base$path'),
+              headers: const {'Accept': 'application/json'},
+            )
+            .timeout(const Duration(seconds: 7));
+        if (response.statusCode != 200) {
+          last = 'HTTP ${response.statusCode}';
+          continue;
+        }
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map || decoded['ok'] != true) {
+          last = 'Invalid response';
+          continue;
+        }
+        workingBase = base;
+        return Map<String, dynamic>.from(decoded);
+      } catch (error) {
+        last = error;
+      }
+    }
+    throw StateError('Channel service unavailable: $last');
+  }
+
+  Future<List<Map<String, dynamic>>> load() async {
+    final data = await request('/channels');
+    if (data['channels'] is! List)
+      throw const FormatException('Invalid channel catalog');
+    return (data['channels'] as List)
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+  }
+
+  Future<void> refresh() async {
+    setState(() => catalog = load());
+    try {
+      await catalog;
+    } catch (_) {}
+  }
+
+  Future<void> watch(Map<String, dynamic> channel) async {
+    if (opening) return;
+    final id = channel['id']?.toString() ?? '';
+    if (!RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)) return;
+    setState(() => opening = true);
+    try {
+      final data = await request('/channels/$id/streams');
+      if (data['streams'] is! List)
+        throw const FormatException('Invalid channel lines');
+      final lines = (data['streams'] as List)
+          .whereType<Map>()
+          .map((raw) {
+            final row = Map<String, dynamic>.from(raw);
+            final url = row['stream_url']?.toString() ?? '';
+            final uri = Uri.tryParse(url);
+            if (uri == null ||
+                uri.scheme != 'https' ||
+                uri.host.isEmpty ||
+                row['protected_proxy'] != true)
+              return null;
+            return <String, dynamic>{
+              'id': row['id']?.toString(),
+              'label': row['label']?.toString() ?? 'Server',
+              'url': url,
+              'streamType': row['stream_type']?.toString() ?? 'auto',
+              'keyId': row['key_id']?.toString() ?? '',
+              'keyData': row['key_data']?.toString() ?? '',
+            };
+          })
+          .whereType<Map<String, dynamic>>()
+          .toList();
+      if (!mounted) return;
+      if (lines.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No active stream line for this channel.'),
+          ),
+        );
+        return;
+      }
+      final selected = await showModalBottomSheet<int>(
+        context: context,
+        showDragHandle: true,
+        useSafeArea: true,
+        builder: (sheet) => ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                channel['name']?.toString() ?? 'Choose line',
+                style: Theme.of(sheet).textTheme.titleLarge,
+              ),
+            ),
+            for (var i = 0; i < lines.length; i++)
+              ListTile(
+                leading: const Icon(Icons.play_circle_outline),
+                title: Text(lines[i]['label'].toString()),
+                subtitle: Text(lines[i]['streamType'].toString().toUpperCase()),
+                onTap: () => Navigator.pop(sheet, i),
+              ),
+          ],
+        ),
+      );
+      if (selected == null || !mounted) return;
+      NativePlayer.prewarm(sources: lines);
+      await NativePlayer.open(
+        context: context,
+        sources: lines,
+        selectedIndex: selected,
+        title: channel['name']?.toString() ?? 'Channel',
+        matchId: id,
+      );
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open channel: $error')),
+        );
+    } finally {
+      if (mounted) setState(() => opening = false);
+    }
+  }
+
+  void navigate(int index) {
+    if (index == 5) {
+      unawaited(refresh());
+      return;
+    }
+    if (index == 0) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(builder: (_) => const HomePage()),
+      );
+      return;
+    }
+    final source = switch (index) {
+      2 => 'yyzb',
+      3 => 'fawa',
+      4 => 'cola',
+      _ => 'soco',
+    };
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => SourceBrowserPage(source: source),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text('Channels'),
+      actions: [
+        IconButton(onPressed: refresh, icon: const Icon(Icons.refresh)),
+      ],
+    ),
+    body: FutureBuilder<List<Map<String, dynamic>>>(
+      future: catalog,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData && !snapshot.hasError) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError)
+          return Center(
+            child: Text('Channel catalog unavailable: ${snapshot.error}'),
+          );
+        final groups = <String, List<Map<String, dynamic>>>{};
+        for (final row in snapshot.data!) {
+          final category = row['category']?.toString().trim() ?? 'Other';
+          groups
+              .putIfAbsent(category.isEmpty ? 'Other' : category, () => [])
+              .add(row);
+        }
+        if (groups.isEmpty)
+          return const Center(child: Text('No published channels yet.'));
+        return RefreshIndicator(
+          onRefresh: refresh,
+          child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              for (final group in groups.entries) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
+                  child: Text(
+                    '${group.key} (${group.value.length})',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                SizedBox(
+                  height: 138,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: group.value.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 10),
+                    itemBuilder: (context, index) {
+                      final channel = group.value[index];
+                      final image = channel['image_url']?.toString() ?? '';
+                      final title = channel['name']?.toString() ?? 'Channel';
+                      return SizedBox(
+                        width: 160,
+                        child: InkWell(
+                          onTap: () => watch(channel),
+                          child: Column(
+                            children: [
+                              Expanded(
+                                child: Card(
+                                  clipBehavior: Clip.antiAlias,
+                                  child: Center(
+                                    child: image.startsWith('https://')
+                                        ? Image.network(
+                                            image,
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (_, __, ___) =>
+                                                const Icon(Icons.tv),
+                                          )
+                                        : const Icon(Icons.tv, size: 38),
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    ),
+    bottomNavigationBar: PremiumBottomNav(
+      selectedIndex: 5,
+      onSelected: navigate,
+    ),
+  );
+}

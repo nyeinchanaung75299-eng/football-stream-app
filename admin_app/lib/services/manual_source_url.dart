@@ -30,19 +30,12 @@ bool isValidManualStreamUrl(String value, {String streamType = 'auto'}) {
   final path = uri.path.toLowerCase();
   // A website page is not a playable media link, even with an explicit type.
   if (RegExp(r'\.(html?|php|aspx?)$').hasMatch(path)) return false;
-  final host = uri.host.toLowerCase();
-  final isTflix = host == 'tflix.su' ||
-      host == 'tflix.club' ||
-      host.endsWith('.tflix.su') ||
-      host.endsWith('.tflix.club');
-  if (isTflix &&
-      (path == '/' ||
-          path == '/watch' ||
-          path == '/channels' ||
-          path == '/football' ||
-          path.startsWith('/football/') ||
-          path.startsWith('/match/') ||
-          path.startsWith('/channel/'))) {
+  if (path == '/watch' ||
+      path == '/channels' ||
+      path == '/football' ||
+      path.startsWith('/football/') ||
+      path.startsWith('/match/') ||
+      path.startsWith('/channel/')) {
     return false;
   }
   final detected = detectManualStreamType(value);

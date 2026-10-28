@@ -2,8 +2,6 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
 import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
-import { tflixMatches } from "../_shared/tflix_source.mjs";
-import { streameMatches } from "../_shared/streame_source.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -66,15 +64,6 @@ Deno.serve(async (req) => {
       return json({ error: "Unsupported source." }, 400);
     }
 
-    if (source === "tflix") {
-      if (body.viewer_public === true || body.viewer_public === "true" || body.viewer_public === "1") {
-        return json({ error: "Admin access required." }, 403);
-      }
-      return json(await tflixMatches(body));
-    }
-    if (source === "streame") {
-      return json(await streameMatches(body));
-    }
     if (source === "fawa") {
       return await fawaMatches();
     }
@@ -96,10 +85,10 @@ Deno.serve(async (req) => {
   }
 });
 
-function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "tflix" | "streame" | null {
+function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | null {
   const source = String(value ?? "").trim().toLowerCase();
   if (!source) return "soco";
-  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "tflix" || source === "streame") {
+  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola") {
     return source;
   }
   return null;

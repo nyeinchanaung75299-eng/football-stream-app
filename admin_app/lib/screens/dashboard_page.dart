@@ -9,6 +9,7 @@ import 'fixture_import_page.dart';
 import 'live_links_page.dart';
 import 'live_upload_page.dart';
 import 'soco_import_page.dart';
+import 'channels_page.dart';
 import 'stream_detector_page.dart'
     if (dart.library.js_interop) 'stream_detector_page_web.dart';
 import 'system_health_page.dart';
@@ -152,6 +153,14 @@ class _DashboardPageState extends State<DashboardPage> {
         subtitle: 'Add primary/backup links and edit or disable them.',
         iconColor: const Color(0xFF7C3AED),
         onTap: () => open(context, const LiveLinksPage(), 'stream-servers'),
+      ),
+      const SizedBox(height: 10),
+      _ActionCard(
+        icon: Icons.tv_rounded,
+        title: 'Channels',
+        subtitle: 'Publish categorized channels with images and stream lines.',
+        iconColor: colors.primary,
+        onTap: () => open(context, const ChannelsPage(), 'channels'),
       ),
       const SizedBox(height: 10),
       _ActionCard(

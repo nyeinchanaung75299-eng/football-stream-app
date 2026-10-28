@@ -1,17 +1,19 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../analytics_service.dart';
-import '../nca_published_source.dart';
 import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 import '../native_player.dart';
 import 'source_browser_page.dart';
+import 'channels_page.dart';
 import 'network_diagnostics_page.dart';
 import '../widgets/theme_mode_button.dart';
 import '../widgets/premium_bottom_nav.dart';
@@ -50,12 +52,9 @@ class _PersistedMatchCache {
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.backendReady, this.ncaView = false});
+  const HomePage({super.key, this.backendReady});
 
   final Future<void>? backendReady;
-  // Viewer-only view of already published, administrator-curated NCA matches.
-  // Never calls private upstream source endpoints or exposes Admin credentials.
-  final bool ncaView;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -70,7 +69,8 @@ class _HomePageState extends State<HomePage> {
   late Future<String> _versionLabel;
   late Future<String> _updateVersionLabel;
   final Map<String, _StreamCacheEntry> _streamLinkCache = {};
-  final Map<String, Future<List<Map<String, dynamic>>>> _streamLinkInflight = {};
+  final Map<String, Future<List<Map<String, dynamic>>>> _streamLinkInflight =
+      {};
 
   String? _workingApiBase;
 
@@ -88,17 +88,13 @@ class _HomePageState extends State<HomePage> {
     return bases;
   }
 
-  static const _ncaCatalogEndpoint =
-      'https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links';
-
   static const _mirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/matches.json';
   static const _mirrorStatusBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/status.json';
-  static const _authoritativeCacheKey =
-      'viewer_authoritative_matches_v1';
+  static const _authoritativeCacheKey = 'viewer_authoritative_matches_v1';
   static const _authoritativeCacheFetchedAtKey =
       'viewer_authoritative_matches_fetched_at_v1';
 
@@ -147,29 +143,30 @@ class _HomePageState extends State<HomePage> {
       final run = attempts[nextIndex++];
       running += 1;
 
-      run().then((value) {
-        if (!completer.isCompleted) {
-          timer?.cancel();
-          completer.complete(value);
-        }
-      }).catchError((Object error, StackTrace stackTrace) {
-        running -= 1;
-        lastError = error;
-        lastStack = stackTrace;
+      run()
+          .then((value) {
+            if (!completer.isCompleted) {
+              timer?.cancel();
+              completer.complete(value);
+            }
+          })
+          .catchError((Object error, StackTrace stackTrace) {
+            running -= 1;
+            lastError = error;
+            lastStack = stackTrace;
 
-        if (!completer.isCompleted && nextIndex < attempts.length) {
-          startNext();
-        } else if (
-            !completer.isCompleted &&
-            nextIndex >= attempts.length &&
-            running == 0) {
-          timer?.cancel();
-          completer.completeError(
-            lastError ?? StateError('All fallback sources failed.'),
-            lastStack ?? StackTrace.current,
-          );
-        }
-      });
+            if (!completer.isCompleted && nextIndex < attempts.length) {
+              startNext();
+            } else if (!completer.isCompleted &&
+                nextIndex >= attempts.length &&
+                running == 0) {
+              timer?.cancel();
+              completer.completeError(
+                lastError ?? StateError('All fallback sources failed.'),
+                lastStack ?? StackTrace.current,
+              );
+            }
+          });
     }
 
     startNext();
@@ -206,7 +203,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _feed = LiveFeedController(widget.ncaView ? _loadNcaMatches : loadMatches);
+    _feed = LiveFeedController(loadMatches);
     unawaited(_feed.refresh());
     _versionLabel = _loadVersionLabel();
     _updateVersionLabel = AppUpdateService.versionSummary();
@@ -217,9 +214,11 @@ class _HomePageState extends State<HomePage> {
     if (backendReady == null) {
       _subscribeToUpdates();
     } else {
-      unawaited(backendReady.then((_) {
-        if (mounted) _subscribeToUpdates();
-      }));
+      unawaited(
+        backendReady.then((_) {
+          if (mounted) _subscribeToUpdates();
+        }),
+      );
     }
 
     // Keep metadata fresh even when Realtime is unavailable.
@@ -264,13 +263,14 @@ class _HomePageState extends State<HomePage> {
           )
           .subscribe();
     }
-
   }
 
   Future<String> _loadVersionLabel() async {
     try {
       final info = await PackageInfo.fromPlatform();
-      final version = info.version.trim().isEmpty ? '9.8.0' : info.version.trim();
+      final version = info.version.trim().isEmpty
+          ? '9.8.0'
+          : info.version.trim();
       final build = info.buildNumber.trim();
       return build.isEmpty
           ? 'V$version • Live streams'
@@ -315,8 +315,7 @@ class _HomePageState extends State<HomePage> {
   ) {
     final secondaryById = <String, Map<String, dynamic>>{
       for (final row in secondary)
-        if ((row['id']?.toString() ?? '').isNotEmpty)
-          row['id'].toString(): row,
+        if ((row['id']?.toString() ?? '').isNotEmpty) row['id'].toString(): row,
     };
 
     for (final row in primary) {
@@ -334,9 +333,7 @@ class _HomePageState extends State<HomePage> {
 
   List<Map<String, dynamic>> _decodeMatches(String body) {
     final decoded = jsonDecode(body);
-    final raw = decoded is Map<String, dynamic>
-        ? decoded['matches']
-        : decoded;
+    final raw = decoded is Map<String, dynamic> ? decoded['matches'] : decoded;
 
     if (raw is! List) {
       throw const FormatException('Match feed is invalid.');
@@ -348,9 +345,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<List<Map<String, dynamic>>> _loadPublicApiFrom(
-    String base,
-  ) async {
+  Future<List<Map<String, dynamic>>> _loadPublicApiFrom(String base) async {
     final response = await http
         .get(
           Uri.parse('$base/matches').replace(
@@ -392,13 +387,13 @@ class _HomePageState extends State<HomePage> {
     String base,
     String matchId,
   ) async {
-    final uri = Uri.parse(
-      '$base/matches/${Uri.encodeComponent(matchId)}/streams',
-    ).replace(
-      queryParameters: {
-        't': DateTime.now().millisecondsSinceEpoch.toString(),
-      },
-    );
+    final uri =
+        Uri.parse('$base/matches/${Uri.encodeComponent(matchId)}/streams')
+            .replace(
+              queryParameters: {
+                't': DateTime.now().millisecondsSinceEpoch.toString(),
+              },
+            );
 
     final response = await http
         .get(
@@ -411,15 +406,11 @@ class _HomePageState extends State<HomePage> {
         .timeout(const Duration(seconds: 4));
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        'Public stream API returned HTTP ${response.statusCode}',
-      );
+      throw Exception('Public stream API returned HTTP ${response.statusCode}');
     }
 
     final decoded = jsonDecode(response.body);
-    final raw = decoded is Map<String, dynamic>
-        ? decoded['streams']
-        : decoded;
+    final raw = decoded is Map<String, dynamic> ? decoded['streams'] : decoded;
     if (raw is! List) {
       throw const FormatException('Stream response is invalid.');
     }
@@ -428,16 +419,17 @@ class _HomePageState extends State<HomePage> {
         .map((row) => Map<String, dynamic>.from(row as Map))
         .toList();
 
-    if (decoded is Map<String, dynamic> &&
-        decoded['blocked_streams'] is List) {
+    if (decoded is Map<String, dynamic> && decoded['blocked_streams'] is List) {
       final blocked = (decoded['blocked_streams'] as List)
           .map((row) => Map<String, dynamic>.from(row as Map))
-          .map((row) => <String, dynamic>{
-                ...row,
-                // A local non-playable sentinel keeps the option visible in
-                // the chooser without exposing an upstream URL or key.
-                'stream_url': 'blocked://keyed-dash',
-              });
+          .map(
+            (row) => <String, dynamic>{
+              ...row,
+              // A local non-playable sentinel keeps the option visible in
+              // the chooser without exposing an upstream URL or key.
+              'stream_url': 'blocked://keyed-dash',
+            },
+          );
       rows.addAll(blocked);
     }
 
@@ -446,121 +438,11 @@ class _HomePageState extends State<HomePage> {
     return rows;
   }
 
-  Future<List<Map<String, dynamic>>> _loadPublicApiStreams(
-    String matchId,
-  ) {
-
+  Future<List<Map<String, dynamic>>> _loadPublicApiStreams(String matchId) {
     return _hedged(
       _apiJobs((base) => _loadPublicApiStreamsFrom(base, matchId)),
       delay: const Duration(milliseconds: 250),
     );
-  }
-
-  Future<List<Map<String, dynamic>>> _loadNcaPublicCatalog() async {
-    final url = Uri.parse(_ncaCatalogEndpoint).replace(queryParameters: {
-      'viewer_public': '1',
-      'source': 'nca',
-      'action': 'matches',
-      't': DateTime.now().millisecondsSinceEpoch.toString(),
-    });
-    final response = await http.get(url,
-        headers: const {'Accept': 'application/json'})
-        .timeout(const Duration(seconds: 12));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError('NCA match catalog HTTP ' +
-          response.statusCode.toString());
-    }
-    final data = jsonDecode(utf8.decode(response.bodyBytes));
-    final raw = data is Map ? data['matches'] : null;
-    if (raw is! List) {
-      throw const FormatException('Invalid NCA match catalog.');
-    }
-    return raw.map((row) => Map<String, dynamic>.from(row as Map)).toList();
-  }
-
-  Future<List<Map<String, dynamic>>> _loadNcaMatches() async {
-    // Metadata catalog is the same match list as Admin, independent of
-    // whether any authorized stream was imported yet.
-    final catalog = await _loadNcaPublicCatalog();
-    if (catalog.isEmpty) return const [];
-    List<Map<String, dynamic>> published;
-    try {
-      published = await loadMatches();
-    } catch (_) {
-      // A playback API outage must not erase the public fixture schedule.
-      return ncaCatalogWithImportedStreams(catalog, const []);
-    }
-    final candidates = published.where((match) {
-      final id = match['id']?.toString().trim() ?? '';
-      final count = (match['stream_count'] as num?)?.toInt() ?? 0;
-      return id.isNotEmpty && count > 0 &&
-          catalog.any((row) => ncaSameFixture(row, match));
-    }).toList();
-    final imported = <Map<String, dynamic>>[];
-    for (var offset = 0; offset < candidates.length; offset += 5) {
-      final batch = candidates.skip(offset).take(5);
-      final checked = await Future.wait(batch.map((match) async {
-        final matchId = match['id'].toString();
-        try {
-          final raw = await _loadPublicApiStreams(matchId);
-          final own = ncaPublishedLines(playableLinks(raw));
-          if (own.isEmpty) return null;
-          _streamLinkCache[matchId] = _StreamCacheEntry(own, DateTime.now());
-          return <String, dynamic>{
-            ...match,
-            'stream_count': own.length,
-            'stream_links': own,
-          };
-        } catch (_) {
-          // Never fall back to an unrelated Live/ColaTV/YYZB line.
-          return null;
-        }
-      }));
-      imported.addAll(checked.whereType<Map<String, dynamic>>());
-    }
-    return ncaCatalogWithImportedStreams(catalog, imported);
-  }
-
-
-  Future<List<Map<String, dynamic>>> _loadNcaAutoStreams(String sourceId) async {
-    if (!RegExp(r'^match:[a-zA-Z0-9][a-zA-Z0-9_-]{0,159}$')
-        .hasMatch(sourceId)) return const [];
-    return _hedged(
-      _apiJobs((base) => _loadNcaAutoStreamsFrom(base, sourceId)),
-      delay: const Duration(milliseconds: 250),
-    );
-  }
-
-  Future<List<Map<String, dynamic>>> _loadNcaAutoStreamsFrom(
-    String base,
-    String sourceId,
-  ) async {
-    final response = await http
-        .post(
-          Uri.parse('$base/sources/tflix/streams'),
-          headers: const {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode({'source_id': sourceId}),
-        )
-        .timeout(const Duration(seconds: 12));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError('TFLIX automatic stream lookup unavailable.');
-    }
-    final data = jsonDecode(utf8.decode(response.bodyBytes));
-    final raw = data is Map ? data['streams'] : null;
-    if (raw is! List) {
-      throw const FormatException('Invalid TFLIX stream response.');
-    }
-    return playableLinks(raw.whereType<Map>()
-        .map((row) => Map<String, dynamic>.from(row))
-        .where((row) =>
-            row['protected_proxy'] == true &&
-            row['key_id'] == null && row['key_data'] == null &&
-            {'hls', 'dash'}.contains(row['stream_type']) &&
-            Uri.tryParse(row['stream_url']?.toString() ?? '')?.scheme == 'https')
-        .toList());
   }
 
   Future<List<Map<String, dynamic>>> _resolveLinks(
@@ -569,25 +451,11 @@ class _HomePageState extends State<HomePage> {
     final matchId = match['id']?.toString().trim() ?? '';
     if (matchId.isEmpty) return const [];
 
-    if (widget.ncaView) {
-      // Fetch verified auto servers on WATCH, independently of Admin import.
-      final lines = await _loadNcaAutoStreams(
-          (match['source_id'] ?? '').toString());
-      if (lines.isNotEmpty) {
-        _streamLinkCache[matchId] = _StreamCacheEntry(lines, DateTime.now());
-        return lines;
-      }
-      // Only previously imported NCA lines may be used as a fallback.
-      return ncaPublishedLines(playableLinks(
-          match['stream_links'] ?? const <Map<String, dynamic>>[]));
-    }
-
     final cached = _streamLinkCache[matchId];
-    final advertisedCount =
-        (match['stream_count'] as num?)?.toInt() ?? 0;
-    final cachedRows =
-        cached?.rows ?? const <Map<String, dynamic>>[];
-    final cacheIsFresh = cached != null &&
+    final advertisedCount = (match['stream_count'] as num?)?.toInt() ?? 0;
+    final cachedRows = cached?.rows ?? const <Map<String, dynamic>>[];
+    final cacheIsFresh =
+        cached != null &&
         DateTime.now().difference(cached.fetchedAt) <
             const Duration(seconds: 25);
     final cacheLooksComplete =
@@ -604,10 +472,7 @@ class _HomePageState extends State<HomePage> {
         try {
           final rows = playableLinks(await _loadPublicApiStreams(matchId));
           if (rows.isNotEmpty) {
-            _streamLinkCache[matchId] = _StreamCacheEntry(
-              rows,
-              DateTime.now(),
-            );
+            _streamLinkCache[matchId] = _StreamCacheEntry(rows, DateTime.now());
           } else {
             _streamLinkCache.remove(matchId);
           }
@@ -617,13 +482,12 @@ class _HomePageState extends State<HomePage> {
         }
       }
 
-      List<Map<String, dynamic>> mirrorRows = playableLinks(
-        match['stream_links'],
-      ).where((row) {
-        final url = (row['stream_url'] ?? '').toString().trim();
-        if (url.isEmpty) return false;
-        return true;
-      }).toList();
+      List<Map<String, dynamic>> mirrorRows =
+          playableLinks(match['stream_links']).where((row) {
+            final url = (row['stream_url'] ?? '').toString().trim();
+            if (url.isEmpty) return false;
+            return true;
+          }).toList();
 
       Future<_ProtectedStreamResult> loadProtected() async {
         try {
@@ -632,10 +496,7 @@ class _HomePageState extends State<HomePage> {
             playableLinks(await _loadPublicApiStreams(matchId)),
           );
         } catch (_) {
-          return const _ProtectedStreamResult(
-            false,
-            <Map<String, dynamic>>[],
-          );
+          return const _ProtectedStreamResult(false, <Map<String, dynamic>>[]);
         }
       }
 
@@ -656,10 +517,7 @@ class _HomePageState extends State<HomePage> {
                   ? (mirrorLooksIncomplete ? 4200 : 3200)
                   : (mirrorLooksIncomplete ? 3800 : 3000),
             ),
-            () => const _ProtectedStreamResult(
-              false,
-              <Map<String, dynamic>>[],
-            ),
+            () => const _ProtectedStreamResult(false, <Map<String, dynamic>>[]),
           ),
         ]);
 
@@ -690,10 +548,7 @@ class _HomePageState extends State<HomePage> {
 
       try {
         if (rows.isNotEmpty) {
-          _streamLinkCache[matchId] = _StreamCacheEntry(
-            rows,
-            DateTime.now(),
-          );
+          _streamLinkCache[matchId] = _StreamCacheEntry(rows, DateTime.now());
         } else {
           _streamLinkCache.remove(matchId);
         }
@@ -707,9 +562,7 @@ class _HomePageState extends State<HomePage> {
     return request;
   }
 
-  Future<void> _warmStreamLinks(
-    List<Map<String, dynamic>> matches,
-  ) async {
+  Future<void> _warmStreamLinks(List<Map<String, dynamic>> matches) async {
     final candidates = matches
         .where(
           (match) =>
@@ -733,18 +586,13 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> _saveAuthoritativeCache(
-    List<Map<String, dynamic>> rows,
-  ) async {
+  Future<void> _saveAuthoritativeCache(List<Map<String, dynamic>> rows) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final snapshot = rows
           .map((row) => Map<String, dynamic>.from(row))
           .toList();
-      await prefs.setString(
-        _authoritativeCacheKey,
-        jsonEncode(snapshot),
-      );
+      await prefs.setString(_authoritativeCacheKey, jsonEncode(snapshot));
       await prefs.setString(
         _authoritativeCacheFetchedAtKey,
         DateTime.now().toUtc().toIso8601String(),
@@ -758,8 +606,7 @@ class _HomePageState extends State<HomePage> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_authoritativeCacheKey);
-      final fetchedText =
-          prefs.getString(_authoritativeCacheFetchedAtKey);
+      final fetchedText = prefs.getString(_authoritativeCacheFetchedAtKey);
       final fetchedAt = fetchedText == null
           ? null
           : DateTime.tryParse(fetchedText)?.toUtc();
@@ -879,14 +726,14 @@ class _HomePageState extends State<HomePage> {
       row['stream_links'] = const <Map<String, dynamic>>[];
     }
     final counts = data[1]
-        .map((row) => <String, dynamic>{
-              'id': row['match_id'],
-              'stream_count': (row['stream_count'] as num?)?.toInt() ?? 0,
-            })
+        .map(
+          (row) => <String, dynamic>{
+            'id': row['match_id'],
+            'stream_count': (row['stream_count'] as num?)?.toInt() ?? 0,
+          },
+        )
         .toList();
-    return _sortMatchesChronologically(
-      _mergeAvailability(rows, counts),
-    );
+    return _sortMatchesChronologically(_mergeAvailability(rows, counts));
   }
 
   List<Map<String, dynamic>> _mergeMirrorBackupsIntoMatches(
@@ -960,18 +807,13 @@ class _HomePageState extends State<HomePage> {
     // Only fall back to GitHub after both fail, otherwise an older mirror can
     // win the race and resurrect deleted matches or stale LIVE state.
     final authoritative = <Future<_MatchLoadResult> Function()>[
-      () async => _MatchLoadResult(
-            await _loadPublicApi(),
-            'Fast public API',
-          ),
+      () async => _MatchLoadResult(await _loadPublicApi(), 'Fast public API'),
     ];
 
     if (_supabaseClientOrNull() != null) {
       authoritative.add(
-        () async => _MatchLoadResult(
-              await _loadSupabaseMatches(),
-              'Direct database',
-            ),
+        () async =>
+            _MatchLoadResult(await _loadSupabaseMatches(), 'Direct database'),
       );
     }
 
@@ -991,9 +833,7 @@ class _HomePageState extends State<HomePage> {
       // Add safe non-keyed mirror lines so WATCH still works when the
       // protected stream endpoint is blocked on the current phone network.
       try {
-        final mirror = await _loadMirror().timeout(
-          const Duration(seconds: 2),
-        );
+        final mirror = await _loadMirror().timeout(const Duration(seconds: 2));
         result = _MatchLoadResult(
           _mergeMirrorBackupsIntoMatches(result.rows, mirror),
           result.label,
@@ -1013,7 +853,8 @@ class _HomePageState extends State<HomePage> {
         final mirror = await _loadMirror();
         final cached = await cachedFuture;
         final mirrorUpdatedAt = await mirrorStatusFuture;
-        final cacheIsNewer = cached != null &&
+        final cacheIsNewer =
+            cached != null &&
             (mirrorUpdatedAt == null ||
                 cached.fetchedAt.isAfter(
                   mirrorUpdatedAt.add(const Duration(minutes: 1)),
@@ -1053,7 +894,9 @@ class _HomePageState extends State<HomePage> {
     await _feed.refresh();
     if (!silent && mounted && _feed.hasData && _feed.error != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not refresh. Showing the previous results.')),
+        const SnackBar(
+          content: Text('Could not refresh. Showing the previous results.'),
+        ),
       );
     }
   }
@@ -1141,7 +984,8 @@ class _HomePageState extends State<HomePage> {
     }
 
     final host = uri.host.toLowerCase();
-    final isFawa = host == 'fawanews.sc' ||
+    final isFawa =
+        host == 'fawanews.sc' ||
         host == 'www.fawanews.sc' ||
         host.endsWith('.fawanews.sc');
     if (!isFawa) return referer;
@@ -1180,15 +1024,17 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _openPlayer(Map<String, dynamic> match) async {
     final matchId = match['id']?.toString() ?? '';
-    unawaited(AnalyticsService.capture(
-      'watch tapped',
-      properties: {
-        'match_id': matchId,
-        'league': (match['league'] ?? '').toString(),
-        'is_live': match['is_live'] == true,
-        'advertised_lines': (match['stream_count'] as num?)?.toInt() ?? 0,
-      },
-    ));
+    unawaited(
+      AnalyticsService.capture(
+        'watch tapped',
+        properties: {
+          'match_id': matchId,
+          'league': (match['league'] ?? '').toString(),
+          'is_live': match['is_live'] == true,
+          'advertised_lines': (match['stream_count'] as num?)?.toInt() ?? 0,
+        },
+      ),
+    );
 
     final links = await loadPlayerSources(context, () => _resolveLinks(match));
     if (links == null || !mounted) return;
@@ -1214,14 +1060,13 @@ class _HomePageState extends State<HomePage> {
         },
       );
       if (!mounted) return;
-      final advertised =
-          (match['stream_count'] as num?)?.toInt() ?? 0;
+      final advertised = (match['stream_count'] as num?)?.toInt() ?? 0;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             advertised > 0
                 ? 'Could not load the $advertised configured line(s). '
-                    'Please tap WATCH again in a moment.'
+                      'Please tap WATCH again in a moment.'
                 : 'Stream is not available yet.',
           ),
         ),
@@ -1266,7 +1111,9 @@ class _HomePageState extends State<HomePage> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This match currently has no native stream.')),
+        const SnackBar(
+          content: Text('This match currently has no native stream.'),
+        ),
       );
       return;
     }
@@ -1362,34 +1209,30 @@ class _HomePageState extends State<HomePage> {
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final source = nativeSources[index];
-                        final rawLabel =
-                            (source['label'] ?? '').toString().trim();
+                        final rawLabel = (source['label'] ?? '')
+                            .toString()
+                            .trim();
                         final label = rawLabel.isEmpty
                             ? 'Line ${index + 1}'
                             : rawLabel;
-                        final type =
-                            (source['streamType'] ?? 'auto')
-                                .toString()
-                                .toLowerCase();
-                        final resolution =
-                            (source['resolution'] ?? '').toString().trim();
-                        final health =
-                            (source['healthStatus'] ?? 'unknown')
-                                .toString()
-                                .toLowerCase();
-                        final blocked =
-                            (source['blockedReason'] ?? '')
-                                .toString()
-                                .trim()
-                                .isNotEmpty;
+                        final type = (source['streamType'] ?? 'auto')
+                            .toString()
+                            .toLowerCase();
+                        final resolution = (source['resolution'] ?? '')
+                            .toString()
+                            .trim();
+                        final health = (source['healthStatus'] ?? 'unknown')
+                            .toString()
+                            .toLowerCase();
+                        final blocked = (source['blockedReason'] ?? '')
+                            .toString()
+                            .trim()
+                            .isNotEmpty;
                         final hasKey =
                             (source['keyId']?.toString().trim().isNotEmpty ??
-                                    false) &&
-                                (source['keyData']
-                                        ?.toString()
-                                        .trim()
-                                        .isNotEmpty ??
-                                    false);
+                                false) &&
+                            (source['keyData']?.toString().trim().isNotEmpty ??
+                                false);
 
                         String detail;
                         IconData icon;
@@ -1417,8 +1260,8 @@ class _HomePageState extends State<HomePage> {
 
                         if (resolution.isNotEmpty &&
                             !label.toLowerCase().contains(
-                                  resolution.toLowerCase(),
-                                )) {
+                              resolution.toLowerCase(),
+                            )) {
                           detail = '$resolution • $detail';
                         }
 
@@ -1444,8 +1287,9 @@ class _HomePageState extends State<HomePage> {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(18),
                             side: BorderSide(
-                              color: colors.outlineVariant
-                                  .withValues(alpha: .55),
+                              color: colors.outlineVariant.withValues(
+                                alpha: .55,
+                              ),
                             ),
                           ),
                           clipBehavior: Clip.antiAlias,
@@ -1461,8 +1305,9 @@ class _HomePageState extends State<HomePage> {
                                     width: 46,
                                     height: 46,
                                     decoration: BoxDecoration(
-                                      color: colors.primaryContainer
-                                          .withValues(alpha: .72),
+                                      color: colors.primaryContainer.withValues(
+                                        alpha: .72,
+                                      ),
                                       borderRadius: BorderRadius.circular(14),
                                     ),
                                     alignment: Alignment.center,
@@ -1483,8 +1328,7 @@ class _HomePageState extends State<HomePage> {
                                               child: Text(
                                                 label,
                                                 maxLines: 1,
-                                                overflow:
-                                                    TextOverflow.ellipsis,
+                                                overflow: TextOverflow.ellipsis,
                                                 style: const TextStyle(
                                                   fontSize: 15,
                                                   fontWeight: FontWeight.w900,
@@ -1495,12 +1339,13 @@ class _HomePageState extends State<HomePage> {
                                             Container(
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                horizontal: 8,
-                                                vertical: 4,
-                                              ),
+                                                    horizontal: 8,
+                                                    vertical: 4,
+                                                  ),
                                               decoration: BoxDecoration(
-                                                color: statusColor
-                                                    .withValues(alpha: .10),
+                                                color: statusColor.withValues(
+                                                  alpha: .10,
+                                                ),
                                                 borderRadius:
                                                     BorderRadius.circular(999),
                                               ),
@@ -1555,18 +1400,20 @@ class _HomePageState extends State<HomePage> {
     }
 
     final selectedSource = nativeSources[selectedIndex];
-    unawaited(AnalyticsService.capture(
-      'stream selected',
-      properties: {
-        'match_id': matchId,
-        'line_count': nativeSources.length,
-        'selected_index': selectedIndex,
-        'stream_type': (selectedSource['streamType'] ?? 'auto').toString(),
-        'resolution': (selectedSource['resolution'] ?? '').toString(),
-        'health_status':
-            (selectedSource['healthStatus'] ?? 'unknown').toString(),
-      },
-    ));
+    unawaited(
+      AnalyticsService.capture(
+        'stream selected',
+        properties: {
+          'match_id': matchId,
+          'line_count': nativeSources.length,
+          'selected_index': selectedIndex,
+          'stream_type': (selectedSource['streamType'] ?? 'auto').toString(),
+          'resolution': (selectedSource['resolution'] ?? '').toString(),
+          'health_status': (selectedSource['healthStatus'] ?? 'unknown')
+              .toString(),
+        },
+      ),
+    );
 
     try {
       if (!mounted) return;
@@ -1689,8 +1536,7 @@ class _HomePageState extends State<HomePage> {
                 subtitle: FutureBuilder<String>(
                   future: _updateVersionLabel,
                   builder: (context, snapshot) => Text(
-                    snapshot.data ??
-                        'Check and install the latest NCA APK',
+                    snapshot.data ?? 'Check and install the latest NCA APK',
                   ),
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
@@ -1699,7 +1545,6 @@ class _HomePageState extends State<HomePage> {
                   AppUpdateService.check(context, force: true);
                 },
               ),
-
             ],
           ),
         );
@@ -1725,7 +1570,7 @@ class _HomePageState extends State<HomePage> {
         toolbarHeight: 52,
         titleSpacing: 14,
         title: Text(
-          widget.ncaView ? 'NCA' : 'Live',
+          'Live',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w900,
@@ -1765,10 +1610,8 @@ class _HomePageState extends State<HomePage> {
           if (matches.isEmpty) {
             return _StateMessage(
               icon: Icons.sports_soccer_outlined,
-              title: widget.ncaView ? 'No NCA matches now' : 'No matches now',
-              subtitle: widget.ncaView
-                  ? 'No football fixtures in the current NCA catalog. Refresh later.'
-                  : 'New matches will appear here automatically.',
+              title: 'No matches now',
+              subtitle: 'New matches will appear here automatically.',
               onPressed: refresh,
             );
           }
@@ -1785,40 +1628,39 @@ class _HomePageState extends State<HomePage> {
                 final links = playableLinks(m['stream_links']);
                 final nativeLinkCount = links.where((x) {
                   if (x['use_webview'] == true) return false;
-                  return (x['stream_url']?.toString() ?? '')
-                      .trim()
-                      .isNotEmpty;
+                  return (x['stream_url']?.toString() ?? '').trim().isNotEmpty;
                 }).length;
-                final fallbackCount =
-                    (m['stream_count'] as num?)?.toInt() ?? 0;
+                final fallbackCount = (m['stream_count'] as num?)?.toInt() ?? 0;
                 final displayCount = nativeLinkCount > fallbackCount
                     ? nativeLinkCount
                     : fallbackCount;
                 final kickoff = DateTime.tryParse(
                   m['kickoff_at']?.toString() ?? '',
                 )?.toLocal();
-                final canWatch = widget.ncaView || displayCount > 0;
+                final canWatch = displayCount > 0;
 
                 return PremiumMatchCard(
                   league: englishKnownFootballName(
-                    (m['league'] ?? 'Football').toString(), kind: 'league'),
+                    (m['league'] ?? 'Football').toString(),
+                    kind: 'league',
+                  ),
                   homeName: englishKnownFootballName(
-                    (m['home_team'] ?? 'Home').toString()),
+                    (m['home_team'] ?? 'Home').toString(),
+                  ),
                   awayName: englishKnownFootballName(
-                    (m['away_team'] ?? 'Away').toString()),
+                    (m['away_team'] ?? 'Away').toString(),
+                  ),
                   homeLogo: m['home_logo_url']?.toString(),
                   awayLogo: m['away_logo_url']?.toString(),
                   kickoff: kickoff,
                   isLive: m['is_live'] == true,
                   canWatch: canWatch,
-                  actionLabel: widget.ncaView && displayCount == 0
-                      ? 'CHECK NCA STREAM'
-                      : canWatch
+                  actionLabel: canWatch
                       ? (displayCount > 1
-                          ? 'WATCH LIVE  •  ' +
-                              displayCount.toString() +
-                              ' LINES'
-                          : 'WATCH LIVE')
+                            ? 'WATCH LIVE  •  ' +
+                                  displayCount.toString() +
+                                  ' LINES'
+                            : 'WATCH LIVE')
                       : 'NOT READY',
                   onWatch: () => openPlayer(m),
                 );
@@ -1828,45 +1670,17 @@ class _HomePageState extends State<HomePage> {
         },
       ),
       bottomNavigationBar: PremiumBottomNav(
-        selectedIndex: widget.ncaView ? 7 : 0,
+        selectedIndex: 0,
         onSelected: (index) async {
           if (index == 0) {
-            if (widget.ncaView) {
-              Navigator.of(context).popUntil((route) => route.isFirst);
-            } else {
-              await refresh(silent: true);
-            }
+            await refresh(silent: true);
             return;
           }
           if (index == 5) {
             await Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const SourceBrowserPage(source: 'tflix'),
-              ),
+              MaterialPageRoute<void>(builder: (_) => const ChannelsPage()),
             );
             if (mounted) await refresh(silent: true);
-            return;
-          }
-          if (index == 6) {
-            await Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const SourceBrowserPage(source: 'streame'),
-              ),
-            );
-            if (mounted) await refresh(silent: true);
-            return;
-          }
-          if (index == 7) {
-            if (widget.ncaView) {
-              await refresh(silent: true);
-            } else {
-              await Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const HomePage(ncaView: true),
-                ),
-              );
-              if (mounted) await refresh(silent: true);
-            }
             return;
           }
           final source = switch (index) {
@@ -1982,10 +1796,7 @@ class _StateMessage extends StatelessWidget {
               Text(
                 subtitle,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: colors.onSurfaceVariant,
-                  height: 1.35,
-                ),
+                style: TextStyle(color: colors.onSurfaceVariant, height: 1.35),
               ),
               const SizedBox(height: 18),
               FilledButton.icon(

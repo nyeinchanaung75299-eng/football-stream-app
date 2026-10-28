@@ -2,12 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../analytics_service.dart';
 import '../football_english.dart';
@@ -15,9 +13,6 @@ import '../services/manual_source_url.dart';
 import '../services/function_gateway.dart';
 import '../services/stream_library_service.dart';
 import '../source_line_validation.dart';
-import '../services/browser_companion_stub.dart'
-    if (dart.library.html) '../services/browser_companion_web.dart'
-    as browser_companion;
 
 @visibleForTesting
 List<Map<String, dynamic>> validateSourceMatchRows(
@@ -39,17 +34,21 @@ List<Map<String, dynamic>> validateSourceMatchRows(
     throw const FormatException('Source match list is invalid.');
   }
 
-  return rows.map<Map<String, dynamic>>((row) {
-    if (row is! Map) {
-      throw const FormatException('Source match row is invalid.');
-    }
-    final parsed = Map<String, dynamic>.from(row);
-    final rowSource = parsed['source']?.toString().trim().toLowerCase();
-    if (rowSource != expected) {
-      throw FormatException('Source response mismatch: expected $expected.');
-    }
-    return parsed;
-  }).toList(growable: false);
+  return rows
+      .map<Map<String, dynamic>>((row) {
+        if (row is! Map) {
+          throw const FormatException('Source match row is invalid.');
+        }
+        final parsed = Map<String, dynamic>.from(row);
+        final rowSource = parsed['source']?.toString().trim().toLowerCase();
+        if (rowSource != expected) {
+          throw FormatException(
+            'Source response mismatch: expected $expected.',
+          );
+        }
+        return parsed;
+      })
+      .toList(growable: false);
 }
 
 class SocoImportPage extends StatefulWidget {
@@ -70,14 +69,14 @@ class SocoImportPage extends StatefulWidget {
 
 class _SocoImportPageState extends State<SocoImportPage> {
   bool get _isManualSource => source == 'playz';
-  String _tflixCatalog = 'matches';
 
   static const _pagesMirrorBase =
       'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources';
   static const _rawMirrorBase =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/sources';
 
-  static final bool _enableNoVpnFallback = const String.fromEnvironment(
+  static final bool _enableNoVpnFallback =
+      const String.fromEnvironment(
         'ENABLE_NO_VPN_FALLBACK',
         defaultValue: '0',
       ).trim() ==
@@ -123,23 +122,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
     }
     _targetMatchesFuture = _loadTargetMatches();
     final requested = widget.initialSource.trim().toLowerCase();
-    source = const {
-      'soco',
-      'yyzb',
-      'fawa',
-      'cola',
-      'playz',
-      'tflix',
-      'streame',
-    }.contains(requested)
+    source = const {'soco', 'yyzb', 'fawa', 'cola', 'playz'}.contains(requested)
         ? requested
         : 'soco';
     if (_isManualSource) _libraryFuture = _streamLibrary.list();
-    dayFilter = (source == 'fawa' ||
-            source == 'cola' ||
-            source == 'tflix' ||
-            source == 'streame' ||
-            _isManualSource)
+    dayFilter = (source == 'fawa' || source == 'cola' || _isManualSource)
         ? 'all'
         : 'today';
     _loadSoco();
@@ -169,7 +156,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final state = WidgetsBinding.instance.lifecycleState;
     if (_extractingAnchorKey != null ||
         (state != null && state != AppLifecycleState.resumed) ||
-        ModalRoute.of(context)?.isCurrent == false) return;
+        ModalRoute.of(context)?.isCurrent == false)
+      return;
     _backgroundRefreshBusy = true;
     try {
       await _loadSoco(silent: true);
@@ -200,9 +188,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
     const staleKickoffGrace = Duration(hours: 5);
 
     return List<Map<String, dynamic>>.from(data).where((row) {
-      final kickoff =
-          DateTime.tryParse(row['kickoff_at']?.toString() ?? '')?.toLocal();
-      final stale = row['is_live'] != true &&
+      final kickoff = DateTime.tryParse(row['kickoff_at']?.toString() ?? '')
+          ?.toLocal();
+      final stale =
+          row['is_live'] != true &&
           kickoff != null &&
           now.difference(kickoff) > staleKickoffGrace;
 
@@ -220,14 +209,16 @@ class _SocoImportPageState extends State<SocoImportPage> {
     Map<String, dynamic>? emptyFallback;
     for (final base in const [_pagesMirrorBase, _rawMirrorBase]) {
       try {
-        final response = await http.get(
-          Uri.parse(base + '/' + provider + '.json').replace(
-            queryParameters: {
-              't': DateTime.now().millisecondsSinceEpoch.toString(),
-            },
-          ),
-          headers: const {'Accept': 'application/json'},
-        ).timeout(const Duration(seconds: 18));
+        final response = await http
+            .get(
+              Uri.parse(base + '/' + provider + '.json').replace(
+                queryParameters: {
+                  't': DateTime.now().millisecondsSinceEpoch.toString(),
+                },
+              ),
+              headers: const {'Accept': 'application/json'},
+            )
+            .timeout(const Duration(seconds: 18));
         if (response.statusCode < 200 || response.statusCode >= 300) {
           throw Exception(
             'Source mirror HTTP ' + response.statusCode.toString(),
@@ -253,8 +244,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   bool _staleSourceMatch(Map<String, dynamic> row) {
-    final kickoff =
-        DateTime.tryParse(row['match_time']?.toString() ?? '')?.toUtc();
+    final kickoff = DateTime.tryParse(row['match_time']?.toString() ?? '')
+        ?.toUtc();
     if (kickoff == null) return false;
     return DateTime.now().toUtc().difference(kickoff) >
         const Duration(hours: 4);
@@ -274,7 +265,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
       }
       return;
     }
-    final catalog = _tflixCatalog;
     final epoch = ++_sourceLoadEpoch;
     bool current() =>
         mounted && source == provider && epoch == _sourceLoadEpoch;
@@ -287,13 +277,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     try {
       dynamic data;
-      if (!_enableNoVpnFallback || provider == 'tflix' || provider == 'streame') {
+      if (!_enableNoVpnFallback) {
         data = await FunctionGateway.invoke(
           'source-match-list',
-          body: {
-            'source': provider,
-            if (provider == 'tflix') 'catalog': catalog,
-          },
+          body: {'source': provider},
         );
         validateSourceMatchRows(data, provider);
       } else {
@@ -312,27 +299,22 @@ class _SocoImportPageState extends State<SocoImportPage> {
       final rows = validateSourceMatchRows(data, provider);
 
       final parsed = rows
-          .map(
-            (row) => englishSourceMatch(
-              row,
-              provider,
-            ),
-          )
+          .map((row) => englishSourceMatch(row, provider))
           .where((row) => !_staleSourceMatch(row))
           .toList();
 
       parsed.sort((a, b) {
         final at =
             DateTime.tryParse(a['match_time']?.toString() ?? '')?.toLocal() ??
-                DateTime(9999);
+            DateTime(9999);
         final bt =
             DateTime.tryParse(b['match_time']?.toString() ?? '')?.toLocal() ??
-                DateTime(9999);
+            DateTime(9999);
         final byTime = at.compareTo(bt);
         if (byTime != 0) return byTime;
         return (a['home_team'] ?? '').toString().toLowerCase().compareTo(
-              (b['home_team'] ?? '').toString().toLowerCase(),
-            );
+          (b['home_team'] ?? '').toString().toLowerCase(),
+        );
       });
 
       unawaited(
@@ -431,12 +413,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
       for (final anchor in anchors) {
         final key = _anchorKey(match, anchor, provider: provider);
         if (_anchorStatuses.containsKey(key)) continue;
-
-        if (provider == 'tflix' || provider == 'streame') {
-          // Catalog entries are candidates. Check their actual media on demand.
-          _anchorStatuses[key] = 'unknown';
-          continue;
-        }
 
         if (provider == 'cola' || provider == 'fawa') {
           _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'ready';
@@ -540,8 +516,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
         : DateTime(now.year, now.month, now.day);
 
     return rows.where((row) {
-      final time =
-          DateTime.tryParse(row['match_time']?.toString() ?? '')?.toLocal();
+      final time = DateTime.tryParse(row['match_time']?.toString() ?? '')
+          ?.toLocal();
       return time != null && _sameDate(time, wanted);
     }).toList();
   }
@@ -602,8 +578,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    tileColor:
-                        Theme.of(context).colorScheme.surfaceContainerLow,
+                    tileColor: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerLow,
                     leading: const Icon(Icons.sports_soccer_rounded),
                     title: Text(
                       '${englishKnownFootballName('${m['home_team']}')} vs ${englishKnownFootballName('${m['away_team']}')}',
@@ -640,27 +617,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     final extractingKey = _anchorKey(match, anchor);
     final provider = source;
-    // PC Web observes the original page's media requests in its own tab.
-    // Native Admin retains the existing authenticated resolver unchanged.
-    if (kIsWeb && (provider == 'tflix' || provider == 'streame')) {
-      // StreamCenter's selected iframe route leads to its player. Capture
-      // requests from that tab so the returned links are media manifests.
-      final rawPage = (provider == 'streame'
-              ? anchor['page_url'] ?? match['page_url']
-              : match['page_url'] ?? anchor['page_url'] ?? '')
-          .toString();
-      final page = Uri.tryParse(rawPage);
-      if (page == null || page.scheme != 'https' || page.host.isEmpty) {
-        message('The original source page is unavailable.');
-        return;
-      }
-      final useServer = await browser_companion.showCapture(
-        context,
-        title: _sourceMatchTitle(match),
-        pageUrl: page.toString(),
-      );
-      if (!mounted || !useServer) return;
-    }
     final epoch = _sourceSelectionEpoch;
     bool current() =>
         mounted && source == provider && epoch == _sourceSelectionEpoch;
@@ -676,8 +632,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'room_num': room,
           'schedule_id': match['schedule_id'],
           'page_url': anchor['page_url'] ?? match['page_url'],
-          'skip_probe': provider != 'tflix' && provider != 'streame',
-          if (provider == 'tflix') 'catalog': _tflixCatalog,
+          'skip_probe': true,
         },
       );
 
@@ -690,15 +645,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
       final lines = rows
           .map((row) => Map<String, dynamic>.from(row as Map))
           .where((row) => (row['url'] ?? '').toString().trim().isNotEmpty)
-          .where((row) =>
-              (provider != 'tflix' && provider != 'streame') ||
-              isRecentlyVerifiedSourceLine(row))
           .toList();
 
       final statusKey = _anchorKey(match, anchor, provider: provider);
-      final sourceIsLive = provider != 'tflix' &&
-          data is Map &&
-          _isLiveStatus(data['live_status']);
+      final sourceIsLive = data is Map && _isLiveStatus(data['live_status']);
       final hasHealthy = lines.any((line) {
         final health = (line['health_status'] ?? '').toString().toLowerCase();
         return health == 'healthy' || health == 'slow';
@@ -708,11 +658,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
           _anchorLineCounts[statusKey] = lines.length;
           _anchorStatuses[statusKey] = sourceIsLive
               ? 'live'
-              : (hasHealthy || lines.isNotEmpty
-                  ? 'ready'
-                  : (provider == 'tflix' || provider == 'streame'
-                      ? 'unverified'
-                      : 'offline'));
+              : (hasHealthy || lines.isNotEmpty ? 'ready' : 'offline');
         });
       }
 
@@ -722,7 +668,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
           properties: {
             'source': provider,
             'line_count': lines.length,
-            'source_live': data is Map &&
+            'source_live':
+                data is Map &&
                 (data['live_status'] == true ||
                     data['live_status'] == 1 ||
                     data['live_status']?.toString() == '1'),
@@ -739,20 +686,21 @@ class _SocoImportPageState extends State<SocoImportPage> {
             .replaceAll(RegExp(r'https?://[^\s]+'), '[source]')
             .replaceAll(RegExp(r'[\r\n\t]+'), ' ')
             .trim();
-        final safeNote = note.length > 180 ? '${note.substring(0, 180)}…' : note;
+        final safeNote = note.length > 180
+            ? '${note.substring(0, 180)}…'
+            : note;
         message(
-          (provider == 'tflix' || provider == 'streame') && safeNote.isNotEmpty
-              ? '${_sourceLabel(provider)}: $safeNote'
-              : provider == 'tflix' || provider == 'streame'
-                  ? 'No verified HLS/DASH link is available for ${_sourceLabel(provider)}. Refresh or choose another server.'
-                  : 'No playable line is available for this streamer.',
+          safeNote.isNotEmpty
+              ? safeNote
+              : 'No playable line is available for this streamer.',
         );
         return;
       }
 
       final resolvedAnchor = Map<String, dynamic>.from(anchor);
-      final freshName =
-          data is Map ? (data['anchor_name'] ?? '').toString().trim() : '';
+      final freshName = data is Map
+          ? (data['anchor_name'] ?? '').toString().trim()
+          : '';
       if (provider == 'yyzb' &&
           freshName.isNotEmpty &&
           _genericAnchorIdentity(anchor)) {
@@ -769,8 +717,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         match: match,
         anchor: resolvedAnchor,
         lines: lines,
-        sourceLiveStatus:
-            provider != 'tflix' && data is Map ? data['live_status'] : null,
+        sourceLiveStatus: data is Map ? data['live_status'] : null,
       );
     } catch (e) {
       unawaited(
@@ -796,8 +743,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
     dynamic sourceLiveStatus,
   }) async {
     final anchorName = (anchor['nick_name'] ?? 'Streamer').toString().trim();
-    final importName =
-        source == 'yyzb' ? _anchorImportName(anchor) : anchorName;
+    final importName = source == 'yyzb'
+        ? _anchorImportName(anchor)
+        : anchorName;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -815,9 +763,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
               children: [
                 Text(
                   'Select Stream Quality',
-                  style: Theme.of(sheetContext)
-                      .textTheme
-                      .titleLarge
+                  style: Theme.of(sheetContext).textTheme.titleLarge
                       ?.copyWith(fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 4),
@@ -829,7 +775,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   const SizedBox(height: 8),
                   Builder(
                     builder: (context) {
-                      final live = sourceLiveStatus == true ||
+                      final live =
+                          sourceLiveStatus == true ||
                           sourceLiveStatus == 1 ||
                           sourceLiveStatus.toString() == '1';
                       return Align(
@@ -860,13 +807,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 const SizedBox(height: 12),
                 ...lines.map((line) {
                   final label = (line['label'] ?? 'Stream').toString();
-                  final type =
-                      (line['stream_type'] ?? 'auto').toString().toUpperCase();
+                  final type = (line['stream_type'] ?? 'auto')
+                      .toString()
+                      .toUpperCase();
                   final url = (line['url'] ?? '').toString();
                   final referer = (line['referer'] ?? '').toString().trim();
                   final origin = (line['origin'] ?? '').toString().trim();
-                  final health =
-                      (line['health_status'] ?? '').toString().toLowerCase();
+                  final health = (line['health_status'] ?? '')
+                      .toString()
+                      .toLowerCase();
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 8),
@@ -904,13 +853,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                           vertical: 3,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: (health == 'healthy'
-                                                  ? Colors.green
-                                                  : health == 'failed' ||
-                                                          health == 'dead'
+                                          color:
+                                              (health == 'healthy'
+                                                      ? Colors.green
+                                                      : health == 'failed' ||
+                                                            health == 'dead'
                                                       ? Colors.red
                                                       : Colors.orange)
-                                              .withValues(alpha: .12),
+                                                  .withValues(alpha: .12),
                                           borderRadius: BorderRadius.circular(
                                             999,
                                           ),
@@ -921,9 +871,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                             color: health == 'healthy'
                                                 ? Colors.green
                                                 : health == 'failed' ||
-                                                        health == 'dead'
-                                                    ? Colors.red
-                                                    : Colors.orange,
+                                                      health == 'dead'
+                                                ? Colors.red
+                                                : Colors.orange,
                                             fontSize: 9.5,
                                             fontWeight: FontWeight.w900,
                                           ),
@@ -1032,25 +982,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
     setState(() => _addingLine = true);
     final provider = source;
     try {
-      if ((provider == 'tflix' || provider == 'streame') &&
-          !isRecentlyVerifiedSourceLine(line)) {
-        message(
-          'This ${_sourceLabel(provider)} stream needs a new gateway-compatible media check. Refresh the source.',
-        );
-        return false;
-      }
       // Always require an explicit destination confirmation. The dropdown and
       // initial match only suggest which match should appear first.
       final presetTarget = targetMatchId;
       final target = await _chooseDestination();
       if (target == null) return false;
-      if ((provider == 'tflix' || provider == 'streame') &&
-          !isRecentlyVerifiedSourceLine(line)) {
-        message(
-          'This ${_sourceLabel(provider)} stream needs a new gateway-compatible media check. Refresh the source.',
-        );
-        return false;
-      }
 
       final url = (line['url'] ?? '').toString().trim();
       if (url.isEmpty) return false;
@@ -1286,9 +1222,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
     );
     if (!added) return;
     unawaited(
-      _streamLibrary.markUsed(entry.id).then((_) {
-        if (mounted) _refreshLibrary();
-      }).catchError((_) {}),
+      _streamLibrary
+          .markUsed(entry.id)
+          .then((_) {
+            if (mounted) _refreshLibrary();
+          })
+          .catchError((_) {}),
     );
   }
 
@@ -1439,101 +1378,103 @@ class _SocoImportPageState extends State<SocoImportPage> {
             }
 
             return Column(
-              children: entries.map((entry) {
-                final deleting = _deletingLibraryId == entry.id;
-                return Card.outlined(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+              children: entries
+                  .map((entry) {
+                    final deleting = _deletingLibraryId == entry.id;
+                    return Card.outlined(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(
-                              Icons.video_library_outlined,
-                              size: 22,
-                            ),
-                            const SizedBox(width: 9),
-                            Expanded(
-                              child: Text(
-                                entry.label,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.video_library_outlined,
+                                  size: 22,
                                 ),
-                              ),
-                            ),
-                            const Text(
-                              'HLS',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          safeStreamLocation(entry.streamUrl),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: colors.onSurfaceVariant,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: deleting
-                                  ? null
-                                  : () => _useLibraryEntry(entry),
-                              icon: const Icon(
-                                Icons.edit_outlined,
-                                size: 18,
-                              ),
-                              label: const Text('USE'),
-                            ),
-                            FilledButton.icon(
-                              onPressed: deleting || _addingLine
-                                  ? null
-                                  : () => _addLibraryEntry(entry),
-                              icon: const Icon(
-                                Icons.add_link_rounded,
-                                size: 18,
-                              ),
-                              label: const Text('ADD TO MATCH'),
-                            ),
-                            IconButton(
-                              tooltip: 'Delete saved HLS',
-                              onPressed: deleting
-                                  ? null
-                                  : () => _deleteLibraryEntry(entry),
-                              icon: deleting
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.delete_outline_rounded,
+                                const SizedBox(width: 9),
+                                Expanded(
+                                  child: Text(
+                                    entry.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
                                     ),
+                                  ),
+                                ),
+                                const Text(
+                                  'HLS',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              safeStreamLocation(entry.streamUrl),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: colors.onSurfaceVariant,
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: deleting
+                                      ? null
+                                      : () => _useLibraryEntry(entry),
+                                  icon: const Icon(
+                                    Icons.edit_outlined,
+                                    size: 18,
+                                  ),
+                                  label: const Text('USE'),
+                                ),
+                                FilledButton.icon(
+                                  onPressed: deleting || _addingLine
+                                      ? null
+                                      : () => _addLibraryEntry(entry),
+                                  icon: const Icon(
+                                    Icons.add_link_rounded,
+                                    size: 18,
+                                  ),
+                                  label: const Text('ADD TO MATCH'),
+                                ),
+                                IconButton(
+                                  tooltip: 'Delete saved HLS',
+                                  onPressed: deleting
+                                      ? null
+                                      : () => _deleteLibraryEntry(entry),
+                                  icon: deleting
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(
+                                          Icons.delete_outline_rounded,
+                                        ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(growable: false),
+                      ),
+                    );
+                  })
+                  .toList(growable: false),
             );
           },
         ),
@@ -1729,80 +1670,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
   String _sourceMatchTitle(Map<String, dynamic> match) {
     final home = (match['home_team'] ?? '').toString();
-    if (match['kind'] == 'channel') return home;
     return '$home vs ${match['away_team'] ?? ''}';
-  }
-
-  Uri? _tflixPublicPage(Map<String, dynamic> match) {
-    final page = Uri.tryParse((match['page_url'] ?? '').toString());
-    if (page == null ||
-        page.scheme != 'https' ||
-        !const {'tflix.su', 'www.tflix.su', 'tflix1.su', 'www.tflix1.su'}
-            .contains(page.host.toLowerCase()) ||
-        page.userInfo.isNotEmpty ||
-        page.hasQuery ||
-        page.hasFragment ||
-        !RegExp(r'^/(watch|channel)/[a-z0-9][a-z0-9-]{0,159}$',
-                caseSensitive: false)
-            .hasMatch(page.path)) {
-      return null;
-    }
-    return page;
-  }
-
-  Future<void> _openTflixPublicPage(Uri page) async {
-    try {
-      final opened = await launchUrl(page,
-          mode: LaunchMode.platformDefault, webOnlyWindowName: '_blank');
-      if (!opened) message('Could not open the TFLIX match page.');
-    } catch (_) {
-      message('Could not open the TFLIX match page.');
-    }
-  }
-
-  void _prepareTflixManualLine(Uri page) {
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => SocoImportPage(
-        initialMatchId: targetMatchId,
-        initialSource: 'playz',
-        initialReferer: page.toString(),
-      ),
-    ));
-  }
-
-  Widget _tflixCatalogButton(String value, String label) {
-    void selectCatalog() {
-      setState(() {
-        _tflixCatalog = value;
-        _sourceSelectionEpoch += 1;
-        _anchorStatusEpoch += 1;
-        sourceMatches = const [];
-        errorText = null;
-        _anchorStatuses.clear();
-        _anchorLineCounts.clear();
-      });
-      _loadSoco();
-    }
-
-    return _tflixCatalog == value
-        ? FilledButton.tonal(
-            onPressed: loading ? null : selectCatalog,
-            child: Text(label),
-          )
-        : OutlinedButton(
-            onPressed: loading ? null : selectCatalog,
-            child: Text(label),
-          );
   }
 
   String _sourceLabel(String value) {
     switch (value) {
-      case 'tflix':
-        return 'TFLIX';
       case 'playz':
         return 'Manual HLS Library';
-      case 'streame':
-        return 'StreamCenter';
       case 'yyzb':
         return 'YYZB';
       case 'fawa':
@@ -1825,11 +1699,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
               if (value == 'playz') {
                 _libraryFuture ??= _streamLibrary.list();
               }
-              dayFilter = (value == 'fawa' ||
+              dayFilter =
+                  (value == 'fawa' ||
                       value == 'cola' ||
                       value == 'playz' ||
-                      value == 'tflix' ||
-                      value == 'streame')
+                      false)
                   ? 'all'
                   : 'today';
               sourceMatches = const [];
@@ -1942,9 +1816,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     _sourceButton('yyzb', 'YYZB'),
                     _sourceButton('fawa', 'Fawa'),
                     _sourceButton('cola', 'ColaTV'),
-                    _sourceButton('streame', 'StreamCenter'),
                     _sourceButton('playz', 'Manual HLS'),
-                    _sourceButton('tflix', 'TFLIX'),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -1955,30 +1827,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                if (source == 'tflix') ...[
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _tflixCatalogButton('matches', 'Matches'),
-                      _tflixCatalogButton('channels', 'Channels'),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Choose a source to check its M3U8 or MPD stream. '
-                    'Only recently verified media can be added.',
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'On desktop, open a match in its original tab to use your '
-                    'browser extension. Copy an authorized direct media URL, '
-                    'then paste it in the manual form. Browser tabs cannot '
-                    'share their network requests with Admin Web; signed '
-                    'session links may not work in this app.',
-                  ),
-                ],
                 if (_isManualSource) _manualSourceCard(colors),
                 if (!_isManualSource)
                   SwitchListTile.adaptive(
@@ -1986,24 +1834,17 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     contentPadding: EdgeInsets.zero,
                     dense: true,
                     title: Text(
-                      source == 'tflix' || source == 'streame'
-                          ? 'With stream source'
-                          : 'Available only',
+                      'Available only',
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
-                    subtitle: Text(
-                      source == 'tflix' || source == 'streame'
-                          ? 'Show entries with a player to check; playback is not verified yet.'
-                          : 'Hide matches that have no source yet.',
-                    ),
+                    subtitle: Text('Hide matches that have no source yet.'),
                     onChanged: (value) => setState(() => availableOnly = value),
                   ),
                 const SizedBox(height: 4),
                 if (!_isManualSource &&
                     source != 'fawa' &&
                     source != 'cola' &&
-                    source != 'tflix' &&
-                    source != 'streame')
+                    true)
                   Row(
                     children: [
                       _dayButton('today', 'Today'),
@@ -2048,13 +1889,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     child: Padding(
                       padding: const EdgeInsets.all(18),
                       child: Text(
-                        source == 'tflix'
-                            ? (_tflixCatalog == 'channels'
-                                ? 'No sports channel sources are listed by TFLIX right now.'
-                                : 'No football matches with stream sources are listed by TFLIX right now. Try Channels.')
-                            : source == 'streame'
-                                ? 'No current football sources are listed by StreamCenter.'
-                                : 'No football matches in this source section.',
+                        'No football matches in this source section.',
                       ),
                     ),
                   ),
@@ -2062,16 +1897,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   final kickoff = DateTime.tryParse(
                     match['match_time']?.toString() ?? '',
                   )?.toLocal();
-                  final tflixPage =
-                      source == 'tflix' ? _tflixPublicPage(match) : null;
-                  final anchors = List<Map<String, dynamic>>.from(
-                    match['anchors'] ?? const [],
-                  )..sort((a, b) {
-                      final aStatus = _anchorStatuses[_anchorKey(match, a)];
-                      final bStatus = _anchorStatuses[_anchorKey(match, b)];
-                      return _anchorStatusRank(aStatus)
-                          .compareTo(_anchorStatusRank(bStatus));
-                    });
+                  final anchors =
+                      List<Map<String, dynamic>>.from(
+                        match['anchors'] ?? const [],
+                      )..sort((a, b) {
+                        final aStatus = _anchorStatuses[_anchorKey(match, a)];
+                        final bStatus = _anchorStatuses[_anchorKey(match, b)];
+                        return _anchorStatusRank(aStatus)
+                            .compareTo(_anchorStatusRank(bStatus));
+                      });
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 10),
@@ -2125,35 +1959,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
                             match['kind'] == 'channel'
                                 ? 'Broadcast channel'
                                 : kickoff == null
-                                    ? 'Unknown time'
-                                    : DateFormat(
-                                        'dd MMM • h:mm a',
-                                        'en_US',
-                                      ).format(kickoff),
+                                ? 'Unknown time'
+                                : DateFormat(
+                                    'dd MMM • h:mm a',
+                                    'en_US',
+                                  ).format(kickoff),
                             style: TextStyle(color: colors.onSurfaceVariant),
                           ),
                           const SizedBox(height: 12),
-                          if (tflixPage != null && !kIsWeb) ...[
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                OutlinedButton.icon(
-                                  onPressed: () =>
-                                      _openTflixPublicPage(tflixPage),
-                                  icon: const Icon(Icons.open_in_new_rounded),
-                                  label: const Text('OPEN TFLIX PAGE'),
-                                ),
-                                OutlinedButton.icon(
-                                  onPressed: () =>
-                                      _prepareTflixManualLine(tflixPage),
-                                  icon: const Icon(Icons.content_paste_rounded),
-                                  label: const Text('PASTE DETECTED LINK'),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                          ],
                           if (anchors.isEmpty)
                             Text(
                               'No streamer is listed yet.',
@@ -2178,17 +1991,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                   'checking' => Icons.sync_rounded,
                                   _ => Icons.help_outline_rounded,
                                 };
-                                final suffix = kIsWeb &&
-                                        (source == 'tflix' ||
-                                            source == 'streame')
-                                    ? ' • DETECT LINKS'
-                                    : switch (status) {
+                                final suffix = switch (status) {
                                   'live' => ' • LIVE',
-                                  'ready' => lineCount > 0
-                                      ? ' • READY ($lineCount)'
-                                      : ' • READY',
+                                  'ready' =>
+                                    lineCount > 0
+                                        ? ' • READY ($lineCount)'
+                                        : ' • READY',
                                   'offline' => ' • OFFLINE',
-                                  'unverified' => ' • NOT VERIFIED · RETRY',
                                   'checking' => ' • CHECKING',
                                   _ => ' • UNKNOWN',
                                 };
@@ -2209,7 +2018,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                       color: color.withValues(alpha: .55),
                                     ),
                                   ),
-                                  onPressed: status == 'checking' ||
+                                  onPressed:
+                                      status == 'checking' ||
                                           _extractingAnchorKey != null
                                       ? null
                                       : () => _openAnchor(match, anchor),
@@ -2226,11 +2036,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                   label: Text(
                                     extracting
                                         ? '$name • LOADING'
-                                        : (source == 'tflix' ||
-                                                    source == 'streame') &&
-                                                status == 'unknown'
-                                            ? '$name • CHECK STREAMS'
-                                            : '$name$suffix',
+                                        : '$name$suffix',
                                   ),
                                 );
                               }).toList(),

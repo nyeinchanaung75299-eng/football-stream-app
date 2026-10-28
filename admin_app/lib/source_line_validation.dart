@@ -58,19 +58,25 @@ bool isRecentlyVerifiedSourceLine(Map<String, dynamic> line, {DateTime? now}) {
       !const {'http', 'https'}.contains(uri.scheme) ||
       uri.host.isEmpty ||
       uri.userInfo.isNotEmpty ||
-      !const {'hls', 'dash'}
-          .contains(line['stream_type']?.toString().toLowerCase()) ||
-      !isValidManualStreamUrl(uri.toString(),
-          streamType: line['stream_type'].toString().toLowerCase()) ||
+      !const {
+        'hls',
+        'dash',
+      }.contains(line['stream_type']?.toString().toLowerCase()) ||
+      !isValidManualStreamUrl(
+        uri.toString(),
+        streamType: line['stream_type'].toString().toLowerCase(),
+      ) ||
       line['media_verified'] != true ||
-      !const {'healthy', 'slow'}
-          .contains(line['health_status']?.toString().toLowerCase()) ||
+      !const {
+        'healthy',
+        'slow',
+      }.contains(line['health_status']?.toString().toLowerCase()) ||
       line['gateway_compatible'] == false) {
     return false;
   }
 
-  final checkedAt =
-      DateTime.tryParse(line['checked_at']?.toString() ?? '')?.toUtc();
+  final checkedAt = DateTime.tryParse(line['checked_at']?.toString() ?? '')
+      ?.toUtc();
   if (checkedAt == null ||
       current.difference(checkedAt) > const Duration(minutes: 10) ||
       checkedAt.difference(current) > const Duration(minutes: 1)) {
@@ -86,11 +92,9 @@ bool isRecentlyVerifiedSourceLine(Map<String, dynamic> line, {DateTime? now}) {
     }
   }
 
-  final hasKey = (line['key_id']?.toString().trim().isNotEmpty ?? false) ||
+  final hasKey =
+      (line['key_id']?.toString().trim().isNotEmpty ?? false) ||
       (line['key_data']?.toString().trim().isNotEmpty ?? false);
   if (hasKey && sourceLineKeyFields(line)['key_id'] == null) return false;
   return true;
 }
-
-bool isVerifiedTflixLine(Map<String, dynamic> line, {DateTime? now}) =>
-    isRecentlyVerifiedSourceLine(line, now: now);
