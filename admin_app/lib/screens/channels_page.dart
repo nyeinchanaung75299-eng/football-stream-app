@@ -65,11 +65,12 @@ class _ChannelsPageState extends State<ChannelsPage> {
             final row = snapshot.data![index];
             final image = row['image_url']?.toString() ?? '';
             final id = row['id']?.toString() ?? '';
-            final displayImage = image.startsWith('https://') &&
+            final displayImage =
+                image.startsWith('https://') &&
                     RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)
                 ? Uri.parse('$vercelBackupBase/api/channel-logo')
-                    .replace(queryParameters: {'id': id, 'v': image})
-                    .toString()
+                      .replace(queryParameters: {'id': id, 'v': image})
+                      .toString()
                 : image;
             return Card(
               child: ListTile(
@@ -105,12 +106,13 @@ class _Line {
       ),
       url = TextEditingController(text: row?['stream_url']?.toString() ?? ''),
       referer = TextEditingController(text: row?['referer']?.toString() ?? ''),
+      origin = TextEditingController(text: row?['origin']?.toString() ?? ''),
       keyId = TextEditingController(text: row?['key_id']?.toString() ?? ''),
       keyData = TextEditingController(text: row?['key_data']?.toString() ?? '');
   final String? id;
-  final TextEditingController label, url, referer, keyId, keyData;
+  final TextEditingController label, url, referer, origin, keyId, keyData;
   void dispose() {
-    for (final field in [label, url, referer, keyId, keyData]) {
+    for (final field in [label, url, referer, origin, keyId, keyData]) {
       field.dispose();
     }
   }
@@ -151,7 +153,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
     try {
       final rows = await Supabase.instance.client
           .from('channel_lines')
-          .select('id,label,stream_url,referer,key_id,key_data')
+          .select('id,label,stream_url,referer,origin,key_id,key_data')
           .eq('channel_id', widget.channel!['id'])
           .order('sort_order');
       if (!mounted) return;
@@ -165,6 +167,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
     } catch (error) {
       if (!mounted) return;
       setState(() {
+        if (lines.isEmpty) lines.add(_Line());
         loading = false;
         loadFailed = true;
       });
@@ -207,6 +210,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
               line.label.text.trim().isEmpty ||
               !valid(line.url.text.trim()) ||
               !valid(line.referer.text.trim(), optional: true) ||
+              !valid(line.origin.text.trim(), optional: true) ||
               (line.keyId.text.trim().isEmpty !=
                   line.keyData.text.trim().isEmpty),
         )) {
@@ -260,7 +264,11 @@ class _ChannelEditorState extends State<_ChannelEditor> {
           'stream_url': url,
           'stream_type': type,
           'referer': referer.isEmpty ? null : referer,
-          'origin': referer.isEmpty ? null : Uri.parse(referer).origin,
+          'origin': line.origin.text.trim().isNotEmpty
+              ? Uri.parse(line.origin.text.trim()).origin
+              : referer.isEmpty
+              ? null
+              : Uri.parse(referer).origin,
           'key_id': line.keyId.text.trim().isEmpty
               ? null
               : line.keyId.text.trim(),
@@ -345,52 +353,45 @@ class _ChannelEditorState extends State<_ChannelEditor> {
                 value: active,
                 onChanged: (value) => setState(() => active = value),
               ),
-              const Text('Stream'),
-              for (var i = 0; i < lines.length; i++)
-                Card(
-                  key: ObjectKey(lines[i]),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            const Expanded(child: Text('Channel stream')),
-                          ],
-                        ),
-                        TextField(
-                          controller: lines[i].url,
-                          decoration: const InputDecoration(
-                            labelText: 'Stream URL (M3U8 / MPD / MP4)',
-                          ),
-                        ),
-                        ExpansionTile(
-                          title: const Text('Advanced playback options'),
-                          children: [
-                            TextField(
-                              controller: lines[i].referer,
-                              decoration: const InputDecoration(
-                                labelText: 'Referer (optional)',
-                              ),
-                            ),
-                            TextField(
-                              controller: lines[i].keyId,
-                              decoration: const InputDecoration(
-                                labelText: 'Key One / ClearKey ID (optional)',
-                              ),
-                            ),
-                            TextField(
-                              controller: lines[i].keyData,
-                              decoration: const InputDecoration(
-                                labelText: 'Key Two / ClearKey value (optional)',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
+              const SizedBox(height: 12),
+              Text(
+                'Channel stream',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              // Each channel has exactly one stream line.
+              TextField(
+                controller: lines.single.url,
+                minLines: 2,
+                maxLines: 3,
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(
+                  labelText: 'Stream URL (M3U8 / MPD / MP4)',
                 ),
+              ),
+              TextField(
+                controller: lines.single.referer,
+                decoration: const InputDecoration(
+                  labelText: 'Referer (optional)',
+                ),
+              ),
+              TextField(
+                controller: lines.single.origin,
+                decoration: const InputDecoration(
+                  labelText: 'Origin (optional)',
+                ),
+              ),
+              TextField(
+                controller: lines.single.keyId,
+                decoration: const InputDecoration(
+                  labelText: 'ClearKey ID (optional)',
+                ),
+              ),
+              TextField(
+                controller: lines.single.keyData,
+                decoration: const InputDecoration(
+                  labelText: 'ClearKey value (optional)',
+                ),
+              ),
               const SizedBox(height: 16),
               FilledButton(
                 onPressed: saving || loadFailed ? null : save,
