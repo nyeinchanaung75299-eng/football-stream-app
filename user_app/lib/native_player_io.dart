@@ -4,13 +4,24 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart' as launcher;
 
 import 'analytics_service.dart';
 import 'screens/ios_player_page.dart';
 
 class NativePlayer {
   static void openExternalPage(String url) {
-    throw UnsupportedError('External source pages are available on Web only.');
+    final page = Uri.tryParse(url);
+    if (page == null ||
+        page.scheme != 'https' ||
+        page.host.isEmpty ||
+        page.userInfo.isNotEmpty)
+      return;
+    unawaited(
+      launcher
+          .launchUrl(page, mode: launcher.LaunchMode.externalApplication)
+          .catchError((Object _) => false),
+    );
   }
 
   static const MethodChannel _channel = MethodChannel(

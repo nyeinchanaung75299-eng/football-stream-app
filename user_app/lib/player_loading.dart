@@ -15,6 +15,7 @@ Future<T?> loadPlayerSources<T>(
   BuildContext context,
   Future<T> Function() load, {
   void Function()? onCancelled,
+  void Function(Object)? onFailure,
 }) async {
   final navigator = Navigator.of(context, rootNavigator: true);
   final route = DialogRoute<void>(
@@ -61,8 +62,13 @@ Future<T?> loadPlayerSources<T>(
   }
   if (cancelled || !context.mounted) return null;
   if (failure != null) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(safeLineLoadError(failure))));
+    if (onFailure != null) {
+      onFailure(failure);
+      return null;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(safeLineLoadError(failure))));
     return null;
   }
   return result;

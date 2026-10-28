@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart' as mk;
 import 'package:media_kit_video/media_kit_video.dart';
 
@@ -58,6 +59,10 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
   bool _sawPlayingInAttempt = false;
   bool _foreground = true;
   bool _userPaused = false;
+  bool _landscape = false;
+  bool get _portraitChannel =>
+      widget.sources.isNotEmpty &&
+      widget.sources.first['portraitStart'] == true;
   NativePlaybackProgress? _progress;
   final Stopwatch _attemptClock = Stopwatch();
   Duration? _bufferStartedAt;
@@ -66,6 +71,10 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
   @override
   void initState() {
     super.initState();
+    if (_portraitChannel)
+      unawaited(
+        SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]),
+      );
     WidgetsBinding.instance.addObserver(this);
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     _foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
@@ -625,6 +634,10 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
 
   @override
   void dispose() {
+    if (_portraitChannel)
+      unawaited(
+        SystemChrome.setPreferredOrientations(DeviceOrientation.values),
+      );
     _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     widget.sourceUpdates?.removeListener(_onSourcesUpdated);
@@ -667,27 +680,47 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
                 fontWeight: FontWeight.w800,
               ),
             ),
-            Text(
-              _lineLabel(source, _selectedIndex) +
-                  ' • ' +
-                  _sourceType(source).toUpperCase(),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white60, fontSize: 10.5),
-            ),
+            if (!_portraitChannel || widget.sources.length > 1)
+              Text(
+                _lineLabel(source, _selectedIndex) +
+                    ' • ' +
+                    _sourceType(source).toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white60, fontSize: 10.5),
+              ),
           ],
         ),
         actions: [
-          TextButton.icon(
-            onPressed: _pickLine,
-            icon: const Icon(Icons.dns_rounded, size: 18),
-            label: Text(
-              widget.sources.length > 1
-                  ? '${widget.sources.length} Lines'
-                  : 'Line',
+          if (_portraitChannel)
+            IconButton(
+              tooltip: 'Rotate video',
+              icon: const Icon(Icons.screen_rotation),
+              onPressed: () {
+                _landscape = !_landscape;
+                unawaited(
+                  SystemChrome.setPreferredOrientations(
+                    _landscape
+                        ? [
+                            DeviceOrientation.landscapeLeft,
+                            DeviceOrientation.landscapeRight,
+                          ]
+                        : [DeviceOrientation.portraitUp],
+                  ),
+                );
+              },
             ),
-            style: TextButton.styleFrom(foregroundColor: colors.primary),
-          ),
+          if (widget.sources.length > 1)
+            TextButton.icon(
+              onPressed: _pickLine,
+              icon: const Icon(Icons.dns_rounded, size: 18),
+              label: Text(
+                widget.sources.length > 1
+                    ? '${widget.sources.length} Lines'
+                    : 'Line',
+              ),
+              style: TextButton.styleFrom(foregroundColor: colors.primary),
+            ),
           const SizedBox(width: 4),
         ],
       ),

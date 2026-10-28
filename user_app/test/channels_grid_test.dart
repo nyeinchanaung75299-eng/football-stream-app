@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -6,6 +7,67 @@ import 'package:http/testing.dart';
 import 'package:football_viewer/screens/channels_page.dart';
 
 void main() {
+  testWidgets(
+    'channel logo opens the first protected video directly in portrait',
+    (tester) async {
+      Map? opened;
+      const bridge = MethodChannel('football_stream/native_player');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(bridge, (call) async {
+            if (call.method == 'openPlayer') opened = call.arguments as Map;
+            return null;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(bridge, null),
+      );
+      await http.runWithClient(
+        () async {
+          await tester.pumpWidget(const MaterialApp(home: ChannelsPage()));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Channel'));
+          await tester.pumpAndSettle();
+          expect(opened, isNotNull);
+          final lines = jsonDecode(opened!['sourcesJson'] as String) as List;
+          expect(lines.first['portraitStart'], true);
+          expect(opened!['selectedIndex'], 0);
+          expect(find.byType(BottomSheet), findsNothing);
+          expect(find.text('Server 1'), findsNothing);
+        },
+        () => MockClient(
+          (request) async => http.Response(
+            jsonEncode(
+              request.url.path.endsWith('/streams')
+                  ? {
+                      'ok': true,
+                      'streams': [
+                        {
+                          'id': 'one',
+                          'stream_url': 'https://play.example/p/token',
+                          'protected_proxy': true,
+                          'stream_type': 'hls',
+                          'label': 'Server 1',
+                        },
+                      ],
+                    }
+                  : {
+                      'ok': true,
+                      'channels': [
+                        {
+                          'id': '00000000-0000-0000-0000-000000000001',
+                          'name': 'Channel',
+                          'category': 'Sport',
+                        },
+                      ],
+                    },
+            ),
+            200,
+          ),
+        ),
+      );
+    },
+  );
+
   testWidgets('four channels wrap into two rows at phone and desktop widths', (
     tester,
   ) async {

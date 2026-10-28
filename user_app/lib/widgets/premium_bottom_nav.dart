@@ -33,6 +33,12 @@ class PremiumBottomNav extends StatelessWidget {
     ),
     (icon: Icons.tv_outlined, selected: Icons.tv_rounded, label: 'ColaTV'),
     (icon: Icons.tv_outlined, selected: Icons.tv_rounded, label: 'Channels'),
+    (
+      icon: Icons.sports_soccer_outlined,
+      selected: Icons.sports_soccer,
+      label: 'Xoilac',
+    ),
+    (icon: Icons.live_tv_outlined, selected: Icons.live_tv, label: 'Camel1'),
   ];
 
   @override
@@ -57,66 +63,71 @@ class PremiumBottomNav extends StatelessWidget {
         top: false,
         child: SizedBox(
           height: 64,
-          child: Row(
-            children: List.generate(_items.length, (index) {
-              final item = _items[index];
-              final selected = selectedIndex == index;
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            reverse: selectedIndex >= 6,
+            child: Row(
+              children: List.generate(_items.length, (index) {
+                final item = _items[index];
+                final selected = selectedIndex == index;
 
-              return Expanded(
-                child: Semantics(
-                  button: true,
-                  selected: selected,
-                  label: item.label,
-                  child: InkResponse(
-                    onTap: () => onSelected(index),
-                    containedInkWell: true,
-                    highlightShape: BoxShape.rectangle,
-                    child: Center(
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        curve: Curves.easeOutCubic,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: selected
-                              ? colors.primary.withValues(alpha: .13)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              selected ? item.selected : item.icon,
-                              size: 21,
-                              color: selected
-                                  ? colors.primary
-                                  : colors.onSurfaceVariant,
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              item.label,
-                              maxLines: 1,
-                              style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: selected
-                                    ? FontWeight.w800
-                                    : FontWeight.w600,
+                return SizedBox(
+                  width: MediaQuery.sizeOf(context).width / 6,
+                  child: Semantics(
+                    button: true,
+                    selected: selected,
+                    label: item.label,
+                    child: InkResponse(
+                      onTap: () => onSelected(index),
+                      containedInkWell: true,
+                      highlightShape: BoxShape.rectangle,
+                      child: Center(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOutCubic,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? colors.primary.withValues(alpha: .13)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                selected ? item.selected : item.icon,
+                                size: 21,
                                 color: selected
                                     ? colors.primary
                                     : colors.onSurfaceVariant,
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 3),
+                              Text(
+                                item.label,
+                                maxLines: 1,
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: selected
+                                      ? FontWeight.w800
+                                      : FontWeight.w600,
+                                  color: selected
+                                      ? colors.primary
+                                      : colors.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              );
-            }),
+                );
+              }),
+            ),
           ),
         ),
       ),

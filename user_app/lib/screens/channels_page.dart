@@ -128,6 +128,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
               'streamType': row['stream_type']?.toString() ?? 'auto',
               'keyId': row['key_id']?.toString() ?? '',
               'keyData': row['key_data']?.toString() ?? '',
+              'portraitStart': true,
             };
           })
           .whereType<Map<String, dynamic>>()
@@ -141,36 +142,11 @@ class _ChannelsPageState extends State<ChannelsPage> {
         );
         return;
       }
-      final selected = await showModalBottomSheet<int>(
-        context: context,
-        showDragHandle: true,
-        useSafeArea: true,
-        builder: (sheet) => ListView(
-          shrinkWrap: true,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                channel['name']?.toString() ?? 'Choose line',
-                style: Theme.of(sheet).textTheme.titleLarge,
-              ),
-            ),
-            for (var i = 0; i < lines.length; i++)
-              ListTile(
-                leading: const Icon(Icons.play_circle_outline),
-                title: Text(lines[i]['label'].toString()),
-                subtitle: Text(lines[i]['streamType'].toString().toUpperCase()),
-                onTap: () => Navigator.pop(sheet, i),
-              ),
-          ],
-        ),
-      );
-      if (selected == null || !mounted) return;
       NativePlayer.prewarm(sources: lines);
       await NativePlayer.open(
         context: context,
         sources: lines,
-        selectedIndex: selected,
+        selectedIndex: 0,
         title: channel['name']?.toString() ?? 'Channel',
         matchId: id,
       );
@@ -199,6 +175,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
       2 => 'yyzb',
       3 => 'fawa',
       4 => 'cola',
+      6 => 'xoilac',
+      7 => 'camel',
       _ => 'soco',
     };
     Navigator.of(context).pushReplacement(

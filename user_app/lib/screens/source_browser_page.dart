@@ -65,6 +65,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     'yyzb' => 'YYZB',
     'fawa' => 'Fawa',
     'cola' => 'ColaTV',
+    'xoilac' => 'Xoilac',
+    'camel' => 'Camel1',
     _ => 'Soco',
   };
   int get navIndex => switch (source) {
@@ -72,6 +74,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     'yyzb' => 2,
     'fawa' => 3,
     'cola' => 4,
+    'xoilac' => 6,
+    'camel' => 7,
     _ => 1,
   };
   String? _workingApiBase;
@@ -776,7 +780,32 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
   }
 
+  void _xoilacUnavailable(Map<String, dynamic> match) {
+    if (!mounted) return;
+    final page = Uri.tryParse(match['page_url']?.toString() ?? '');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text(
+          'Xoilac is not providing a playable source right now.',
+        ),
+        action: page?.scheme == 'https' && page?.host == 'xoilaczcb.tv'
+            ? SnackBarAction(
+                label: 'Open Xoilac',
+                onPressed: () => NativePlayer.openExternalPage(page.toString()),
+              )
+            : null,
+      ),
+    );
+  }
+
   Future<void> _openSourcePlayer(Map<String, dynamic> m) async {
+    if (source == 'camel') {
+      final target = Uri.tryParse(m['page_url']?.toString() ?? '');
+      if (target?.scheme == 'https' && target?.host == 'www.camel1.tv') {
+        NativePlayer.openExternalPage(target.toString());
+      }
+      return;
+    }
     if (_anchors(m).isEmpty) return;
     final generation = _sourceGeneration;
     final selectedSource = source;
@@ -810,10 +839,15 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
     operation.addListener(publishBackups);
     try {
-      final rows = await loadPlayerSources<SourceLines?>(context, () {
-        operation.start();
-        return operation.firstUsable;
-      }, onCancelled: operation.cancel);
+      final rows = await loadPlayerSources<SourceLines?>(
+        context,
+        () {
+          operation.start();
+          return operation.firstUsable;
+        },
+        onCancelled: operation.cancel,
+        onFailure: source == 'xoilac' ? (_) => _xoilacUnavailable(m) : null,
+      );
       resolution.stop();
       if (rows == null || !current()) return;
       final providerMatchId = (m['source_id'] ?? m['schedule_id'] ?? '')
@@ -834,6 +868,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         ),
       );
       if (rows.isEmpty) {
+        if (source == 'xoilac') {
+          _xoilacUnavailable(m);
+          return;
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('No ' + title + ' stream is available now.')),
         );
@@ -1003,6 +1041,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       2 => 'yyzb',
       3 => 'fawa',
       4 => 'cola',
+      6 => 'xoilac',
+      7 => 'camel',
       _ => 'soco',
     };
     Navigator.of(context).pushReplacement(
@@ -1016,6 +1056,15 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       appBar: AppBar(
         toolbarHeight: 52,
         titleSpacing: 12,
+        bottom: source == 'camel'
+            ? const PreferredSize(
+                preferredSize: Size.fromHeight(32),
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Text('Watch on Camel1 • sign-in required'),
+                ),
+              )
+            : null,
         title: Text(
           title,
           style: const TextStyle(
@@ -1126,7 +1175,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                           kickoff: time,
                           isLive: live,
                           canWatch: ready,
-                          actionLabel: ready
+                          actionLabel: source == 'camel'
+                              ? 'OPEN CAMEL1'
+                              : ready
                               ? (anchors.length > 1
                                     ? 'WATCH  •  ' +
                                           anchors.length.toString() +

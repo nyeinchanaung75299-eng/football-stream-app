@@ -88,7 +88,7 @@ export default {
     }
 
     const sourceStreamsRoute = url.pathname.match(
-      /^\/sources\/(soco|yyzb|fawa|cola)\/streams$/,
+      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel)\/streams$/,
     );
     if (sourceStreamsRoute && request.method === "POST") {
       return handleSourceBrowserStreams(
@@ -126,7 +126,7 @@ export default {
     if (channelRoute) return handleChannelStreams(request, channelRoute[1], env, url.origin);
 
     const sourceMatchesRoute = url.pathname.match(
-      /^\/sources\/(soco|yyzb|fawa|cola)\/matches$/,
+      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel)\/matches$/,
     );
     if (sourceMatchesRoute && request.method === "GET") {
       return handleSourceBrowserMatches(
@@ -487,6 +487,8 @@ async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
       anchor_name: input?.anchor_name ?? null,
       skip_probe: true,
     });
+    if (payload?.requires_login) return json({ok:false, requires_login:true,
+      error:"Camel1 requires sign-in on its own website."},403,{"Cache-Control":"no-store"});
     const candidates = Array.isArray(payload?.lines) ? payload.lines : [];
     const room = String(input?.room_num || "room");
     const anchor = String(input?.anchor_name || "").trim();
