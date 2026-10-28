@@ -12,6 +12,7 @@ try {
     globalThis.Deno = { serve(fn) { handler = fn; } };
     let source = readFileSync(new URL(`../supabase/functions/${name}/index.ts`, import.meta.url), 'utf8')
       .replace(/^import .*jsr:.*;\n/gm, '')
+      .replace('"../_shared/website_sources.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/website_sources.mjs', import.meta.url).href))
       .replace('"../_shared/football_names.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/football_names.mjs', import.meta.url).href))
       .replace('"../_shared/source_match_rows.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/source_match_rows.mjs', import.meta.url).href))
       .replace('"../_shared/stream_probe.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/stream_probe.mjs', import.meta.url).href));
