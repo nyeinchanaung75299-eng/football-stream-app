@@ -1,9 +1,9 @@
+import '../widgets/match_stream_card.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'live_links_page.dart';
 import '../analytics_service.dart';
-import '../football_english.dart';
 
 class EditLivePage extends StatefulWidget {
   const EditLivePage({super.key});
@@ -24,7 +24,9 @@ class _EditLivePageState extends State<EditLivePage> {
 
   void reloadMatches() {
     if (!mounted) return;
-    setState(() { _matchesFuture = load(); });
+    setState(() {
+      _matchesFuture = load();
+    });
   }
 
   String sectionLabel(DateTime value) {
@@ -54,12 +56,12 @@ class _EditLivePageState extends State<EditLivePage> {
         .toList();
 
     rows.sort((a, b) {
-      final aTime = DateTime.tryParse(a['kickoff_at']?.toString() ?? '')
-              ?.toLocal() ??
-          DateTime(9999);
-      final bTime = DateTime.tryParse(b['kickoff_at']?.toString() ?? '')
-              ?.toLocal() ??
-          DateTime(9999);
+      final aTime =
+          DateTime.tryParse(a['kickoff_at']?.toString() ?? '')?.toLocal() ??
+              DateTime(9999);
+      final bTime =
+          DateTime.tryParse(b['kickoff_at']?.toString() ?? '')?.toLocal() ??
+              DateTime(9999);
 
       final byTime = aTime.compareTo(bTime);
       if (byTime != 0) return byTime;
@@ -90,8 +92,12 @@ class _EditLivePageState extends State<EditLivePage> {
           'The match will be hidden permanently from imports and all of its stream links will be deleted.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete')),
         ],
       ),
     );
@@ -142,7 +148,14 @@ class _EditLivePageState extends State<EditLivePage> {
     bool published = (m['publish_state'] ?? 'published') == 'published';
 
     void disposeEditors() {
-      for (final controller in [league, home, away, homeLogo, awayLogo, order]) {
+      for (final controller in [
+        league,
+        home,
+        away,
+        homeLogo,
+        awayLogo,
+        order
+      ]) {
         controller.dispose();
       }
     }
@@ -163,7 +176,8 @@ class _EditLivePageState extends State<EditLivePage> {
               );
               if (result != null) {
                 setSheetState(() {
-                  kickoff = DateTime(result.year, result.month, result.day, kickoff.hour, kickoff.minute);
+                  kickoff = DateTime(result.year, result.month, result.day,
+                      kickoff.hour, kickoff.minute);
                 });
               }
             }
@@ -180,7 +194,8 @@ class _EditLivePageState extends State<EditLivePage> {
               );
               if (result != null) {
                 setSheetState(() {
-                  kickoff = DateTime(kickoff.year, kickoff.month, kickoff.day, result.hour, result.minute);
+                  kickoff = DateTime(kickoff.year, kickoff.month, kickoff.day,
+                      result.hour, result.minute);
                 });
               }
             }
@@ -198,34 +213,69 @@ class _EditLivePageState extends State<EditLivePage> {
                   children: [
                     Row(
                       children: [
-                        const Expanded(child: Text('Edit Match', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900))),
-                        IconButton(onPressed: () => Navigator.pop(sheetContext, false), icon: const Icon(Icons.close_rounded)),
+                        const Expanded(
+                            child: Text('Edit Match',
+                                style: TextStyle(
+                                    fontSize: 21,
+                                    fontWeight: FontWeight.w900))),
+                        IconButton(
+                            onPressed: () => Navigator.pop(sheetContext, false),
+                            icon: const Icon(Icons.close_rounded)),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    TextField(controller: league, decoration: const InputDecoration(labelText: 'League')),
+                    TextField(
+                        controller: league,
+                        decoration: const InputDecoration(labelText: 'League')),
                     const SizedBox(height: 12),
-                    TextField(controller: home, decoration: const InputDecoration(labelText: 'Home team')),
+                    TextField(
+                        controller: home,
+                        decoration:
+                            const InputDecoration(labelText: 'Home team')),
                     const SizedBox(height: 12),
-                    TextField(controller: away, decoration: const InputDecoration(labelText: 'Away team')),
+                    TextField(
+                        controller: away,
+                        decoration:
+                            const InputDecoration(labelText: 'Away team')),
                     const SizedBox(height: 12),
-                    TextField(controller: homeLogo, decoration: const InputDecoration(labelText: 'Home logo URL')),
+                    TextField(
+                        controller: homeLogo,
+                        decoration:
+                            const InputDecoration(labelText: 'Home logo URL')),
                     const SizedBox(height: 12),
-                    TextField(controller: awayLogo, decoration: const InputDecoration(labelText: 'Away logo URL')),
+                    TextField(
+                        controller: awayLogo,
+                        decoration:
+                            const InputDecoration(labelText: 'Away logo URL')),
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        Expanded(child: OutlinedButton.icon(onPressed: pickDate, icon: const Icon(Icons.calendar_month_rounded), label: Text(DateFormat('dd MMM yyyy').format(kickoff)))),
+                        Expanded(
+                            child: OutlinedButton.icon(
+                                onPressed: pickDate,
+                                icon: const Icon(Icons.calendar_month_rounded),
+                                label: Text(DateFormat('dd MMM yyyy')
+                                    .format(kickoff)))),
                         const SizedBox(width: 10),
-                        Expanded(child: OutlinedButton.icon(onPressed: pickTime, icon: const Icon(Icons.schedule_rounded), label: Text(DateFormat('h:mm a', 'en_US').format(kickoff)))),
+                        Expanded(
+                            child: OutlinedButton.icon(
+                                onPressed: pickTime,
+                                icon: const Icon(Icons.schedule_rounded),
+                                label: Text(DateFormat('h:mm a', 'en_US')
+                                    .format(kickoff)))),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    TextField(controller: order, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Display order')),
+                    TextField(
+                        controller: order,
+                        keyboardType: TextInputType.number,
+                        decoration:
+                            const InputDecoration(labelText: 'Display order')),
                     SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Featured / Big match'),
-                      subtitle: const Text('Viewer app lists featured matches only.'),
+                      subtitle:
+                          const Text('Viewer app lists featured matches only.'),
                       value: featured,
                       onChanged: (v) => setSheetState(() => featured = v),
                     ),
@@ -236,8 +286,16 @@ class _EditLivePageState extends State<EditLivePage> {
                       value: published,
                       onChanged: (v) => setSheetState(() => published = v),
                     ),
-                    SwitchListTile.adaptive(contentPadding: EdgeInsets.zero, title: const Text('LIVE'), value: live, onChanged: (v) => setSheetState(() => live = v)),
-                    SwitchListTile.adaptive(contentPadding: EdgeInsets.zero, title: const Text('Active'), value: active, onChanged: (v) => setSheetState(() => active = v)),
+                    SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('LIVE'),
+                        value: live,
+                        onChanged: (v) => setSheetState(() => live = v)),
+                    SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Active'),
+                        value: active,
+                        onChanged: (v) => setSheetState(() => active = v)),
                     const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
@@ -260,7 +318,9 @@ class _EditLivePageState extends State<EditLivePage> {
       disposeEditors();
       return;
     }
-    if (league.text.trim().isEmpty || home.text.trim().isEmpty || away.text.trim().isEmpty) {
+    if (league.text.trim().isEmpty ||
+        home.text.trim().isEmpty ||
+        away.text.trim().isEmpty) {
       message('League and team names cannot be empty.');
       disposeEditors();
       return;
@@ -320,13 +380,17 @@ class _EditLivePageState extends State<EditLivePage> {
         future: _matchesFuture,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('Could not load matches. Check your connection and retry.'),
+            return Center(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text(
+                  'Could not load matches. Check your connection and retry.'),
               const SizedBox(height: 12),
-              FilledButton(onPressed: reloadMatches, child: const Text('Retry')),
+              FilledButton(
+                  onPressed: reloadMatches, child: const Text('Retry')),
             ]));
           }
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (!snapshot.hasData)
+            return const Center(child: CircularProgressIndicator());
           final rows = snapshot.data!;
           if (rows.isEmpty) return const Center(child: Text('No matches yet.'));
 
@@ -336,8 +400,7 @@ class _EditLivePageState extends State<EditLivePage> {
             // match visible even if it was made inactive, unfeatured or draft.
             if (view == 'all') return m['deleted_at'] == null;
 
-            final current =
-                m['deleted_at'] == null &&
+            final current = m['deleted_at'] == null &&
                 m['is_active'] == true &&
                 m['is_featured'] != false &&
                 (m['publish_state'] ?? 'published') == 'published';
@@ -394,8 +457,7 @@ class _EditLivePageState extends State<EditLivePage> {
                     : ListView.separated(
                         padding: const EdgeInsets.fromLTRB(16, 6, 16, 28),
                         itemCount: visibleRows.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 10),
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final m = visibleRows[index];
                           final kickoff =
@@ -410,9 +472,6 @@ class _EditLivePageState extends State<EditLivePage> {
                               previousKickoff.year != kickoff.year ||
                               previousKickoff.month != kickoff.month ||
                               previousKickoff.day != kickoff.day;
-              final live = m['is_live'] == true;
-              final featured = m['is_featured'] != false;
-              final published = (m['publish_state'] ?? 'published') == 'published';
 
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -436,135 +495,16 @@ class _EditLivePageState extends State<EditLivePage> {
                                   ),
                                 ),
                               ],
-                              Card(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  side: BorderSide(color: colors.outlineVariant.withValues(alpha: .5)),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(15),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: (live ? Colors.red : colors.primary).withValues(alpha: .1),
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: Icon(
-                              live ? Icons.podcasts_rounded : Icons.sports_soccer_rounded,
-                              color: live ? Colors.redAccent : colors.primary,
-                            ),
-                          ),
-                          const SizedBox(width: 11),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('${englishKnownFootballName('${m['home_team']}')} vs ${englishKnownFootballName('${m['away_team']}')}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${englishKnownFootballName('${m['league']}', kind: 'league')} • ${DateFormat('dd MMM, h:mm a', 'en_US').format(kickoff)}',
-                                  style: TextStyle(fontSize: 12.5, color: colors.onSurfaceVariant),
-                                ),
-                              ],
-                            ),
-                          ),
-                          PopupMenuButton<String>(
-                            onSelected: (value) {
-                              if (value == 'edit') editMatch(m);
-                              if (value == 'links') {
-                                AnalyticsService.capture(
-                                  'admin section opened',
-                                  properties: {
-                                    'section': 'stream-servers',
-                                    'from': 'match-menu',
-                                  },
-                                );
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute<void>(
-                                    settings: const RouteSettings(
-                                      name: '/admin/stream-servers',
-                                    ),
-                                    builder: (_) => LiveLinksPage(
-                                      initialMatchId: m['id'] as String,
-                                    ),
-                                  ),
-                                );
-                              }
-                              if (value == 'delete') deleteMatch(m['id'] as String);
-                            },
-                            itemBuilder: (_) => const [
-                              PopupMenuItem(value: 'edit', child: Text('Edit match')),
-                              PopupMenuItem(value: 'links', child: Text('Manage links')),
-                              PopupMenuItem(value: 'delete', child: Text('Delete match')),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Wrap(
-                          spacing: 7,
-                          runSpacing: 7,
-                          children: [
-                            _Badge(
-                              text: featured ? 'BIG MATCH' : 'HIDDEN',
-                              color: featured
-                                  ? Colors.amber.shade700
-                                  : Colors.blueGrey,
-                            ),
-                            _Badge(
-                              text: published ? 'PUBLISHED' : 'DRAFT',
-                              color: published
-                                  ? colors.primary
-                                  : Colors.blueGrey,
-                            ),
-                            if (live)
-                              const _Badge(
-                                text: 'LIVE',
-                                color: Colors.redAccent,
-                              ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => LiveLinksPage(
-                                      initialMatchId: m['id'] as String,
-                                    ),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.link_rounded, size: 18),
-                              label: const Text('STREAMS'),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: FilledButton.tonalIcon(
-                              onPressed: () => editMatch(m),
-                              icon: const Icon(Icons.edit_rounded, size: 18),
-                              label: const Text('EDIT'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+                              MatchStreamCard(
+                                match: m,
+                                onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute<void>(
+                                        builder: (_) => LiveLinksPage(
+                                            initialMatchId:
+                                                m['id'] as String))),
+                                onEdit: () => editMatch(m),
+                                onDelete: () => deleteMatch(m['id'] as String),
                               ),
                             ],
                           );
@@ -575,24 +515,6 @@ class _EditLivePageState extends State<EditLivePage> {
           );
         },
       ),
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge({required this.text, required this.color});
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: .1),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 10.5)),
     );
   }
 }

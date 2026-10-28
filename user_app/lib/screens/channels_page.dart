@@ -248,51 +248,54 @@ class _ChannelsPageState extends State<ChannelsPage> {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
-                SizedBox(
-                  height: 138,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: group.value.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 10),
-                    itemBuilder: (context, index) {
-                      final channel = group.value[index];
-                      final image = channel['image_url']?.toString() ?? '';
-                      final title = channel['name']?.toString() ?? 'Channel';
-                      return SizedBox(
-                        width: 160,
-                        child: InkWell(
-                          onTap: () => watch(channel),
-                          child: Column(
-                            children: [
-                              Expanded(
-                                child: Card(
-                                  clipBehavior: Clip.antiAlias,
-                                  child: Center(
-                                    child: image.startsWith('https://')
-                                        ? Image.network(
-                                            image,
-                                            fit: BoxFit.contain,
-                                            errorBuilder: (_, __, ___) =>
-                                                const Icon(Icons.tv),
-                                          )
-                                        : const Icon(Icons.tv, size: 38),
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 12,
+                    mainAxisExtent: 150,
                   ),
+                  itemCount: group.value.length,
+                  itemBuilder: (context, index) {
+                    final channel = group.value[index];
+                    final image = channel['image_url']?.toString() ?? '';
+                    final title = channel['name']?.toString() ?? 'Channel';
+                    return SizedBox(
+                      width: 160,
+                      child: InkWell(
+                        onTap: () => watch(channel),
+                        child: Column(
+                          children: [
+                            Expanded(
+                              child: Card(
+                                clipBehavior: Clip.antiAlias,
+                                child: Center(
+                                  child: image.startsWith('https://')
+                                      ? Image.network(
+                                          image,
+                                          fit: BoxFit.contain,
+                                          errorBuilder: (_, __, ___) =>
+                                              const Icon(Icons.tv),
+                                        )
+                                      : const Icon(Icons.tv, size: 38),
+                                ),
+                              ),
+                            ),
+                            Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ],
