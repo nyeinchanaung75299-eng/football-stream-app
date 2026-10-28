@@ -223,58 +223,69 @@ class _ChannelsPageState extends State<ChannelsPage> {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
-                SizedBox(
-                  height: 138,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: group.value.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 10),
-                    itemBuilder: (context, index) {
-                      final channel = group.value[index];
-                      final image = channel['image_url']?.toString() ?? '';
-                      final id = channel['id']?.toString() ?? '';
-                      final displayImage = image.startsWith('https://') &&
-                              RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)
-                          ? Uri.parse('$vercelBackupBase/api/channel-logo')
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 190,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    childAspectRatio: 1.08,
+                  ),
+                  itemCount: group.value.length,
+                  itemBuilder: (context, index) {
+                    final channel = group.value[index];
+                    final image = channel['image_url']?.toString() ?? '';
+                    final id = channel['id']?.toString() ?? '';
+                    final displayImage =
+                        image.startsWith('https://') &&
+                            RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)
+                        ? Uri.parse('$vercelBackupBase/api/channel-logo')
                               .replace(queryParameters: {'id': id, 'v': image})
                               .toString()
-                          : image;
-                      final title = channel['name']?.toString() ?? 'Channel';
-                      return SizedBox(
-                        width: 160,
-                        child: InkWell(
-                          onTap: () => watch(channel),
-                          child: Column(
-                            children: [
-                              Expanded(
-                                child: Card(
-                                  clipBehavior: Clip.antiAlias,
-                                  child: Center(
-                                    child: image.startsWith('https://')
-                                        ? Image.network(
-                                            displayImage,
-                                            fit: BoxFit.contain,
-                                            errorBuilder: (_, __, ___) =>
-                                                const Icon(Icons.tv),
-                                          )
-                                        : const Icon(Icons.tv, size: 38),
-                                  ),
+                        : image;
+                    final title = channel['name']?.toString() ?? 'Channel';
+                    return InkWell(
+                      onTap: () => watch(channel),
+                      child: Column(
+                        children: [
+                          Expanded(
+                            child: Card(
+                              clipBehavior: Clip.antiAlias,
+                              child: SizedBox.expand(
+                                child: Center(
+                                  child: image.startsWith('https://')
+                                      ? Image.network(
+                                          displayImage,
+                                          fit: BoxFit.contain,
+                                          errorBuilder: (_, __, ___) =>
+                                              displayImage == image
+                                              ? const Icon(Icons.tv, size: 38)
+                                              : Image.network(
+                                                  image,
+                                                  fit: BoxFit.contain,
+                                                  errorBuilder: (_, __, ___) =>
+                                                      const Icon(
+                                                        Icons.tv,
+                                                        size: 38,
+                                                      ),
+                                                ),
+                                        )
+                                      : const Icon(Icons.tv, size: 38),
                                 ),
                               ),
-                              Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ],
             ],
