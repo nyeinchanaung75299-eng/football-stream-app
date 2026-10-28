@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../network_endpoints.dart';
+
 class ChannelsPage extends StatefulWidget {
   const ChannelsPage({super.key});
   @override
@@ -62,11 +64,18 @@ class _ChannelsPageState extends State<ChannelsPage> {
           itemBuilder: (context, index) {
             final row = snapshot.data![index];
             final image = row['image_url']?.toString() ?? '';
+            final imageUri = Uri.tryParse(image);
+            final displayImage =
+                imageUri?.scheme == 'https' &&
+                    (imageUri?.host == 'images.fotmob.com' ||
+                        imageUri?.host == 'thumb.wikimedia.org')
+                ? '$vercelBackupBase/api/channel-logo?url=${Uri.encodeComponent(image)}'
+                : image;
             return Card(
               child: ListTile(
                 leading: image.startsWith('https://')
                     ? Image.network(
-                        image,
+                        displayImage,
                         width: 52,
                         height: 42,
                         fit: BoxFit.contain,
@@ -129,7 +138,6 @@ class _ChannelEditorState extends State<_ChannelEditor> {
   );
   late bool active = widget.channel?['is_active'] != false;
   final lines = <_Line>[];
-  final removed = <_Line>[];
   bool loading = false, loadFailed = false, saving = false;
   @override
   void initState() {
@@ -151,7 +159,9 @@ class _ChannelEditorState extends State<_ChannelEditor> {
           .order('sort_order');
       if (!mounted) return;
       setState(() {
-        lines.addAll(List<Map<String, dynamic>>.from(rows).map(_Line.new));
+        lines.addAll(
+          List<Map<String, dynamic>>.from(rows).take(1).map(_Line.new),
+        );
         if (lines.isEmpty) lines.add(_Line());
         loading = false;
       });
@@ -170,7 +180,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
     for (final field in [name, category, image, order]) {
       field.dispose();
     }
-    for (final line in [...lines, ...removed]) {
+    for (final line in lines) {
       line.dispose();
     }
     super.dispose();
@@ -212,6 +222,12 @@ class _ChannelEditorState extends State<_ChannelEditor> {
     final db = Supabase.instance.client;
     String? createdId;
     try {
+      // The Admin route may remain open after its session expires. Refresh
+      // before writing so a missing token cannot silently become anon.
+      final session = (await db.auth.refreshSession()).session;
+      if (session == null) {
+        throw StateError('Admin session expired. Sign in again.');
+      }
       final fields = {
         'name': name.text.trim(),
         'category': category.text.trim(),
@@ -289,7 +305,15 @@ class _ChannelEditorState extends State<_ChannelEditor> {
           await db.from('channels').delete().eq('id', createdId);
         } catch (_) {}
       }
-      if (mounted) notice('Save failed: $error');
+      if (mounted) {
+        final message =
+            error is AuthException ||
+                error is StateError && db.auth.currentSession == null ||
+                error is PostgrestException && error.code == '42501'
+            ? 'Admin session expired or has no write access. Sign in again and retry.'
+            : 'Save failed: $error';
+        notice(message);
+      }
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -329,16 +353,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
                 value: active,
                 onChanged: (value) => setState(() => active = value),
               ),
-              Row(
-                children: [
-                  const Expanded(child: Text('Stream lines')),
-                  TextButton.icon(
-                    onPressed: () => setState(() => lines.add(_Line())),
-                    icon: const Icon(Icons.add),
-                    label: const Text('ADD LINE'),
-                  ),
-                ],
-              ),
+              const Text('Stream'),
               for (var i = 0; i < lines.length; i++)
                 Card(
                   key: ObjectKey(lines[i]),
@@ -348,15 +363,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
                       children: [
                         Row(
                           children: [
-                            Expanded(child: Text('Line ${i + 1}')),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline),
-                              onPressed: lines.length <= 1
-                                  ? null
-                                  : () => setState(
-                                      () => removed.add(lines.removeAt(i)),
-                                    ),
-                            ),
+                            const Expanded(child: Text('Channel stream')),
                           ],
                         ),
                         TextField(
