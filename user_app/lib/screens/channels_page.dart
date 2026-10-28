@@ -234,57 +234,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                       final image = channel['image_url']?.toString() ?? '';
                       final id = channel['id']?.toString() ?? '';
                       final displayImage = image.startsWith('https://') &&
-                              RegExp(r'^[0-9a-fA-F-]{36}
-                      final title = channel['name']?.toString() ?? 'Channel';
-                      return SizedBox(
-                        width: 160,
-                        child: InkWell(
-                          onTap: () => watch(channel),
-                          child: Column(
-                            children: [
-                              Expanded(
-                                child: Card(
-                                  clipBehavior: Clip.antiAlias,
-                                  child: Center(
-                                    child: image.startsWith('https://')
-                                        ? Image.network(
-                                            displayImage,
-                                            fit: BoxFit.contain,
-                                            errorBuilder: (_, __, ___) =>
-                                                const Icon(Icons.tv),
-                                          )
-                                        : const Icon(Icons.tv, size: 38),
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    ),
-    bottomNavigationBar: PremiumBottomNav(
-      selectedIndex: 5,
-      onSelected: navigate,
-    ),
-  );
-}
-).hasMatch(id)
+                              RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)
                           ? Uri.parse('$vercelBackupBase/api/channel-logo')
                               .replace(queryParameters: {'id': id, 'v': image})
                               .toString()
