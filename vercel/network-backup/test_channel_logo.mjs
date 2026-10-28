@@ -1,41 +1,50 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { GET } from './api/channel-logo.js';
+import { GET, imageSource, imageType } from './api/channel-logo.js';
 
-const endpoint = 'https://backup.example/api/channel-logo?url=';
-const logo = 'https://images.fotmob.com/image_resources/logo/leaguelogo/dark/133.png';
+const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+const endpoint = 'https://backup.example/api/channel-logo';
 
-test('only the intended image host and path can be fetched', async () => {
+test('saved public HTTPS PNG source is allowed; private and invalid sources are rejected', () => {
+  assert.equal(imageSource('https://cdn.example.org/logo.png')?.href, 'https://cdn.example.org/logo.png');
+  for (const url of ['http://cdn.example.org/logo.png', 'https://127.0.0.1/logo.png',
+    'https://service.local/logo.png', 'https://user:pass@cdn.example.org/logo.png']) {
+    assert.equal(imageSource(url), null);
+  }
+  assert.equal(imageType(Buffer.from(png)), 'image/png');
+});
+
+test('legacy arbitrary URL stays blocked without a network request', async () => {
   const oldFetch = globalThis.fetch;
   let calls = 0;
-  globalThis.fetch = async () => { calls++; throw new Error('should not fetch'); };
+  globalThis.fetch = async () => { calls++; throw new Error('unexpected fetch'); };
   try {
-    for (const url of [
-      'https://127.0.0.1/image_resources/logo/a.png',
-      'https://images.fotmob.com.evil.test/image_resources/logo/a.png',
-      'https://images.fotmob.com/private/a.png',
-      'https://thumb.wikimedia.org/wikipedia/commons/thumb/a.png?redirect=evil',
-    ]) {
-      const response = await GET(new Request(endpoint + encodeURIComponent(url)));
-      assert.equal(response.status, 400);
-    }
+    const result = await GET(new Request(endpoint + '?url=' +
+      encodeURIComponent('https://evil.example.org/p.png')));
+    assert.equal(result.status, 404);
     assert.equal(calls, 0);
   } finally { globalThis.fetch = oldFetch; }
 });
 
-test('valid small image is relayed with an image content type', async () => {
+test('channel ID resolves saved logo and returns verified PNG bytes', async () => {
   const oldFetch = globalThis.fetch;
+  const id = '56025ef6-a968-426d-a22c-90cc093eeef2';
+  const image = 'https://cdn.example.org/custom.png';
+  const called = [];
   globalThis.fetch = async (url, options) => {
-    assert.equal(url.href, logo);
+    called.push(String(url));
+    if (called.length === 1) {
+      return Response.json({ channels: [{ id, image_url: image }] });
+    }
+    assert.equal(String(url), image);
     assert.equal(options.redirect, 'error');
-    return new Response(new Uint8Array([137, 80, 78, 71]), {
-      headers: { 'Content-Type': 'image/png' },
-    });
+    return new Response(png, { headers: { 'Content-Type': 'image/png' } });
   };
   try {
-    const response = await GET(new Request(endpoint + encodeURIComponent(logo)));
+    const response = await GET(new Request(endpoint + '?id=' + id));
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('Content-Type'), 'image/png');
-    assert.equal((await response.arrayBuffer()).byteLength, 4);
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()), png);
+    assert.equal(called.length, 2);
   } finally { globalThis.fetch = oldFetch; }
 });
