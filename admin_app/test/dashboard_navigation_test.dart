@@ -7,7 +7,7 @@ import 'package:football_admin/services/diagnostics_service.dart';
 
 void main() {
   testWidgets(
-      'Two bottom tabs keep controls usable and never scan automatically',
+      'Bottom tabs keep controls usable and never scan automatically',
       (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
@@ -16,9 +16,11 @@ void main() {
     var requests = 0;
     await http.runWithClient(() async {
       await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
-      expect(find.byType(NavigationDestination), findsNWidgets(2));
+      expect(find.byType(NavigationDestination), findsNWidgets(4));
       expect(find.text('Stream Detector'), findsOneWidget);
       expect(find.text('Pick Big Matches'), findsOneWidget);
+      expect(find.text('My Channels'), findsWidgets);
+      expect(find.text('TV Schedule'), findsWidgets);
       expect(find.text('Refresh monitor'), findsNothing);
       await tester.tap(find.text('System Health').last);
       await tester.pumpAndSettle();
