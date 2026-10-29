@@ -117,7 +117,7 @@ class _DashboardPageState extends State<DashboardPage> {
         1 => const ChannelsPage(embedded: true),
         2 => const TvSchedulesPage(embedded: true),
         _ => const SystemHealthPage(active: true),
-      ),
+      },
     );
   }
 
