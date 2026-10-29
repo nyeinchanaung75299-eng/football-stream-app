@@ -189,10 +189,9 @@ class TvScheduleService {
     final ownsClient = _httpClient == null;
     try {
       final date = _yangonDate(now ?? DateTime.now());
-      final bases = _apiBases ?? <String>[
-        'https://football-public-api.nyeinchanaung75299-eng.workers.dev',
-        ...publicApiBases(),
-      ];
+      // Use the configured custom domain first. The workers.dev hostname can
+      // serve an older deployment while the production route is updated.
+      final bases = _apiBases ?? publicApiBases();
       for (final rawBase in bases.toSet()) {
         final base = rawBase.trim().replaceAll(RegExp(r'/+$'), '');
         if (base.isEmpty) continue;
