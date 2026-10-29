@@ -1793,14 +1793,17 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _sourceButton('soco', 'Soco'),
+                    const SizedBox(height: 7),
                     _sourceButton('yyzb', 'YYZB'),
+                    const SizedBox(height: 7),
                     _sourceButton('fawa', 'Fawa'),
+                    const SizedBox(height: 7),
                     _sourceButton('cola', 'ColaTV'),
+                    const SizedBox(height: 7),
                     _sourceButton('playz', 'Manual HLS'),
                   ],
                 ),

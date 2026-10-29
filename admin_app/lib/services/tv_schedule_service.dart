@@ -48,6 +48,7 @@ class TvScheduleChannel {
     required this.id,
     required this.name,
     required this.category,
+    required this.imageUrl,
     required this.hasGuide,
     required this.region,
     required this.programmes,
@@ -56,16 +57,19 @@ class TvScheduleChannel {
   final String id;
   final String name;
   final String category;
+  final String imageUrl;
   final bool hasGuide;
   final String region;
   final List<TvScheduleProgramme> programmes;
 
   factory TvScheduleChannel.fromJson(Map<String, dynamic> json) {
     final rows = json['programmes'];
+    final imageUrl = _text(json['image_url']);
     return TvScheduleChannel(
       id: _text(json['id']),
       name: _text(json['name']),
       category: _text(json['category']),
+      imageUrl: imageUrl.isEmpty ? _text(json['image']) : imageUrl,
       hasGuide: json['matchedEPG'] == true,
       region: _text(json['region']),
       programmes: rows is List
@@ -92,6 +96,22 @@ class TvScheduleAiring {
   final DateTime when;
   final String title;
   final String region;
+}
+
+/// A current or future match shown in the compact Admin channel guide.
+///
+/// This contains schedule metadata only. It deliberately has no playback
+/// address, token, key, or DRM value.
+class TvScheduleListing {
+  const TvScheduleListing({
+    required this.channel,
+    required this.programme,
+    required this.isLive,
+  });
+
+  final TvScheduleChannel channel;
+  final TvScheduleProgramme programme;
+  final bool isLive;
 }
 
 class TvScheduleGuide {
@@ -171,6 +191,52 @@ class TvScheduleGuide {
       return byTime != 0 ? byTime : a.channel.compareTo(b.channel);
     });
     return airings;
+  }
+
+  /// Returns only current or upcoming team-v-team programmes.
+  ///
+  /// Replays, classics and recap shows are hidden so My Channels and TV
+  /// Schedule show the useful live/next-match time rather than a long EPG
+  /// history.
+  List<TvScheduleListing> liveAndUpcomingMatchListings({
+    DateTime? now,
+    int days = 8,
+  }) {
+    final current = (now ?? DateTime.now()).toUtc();
+    final latest = current.add(Duration(days: days));
+    final listings = <TvScheduleListing>[];
+
+    for (final channel in channels) {
+      if (!channel.hasGuide) continue;
+      for (final programme in channel.programmes) {
+        final body = _normalise(
+          '${programme.title} ${programme.subtitle} ${programme.description}',
+        );
+        if (body.isEmpty || _isReplay(body) || !_looksLikeMatch(body)) {
+          continue;
+        }
+        final end = programme.end ??
+            programme.start.add(const Duration(hours: 3));
+        if (end.isBefore(current) || programme.start.isAfter(latest)) {
+          continue;
+        }
+        listings.add(
+          TvScheduleListing(
+            channel: channel,
+            programme: programme,
+            isLive: !programme.start.isAfter(current) && end.isAfter(current),
+          ),
+        );
+      }
+    }
+
+    listings.sort((a, b) {
+      if (a.isLive != b.isLive) return a.isLive ? -1 : 1;
+      final byTime = a.programme.start.compareTo(b.programme.start);
+      if (byTime != 0) return byTime;
+      return a.channel.name.compareTo(b.channel.name);
+    });
+    return listings;
   }
 }
 
@@ -273,6 +339,11 @@ List<String> _teamAliases(String team) {
 bool _containsAlias(String body, List<String> aliases) => aliases.any(
       (alias) => ' $body '.contains(' $alias '),
     );
+
+bool _looksLikeMatch(String body) => RegExp(
+      r'\b(?:vs|v|versus)\b',
+      caseSensitive: false,
+    ).hasMatch(body);
 
 bool _isReplay(String body) => RegExp(
       r'\b(?:replay|repeat|re run|rebroadcast|recorded|highlights?|mini match|full impact|classic|recap|review|magazine|preview|match of the day|z zaznam|zaznam|aufzeichnung|ripetizione|rediffusion|resume|resumen|souhrn)\b',

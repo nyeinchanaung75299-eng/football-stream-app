@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'live_links_page.dart';
-import 'match_channel_lines_page.dart';
 import '../analytics_service.dart';
 
 class EditLivePage extends StatefulWidget {
@@ -76,40 +75,6 @@ class _EditLivePageState extends State<EditLivePage> {
       final bName = (b['home_team'] ?? '').toString().toLowerCase();
       return aName.compareTo(bName);
     });
-
-    // A match line that was added from Channels keeps its channel-line id.
-    // Load only those labels for the Admin summary; generic/manual stream
-    // servers deliberately do not appear as TV channels here.
-    final matchIds = rows.map((row) => row['id'].toString()).toList();
-    if (matchIds.isNotEmpty) {
-      try {
-        final channelRows = await Supabase.instance.client
-            .from('stream_links')
-            .select('match_id,label,channel_id,channel_line_id,sort_order')
-            .inFilter('match_id', matchIds)
-            .order('sort_order')
-            .timeout(const Duration(seconds: 8));
-        final labelsByMatch = <String, List<String>>{};
-        for (final raw in channelRows) {
-          final row = Map<String, dynamic>.from(raw);
-          if (row['channel_id'] == null || row['channel_line_id'] == null) {
-            continue;
-          }
-          final label = row['label']?.toString().trim() ?? '';
-          if (label.isEmpty) continue;
-          labelsByMatch
-              .putIfAbsent(row['match_id'].toString(), () => <String>[])
-              .add(label);
-        }
-        for (final row in rows) {
-          row['_channel_lines'] =
-              labelsByMatch[row['id'].toString()] ?? const <String>[];
-        }
-      } catch (_) {
-        // The Matches page remains usable while an older deployment is still
-        // waiting for the additive channel-line database migration.
-      }
-    }
 
     return rows;
   }
@@ -539,21 +504,7 @@ class _EditLivePageState extends State<EditLivePage> {
                                             initialMatchId:
                                                 m['id'] as String))),
                                 onEdit: () => editMatch(m),
-                                onChannelLines: () async {
-                                  await Navigator.push<void>(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => MatchChannelLinesPage(
-                                        match: m,
-                                      ),
-                                    ),
-                                  );
-                                  if (mounted) reloadMatches();
-                                },
                                 onDelete: () => deleteMatch(m['id'] as String),
-                                channelLines: List<String>.from(
-                                  m['_channel_lines'] ?? const <String>[],
-                                ),
                               ),
                             ],
                           );

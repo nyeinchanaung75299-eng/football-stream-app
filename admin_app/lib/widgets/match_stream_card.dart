@@ -10,16 +10,12 @@ class MatchStreamCard extends StatelessWidget {
     required this.match,
     required this.onTap,
     this.onEdit,
-    this.onChannelLines,
     this.onDelete,
-    this.channelLines = const [],
   });
   final Map<String, dynamic> match;
   final VoidCallback onTap;
   final VoidCallback? onEdit;
-  final VoidCallback? onChannelLines;
   final VoidCallback? onDelete;
-  final List<String> channelLines;
 
   Widget team(String side) {
     final logo = match['${side}_logo_url']?.toString() ?? '';
@@ -38,12 +34,13 @@ class MatchStreamCard extends StatelessWidget {
                   )
                 : const Icon(Icons.sports_soccer, size: 36),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 5),
           Text(
             englishKnownFootballName(match['${side}_team']?.toString() ?? side),
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
           ),
         ],
       ),
@@ -60,56 +57,48 @@ class MatchStreamCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
           child: Column(
             children: [
               Row(
                 children: [
-                  const Spacer(),
                   Expanded(
-                    flex: 6,
                     child: Text(
-                      '🏆 ${englishKnownFootballName(match['league']?.toString() ?? '', kind: 'league')}',
-                      textAlign: TextAlign.center,
+                      englishKnownFootballName(
+                        match['league']?.toString() ?? '',
+                        kind: 'league',
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.primary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
-                  if (onEdit != null || onChannelLines != null || onDelete != null)
-                    SizedBox(
-                      width: 32,
-                      height: 28,
-                      child: PopupMenuButton<String>(
-                        padding: EdgeInsets.zero,
-                        onSelected: (value) {
-                          if (value == 'edit') onEdit?.call();
-                          if (value == 'channels') onChannelLines?.call();
-                          if (value == 'delete') onDelete?.call();
-                        },
-                        itemBuilder: (_) => [
-                          if (onEdit != null)
-                            const PopupMenuItem(
-                              value: 'edit',
-                              child: Text('Edit match'),
-                            ),
-                          if (onChannelLines != null)
-                            const PopupMenuItem(
-                              value: 'channels',
-                              child: Text('TV channel lines'),
-                            ),
-                          if (onDelete != null)
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Text('Delete match'),
-                            ),
-                        ],
+                  _StatusPill(isLive: match['is_live'] == true),
+                  if (onEdit != null)
+                    IconButton(
+                      tooltip: 'Edit live match',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: onEdit,
+                      icon: const Icon(Icons.edit_rounded, size: 20),
+                    ),
+                  if (onDelete != null)
+                    IconButton(
+                      tooltip: 'Delete live match',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: onDelete,
+                      icon: Icon(
+                        Icons.delete_outline_rounded,
+                        color: colors.error,
+                        size: 21,
                       ),
-                    )
-                  else
-                    const Spacer(),
+                    ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Row(
                 children: [
                   team('home'),
@@ -118,12 +107,12 @@ class MatchStreamCard extends StatelessWidget {
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
+                            horizontal: 9,
+                            vertical: 6,
                           ),
                           decoration: BoxDecoration(
                             color: colors.primary,
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(9),
                           ),
                           child: Text(
                             time == null
@@ -136,58 +125,57 @@ class MatchStreamCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          time == null
-                              ? ''
-                              : DateFormat('MMMM d', 'en_US').format(time),
-                          textAlign: TextAlign.center,
-                        ),
                       ],
                     ),
                   ),
                   team('away'),
                 ],
               ),
-              if (channelLines.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 9,
-                  ),
-                  decoration: BoxDecoration(
-                    color: colors.primaryContainer.withValues(alpha: .42),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        Icons.tv_rounded,
-                        size: 18,
-                        color: colors.onPrimaryContainer,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          channelLines.join('  •  '),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: colors.onPrimaryContainer,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ],
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.center,
+                child: TextButton.icon(
+                  onPressed: onTap,
+                  icon: const Icon(Icons.link_rounded, size: 17),
+                  label: const Text('LIVE LINKS'),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    textStyle: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
-              ],
+              ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.isLive});
+
+  final bool isLive;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: (isLive ? colors.error : colors.primary).withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        isLive ? 'LIVE' : 'UPCOMING',
+        style: TextStyle(
+          color: isLive ? colors.error : colors.primary,
+          fontSize: 9,
+          fontWeight: FontWeight.w900,
+          letterSpacing: .45,
         ),
       ),
     );
