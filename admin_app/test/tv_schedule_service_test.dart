@@ -14,6 +14,7 @@ void main() {
         {
           'id': 'tnt-1',
           'name': 'TNT Sports 1',
+          'image_url': 'https://example.test/tnt-1.png',
           'matchedEPG': true,
           'region': 'uk',
           'programmes': [
@@ -52,6 +53,57 @@ void main() {
     expect(airings, hasLength(1));
     expect(airings.single.channel, 'TNT Sports 1');
     expect(airings.single.region, 'uk');
+    expect(guide.channels.first.imageUrl, 'https://example.test/tnt-1.png');
+  });
+
+  test('channel guide keeps only live or next match times and hides replays', () {
+    final now = DateTime.utc(2026, 10, 29, 12);
+    final guide = TvScheduleGuide.fromJson({
+      'channels': [
+        {
+          'id': 'sports',
+          'name': 'Sports TV',
+          'matchedEPG': true,
+          'programmes': [
+            {
+              'start': now.subtract(const Duration(hours: 1)).millisecondsSinceEpoch,
+              'end': now.add(const Duration(hours: 1)).millisecondsSinceEpoch,
+              'title': 'Everton vs Newcastle United',
+            },
+            {
+              'start': now.add(const Duration(hours: 3)).millisecondsSinceEpoch,
+              'title': 'Chelsea vs Liverpool',
+            },
+            {
+              'start': now.add(const Duration(hours: 4)).millisecondsSinceEpoch,
+              'title': 'Chelsea vs Liverpool replay',
+            },
+            {
+              'start': now.add(const Duration(hours: 5)).millisecondsSinceEpoch,
+              'title': 'Football news',
+            },
+          ],
+        },
+        {
+          'id': 'not-matched',
+          'name': 'Unmatched TV',
+          'matchedEPG': false,
+          'programmes': [
+            {
+              'start': now.add(const Duration(hours: 1)).millisecondsSinceEpoch,
+              'title': 'Arsenal vs Spurs',
+            },
+          ],
+        },
+      ],
+    });
+
+    final listings = guide.liveAndUpcomingMatchListings(now: now);
+
+    expect(listings, hasLength(2));
+    expect(listings.first.isLive, isTrue);
+    expect(listings.first.programme.title, 'Everton vs Newcastle United');
+    expect(listings.last.programme.title, 'Chelsea vs Liverpool');
   });
 
   test('TV guide loader uses the NCA relay and reads no playback fields', () async {

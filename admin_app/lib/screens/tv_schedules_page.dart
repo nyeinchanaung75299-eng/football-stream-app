@@ -4,13 +4,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../football_english.dart';
 import '../services/tv_schedule_service.dart';
-import 'match_channel_lines_page.dart';
 
-/// Match-centred TV guide for the Admin's own channel catalog.
+/// Compact match schedule for the Admin's own fixture list.
 ///
-/// Source-browser providers deliberately never appear here. A line is shown
-/// only when it came from My Channels, or an EPG programme has matched one of
-/// those catalog channels.
+/// It is intentionally read-only: channel guide data is useful for seeing
+/// live/next match times, but adding a stream line does not belong in a TV
+/// schedule view.
 class TvSchedulesPage extends StatefulWidget {
   const TvSchedulesPage({super.key, this.embedded = false});
 
@@ -22,7 +21,7 @@ class TvSchedulesPage extends StatefulWidget {
 
 class _TvSchedulesPageState extends State<TvSchedulesPage> {
   late Future<_ScheduleData> _schedule = _load();
-  String _view = 'all';
+  String _view = 'upcoming';
 
   void _refresh() => setState(() => _schedule = _load());
 
@@ -42,7 +41,6 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
     try {
       return _GuideResult(guide: await TvScheduleService().load());
     } catch (_) {
-      // Match management remains available when the public guide is offline.
       return const _GuideResult(error: 'TV guide is temporarily unavailable.');
     }
   }
@@ -58,47 +56,7 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
     final rows = List<Map<String, dynamic>>.from(data)
         .where((row) => row['deleted_at'] == null)
         .toList();
-
     rows.sort(_compareMatches);
-    final matchIds = rows.map((row) => row['id'].toString()).toList();
-    if (matchIds.isEmpty) return rows;
-
-    try {
-      final links = await Supabase.instance.client
-          .from('stream_links')
-          .select(
-            'match_id,label,channel_id,channel_line_id,is_active,sort_order',
-          )
-          .inFilter('match_id', matchIds)
-          .order('sort_order')
-          .timeout(const Duration(seconds: 10));
-      final labelsByMatch = <String, List<String>>{};
-      for (final raw in links) {
-        final line = Map<String, dynamic>.from(raw);
-        // Only explicit catalog associations are TV-channel lines. This keeps
-        // Soco, YYZB, Fawa and ColaTV source-provider rows out of this page.
-        if (line['channel_id'] == null || line['channel_line_id'] == null) {
-          continue;
-        }
-        if (line['is_active'] == false) continue;
-        final label = line['label']?.toString().trim() ?? '';
-        if (label.isEmpty) continue;
-        final target = labelsByMatch.putIfAbsent(
-          line['match_id'].toString(),
-          () => <String>[],
-        );
-        if (!target.contains(label)) target.add(label);
-      }
-      for (final match in rows) {
-        match['_tv_lines'] =
-            labelsByMatch[match['id'].toString()] ?? const <String>[];
-      }
-    } catch (_) {
-      // The page is still useful during a short database migration rollout.
-      for (final match in rows) {
-        match['_tv_lines'] = const <String>[];
-      }
-    }
     return rows;
   }
 
@@ -119,19 +77,15 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
   ) {
     final now = DateTime.now().toUtc();
     return matches.where((match) {
-      if (_view == 'all') return true;
+      if (match['is_active'] == false ||
+          (match['publish_state'] ?? 'published') != 'published') {
+        return false;
+      }
       if (_view == 'live') return match['is_live'] == true;
       final kickoff = DateTime.tryParse(match['kickoff_at']?.toString() ?? '');
       return match['is_live'] == true ||
           (kickoff != null && !kickoff.toUtc().isBefore(now));
     }).toList(growable: false);
-  }
-
-  Future<void> _manageLines(Map<String, dynamic> match) async {
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(builder: (_) => MatchChannelLinesPage(match: match)),
-    );
-    if (mounted) _refresh();
   }
 
   @override
@@ -141,7 +95,7 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return _RetryState(
-            message: 'Could not load your matches. Check the connection and retry.',
+            message: 'Could not load matches. Check the connection and retry.',
             onRetry: _refresh,
           );
         }
@@ -155,58 +109,49 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
           onRefresh: () async => _refresh(),
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
             children: [
-              _Header(
-                guide: data.guide,
-                guideError: data.guideError,
-                onRefresh: _refresh,
-              ),
-              const SizedBox(height: 14),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                    value: 'all',
-                    icon: Icon(Icons.list_alt_rounded),
-                    label: Text('All'),
+              if (widget.embedded)
+                _ScheduleHeader(
+                  guideError: data.guideError,
+                  onRefresh: _refresh,
+                ),
+              if (widget.embedded) const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('Live & upcoming'),
+                    selected: _view == 'upcoming',
+                    onSelected: (_) => setState(() => _view = 'upcoming'),
                   ),
-                  ButtonSegment(
-                    value: 'upcoming',
-                    icon: Icon(Icons.upcoming_rounded),
-                    label: Text('Upcoming'),
-                  ),
-                  ButtonSegment(
-                    value: 'live',
-                    icon: Icon(Icons.podcasts_rounded),
-                    label: Text('Live'),
+                  ChoiceChip(
+                    label: const Text('Live now'),
+                    selected: _view == 'live',
+                    onSelected: (_) => setState(() => _view = 'live'),
                   ),
                 ],
-                selected: {_view},
-                onSelectionChanged: (selected) {
-                  setState(() => _view = selected.first);
-                },
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
               Text(
                 '${matches.length} MATCH${matches.length == 1 ? '' : 'ES'}',
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.w900,
-                  letterSpacing: .8,
+                  letterSpacing: .7,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 7),
               if (matches.isEmpty)
                 const _EmptySchedule()
               else
                 ...matches.map(
                   (match) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.only(bottom: 8),
                     child: _MatchScheduleCard(
                       match: match,
                       guide: data.guide,
-                      onManageLines: () => _manageLines(match),
                     ),
                   ),
                 ),
@@ -218,7 +163,16 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
 
     if (widget.embedded) return page;
     return Scaffold(
-      appBar: AppBar(title: const Text('TV Schedule')),
+      appBar: AppBar(
+        title: const Text('TV Schedule'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh TV schedule',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
       body: page,
     );
   }
@@ -243,81 +197,59 @@ class _GuideResult {
   final String? error;
 }
 
-class _Header extends StatelessWidget {
-  const _Header({
-    required this.guide,
+class _ScheduleHeader extends StatelessWidget {
+  const _ScheduleHeader({
     required this.guideError,
     required this.onRefresh,
   });
 
-  final TvScheduleGuide? guide;
   final String? guideError;
   final VoidCallback onRefresh;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final guided = guide?.channels.where((channel) => channel.hasGuide).length;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'TV Schedule',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Refresh TV schedule',
-                  onPressed: onRefresh,
-                  icon: const Icon(Icons.refresh_rounded),
-                ),
-              ],
-            ),
-            const SizedBox(height: 5),
-            Text(
-              'Shows only My Channels TV lines and guide matches. Soco, YYZB, Fawa and ColaTV are excluded.',
-              style: TextStyle(color: colors.onSurfaceVariant, height: 1.35),
-            ),
-            const SizedBox(height: 10),
-            if (guideError != null)
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Text(
-                'Saved TV lines are still available. $guideError',
-                style: TextStyle(color: colors.error, fontSize: 12),
-              )
-            else if (guide != null)
+                'TV Schedule',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+              const SizedBox(height: 2),
               Text(
-                '${guided ?? 0} catalog channels have a checked TV guide • Myanmar Time (MMT)',
+                guideError ?? 'Live and next match times only • MMT',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: colors.primary,
+                  color:
+                      guideError == null ? colors.onSurfaceVariant : colors.error,
                   fontSize: 12,
-                  fontWeight: FontWeight.w800,
                 ),
               ),
-          ],
+            ],
+          ),
         ),
-      ),
+        IconButton(
+          tooltip: 'Refresh TV schedule',
+          onPressed: onRefresh,
+          icon: const Icon(Icons.refresh_rounded),
+        ),
+      ],
     );
   }
 }
 
 class _MatchScheduleCard extends StatelessWidget {
-  const _MatchScheduleCard({
-    required this.match,
-    required this.guide,
-    required this.onManageLines,
-  });
+  const _MatchScheduleCard({required this.match, required this.guide});
 
   final Map<String, dynamic> match;
   final TvScheduleGuide? guide;
-  final VoidCallback onManageLines;
 
   @override
   Widget build(BuildContext context) {
@@ -333,9 +265,7 @@ class _MatchScheduleCard extends StatelessWidget {
       kind: 'league',
     );
     final kickoff = DateTime.tryParse(match['kickoff_at']?.toString() ?? '');
-    final lines = List<String>.from(
-      match['_tv_lines'] ?? const <String>[],
-    );
+    final isLive = match['is_live'] == true;
     final airings = guide?.airingsForMatch({
           ...match,
           'home_team': home,
@@ -344,8 +274,9 @@ class _MatchScheduleCard extends StatelessWidget {
         const <TvScheduleAiring>[];
 
     return Card(
+      margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -354,87 +285,55 @@ class _MatchScheduleCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     league,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: colors.primary,
                       fontWeight: FontWeight.w900,
+                      fontSize: 13,
                     ),
                   ),
                 ),
-                _StatusPill(isLive: match['is_live'] == true),
+                _StatusPill(isLive: isLive),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
             Text(
               '$home vs $away',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 5),
-            Text(
-              kickoff == null
-                  ? 'Kickoff time unavailable'
-                  : DateFormat('EEE, d MMM • h:mm a', 'en_US')
-                      .format(_yangon(kickoff)),
-              style: TextStyle(color: colors.onSurfaceVariant),
+            Row(
+              children: [
+                Icon(
+                  Icons.schedule_rounded,
+                  size: 15,
+                  color: colors.onSurfaceVariant,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  kickoff == null
+                      ? 'Kickoff time unavailable'
+                      : '${DateFormat('EEE, d MMM • h:mm a', 'en_US').format(_yangon(kickoff))} MMT',
+                  style: TextStyle(
+                    color: colors.onSurfaceVariant,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
-            const Divider(height: 26),
-            _SectionLabel(
-              icon: Icons.tv_rounded,
-              text: 'SAVED TV CHANNEL LINES',
-            ),
-            const SizedBox(height: 7),
-            if (lines.isEmpty)
-              Text(
-                'No My Channels line is attached yet.',
-                style: TextStyle(color: colors.onSurfaceVariant),
-              )
-            else
+            if (airings.isNotEmpty) ...[
+              const SizedBox(height: 9),
               Wrap(
-                spacing: 7,
-                runSpacing: 7,
+                spacing: 6,
+                runSpacing: 6,
                 children: [
-                  for (final line in lines)
-                    Chip(
-                      avatar: const Icon(Icons.tv_rounded, size: 16),
-                      label: Text(line),
-                    ),
+                  for (final airing in airings.take(3))
+                    _AiringChip(airing: airing),
                 ],
               ),
-            const SizedBox(height: 16),
-            _SectionLabel(
-              icon: Icons.calendar_month_rounded,
-              text: 'LIVE TV GUIDE MATCHES',
-            ),
-            const SizedBox(height: 7),
-            if (guide == null)
-              Text(
-                'TV guide is unavailable right now.',
-                style: TextStyle(color: colors.onSurfaceVariant),
-              )
-            else if (airings.isEmpty)
-              Text(
-                'No confirmed channel schedule matches this kickoff yet.',
-                style: TextStyle(color: colors.onSurfaceVariant),
-              )
-            else
-              ...airings.map(
-                (airing) => Padding(
-                  padding: const EdgeInsets.only(bottom: 7),
-                  child: _AiringRow(airing: airing),
-                ),
-              ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: onManageLines,
-                icon: Icon(
-                  lines.isEmpty
-                      ? Icons.add_link_rounded
-                      : Icons.tune_rounded,
-                ),
-                label: Text(lines.isEmpty ? 'ADD TV LINE' : 'MANAGE TV LINES'),
-              ),
-            ),
+            ],
           ],
         ),
       ),
@@ -442,64 +341,28 @@ class _MatchScheduleCard extends StatelessWidget {
   }
 }
 
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Row(
-        children: [
-          Icon(icon, size: 16, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(width: 7),
-          Text(
-            text,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              letterSpacing: .7,
-            ),
-          ),
-        ],
-      );
-}
-
-class _AiringRow extends StatelessWidget {
-  const _AiringRow({required this.airing});
+class _AiringChip extends StatelessWidget {
+  const _AiringChip({required this.airing});
 
   final TvScheduleAiring airing;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final time = DateFormat('h:mm a', 'en_US').format(_yangon(airing.when));
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
-        color: colors.primaryContainer.withValues(alpha: .38),
-        borderRadius: BorderRadius.circular(12),
+        color: colors.primaryContainer.withValues(alpha: .45),
+        borderRadius: BorderRadius.circular(999),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            airing.channel,
-            style: TextStyle(
-              color: colors.onPrimaryContainer,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            "Live guide • ${DateFormat('h:mm a', 'en_US').format(_yangon(airing.when))} MMT${airing.region.isEmpty ? '' : ' • ${airing.region.toUpperCase()}'}",
-            style: TextStyle(
-              color: colors.onPrimaryContainer,
-              fontSize: 12,
-            ),
-          ),
-        ],
+      child: Text(
+        '${airing.channel} • $time',
+        style: TextStyle(
+          color: colors.onPrimaryContainer,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
@@ -514,17 +377,18 @@ class _StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: (isLive ? colors.error : colors.primary).withValues(alpha: .13),
-        borderRadius: BorderRadius.circular(16),
+        color: (isLive ? colors.error : colors.primary).withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        isLive ? 'LIVE' : 'SCHEDULED',
+        isLive ? 'LIVE' : 'UPCOMING',
         style: TextStyle(
           color: isLive ? colors.error : colors.primary,
-          fontSize: 10,
+          fontSize: 9,
           fontWeight: FontWeight.w900,
+          letterSpacing: .5,
         ),
       ),
     );
@@ -536,25 +400,14 @@ class _EmptySchedule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(
+        margin: EdgeInsets.zero,
         child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Column(
-            children: [
-              const Icon(Icons.event_busy_rounded, size: 34),
-              const SizedBox(height: 10),
-              const Text(
-                'No matches in this view.',
-                style: TextStyle(fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 5),
-              Text(
-                'Choose All to manage older or unpublished matches too.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            'No live or upcoming matches in this view.',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
       );
