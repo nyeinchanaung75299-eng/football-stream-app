@@ -147,9 +147,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('an old background source response cannot replace a new provider',
+  testWidgets('source detail keeps its provider selector-free',
       (tester) async {
-    final old = Completer<http.Response>();
     var fawa = 0;
     handler = (_) async => jsonResponse([]);
     await http.runWithClient(() async {
@@ -157,18 +156,9 @@ void main() {
           const MaterialApp(home: SocoImportPage(initialSource: 'fawa')));
       await tester.pumpAndSettle();
       expect(find.textContaining('First Fawa'), findsOneWidget);
+      expect(find.text('ColaTV'), findsNothing);
       await tester.pump(const Duration(minutes: 1));
       expect(fawa, 2);
-      await tester.tap(find.text('ColaTV'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('New Cola'), findsOneWidget);
-      old.complete(jsonResponse({
-        'source': 'fawa',
-        'matches': [sourceMatch('Old Fawa')]
-      }));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('Old Fawa'), findsNothing);
-      expect(find.textContaining('New Cola'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },
@@ -176,16 +166,12 @@ void main() {
               final provider = (jsonDecode(request.body) as Map)['source'];
               if (provider == 'fawa') {
                 fawa++;
-                if (fawa == 2) return old.future;
                 return jsonResponse({
                   'source': 'fawa',
                   'matches': [sourceMatch('First Fawa')]
                 });
               }
-              return jsonResponse({
-                'source': 'cola',
-                'matches': [sourceMatch('New Cola', source: 'cola')]
-              });
+              return jsonResponse({'source': provider, 'matches': const []});
             }));
   });
 

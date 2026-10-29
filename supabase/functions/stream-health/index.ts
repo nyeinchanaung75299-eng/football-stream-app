@@ -12,6 +12,14 @@ type LinkRow = {
   webview_url: string | null;
 };
 
+type ChannelLineRow = {
+  id: string;
+  channel_id: string;
+  stream_url: string | null;
+  referer: string | null;
+  origin: string | null;
+};
+
 Deno.serve(async (req) => {
   try {
     if (req.method !== "POST") {
@@ -69,9 +77,51 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const linkId = body?.link_id?.toString();
     const matchId = body?.match_id?.toString();
+    const channelLineId = body?.channel_line_id?.toString();
+    const channelId = body?.channel_id?.toString();
     const checkAll = body?.all === true || cronAuthorized;
 
     const admin = createClient(supabaseUrl, serviceRole);
+
+    // Channel-line checks are explicitly scoped to one private channel or
+    // line. They never return a stream URL, referer, key, or playback token.
+    if (channelLineId || channelId) {
+      let channelQuery = admin
+        .from("channel_lines")
+        .select("id,channel_id,stream_url,referer,origin")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .limit(channelLineId ? 1 : 30);
+
+      if (channelLineId) {
+        channelQuery = channelQuery.eq("id", channelLineId);
+      } else if (channelId) {
+        channelQuery = channelQuery.eq("channel_id", channelId);
+      }
+
+      const { data, error } = await channelQuery;
+      if (error) throw error;
+      const lines = (data ?? []) as ChannelLineRow[];
+      const results: Record<string, unknown>[] = [];
+
+      for (let offset = 0; offset < lines.length; offset += 4) {
+        const chunk = lines.slice(offset, offset + 4);
+        const checked = await Promise.all(
+          chunk.map((line) => checkChannelLine(admin, line)),
+        );
+        results.push(...checked);
+      }
+
+      if (channelLineId && results.length === 1) {
+        return json({ ok: true, ...results[0] });
+      }
+      return json({
+        ok: true,
+        checked: results.length,
+        summary: healthSummary(results),
+        results,
+      });
+    }
 
     let query = admin
       .from("stream_links")
@@ -98,15 +148,6 @@ Deno.serve(async (req) => {
 
     const links = (data ?? []) as LinkRow[];
 
-    if (links.length === 0) {
-      return json({
-        ok: true,
-        checked: 0,
-        summary: { healthy: 0, slow: 0, failed: 0 },
-        results: [],
-      });
-    }
-
     const results: Record<string, unknown>[] = [];
 
     for (let offset = 0; offset < links.length; offset += 4) {
@@ -117,13 +158,6 @@ Deno.serve(async (req) => {
       results.push(...checked);
     }
 
-    const summary = {
-      healthy: results.filter((x) => x.health_status === "healthy").length,
-      slow: results.filter((x) => x.health_status === "slow").length,
-      failed: results.filter((x) => x.health_status === "failed").length,
-      unknown: results.filter((x) => x.health_status === "unknown").length,
-    };
-
     if (linkId && results.length === 1) {
       return json({ ok: true, ...results[0] });
     }
@@ -131,7 +165,7 @@ Deno.serve(async (req) => {
     return json({
       ok: true,
       checked: results.length,
-      summary,
+      summary: healthSummary(results),
       results,
     });
   } catch (error) {
@@ -195,6 +229,70 @@ async function checkLink(
     http_status: statusCode,
     checked_at: checkedAt,
     detail,
+  };
+}
+
+async function checkChannelLine(
+  admin: SupabaseClient,
+  line: ChannelLineRow,
+) {
+  const result = await probe(line.stream_url, line.referer, line.origin);
+  const checkedAt = new Date().toISOString();
+
+  await admin
+    .from("channel_lines")
+    .update({
+      health_status: result.health,
+      health_latency_ms: result.latency,
+      last_checked_at: checkedAt,
+    })
+    .eq("id", line.id);
+
+  return {
+    id: line.id,
+    channel_id: line.channel_id,
+    health_status: result.health,
+    latency_ms: result.latency,
+    http_status: result.statusCode,
+    checked_at: checkedAt,
+  };
+}
+
+async function probe(
+  url: string | null,
+  referer: string | null,
+  origin: string | null,
+) {
+  if (!url) {
+    return {
+      health: "failed",
+      statusCode: 0,
+      latency: 0,
+      detail: "URL is empty.",
+    };
+  }
+  const headers: Record<string, string> = {
+    "Accept": "*/*",
+    "Range": "bytes=0-4095",
+    "User-Agent": "FootballStreamHealth/1.0",
+  };
+  if (referer) headers["Referer"] = referer;
+  if (origin) headers["Origin"] = origin;
+  const result = await probeStreamFirstChunk(url, { headers });
+  return {
+    health: result.status,
+    statusCode: result.httpStatus,
+    latency: result.latencyMs,
+    detail: result.detail,
+  };
+}
+
+function healthSummary(results: Record<string, unknown>[]) {
+  return {
+    healthy: results.filter((x) => x.health_status === "healthy").length,
+    slow: results.filter((x) => x.health_status === "slow").length,
+    failed: results.filter((x) => x.health_status === "failed").length,
+    unknown: results.filter((x) => x.health_status === "unknown").length,
   };
 }
 

@@ -16,14 +16,19 @@ void main() {
     var requests = 0;
     await http.runWithClient(() async {
       await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
-      expect(find.byType(NavigationDestination), findsNWidgets(4));
+      expect(find.byType(NavigationDestination), findsNWidgets(5));
       expect(find.text('Stream Detector'), findsNothing);
       expect(find.text('Pick Big Matches'), findsOneWidget);
       expect(find.text('Edit & Delete Live'), findsOneWidget);
-      expect(find.text('Stream Source Picker'), findsOneWidget);
+      expect(find.text('Stream Source Picker'), findsNothing);
       expect(find.text('My Channels'), findsWidgets);
       expect(find.text('TV Schedule'), findsWidgets);
       expect(find.text('Refresh monitor'), findsNothing);
+      await tester.tap(find.text('Sources').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Stream Sources'), findsOneWidget);
+      expect(find.text('Soco'), findsOneWidget);
+      expect(requests, 0);
       await tester.tap(find.text('System Health').last);
       await tester.pumpAndSettle();
       expect(find.text('Connect services'), findsOneWidget);

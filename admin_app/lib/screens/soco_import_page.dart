@@ -89,11 +89,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
   final Map<String, int> _anchorLineCounts = <String, int>{};
   int _anchorStatusEpoch = 0;
   String? _extractingAnchorKey;
-  late Future<List<Map<String, dynamic>>> _targetMatchesFuture;
   Timer? _sourceRefreshTimer;
   bool _backgroundRefreshBusy = false;
   int _sourceLoadEpoch = 0;
-  int _sourceSelectionEpoch = 0;
   bool _addingLine = false;
   bool _savingLibrary = false;
   String? _deletingLibraryId;
@@ -117,7 +115,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
       final page = Uri.tryParse(widget.initialReferer!);
       if (page != null) _playzOrigin.text = page.origin;
     }
-    _targetMatchesFuture = _loadTargetMatches();
     final requested = widget.initialSource.trim().toLowerCase();
     source = const {
       'soco',
@@ -142,7 +139,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
   @override
   void dispose() {
     _sourceLoadEpoch += 1;
-    _sourceSelectionEpoch += 1;
     _sourceRefreshTimer?.cancel();
     _playzServerName.dispose();
     _playzUrl.dispose();
@@ -615,9 +611,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     final extractingKey = _anchorKey(match, anchor);
     final provider = source;
-    final epoch = _sourceSelectionEpoch;
-    bool current() =>
-        mounted && source == provider && epoch == _sourceSelectionEpoch;
+    bool current() => mounted && source == provider;
     if (_extractingAnchorKey != null) return;
     setState(() => _extractingAnchorKey = extractingKey);
 
@@ -1675,40 +1669,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
     }
   }
 
-  Widget _sourceButton(String value, String label) {
-    final selected = source == value;
-    final onPressed = loading
-        ? null
-        : () {
-            setState(() {
-              _sourceSelectionEpoch += 1;
-              source = value;
-              if (value == 'playz') {
-                _libraryFuture ??= _streamLibrary.list();
-              }
-              dayFilter = (value == 'fawa' ||
-                      value == 'cola' ||
-                      value == 'playz')
-                  ? 'all'
-                  : 'today';
-              sourceMatches = const [];
-              errorText = null;
-              _anchorStatusEpoch += 1;
-              _anchorStatuses.clear();
-              _anchorLineCounts.clear();
-            });
-            AnalyticsService.capture(
-              'source provider selected',
-              properties: {'source': value},
-            );
-            _loadSoco();
-          };
-
-    return selected
-        ? FilledButton.tonal(onPressed: onPressed, child: Text(label))
-        : OutlinedButton(onPressed: onPressed, child: Text(label));
-  }
-
   Widget _dayButton(String value, String label) {
     final selected = dayFilter == value;
 
@@ -1731,7 +1691,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Stream Source Picker'),
+        title: Text(_sourceLabel(source)),
         actions: [
           IconButton(
             tooltip: 'Refresh source',
@@ -1740,81 +1700,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
           ),
         ],
       ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _targetMatchesFuture,
-        builder: (context, targetSnapshot) {
-          final targets = targetSnapshot.data ?? const <Map<String, dynamic>>[];
-
-          if (targetSnapshot.connectionState == ConnectionState.done &&
-              targetSnapshot.hasData &&
-              targetMatchId != null &&
-              !targets.any((row) => row['id'] == targetMatchId)) {
-            // Only invalidate a preset destination after a completed query.
-            // A FutureBuilder waiting snapshot must not erase it.
-            targetMatchId = null;
-          }
-
-          return RefreshIndicator(
-            onRefresh: _loadSoco,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
-              children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: DropdownButtonFormField<String>(
-                      value: targetMatchId,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Suggested destination (ADD confirms)',
-                        prefixIcon: Icon(Icons.sports_soccer_rounded),
-                      ),
-                      items: targets.map((m) {
-                        final kickoff = DateTime.tryParse(
-                          m['kickoff_at']?.toString() ?? '',
-                        )?.toLocal();
-                        final when = kickoff == null
-                            ? '--:--'
-                            : DateFormat(
-                                'dd MMM • h:mm a',
-                                'en_US',
-                              ).format(kickoff);
-                        return DropdownMenuItem(
-                          value: m['id'] as String,
-                          child: Text(
-                            '$when · ${englishKnownFootballName('${m['home_team']}')} vs ${englishKnownFootballName('${m['away_team']}')}',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (value) =>
-                          setState(() => targetMatchId = value),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _sourceButton('soco', 'Soco'),
-                    const SizedBox(height: 7),
-                    _sourceButton('yyzb', 'YYZB'),
-                    const SizedBox(height: 7),
-                    _sourceButton('fawa', 'Fawa'),
-                    const SizedBox(height: 7),
-                    _sourceButton('cola', 'ColaTV'),
-                    const SizedBox(height: 7),
-                    _sourceButton('playz', 'Manual HLS'),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Source: ${_sourceLabel(source)}',
-                  style: TextStyle(
-                    color: colors.onSurfaceVariant,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+      body: RefreshIndicator(
+        onRefresh: _loadSoco,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
+          children: [
                 if (_isManualSource) _manualSourceCard(colors),
                 if (!_isManualSource)
                   SwitchListTile.adaptive(
@@ -2032,9 +1922,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 }),
               ],
             ),
-          );
-        },
-      ),
+          ),
     );
   }
 }
