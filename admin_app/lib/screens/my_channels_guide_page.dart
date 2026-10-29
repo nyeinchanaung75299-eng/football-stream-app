@@ -43,14 +43,15 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final listings = snapshot.data!.liveAndUpcomingMatchListings();
-        final byChannel = <String, List<TvScheduleListing>>{};
-        for (final listing in listings) {
-          byChannel
-              .putIfAbsent(listing.channel.id, () => <TvScheduleListing>[])
-              .add(listing);
-        }
-        final channelListings = byChannel.values.toList(growable: false);
+        final guide = snapshot.data!;
+        final channelListings = guide.channels
+            .map(
+              (channel) => _ChannelGuideItems(
+                channel: channel,
+                listings: guide.liveAndUpcomingMatchListingsForChannel(channel),
+              ),
+            )
+            .toList(growable: false);
 
         return RefreshIndicator(
           onRefresh: () async => _refresh(),
@@ -80,7 +81,10 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
                 ...channelListings.map(
                   (items) => Padding(
                     padding: const EdgeInsets.only(bottom: 8),
-                    child: _ChannelScheduleCard(listings: items),
+                    child: _ChannelScheduleCard(
+                      channel: items.channel,
+                      listings: items.listings,
+                    ),
                   ),
                 ),
             ],
@@ -156,14 +160,17 @@ class _GuideHeader extends StatelessWidget {
 }
 
 class _ChannelScheduleCard extends StatelessWidget {
-  const _ChannelScheduleCard({required this.listings});
+  const _ChannelScheduleCard({
+    required this.channel,
+    required this.listings,
+  });
 
+  final TvScheduleChannel channel;
   final List<TvScheduleListing> listings;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final channel = listings.first.channel;
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -188,9 +195,11 @@ class _ChannelScheduleCard extends StatelessWidget {
                           fontSize: 16,
                         ),
                       ),
-                      if (channel.region.isNotEmpty)
+                      if (channel.region.isNotEmpty || channel.category.isNotEmpty)
                         Text(
-                          channel.region.toUpperCase(),
+                          channel.region.isNotEmpty
+                              ? channel.region.toUpperCase()
+                              : channel.category.toUpperCase(),
                           style: TextStyle(
                             color: colors.onSurfaceVariant,
                             fontSize: 11,
@@ -205,26 +214,44 @@ class _ChannelScheduleCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            for (final listing in listings.take(2)) ...[
-              _ProgrammeRow(listing: listing),
-              if (listing != listings.take(2).last) const Divider(height: 14),
-            ],
-            if (listings.length > 2) ...[
-              const SizedBox(height: 2),
+            if (listings.isEmpty)
               Text(
-                '+${listings.length - 2} more upcoming match${listings.length == 3 ? '' : 'es'}',
+                'No live or next match in the guide.',
                 style: TextStyle(
                   color: colors.onSurfaceVariant,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
                 ),
-              ),
+              )
+            else ...[
+              for (var index = 0; index < listings.take(2).length; index++) ...[
+                _ProgrammeRow(listing: listings[index]),
+                if (index + 1 < listings.take(2).length)
+                  const Divider(height: 14),
+              ],
+              if (listings.length > 2) ...[
+                const SizedBox(height: 2),
+                Text(
+                  '+${listings.length - 2} more upcoming match${listings.length == 3 ? '' : 'es'}',
+                  style: TextStyle(
+                    color: colors.onSurfaceVariant,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ],
           ],
         ),
       ),
     );
   }
+}
+
+class _ChannelGuideItems {
+  const _ChannelGuideItems({required this.channel, required this.listings});
+
+  final TvScheduleChannel channel;
+  final List<TvScheduleListing> listings;
 }
 
 class _ChannelImage extends StatelessWidget {

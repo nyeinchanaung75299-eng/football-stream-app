@@ -202,32 +202,12 @@ class TvScheduleGuide {
     DateTime? now,
     int days = 8,
   }) {
-    final current = (now ?? DateTime.now()).toUtc();
-    final latest = current.add(Duration(days: days));
     final listings = <TvScheduleListing>[];
 
     for (final channel in channels) {
-      if (!channel.hasGuide) continue;
-      for (final programme in channel.programmes) {
-        final body = _normalise(
-          '${programme.title} ${programme.subtitle} ${programme.description}',
-        );
-        if (body.isEmpty || _isReplay(body) || !_looksLikeMatch(body)) {
-          continue;
-        }
-        final end = programme.end ??
-            programme.start.add(const Duration(hours: 3));
-        if (end.isBefore(current) || programme.start.isAfter(latest)) {
-          continue;
-        }
-        listings.add(
-          TvScheduleListing(
-            channel: channel,
-            programme: programme,
-            isLive: !programme.start.isAfter(current) && end.isAfter(current),
-          ),
-        );
-      }
+      listings.addAll(
+        liveAndUpcomingMatchListingsForChannel(channel, now: now, days: days),
+      );
     }
 
     listings.sort((a, b) {
@@ -235,6 +215,47 @@ class TvScheduleGuide {
       final byTime = a.programme.start.compareTo(b.programme.start);
       if (byTime != 0) return byTime;
       return a.channel.name.compareTo(b.channel.name);
+    });
+    return listings;
+  }
+
+  /// Lists schedule-only live/next match entries for one catalog channel.
+  ///
+  /// A channel without matched EPG data intentionally returns an empty list;
+  /// callers still keep it in the catalog instead of silently hiding it.
+  List<TvScheduleListing> liveAndUpcomingMatchListingsForChannel(
+    TvScheduleChannel channel, {
+    DateTime? now,
+    int days = 8,
+  }) {
+    if (!channel.hasGuide) return const [];
+
+    final current = (now ?? DateTime.now()).toUtc();
+    final latest = current.add(Duration(days: days));
+    final listings = <TvScheduleListing>[];
+    for (final programme in channel.programmes) {
+      final body = _normalise(
+        '${programme.title} ${programme.subtitle} ${programme.description}',
+      );
+      if (body.isEmpty || _isReplay(body) || !_looksLikeMatch(body)) {
+        continue;
+      }
+      final end = programme.end ?? programme.start.add(const Duration(hours: 3));
+      if (end.isBefore(current) || programme.start.isAfter(latest)) {
+        continue;
+      }
+      listings.add(
+        TvScheduleListing(
+          channel: channel,
+          programme: programme,
+          isLive: !programme.start.isAfter(current) && end.isAfter(current),
+        ),
+      );
+    }
+
+    listings.sort((a, b) {
+      if (a.isLive != b.isLive) return a.isLive ? -1 : 1;
+      return a.programme.start.compareTo(b.programme.start);
     });
     return listings;
   }

@@ -1,10 +1,14 @@
-import '../widgets/match_stream_card.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'live_links_page.dart';
-import '../analytics_service.dart';
 
+import '../analytics_service.dart';
+import 'live_links_page.dart';
+
+/// Compact admin management for every non-deleted live fixture.
+///
+/// This intentionally has no Upcoming / Live / All segment: this is the one
+/// recovery screen where an administrator can always reach every saved match.
 class EditLivePage extends StatefulWidget {
   const EditLivePage({super.key});
 
@@ -13,35 +17,15 @@ class EditLivePage extends StatefulWidget {
 }
 
 class _EditLivePageState extends State<EditLivePage> {
-  String view = 'upcoming';
   late Future<List<Map<String, dynamic>>> _matchesFuture;
 
   @override
   void initState() {
     super.initState();
-    _matchesFuture = load();
+    _matchesFuture = _load();
   }
 
-  void reloadMatches() {
-    if (!mounted) return;
-    setState(() {
-      _matchesFuture = load();
-    });
-  }
-
-  String sectionLabel(DateTime value) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final day = DateTime(value.year, value.month, value.day);
-    final diff = day.difference(today).inDays;
-
-    if (diff == 0) return 'TODAY';
-    if (diff == 1) return 'TOMORROW';
-    if (diff == -1) return 'YESTERDAY';
-    return DateFormat('EEE, dd MMM yyyy').format(value).toUpperCase();
-  }
-
-  Future<List<Map<String, dynamic>>> load() async {
+  Future<List<Map<String, dynamic>>> _load() async {
     final data = await Supabase.instance.client
         .from('matches')
         .select(
@@ -54,54 +38,52 @@ class _EditLivePageState extends State<EditLivePage> {
     final rows = List<Map<String, dynamic>>.from(data)
         .where((row) => row['deleted_at'] == null)
         .toList();
-
     rows.sort((a, b) {
-      final aTime =
-          DateTime.tryParse(a['kickoff_at']?.toString() ?? '')?.toLocal() ??
-              DateTime(9999);
-      final bTime =
-          DateTime.tryParse(b['kickoff_at']?.toString() ?? '')?.toLocal() ??
-              DateTime(9999);
-
-      final byTime = aTime.compareTo(bTime);
+      final byTime = _kickoffOf(a).compareTo(_kickoffOf(b));
       if (byTime != 0) return byTime;
-
       final aOrder = (a['sort_order'] as num?)?.toInt() ?? 0;
       final bOrder = (b['sort_order'] as num?)?.toInt() ?? 0;
       final byOrder = aOrder.compareTo(bOrder);
       if (byOrder != 0) return byOrder;
-
-      final aName = (a['home_team'] ?? '').toString().toLowerCase();
-      final bName = (b['home_team'] ?? '').toString().toLowerCase();
-      return aName.compareTo(bName);
+      return '${a['home_team'] ?? ''}'
+          .toLowerCase()
+          .compareTo('${b['home_team'] ?? ''}'.toLowerCase());
     });
-
     return rows;
   }
 
-  void message(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  void _reload() {
+    if (mounted) setState(() => _matchesFuture = _load());
   }
 
-  Future<void> deleteMatch(String id) async {
-    final ok = await showDialog<bool>(
+  void _message(String value) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value)));
+    }
+  }
+
+  Future<void> _deleteMatch(String id) async {
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Delete match?'),
         content: const Text(
-          'The match will be hidden permanently from imports and all of its stream links will be deleted.',
+          'This hides the match and permanently deletes all of its live links.',
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('CANCEL'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete')),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('DELETE'),
+          ),
         ],
       ),
     );
-    if (ok != true) return;
+    if (confirmed != true) return;
+
     try {
       await Supabase.instance.client.from('matches').update({
         'is_active': false,
@@ -110,222 +92,442 @@ class _EditLivePageState extends State<EditLivePage> {
         'publish_state': 'draft',
         'deleted_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', id);
-
       await Supabase.instance.client
           .from('stream_links')
           .delete()
           .eq('match_id', id);
-
-      await AnalyticsService.capture(
-        'match deleted',
-        properties: {'match_id': id},
-      );
-
-      if (mounted) {
-        message('Match deleted. It will not be re-imported automatically.');
-        reloadMatches();
-      }
-    } catch (e) {
+      await AnalyticsService.capture('match deleted', properties: {'match_id': id});
+      _message('Match deleted.');
+      _reload();
+    } catch (error) {
       await AnalyticsService.capture(
         'match delete failed',
         properties: {'match_id': id},
       );
-      if (mounted) message('Delete failed: $e');
+      _message('Delete failed: $error');
     }
   }
 
-  Future<void> editMatch(Map<String, dynamic> m) async {
-    final league = TextEditingController(text: '${m['league'] ?? ''}');
-    final home = TextEditingController(text: '${m['home_team'] ?? ''}');
-    final away = TextEditingController(text: '${m['away_team'] ?? ''}');
-    final homeLogo = TextEditingController(text: '${m['home_logo_url'] ?? ''}');
-    final awayLogo = TextEditingController(text: '${m['away_logo_url'] ?? ''}');
-    final order = TextEditingController(text: '${m['sort_order'] ?? 0}');
-    DateTime kickoff = DateTime.parse(m['kickoff_at']).toLocal();
-    bool live = m['is_live'] == true;
-    bool active = m['is_active'] == true;
-    bool featured = m['is_featured'] != false;
-    bool published = (m['publish_state'] ?? 'published') == 'published';
-
-    void disposeEditors() {
-      for (final controller in [
-        league,
-        home,
-        away,
-        homeLogo,
-        awayLogo,
-        order
-      ]) {
-        controller.dispose();
-      }
-    }
-
-    final save = await showModalBottomSheet<bool>(
+  Future<void> _deleteLinks(String id) async {
+    final confirmed = await showDialog<bool>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            Future<void> pickDate() async {
-              final result = await showDatePicker(
-                context: context,
-                initialDate: kickoff,
-                firstDate: DateTime.now().subtract(const Duration(days: 3650)),
-                lastDate: DateTime.now().add(const Duration(days: 3650)),
-              );
-              if (result != null) {
-                setSheetState(() {
-                  kickoff = DateTime(result.year, result.month, result.day,
-                      kickoff.hour, kickoff.minute);
-                });
-              }
-            }
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete live links?'),
+        content: const Text(
+          'All live links for this match will be permanently deleted. The match itself stays.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('CANCEL'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('DELETE LINKS'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
 
-            Future<void> pickTime() async {
-              final result = await showTimePicker(
-                context: context,
-                initialTime: TimeOfDay.fromDateTime(kickoff),
-                builder: (context, child) => MediaQuery(
-                  data: MediaQuery.of(context)
-                      .copyWith(alwaysUse24HourFormat: false),
-                  child: child!,
-                ),
-              );
-              if (result != null) {
-                setSheetState(() {
-                  kickoff = DateTime(kickoff.year, kickoff.month, kickoff.day,
-                      result.hour, result.minute);
-                });
-              }
-            }
+    try {
+      await Supabase.instance.client
+          .from('stream_links')
+          .delete()
+          .eq('match_id', id);
+      await AnalyticsService.capture(
+        'match live links deleted',
+        properties: {'match_id': id},
+      );
+      _message('Live links deleted.');
+    } catch (error) {
+      _message('Could not delete live links: $error');
+    }
+  }
 
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 16,
-                right: 16,
-                top: 16,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Expanded(
-                            child: Text('Edit Match',
-                                style: TextStyle(
-                                    fontSize: 21,
-                                    fontWeight: FontWeight.w900))),
-                        IconButton(
-                            onPressed: () => Navigator.pop(sheetContext, false),
-                            icon: const Icon(Icons.close_rounded)),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                        controller: league,
-                        decoration: const InputDecoration(labelText: 'League')),
-                    const SizedBox(height: 12),
-                    TextField(
-                        controller: home,
-                        decoration:
-                            const InputDecoration(labelText: 'Home team')),
-                    const SizedBox(height: 12),
-                    TextField(
-                        controller: away,
-                        decoration:
-                            const InputDecoration(labelText: 'Away team')),
-                    const SizedBox(height: 12),
-                    TextField(
-                        controller: homeLogo,
-                        decoration:
-                            const InputDecoration(labelText: 'Home logo URL')),
-                    const SizedBox(height: 12),
-                    TextField(
-                        controller: awayLogo,
-                        decoration:
-                            const InputDecoration(labelText: 'Away logo URL')),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                            child: OutlinedButton.icon(
-                                onPressed: pickDate,
-                                icon: const Icon(Icons.calendar_month_rounded),
-                                label: Text(DateFormat('dd MMM yyyy')
-                                    .format(kickoff)))),
-                        const SizedBox(width: 10),
-                        Expanded(
-                            child: OutlinedButton.icon(
-                                onPressed: pickTime,
-                                icon: const Icon(Icons.schedule_rounded),
-                                label: Text(DateFormat('h:mm a', 'en_US')
-                                    .format(kickoff)))),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                        controller: order,
-                        keyboardType: TextInputType.number,
-                        decoration:
-                            const InputDecoration(labelText: 'Display order')),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Featured / Big match'),
-                      subtitle:
-                          const Text('Viewer app lists featured matches only.'),
-                      value: featured,
-                      onChanged: (v) => setSheetState(() => featured = v),
-                    ),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Published'),
-                      subtitle: const Text('Turn off to keep it as a draft.'),
-                      value: published,
-                      onChanged: (v) => setSheetState(() => published = v),
-                    ),
-                    SwitchListTile.adaptive(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('LIVE'),
-                        value: live,
-                        onChanged: (v) => setSheetState(() => live = v)),
-                    SwitchListTile.adaptive(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Active'),
-                        value: active,
-                        onChanged: (v) => setSheetState(() => active = v)),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: () => Navigator.pop(sheetContext, true),
-                        icon: const Icon(Icons.save_rounded),
-                        label: const Text('SAVE MATCH'),
+  Future<void> _editMatch(Map<String, dynamic> match) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => _EditMatchPage(match: match)),
+    );
+    if (saved == true) {
+      _message('Match updated.');
+      _reload();
+    }
+  }
+
+  void _openLinks(String matchId) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => LiveLinksPage(initialMatchId: matchId)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          title: const Text('Live Edit & Delete'),
+          actions: [
+            IconButton(
+              tooltip: 'Refresh matches',
+              onPressed: _reload,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+          ],
+        ),
+        body: FutureBuilder<List<Map<String, dynamic>>>(
+          future: _matchesFuture,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Could not load matches. Check your connection and retry.',
+                        textAlign: TextAlign.center,
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: _reload,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('RETRY'),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              );
+            }
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final rows = snapshot.data!;
+            if (rows.isEmpty) return const Center(child: Text('No matches yet.'));
+
+            return ListView.separated(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
+              itemCount: rows.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final match = rows[index];
+                final id = match['id'].toString();
+                return _LiveEditCard(
+                  match: match,
+                  onEditMatch: () => _editMatch(match),
+                  onDeleteMatch: () => _deleteMatch(id),
+                  onEditLinks: () => _openLinks(id),
+                  onDeleteLinks: () => _deleteLinks(id),
+                );
+              },
             );
           },
-        );
-      },
-    );
+        ),
+      );
+}
 
-    if (save != true) {
-      disposeEditors();
-      return;
+class _LiveEditCard extends StatelessWidget {
+  const _LiveEditCard({
+    required this.match,
+    required this.onEditMatch,
+    required this.onDeleteMatch,
+    required this.onEditLinks,
+    required this.onDeleteLinks,
+  });
+
+  final Map<String, dynamic> match;
+  final VoidCallback onEditMatch;
+  final VoidCallback onDeleteMatch;
+  final VoidCallback onEditLinks;
+  final VoidCallback onDeleteLinks;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final kickoff = _kickoffOf(match).toLocal();
+    final isLive = match['is_live'] == true;
+    final home = '${match['home_team'] ?? 'Home'}';
+    final away = '${match['away_team'] ?? 'Away'}';
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${match['league'] ?? 'Football'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: colors.primary,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                _StatusPill(label: isLive ? 'LIVE' : 'SCHEDULED'),
+                IconButton(
+                  tooltip: 'Edit match',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onEditMatch,
+                  icon: const Icon(Icons.edit_rounded),
+                ),
+                IconButton(
+                  tooltip: 'Delete match',
+                  visualDensity: VisualDensity.compact,
+                  color: colors.error,
+                  onPressed: onDeleteMatch,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: _TeamBlock(
+                    name: home,
+                    logo: '${match['home_logo_url'] ?? ''}',
+                  ),
+                ),
+                SizedBox(
+                  width: 92,
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colors.primaryContainer,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          DateFormat('h:mm a', 'en_US').format(kickoff),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: colors.onPrimaryContainer,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        DateFormat('dd MMM', 'en_US').format(kickoff),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: _TeamBlock(
+                    name: away,
+                    logo: '${match['away_logo_url'] ?? ''}',
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 17),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'L-LINKS',
+                  style: TextStyle(
+                    color: colors.primary,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                    letterSpacing: .4,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Edit live links',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onEditLinks,
+                  icon: const Icon(Icons.edit_rounded, size: 20),
+                ),
+                IconButton(
+                  tooltip: 'Delete all live links',
+                  visualDensity: VisualDensity.compact,
+                  color: colors.error,
+                  onPressed: onDeleteLinks,
+                  icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TeamBlock extends StatelessWidget {
+  const _TeamBlock({required this.name, required this.logo});
+
+  final String name;
+  final String logo;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        children: [
+          _TeamLogo(url: logo),
+          const SizedBox(height: 5),
+          Text(
+            name,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+          ),
+        ],
+      );
+}
+
+class _TeamLogo extends StatelessWidget {
+  const _TeamLogo({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = Icon(
+      Icons.shield_outlined,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+      size: 38,
+    );
+    if (!url.startsWith('http')) {
+      return SizedBox(width: 52, height: 52, child: Center(child: fallback));
     }
+    return SizedBox(
+      width: 52,
+      height: 52,
+      child: Image.network(
+        url,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => Center(child: fallback),
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final live = label == 'LIVE';
+    final colors = Theme.of(context).colorScheme;
+    final color = live ? colors.error : colors.primary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 9,
+          fontWeight: FontWeight.w900,
+          letterSpacing: .5,
+        ),
+      ),
+    );
+  }
+}
+
+class _EditMatchPage extends StatefulWidget {
+  const _EditMatchPage({required this.match});
+
+  final Map<String, dynamic> match;
+
+  @override
+  State<_EditMatchPage> createState() => _EditMatchPageState();
+}
+
+class _EditMatchPageState extends State<_EditMatchPage> {
+  late final league = TextEditingController(text: '${widget.match['league'] ?? ''}');
+  late final home = TextEditingController(text: '${widget.match['home_team'] ?? ''}');
+  late final away = TextEditingController(text: '${widget.match['away_team'] ?? ''}');
+  late final homeLogo = TextEditingController(text: '${widget.match['home_logo_url'] ?? ''}');
+  late final awayLogo = TextEditingController(text: '${widget.match['away_logo_url'] ?? ''}');
+  late final order = TextEditingController(text: '${widget.match['sort_order'] ?? 0}');
+  late DateTime kickoff = _kickoffOf(widget.match).toLocal();
+  late bool live = widget.match['is_live'] == true;
+  late bool active = widget.match['is_active'] == true;
+  late bool featured = widget.match['is_featured'] != false;
+  late bool published = (widget.match['publish_state'] ?? 'published') == 'published';
+  bool saving = false;
+
+  @override
+  void dispose() {
+    for (final field in [league, home, away, homeLogo, awayLogo, order]) {
+      field.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final value = await showDatePicker(
+      context: context,
+      initialDate: kickoff,
+      firstDate: DateTime.now().subtract(const Duration(days: 3650)),
+      lastDate: DateTime.now().add(const Duration(days: 3650)),
+    );
+    if (value != null && mounted) {
+      setState(() {
+        kickoff = DateTime(
+          value.year,
+          value.month,
+          value.day,
+          kickoff.hour,
+          kickoff.minute,
+        );
+      });
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final value = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(kickoff),
+    );
+    if (value != null && mounted) {
+      setState(() {
+        kickoff = DateTime(
+          kickoff.year,
+          kickoff.month,
+          kickoff.day,
+          value.hour,
+          value.minute,
+        );
+      });
+    }
+  }
+
+  Future<void> _save() async {
+    if (saving) return;
     if (league.text.trim().isEmpty ||
         home.text.trim().isEmpty ||
         away.text.trim().isEmpty) {
-      message('League and team names cannot be empty.');
-      disposeEditors();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('League and team names cannot be empty.')),
+      );
       return;
     }
-
+    setState(() => saving = true);
     try {
       await Supabase.instance.client.from('matches').update({
         'league': league.text.trim(),
@@ -341,180 +543,153 @@ class _EditLivePageState extends State<EditLivePage> {
         'publish_state': published ? 'published' : 'draft',
         'is_live': live,
         'is_active': active,
-      }).eq('id', m['id']);
-
+      }).eq('id', widget.match['id']);
       await AnalyticsService.capture(
         'match updated',
         properties: {
-          'match_id': m['id'].toString(),
+          'match_id': widget.match['id'].toString(),
           'featured': featured,
           'published': published,
           'is_live': live,
           'is_active': active,
         },
       );
-
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (error) {
       if (mounted) {
-        message('Match updated.');
-        reloadMatches();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Match update failed: $error')),
+        );
       }
-    } catch (e) {
-      await AnalyticsService.capture(
-        'match update failed',
-        properties: {'match_id': m['id'].toString()},
-      );
-      if (mounted) message('Match update failed: $e');
     } finally {
-      disposeEditors();
+      if (mounted) setState(() => saving = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Manage Matches'),
-      ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _matchesFuture,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text(
-                  'Could not load matches. Check your connection and retry.'),
-              const SizedBox(height: 12),
-              FilledButton(
-                  onPressed: reloadMatches, child: const Text('Retry')),
-            ]));
+  Widget _twoColumns(Widget left, Widget right) => LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 340) {
+            return Column(
+              children: [left, const SizedBox(height: 10), right],
+            );
           }
-          if (!snapshot.hasData)
-            return const Center(child: CircularProgressIndicator());
-          final rows = snapshot.data!;
-          if (rows.isEmpty) return const Center(child: Text('No matches yet.'));
-
-          final now = DateTime.now();
-          final visibleRows = rows.where((m) {
-            // Admin "All" is the recovery/edit view: keep every non-deleted
-            // match visible even if it was made inactive, unfeatured or draft.
-            if (view == 'all') return m['deleted_at'] == null;
-
-            final current = m['deleted_at'] == null &&
-                m['is_active'] == true &&
-                m['is_featured'] != false &&
-                (m['publish_state'] ?? 'published') == 'published';
-            if (!current) return false;
-
-            if (view == 'live') return m['is_live'] == true;
-            if (view == 'upcoming') {
-              final kickoff =
-                  DateTime.tryParse(m['kickoff_at']?.toString() ?? '')
-                      ?.toLocal();
-              return m['is_live'] == true ||
-                  (kickoff != null && !kickoff.isBefore(now));
-            }
-            return true;
-          }).toList();
-
-          return Column(
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(
-                        value: 'upcoming',
-                        icon: Icon(Icons.upcoming_rounded),
-                        label: Text('Upcoming'),
-                      ),
-                      ButtonSegment(
-                        value: 'live',
-                        icon: Icon(Icons.podcasts_rounded),
-                        label: Text('Live'),
-                      ),
-                      ButtonSegment(
-                        value: 'all',
-                        icon: Icon(Icons.list_alt_rounded),
-                        label: Text('All'),
-                      ),
-                    ],
-                    selected: {view},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (value) {
-                      setState(() => view = value.first);
-                    },
-                  ),
-                ),
-              ),
-              Expanded(
-                child: visibleRows.isEmpty
-                    ? const Center(
-                        child: Text('No matches in this section.'),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 28),
-                        itemCount: visibleRows.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final m = visibleRows[index];
-                          final kickoff =
-                              DateTime.parse(m['kickoff_at']).toLocal();
-                          final previousKickoff = index == 0
-                              ? null
-                              : DateTime.parse(
-                                  visibleRows[index - 1]['kickoff_at']
-                                      .toString(),
-                                ).toLocal();
-                          final showDateHeader = previousKickoff == null ||
-                              previousKickoff.year != kickoff.year ||
-                              previousKickoff.month != kickoff.month ||
-                              previousKickoff.day != kickoff.day;
-
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (showDateHeader) ...[
-                                Padding(
-                                  padding: EdgeInsets.fromLTRB(
-                                    4,
-                                    index == 0 ? 2 : 8,
-                                    4,
-                                    8,
-                                  ),
-                                  child: Text(
-                                    sectionLabel(kickoff),
-                                    style: TextStyle(
-                                      color: colors.onSurfaceVariant,
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: .8,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                              MatchStreamCard(
-                                match: m,
-                                onTap: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute<void>(
-                                        builder: (_) => LiveLinksPage(
-                                            initialMatchId:
-                                                m['id'] as String))),
-                                onEdit: () => editMatch(m),
-                                onDelete: () => deleteMatch(m['id'] as String),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-              ),
+              Expanded(child: left),
+              const SizedBox(width: 10),
+              Expanded(child: right),
             ],
           );
         },
-      ),
-    );
-  }
+      );
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Live Edit')),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+            child: Column(
+              children: [
+                TextField(
+                  controller: league,
+                  decoration: const InputDecoration(labelText: 'League'),
+                ),
+                const SizedBox(height: 10),
+                _twoColumns(
+                  TextField(
+                    controller: home,
+                    decoration: const InputDecoration(labelText: 'Home team'),
+                  ),
+                  TextField(
+                    controller: away,
+                    decoration: const InputDecoration(labelText: 'Away team'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _twoColumns(
+                  TextField(
+                    controller: homeLogo,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(labelText: 'Home logo URL'),
+                  ),
+                  TextField(
+                    controller: awayLogo,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(labelText: 'Away logo URL'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _twoColumns(
+                  OutlinedButton.icon(
+                    onPressed: _pickDate,
+                    icon: const Icon(Icons.calendar_month_rounded),
+                    label: Text(DateFormat('dd MMM yyyy').format(kickoff)),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _pickTime,
+                    icon: const Icon(Icons.schedule_rounded),
+                    label: Text(DateFormat('h:mm a', 'en_US').format(kickoff)),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: order,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Display order'),
+                ),
+                const SizedBox(height: 8),
+                _twoColumns(
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Featured'),
+                    value: featured,
+                    onChanged: (value) => setState(() => featured = value),
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Published'),
+                    value: published,
+                    onChanged: (value) => setState(() => published = value),
+                  ),
+                ),
+                _twoColumns(
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Live'),
+                    value: live,
+                    onChanged: (value) => setState(() => live = value),
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Active'),
+                    value: active,
+                    onChanged: (value) => setState(() => active = value),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: saving ? null : _save,
+                    icon: saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_rounded),
+                    label: Text(saving ? 'SAVING…' : 'SAVE MATCH'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
 }
+
+DateTime _kickoffOf(Map<String, dynamic> match) =>
+    DateTime.tryParse(match['kickoff_at']?.toString() ?? '')?.toLocal() ??
+    DateTime.now();

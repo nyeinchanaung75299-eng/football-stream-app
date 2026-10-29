@@ -34,34 +34,40 @@ class SourceMatchFilters extends StatelessWidget {
 
   Widget _filterChoices(BuildContext context) {
     final today = ChoiceChip(
-      label: const Text('Today'),
+      label: const Text('Today', style: TextStyle(fontSize: 12)),
       selected: todayOnly,
       onSelected: (_) => onTodayChanged(true),
       visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
     final allDates = ChoiceChip(
-      label: const Text('All dates'),
+      label: const Text('All dates', style: TextStyle(fontSize: 12)),
       selected: !todayOnly,
       onSelected: (_) => onTodayChanged(false),
       visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
     final leagueButton = OutlinedButton(
       onPressed: () => _pickLeague(context),
       style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        minimumSize: const Size(0, 34),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
       child: Row(
         children: [
-          const Icon(Icons.filter_list_rounded, size: 18),
-          const SizedBox(width: 5),
+          const Icon(Icons.filter_list_rounded, size: 16),
+          const SizedBox(width: 4),
           Expanded(
             child: Text(
               league ?? 'All leagues',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12),
             ),
           ),
-          const Icon(Icons.expand_more_rounded, size: 18),
+          const Icon(Icons.expand_more_rounded, size: 16),
         ],
       ),
     );
@@ -93,7 +99,7 @@ class SourceMatchFilters extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 4, 10, 2),
+      padding: const EdgeInsets.fromLTRB(8, 2, 8, 0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -102,9 +108,11 @@ class SourceMatchFilters extends StatelessWidget {
             controller: controller,
             onChanged: onQueryChanged,
             textInputAction: TextInputAction.search,
+            style: const TextStyle(fontSize: 13),
             decoration: InputDecoration(
               hintText: 'Search teams or leagues',
-              prefixIcon: const Icon(Icons.search_rounded),
+              hintStyle: const TextStyle(fontSize: 13),
+              prefixIcon: const Icon(Icons.search_rounded, size: 20),
               suffixIcon: controller.text.isEmpty
                   ? null
                   : IconButton(
@@ -116,9 +124,9 @@ class SourceMatchFilters extends StatelessWidget {
                       },
                     ),
               isDense: true,
-              contentPadding: const EdgeInsets.symmetric(vertical: 10),
+              contentPadding: const EdgeInsets.symmetric(vertical: 7),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
               ),
             ),
           ),
@@ -128,7 +136,7 @@ class SourceMatchFilters extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: Text(
               '$visibleCount ${visibleCount == 1 ? 'match' : 'matches'}',
-              style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12),
+              style: TextStyle(color: colors.onSurfaceVariant, fontSize: 11),
             ),
           ),
         ],

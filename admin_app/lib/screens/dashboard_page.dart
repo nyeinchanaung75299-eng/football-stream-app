@@ -7,9 +7,8 @@ import 'edit_live_page.dart';
 import 'fixture_import_page.dart';
 import 'live_links_page.dart';
 import 'live_upload_page.dart';
-import 'soco_import_page.dart';
-import 'channels_page.dart';
 import 'my_channels_guide_page.dart';
+import 'stream_source_picker_page.dart';
 import 'system_health_page.dart';
 import 'tv_schedules_page.dart';
 
@@ -63,6 +62,7 @@ class _DashboardPageState extends State<DashboardPage> {
             0 => 'controls',
             1 => 'my-channels',
             2 => 'tv-schedule',
+            3 => 'stream-sources',
             _ => 'system-health',
           };
           AnalyticsService.capture(
@@ -88,6 +88,11 @@ class _DashboardPageState extends State<DashboardPage> {
             label: 'TV Schedule',
           ),
           NavigationDestination(
+            icon: Icon(Icons.podcasts_outlined),
+            selectedIcon: Icon(Icons.podcasts_rounded),
+            label: 'Sources',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.monitor_heart_outlined),
             selectedIcon: Icon(Icons.monitor_heart_rounded),
             label: 'System Health',
@@ -101,6 +106,7 @@ class _DashboardPageState extends State<DashboardPage> {
         0 => _controls(context, colors),
         1 => const MyChannelsGuidePage(embedded: true),
         2 => const TvSchedulesPage(embedded: true),
+        3 => const StreamSourcePickerPage(embedded: true),
         _ => const SystemHealthPage(active: true),
       },
     );
@@ -108,19 +114,17 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _controls(BuildContext context, ColorScheme colors) => ListView(
     key: const PageStorageKey('admin-controls'),
-    padding: const EdgeInsets.fromLTRB(12, 10, 12, 22),
+    padding: const EdgeInsets.fromLTRB(12, 14, 12, 22),
     children: [
       Text(
-        'Control Center',
+        'Live Management',
         style: Theme.of(context).textTheme.headlineSmall
             ?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -.4),
       ),
-      const SizedBox(height: 10),
+      const SizedBox(height: 12),
       _ActionCard(
         icon: Icons.star_rounded,
         title: 'Pick Big Matches',
-        subtitle:
-            'Choose fixtures from the API and publish only selected games.',
         iconColor: const Color(0xFFF59E0B),
         onTap: () =>
             open(context, const FixtureImportPage(), 'pick-big-matches'),
@@ -129,7 +133,6 @@ class _DashboardPageState extends State<DashboardPage> {
       _ActionCard(
         icon: Icons.add_circle_outline_rounded,
         title: 'Upload Live',
-        subtitle: 'Create a live match with teams, logos and kickoff time.',
         iconColor: const Color(0xFF0EA5E9),
         onTap: () => open(context, const LiveUploadPage(), 'manual-match'),
       ),
@@ -137,7 +140,6 @@ class _DashboardPageState extends State<DashboardPage> {
       _ActionCard(
         icon: Icons.link_rounded,
         title: 'Upload Live Links',
-        subtitle: 'Choose a match and manage its approved stream links.',
         iconColor: const Color(0xFF7C3AED),
         onTap: () => open(context, const LiveLinksPage(), 'stream-servers'),
       ),
@@ -145,26 +147,8 @@ class _DashboardPageState extends State<DashboardPage> {
       _ActionCard(
         icon: Icons.sports_score_rounded,
         title: 'Edit & Delete Live',
-        subtitle: 'Edit teams, kickoff or live state, and delete a match.',
         iconColor: colors.primary,
         onTap: () => open(context, const EditLivePage(), 'matches-scores'),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.tv_rounded,
-        title: 'Channel Manager',
-        subtitle: 'Edit your TV channels, images and visibility.',
-        iconColor: colors.primary,
-        onTap: () => open(context, const ChannelsPage(), 'channels'),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.podcasts_rounded,
-        title: 'Stream Source Picker',
-        subtitle: 'Open sources and your private manual HLS library.',
-        iconColor: const Color(0xFFDC2626),
-        onTap: () =>
-            open(context, const SocoImportPage(), 'stream-source-picker'),
       ),
     ],
   );
@@ -174,14 +158,12 @@ class _ActionCard extends StatelessWidget {
   const _ActionCard({
     required this.icon,
     required this.title,
-    required this.subtitle,
     required this.iconColor,
     required this.onTap,
   });
 
   final IconData icon;
   final String title;
-  final String subtitle;
   final Color iconColor;
   final VoidCallback onTap;
 
@@ -197,7 +179,7 @@ class _ActionCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
             children: [
               Container(
@@ -211,26 +193,12 @@ class _ActionCard extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        height: 1.25,
-                        fontSize: 12,
-                        color: colors.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
