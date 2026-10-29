@@ -26,7 +26,6 @@ permissions:
 env:
   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-  SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
 
 jobs:
   deploy:
@@ -79,9 +78,3 @@ jobs:
         if: steps.cloudflare.outputs.ready == 'true'
         working-directory: cloudflare/public-api
         run: npx --yes wrangler@4 deploy --keep-vars
-
-      - name: Add Supabase publishable key to Worker
-        if: steps.cloudflare.outputs.ready == 'true' && env.SUPABASE_PUBLISHABLE_KEY != ''
-        working-directory: cloudflare/public-api
-        shell: bash
-        run: printf '%s' "$SUPABASE_PUBLISHABLE_KEY" | npx --yes wrangler@4 secret put SUPABASE_PUBLISHABLE_KEY
