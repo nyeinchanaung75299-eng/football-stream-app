@@ -31,6 +31,7 @@ class LiveLinksPage extends StatefulWidget {
 
 class _LiveLinksPageState extends State<LiveLinksPage> {
   String? selectedChannelName;
+  ChannelStreamSelection? selectedChannel;
   final serverName = TextEditingController(text: 'Server 1');
   final link = TextEditingController();
   final referer = TextEditingController();
@@ -75,8 +76,9 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   }
 
   void fillFromChannel(ChannelStreamSelection selected) {
-    selectedChannelName = selected.channelName;
-    serverName.text = selected.channelName;
+    selectedChannel = selected;
+    selectedChannelName = selected.displayLabel;
+    serverName.text = selected.displayLabel;
     link.text = selected.streamUrl;
     referer.text = selected.referer;
     origin.text = selected.origin;
@@ -255,6 +257,10 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
       await Supabase.instance.client.from('stream_links').insert({
         'match_id': matchId,
+        if (!useWebView && selectedChannel?.channelLineId != null)
+          'channel_id': selectedChannel!.channelId,
+        if (!useWebView && selectedChannel?.channelLineId != null)
+          'channel_line_id': selectedChannel!.channelLineId,
         'label': name,
         'resolution': name,
         'stream_type': effectiveType,
@@ -299,6 +305,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       streamType = 'auto';
       useWebView = false;
       selectedChannelName = null;
+      selectedChannel = null;
       reloadLinks();
     } on TimeoutException {
       if (mounted) {

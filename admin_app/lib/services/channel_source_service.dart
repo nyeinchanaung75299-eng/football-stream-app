@@ -15,7 +15,10 @@ bool channelMatchesSearch(Map<String, dynamic> channel, String query) {
 
 class ChannelStreamSelection {
   const ChannelStreamSelection({
+    required this.channelId,
+    required this.channelLineId,
     required this.channelName,
+    required this.lineLabel,
     required this.streamUrl,
     required this.streamType,
     this.referer = '',
@@ -44,9 +47,17 @@ class ChannelStreamSelection {
     if (id.isEmpty != key.isEmpty) {
       throw const FormatException('This channel has an incomplete key pair.');
     }
+    final channelId = channel['id']?.toString().trim() ?? '';
+    final channelLineId = text('id');
+    if (channelId.isEmpty) {
+      throw const FormatException('This channel is incomplete.');
+    }
     final declared = text('stream_type');
     return ChannelStreamSelection(
+      channelId: channelId,
+      channelLineId: channelLineId.isEmpty ? null : channelLineId,
       channelName: channel['name']?.toString().trim() ?? 'Channel',
+      lineLabel: text('label').isEmpty ? 'Line' : text('label'),
       streamUrl: url,
       streamType: const {'auto', 'hls', 'dash', 'mp4', 'flv'}.contains(declared)
           ? declared
@@ -58,8 +69,14 @@ class ChannelStreamSelection {
     );
   }
 
-  final String channelName, streamUrl, streamType;
+  final String channelId, channelName, lineLabel;
+  final String? channelLineId;
+  final String streamUrl, streamType;
   final String referer, origin, keyId, keyData;
+
+  String get displayLabel => lineLabel == 'Line'
+      ? channelName
+      : '$channelName • $lineLabel';
 }
 
 class ChannelSourceService {
@@ -82,7 +99,7 @@ class ChannelSourceService {
     // Viewer's expiring /p/ playback URL as a match's source URL.
     final rows = await client
         .from('channel_lines')
-        .select('stream_url,stream_type,referer,origin,key_id,key_data')
+        .select('id,label,stream_url,stream_type,referer,origin,key_id,key_data')
         .eq('channel_id', channel['id'])
         .eq('is_active', true)
         .order('sort_order')

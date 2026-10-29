@@ -1,5 +1,3 @@
-import 'package:url_launcher/url_launcher.dart';
-
 import 'dart:async';
 import 'dart:convert';
 
@@ -126,18 +124,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
       'yyzb',
       'fawa',
       'cola',
-      'xoilac',
-      'camel',
       'playz',
     }.contains(requested)
         ? requested
         : 'soco';
     if (_isManualSource) _libraryFuture = _streamLibrary.list();
-    dayFilter = (source == 'fawa' ||
-            source == 'cola' ||
-            source == 'xoilac' ||
-            source == 'camel' ||
-            _isManualSource)
+    dayFilter = (source == 'fawa' || source == 'cola' || _isManualSource)
         ? 'all'
         : 'today';
     _loadSoco();
@@ -406,7 +398,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   Future<void> _probeVisibleAnchorStatuses() async {
-    if (source == 'camel') return;
     if (!mounted || loading) return;
 
     final provider = source;
@@ -422,10 +413,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         final key = _anchorKey(match, anchor, provider: provider);
         if (_anchorStatuses.containsKey(key)) continue;
 
-        if (provider == 'cola' ||
-            provider == 'fawa' ||
-            provider == 'xoilac' ||
-            provider == 'camel') {
+        if (provider == 'cola' || provider == 'fawa') {
           _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'ready';
           continue;
         }
@@ -448,16 +436,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
           final key = item['key'].toString();
 
           try {
-            if (source == 'camel') {
-              final target = Uri.tryParse(
-                (anchor['page_url'] ?? match['page_url'] ?? '').toString(),
-              );
-              if (target?.scheme == 'https' &&
-                  target?.host == 'www.camel1.tv') {
-                await launchUrl(target!, mode: LaunchMode.externalApplication);
-              }
-              return;
-            }
             final room = anchor['room_num']?.toString().trim() ?? '';
             if (room.isEmpty) {
               _anchorStatuses[key] = 'offline';
@@ -527,11 +505,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       });
     }
 
-    if (source == 'fawa' ||
-        source == 'cola' ||
-        source == 'xoilac' ||
-        source == 'camel' ||
-        dayFilter == 'all') {
+    if (source == 'fawa' || source == 'cola' || dayFilter == 'all') {
       return rows.toList();
     }
 
@@ -749,24 +723,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
       if (!current()) return;
       final detail = e.toString().replaceFirst('Exception: ', '');
-      if (provider == 'xoilac') {
-        final page = Uri.tryParse(
-            (anchor['page_url'] ?? match['page_url'] ?? '').toString());
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content:
-                const Text('Xoilac is not providing stream links right now.'),
-            action: page?.scheme == 'https' && page?.host == 'xoilaczcb.tv'
-                ? SnackBarAction(
-                    label: 'Open Xoilac',
-                    onPressed: () {
-                      unawaited(launchUrl(page!,
-                          mode: LaunchMode.externalApplication));
-                    })
-                : null));
-      } else {
-        message(
-            'Could not load ${_sourceLabel(provider)} stream links. $detail');
-      }
+      message('Could not load ${_sourceLabel(provider)} stream links. $detail');
     } finally {
       if (mounted && _extractingAnchorKey == extractingKey) {
         setState(() => _extractingAnchorKey = null);
@@ -1713,10 +1670,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
         return 'Fawa';
       case 'cola':
         return 'ColaTV';
-      case 'xoilac':
-        return 'Xoilac';
-      case 'camel':
-        return 'Camel1';
       default:
         return 'Soco';
     }
@@ -1735,10 +1688,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
               }
               dayFilter = (value == 'fawa' ||
                       value == 'cola' ||
-                      value == 'playz' ||
-                      value == 'xoilac' ||
-                      value == 'camel' ||
-                      false)
+                      value == 'playz')
                   ? 'all'
                   : 'today';
               sourceMatches = const [];
@@ -1851,8 +1801,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     _sourceButton('yyzb', 'YYZB'),
                     _sourceButton('fawa', 'Fawa'),
                     _sourceButton('cola', 'ColaTV'),
-                    _sourceButton('xoilac', 'Xoilac'),
-                    _sourceButton('camel', 'Camel1 (Website)'),
                     _sourceButton('playz', 'Manual HLS'),
                   ],
                 ),
@@ -1864,12 +1812,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                if (source == 'camel')
-                  const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Text('Opens Camel1 website • sign-in required.')),
                 if (_isManualSource) _manualSourceCard(colors),
-                if (!_isManualSource && source != 'camel')
+                if (!_isManualSource)
                   SwitchListTile.adaptive(
                     value: availableOnly,
                     contentPadding: EdgeInsets.zero,
@@ -1884,9 +1828,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 const SizedBox(height: 4),
                 if (!_isManualSource &&
                     source != 'fawa' &&
-                    source != 'cola' &&
-                    source != 'xoilac' &&
-                    source != 'camel')
+                    source != 'cola')
                   Row(
                     children: [
                       _dayButton('today', 'Today'),
