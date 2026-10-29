@@ -13,6 +13,7 @@ import 'channels_page.dart';
 import 'stream_detector_page.dart'
     if (dart.library.js_interop) 'stream_detector_page_web.dart';
 import 'system_health_page.dart';
+import 'tv_schedules_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -71,12 +72,35 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
-        onDestinationSelected: (index) => setState(() => _tab = index),
+        onDestinationSelected: (index) {
+          if (index == _tab) return;
+          final section = switch (index) {
+            0 => 'controls',
+            1 => 'my-channels',
+            2 => 'tv-schedule',
+            _ => 'system-health',
+          };
+          AnalyticsService.capture(
+            'admin section opened',
+            properties: {'section': section, 'entry': 'bottom_navigation'},
+          );
+          setState(() => _tab = index);
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.dashboard_outlined),
             selectedIcon: Icon(Icons.dashboard_rounded),
             label: 'Controls',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.tv_outlined),
+            selectedIcon: Icon(Icons.tv_rounded),
+            label: 'My Channels',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month_rounded),
+            label: 'TV Schedule',
           ),
           NavigationDestination(
             icon: Icon(Icons.monitor_heart_outlined),
@@ -85,13 +109,15 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
         ],
       ),
-      body: IndexedStack(
-        index: _tab,
-        children: [
-          _controls(context, colors),
-          SystemHealthPage(active: _tab == 1),
-        ],
-      ),
+      // Do not use an eager IndexedStack here: My Channels and TV Schedule
+      // both read Admin data and must not make a request until the user opens
+      // the matching bottom tab.
+      body: switch (_tab) {
+        0 => _controls(context, colors),
+        1 => const ChannelsPage(embedded: true),
+        2 => const TvSchedulesPage(embedded: true),
+        _ => const SystemHealthPage(active: true),
+      },
     );
   }
 
@@ -148,6 +174,14 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       const SizedBox(height: 10),
       _ActionCard(
+        icon: Icons.calendar_month_rounded,
+        title: 'TV Schedule',
+        subtitle: 'See your matches, saved TV lines and checked channel schedules.',
+        iconColor: const Color(0xFF0EA5E9),
+        onTap: () => open(context, const TvSchedulesPage(), 'tv-schedule'),
+      ),
+      const SizedBox(height: 10),
+      _ActionCard(
         icon: Icons.dns_rounded,
         title: 'Stream Servers',
         subtitle: 'Add primary/backup links and edit or disable them.',
@@ -157,7 +191,7 @@ class _DashboardPageState extends State<DashboardPage> {
       const SizedBox(height: 10),
       _ActionCard(
         icon: Icons.tv_rounded,
-        title: 'Channels',
+        title: 'My Channels',
         subtitle: 'Publish categorized channels with images and stream lines.',
         iconColor: colors.primary,
         onTap: () => open(context, const ChannelsPage(), 'channels'),

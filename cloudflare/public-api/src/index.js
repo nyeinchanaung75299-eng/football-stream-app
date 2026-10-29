@@ -18,6 +18,11 @@ const MEDIA_HEADER_TIMEOUT_MS = 10000;
 const MANIFEST_BODY_TIMEOUT_MS = 10000;
 const MAX_METADATA_BYTES = 2 * 1024 * 1024;
 const VIEWER_LOOKUPS = new WeakMap();
+// This guide only supplies public programme metadata. It is deliberately kept
+// separate from stream discovery and playback: no stream URL, token or DRM
+// field is accepted or returned by the route below.
+const TV_GUIDE_ORIGIN = "https://my-channels-match-guide.vercel.app";
+const TV_GUIDE_MAX_DAYS = 8;
 
 // Alias failover can reach the same Worker several times while a provider is
 // still answering. Share only work already in progress, scoped to this env.
@@ -124,6 +129,10 @@ export default {
     if (url.pathname === "/channels") return handleChannels(env);
     const channelRoute = url.pathname.match(/^\/channels\/([0-9a-fA-F-]{36})\/streams$/);
     if (channelRoute) return handleChannelStreams(request, channelRoute[1], env, url.origin);
+
+    if (url.pathname === "/tv-schedule") {
+      return handleTvSchedule(request, env, url);
+    }
 
     const sourceMatchesRoute = url.pathname.match(
       /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel)\/matches$/,
@@ -590,6 +599,88 @@ async function handleChannels(env) {
   } catch (_) {
     return json({error: "Channel catalog is unavailable."}, 502);
   }
+}
+
+async function handleTvSchedule(request, env, incoming) {
+  if (!(await allowRequest(request, env, "tv-schedule", 20))) {
+    return json({ error: "Too many TV schedule requests. Try again shortly." }, 429, {
+      "Retry-After": "60",
+      "Cache-Control": "no-store",
+    });
+  }
+
+  const requestedDate = String(incoming.searchParams.get("date") || "");
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+    ? requestedDate
+    : new Date().toISOString().slice(0, 10);
+  const requestedDays = Number(incoming.searchParams.get("days") || TV_GUIDE_MAX_DAYS);
+  const days = Number.isFinite(requestedDays)
+    ? Math.min(TV_GUIDE_MAX_DAYS, Math.max(1, Math.floor(requestedDays)))
+    : TV_GUIDE_MAX_DAYS;
+
+  try {
+    const upstream = new URL("/api/schedule", TV_GUIDE_ORIGIN);
+    upstream.searchParams.set("date", date);
+    upstream.searchParams.set("days", String(days));
+    const { data } = await fetchJsonWithTimeout(upstream, {
+      headers: { Accept: "application/json" },
+    }, METADATA_TIMEOUT_MS);
+    const schedule = sanitizeTvSchedule(data, date, days);
+    return json(schedule, 200, {
+      // Schedule data is public metadata and may be briefly cached by
+      // clients. The upstream can still refresh it independently.
+      "Cache-Control": "public, max-age=120",
+    });
+  } catch (_) {
+    return json({ error: "TV schedule is temporarily unavailable." }, 502, {
+      "Cache-Control": "no-store",
+    });
+  }
+}
+
+function sanitizeTvSchedule(raw, date, days) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const text = (value, limit = 240) =>
+    typeof value === "string" ? value.trim().slice(0, limit) : "";
+  const timestamp = (value) => {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? Math.floor(number) : null;
+  };
+  const programmes = (rows) => Array.isArray(rows) ? rows.slice(0, 80)
+    .map((row) => {
+      const start = timestamp(row?.start);
+      if (start == null) return null;
+      return {
+        start,
+        end: timestamp(row?.end),
+        title: text(row?.title),
+        subtitle: text(row?.subtitle, 500),
+        description: text(row?.description, 1000),
+      };
+    })
+    .filter(Boolean) : [];
+
+  return {
+    ok: true,
+    date,
+    days,
+    timezone: text(source.timezone, 80) || "Asia/Yangon",
+    updated_at: text(source.updated_at, 80) || new Date().toISOString(),
+    sources: Array.isArray(source.sources) ? source.sources.slice(0, 16)
+      .map((row) => ({ name: text(row?.name, 80), ok: row?.ok === true }))
+      .filter((row) => row.name) : [],
+    channels: Array.isArray(source.channels) ? source.channels.slice(0, 300)
+      .map((row) => ({
+        id: text(row?.id, 100),
+        name: text(row?.name),
+        image_url: text(row?.image_url, 2000),
+        category: text(row?.category, 100),
+        matchedEPG: row?.matchedEPG === true,
+        region: text(row?.region, 40),
+        programmes: programmes(row?.programmes),
+      }))
+      .filter((row) => row.id && row.name) : [],
+  };
 }
 
 async function handleChannelStreams(request, channelId, env, publicOrigin) {

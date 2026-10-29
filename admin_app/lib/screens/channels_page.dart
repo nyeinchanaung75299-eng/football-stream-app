@@ -7,7 +7,12 @@ import '../widgets/channel_search_field.dart';
 import 'live_links_page.dart';
 
 class ChannelsPage extends StatefulWidget {
-  const ChannelsPage({super.key});
+  const ChannelsPage({super.key, this.embedded = false});
+
+  /// Dashboard uses the same catalog in its persistent bottom navigation.
+  /// Keep the standalone page for existing deep links and control cards.
+  final bool embedded;
+
   @override
   State<ChannelsPage> createState() => _ChannelsPageState();
 }
@@ -56,92 +61,138 @@ class _ChannelsPageState extends State<ChannelsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          title: const Text('Channels'),
-          actions: [
-            IconButton(onPressed: refresh, icon: const Icon(Icons.refresh)),
-          ],
-          bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(64),
-            child: ChannelSearchField(
-                controller: search, onChanged: (_) => setState(() {})),
+  Widget build(BuildContext context) {
+    final content = Column(
+      children: [
+        if (widget.embedded) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 8, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'My Channels',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Refresh channels',
+                  onPressed: refresh,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
+        ChannelSearchField(
+          controller: search,
+          onChanged: (_) => setState(() {}),
+        ),
+        Expanded(
+          child: FutureBuilder<List<Map<String, dynamic>>>(
+            future: catalog,
+            builder: (context, snapshot) {
+              if (!snapshot.hasData && !snapshot.hasError) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text('Could not load channels: ${snapshot.error}'),
+                );
+              }
+              if (snapshot.data!.isEmpty) {
+                return const Center(child: Text('No channels yet.'));
+              }
+              final rows = snapshot.data!
+                  .where((r) => channelMatchesSearch(r, search.text))
+                  .toList();
+              if (rows.isEmpty) {
+                return const Center(child: Text('No matching channels.'));
+              }
+              return ListView.builder(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
+                itemCount: rows.length,
+                itemBuilder: (context, index) {
+                  final row = rows[index];
+                  final image = row['image_url']?.toString() ?? '';
+                  return Card(
+                    child: ListTile(
+                      enabled: addingChannelId == null,
+                      leading: image.startsWith('https://')
+                          ? Image.network(
+                              image,
+                              width: 52,
+                              height: 42,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.tv),
+                            )
+                          : const Icon(Icons.tv),
+                      title: Text(row['name']?.toString() ?? ''),
+                      subtitle: Text(
+                        '${row['category']} • ${row['is_active'] == true ? 'Visible' : 'Hidden'}',
+                      ),
+                      trailing: addingChannelId == row['id'].toString()
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : PopupMenuButton<String>(
+                              tooltip: 'Channel actions',
+                              enabled: addingChannelId == null,
+                              onSelected: (action) {
+                                if (action == 'match') {
+                                  addToMatch(row);
+                                } else {
+                                  edit(row);
+                                }
+                              },
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                  value: 'match',
+                                  child: Text('Add to match'),
+                                ),
+                                PopupMenuItem(
+                                  value: 'edit',
+                                  child: Text('Edit channel'),
+                                ),
+                              ],
+                            ),
+                      onTap: () => edit(row),
+                    ),
+                  );
+                },
+              );
+            },
           ),
         ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: addingChannelId == null ? () => edit() : null,
-          icon: const Icon(Icons.add),
-          label: const Text('ADD CHANNEL'),
-        ),
-        body: FutureBuilder<List<Map<String, dynamic>>>(
-          future: catalog,
-          builder: (context, snapshot) {
-            if (!snapshot.hasData && !snapshot.hasError) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasError)
-              return Center(
-                child: Text('Could not load channels: ${snapshot.error}'),
-              );
-            if (snapshot.data!.isEmpty)
-              return const Center(child: Text('No channels yet.'));
-            final rows = snapshot.data!
-                .where((r) => channelMatchesSearch(r, search.text))
-                .toList();
-            if (rows.isEmpty)
-              return const Center(child: Text('No matching channels.'));
-            return ListView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
-              itemCount: rows.length,
-              itemBuilder: (context, index) {
-                final row = rows[index];
-                final image = row['image_url']?.toString() ?? '';
-                return Card(
-                  child: ListTile(
-                  enabled: addingChannelId == null,
-                    leading: image.startsWith('https://')
-                        ? Image.network(
-                            image,
-                            width: 52,
-                            height: 42,
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => const Icon(Icons.tv),
-                          )
-                        : const Icon(Icons.tv),
-                    title: Text(row['name']?.toString() ?? ''),
-                    subtitle: Text(
-                      '${row['category']} • ${row['is_active'] == true ? 'Visible' : 'Hidden'}',
-                    ),
-                    trailing: addingChannelId == row['id'].toString()
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : PopupMenuButton<String>(
-                            tooltip: 'Channel actions',
-                            enabled: addingChannelId == null,
-                            onSelected: (action) {
-                              if (action == 'match') {
-                                addToMatch(row);
-                              } else {
-                                edit(row);
-                              }
-                            },
-                            itemBuilder: (_) => const [
-                              PopupMenuItem(
-                                  value: 'match', child: Text('Add to match')),
-                              PopupMenuItem(
-                                  value: 'edit', child: Text('Edit channel')),
-                            ],
-                          ),
-                    onTap: () => edit(row),
-                  ),
-                );
-              },
-            );
-          },
-        ),
-      );
+      ],
+    );
+
+    return Scaffold(
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: const Text('My Channels'),
+              actions: [
+                IconButton(
+                  onPressed: refresh,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: addingChannelId == null ? () => edit() : null,
+        icon: const Icon(Icons.add),
+        label: const Text('ADD CHANNEL'),
+      ),
+      body: content,
+    );
+  }
 }
 
 class _Line {

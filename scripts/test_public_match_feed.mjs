@@ -87,3 +87,51 @@ test('metadata deadline also cancels a body stalled after successful headers', a
     assert.equal(aborted, true);
   } finally { globalThis.fetch = original; }
 });
+
+test('TV schedule relay returns programme metadata only', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async url => {
+    const request = new URL(url);
+    assert.equal(request.origin, 'https://my-channels-match-guide.vercel.app');
+    assert.equal(request.pathname, '/api/schedule');
+    assert.equal(request.searchParams.get('date'), '2026-10-29');
+    assert.equal(request.searchParams.get('days'), '8');
+    return Response.json({
+      timezone: 'Asia/Yangon',
+      updated_at: '2026-10-29T12:00:00.000Z',
+      sources: [{ name: 'au', ok: true, secret: 'not-public' }],
+      channels: [{
+        id: 'channel-1',
+        name: 'TNT Sports 1',
+        image_url: 'https://images.example/tnt.png',
+        category: 'Sport',
+        matchedEPG: true,
+        region: 'uk',
+        stream_url: 'https://private.example/stream.m3u8?token=secret',
+        programmes: [{
+          start: 1793275200000,
+          end: 1793278800000,
+          title: 'Everton vs Newcastle United',
+          description: 'Live football',
+          drm_key: 'private-key',
+        }],
+      }],
+    });
+  };
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/tv-schedule?date=2026-10-29&days=99'),
+      env,
+      {},
+    );
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('access-control-allow-origin'), '*');
+    const body = await response.json();
+    assert.equal(body.days, 8);
+    assert.equal(body.channels.length, 1);
+    assert.equal(body.channels[0].name, 'TNT Sports 1');
+    assert.equal(body.channels[0].stream_url, undefined);
+    assert.equal(body.channels[0].programmes[0].drm_key, undefined);
+    assert.equal(body.sources[0].secret, undefined);
+  } finally { globalThis.fetch = original; }
+});
