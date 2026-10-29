@@ -10,12 +10,16 @@ class MatchStreamCard extends StatelessWidget {
     required this.match,
     required this.onTap,
     this.onEdit,
+    this.onChannelLines,
     this.onDelete,
+    this.channelLines = const [],
   });
   final Map<String, dynamic> match;
   final VoidCallback onTap;
   final VoidCallback? onEdit;
+  final VoidCallback? onChannelLines;
   final VoidCallback? onDelete;
+  final List<String> channelLines;
 
   Widget team(String side) {
     final logo = match['${side}_logo_url']?.toString() ?? '';
@@ -71,7 +75,7 @@ class MatchStreamCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (onEdit != null || onDelete != null)
+                  if (onEdit != null || onChannelLines != null || onDelete != null)
                     SizedBox(
                       width: 32,
                       height: 28,
@@ -79,6 +83,7 @@ class MatchStreamCard extends StatelessWidget {
                         padding: EdgeInsets.zero,
                         onSelected: (value) {
                           if (value == 'edit') onEdit?.call();
+                          if (value == 'channels') onChannelLines?.call();
                           if (value == 'delete') onDelete?.call();
                         },
                         itemBuilder: (_) => [
@@ -86,6 +91,11 @@ class MatchStreamCard extends StatelessWidget {
                             const PopupMenuItem(
                               value: 'edit',
                               child: Text('Edit match'),
+                            ),
+                          if (onChannelLines != null)
+                            const PopupMenuItem(
+                              value: 'channels',
+                              child: Text('TV channel lines'),
                             ),
                           if (onDelete != null)
                             const PopupMenuItem(
@@ -139,6 +149,43 @@ class MatchStreamCard extends StatelessWidget {
                   team('away'),
                 ],
               ),
+              if (channelLines.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: colors.primaryContainer.withValues(alpha: .42),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.tv_rounded,
+                        size: 18,
+                        color: colors.onPrimaryContainer,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          channelLines.join('  •  '),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: colors.onPrimaryContainer,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ),
