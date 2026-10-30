@@ -16,10 +16,20 @@ void main() {
     var requests = 0;
     await http.runWithClient(() async {
       await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
-      expect(find.byType(NavigationDestination), findsNWidgets(5));
+      expect(find.byType(NavigationDestination), findsNWidgets(4));
+      final destinations = tester
+          .widgetList<NavigationDestination>(
+            find.byType(NavigationDestination),
+          )
+          .toList();
+      expect(
+        destinations.map((destination) => destination.label),
+        ['Controls', 'Sources', 'TV Schedule', 'My Channels'],
+      );
       expect(find.text('Stream Detector'), findsNothing);
       expect(find.text('Pick Big Matches'), findsOneWidget);
       expect(find.text('Edit & Delete Live'), findsOneWidget);
+      expect(find.text('Channel Management'), findsOneWidget);
       expect(find.text('Stream Source Picker'), findsNothing);
       expect(find.text('My Channels'), findsWidgets);
       expect(find.text('TV Schedule'), findsWidgets);
@@ -28,11 +38,6 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Stream Sources'), findsOneWidget);
       expect(find.text('Soco'), findsOneWidget);
-      expect(requests, 0);
-      await tester.tap(find.text('System Health').last);
-      await tester.pumpAndSettle();
-      expect(find.text('Connect services'), findsOneWidget);
-      expect(find.text('Pick Big Matches'), findsNothing);
       expect(requests, 0);
       await tester.tap(find.text('Controls'));
       await tester.pumpAndSettle();
