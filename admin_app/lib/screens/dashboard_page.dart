@@ -3,13 +3,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../analytics_service.dart';
 import '../widgets/theme_mode_button.dart';
+import 'channels_page.dart';
 import 'edit_live_page.dart';
 import 'fixture_import_page.dart';
 import 'live_links_page.dart';
 import 'live_upload_page.dart';
 import 'my_channels_guide_page.dart';
 import 'stream_source_picker_page.dart';
-import 'system_health_page.dart';
 import 'tv_schedules_page.dart';
 
 class DashboardPage extends StatefulWidget {
@@ -60,10 +60,9 @@ class _DashboardPageState extends State<DashboardPage> {
           if (index == _tab) return;
           final section = switch (index) {
             0 => 'controls',
-            1 => 'my-channels',
+            1 => 'stream-sources',
             2 => 'tv-schedule',
-            3 => 'stream-sources',
-            _ => 'system-health',
+            _ => 'my-channels',
           };
           AnalyticsService.capture(
             'admin section opened',
@@ -78,9 +77,9 @@ class _DashboardPageState extends State<DashboardPage> {
             label: 'Controls',
           ),
           NavigationDestination(
-            icon: Icon(Icons.tv_outlined),
-            selectedIcon: Icon(Icons.tv_rounded),
-            label: 'My Channels',
+            icon: Icon(Icons.podcasts_outlined),
+            selectedIcon: Icon(Icons.podcasts_rounded),
+            label: 'Sources',
           ),
           NavigationDestination(
             icon: Icon(Icons.calendar_month_outlined),
@@ -88,14 +87,9 @@ class _DashboardPageState extends State<DashboardPage> {
             label: 'TV Schedule',
           ),
           NavigationDestination(
-            icon: Icon(Icons.podcasts_outlined),
-            selectedIcon: Icon(Icons.podcasts_rounded),
-            label: 'Sources',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.monitor_heart_outlined),
-            selectedIcon: Icon(Icons.monitor_heart_rounded),
-            label: 'System Health',
+            icon: Icon(Icons.tv_outlined),
+            selectedIcon: Icon(Icons.tv_rounded),
+            label: 'My Channels',
           ),
         ],
       ),
@@ -104,10 +98,9 @@ class _DashboardPageState extends State<DashboardPage> {
       // the matching bottom tab.
       body: switch (_tab) {
         0 => _controls(context, colors),
-        1 => const MyChannelsGuidePage(embedded: true),
+        1 => const StreamSourcePickerPage(embedded: true),
         2 => const TvSchedulesPage(embedded: true),
-        3 => const StreamSourcePickerPage(embedded: true),
-        _ => const SystemHealthPage(active: true),
+        _ => const MyChannelsGuidePage(embedded: true),
       },
     );
   }
@@ -149,6 +142,13 @@ class _DashboardPageState extends State<DashboardPage> {
         title: 'Edit & Delete Live',
         iconColor: colors.primary,
         onTap: () => open(context, const EditLivePage(), 'matches-scores'),
+      ),
+      const SizedBox(height: 8),
+      _ActionCard(
+        icon: Icons.tv_rounded,
+        title: 'Channel Management',
+        iconColor: const Color(0xFF22C55E),
+        onTap: () => open(context, const ChannelsPage(), 'channel-management'),
       ),
     ],
   );
