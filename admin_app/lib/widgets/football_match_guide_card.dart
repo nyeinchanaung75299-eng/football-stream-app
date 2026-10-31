@@ -124,7 +124,7 @@ class FootballMatchGuideCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('📺 ${airing.channel}', style: const TextStyle(
-                  color: FootballGuideColors.text, fontWeight: FontWeight.w850,
+                  color: FootballGuideColors.text, fontWeight: FontWeight.w800,
                   fontSize: 15,
                 )),
                 const SizedBox(height: 4),
