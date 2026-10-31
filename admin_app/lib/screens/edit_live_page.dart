@@ -85,13 +85,23 @@ class _EditLivePageState extends State<EditLivePage> {
     if (confirmed != true) return;
 
     try {
-      await Supabase.instance.client.from('matches').update({
+      // A zero-row UPDATE can silently succeed when RLS blocks a write.
+      // Require the updated row before claiming the match was deleted.
+      final deleted = await Supabase.instance.client.from('matches').update({
         'is_active': false,
         'is_featured': false,
         'is_live': false,
         'publish_state': 'draft',
         'deleted_at': DateTime.now().toUtc().toIso8601String(),
-      }).eq('id', id);
+      }).eq('id', id).select('id,is_active,is_featured,publish_state,deleted_at').single();
+
+      if (deleted['deleted_at'] == null ||
+          deleted['is_active'] != false ||
+          deleted['is_featured'] != false ||
+          deleted['publish_state'] != 'draft') {
+        throw StateError('Match deletion was not saved. Please retry.');
+      }
+
       await Supabase.instance.client
           .from('stream_links')
           .delete()
