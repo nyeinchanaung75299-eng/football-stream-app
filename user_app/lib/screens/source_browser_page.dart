@@ -1083,7 +1083,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               title: title + ' unavailable',
               text: source == 'fawa'
                   ? 'Fawa website or source API is unreachable. Refresh later.'
-                  : 'Connect VPN, then refresh.',
+                  : 'Network temporarily unavailable. Refresh to retry backup routes.',
               onRefresh: _refresh,
             );
           }
