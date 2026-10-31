@@ -30,7 +30,11 @@ void main() {
           expect(find.text('Channel 200'), findsNothing);
           expect(reads, 1);
         },
-        () => MockClient((_) async {
+        () => MockClient((request) async {
+          // EPG is loaded once independently; searching does not re-fetch catalog.
+          if (request.url.path.endsWith('/tv-schedule')) {
+            return http.Response(jsonEncode({'ok': true, 'channels': []}), 200);
+          }
           reads++;
           return http.Response(
             jsonEncode({
