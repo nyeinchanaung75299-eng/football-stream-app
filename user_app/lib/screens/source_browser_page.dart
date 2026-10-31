@@ -78,21 +78,12 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     'camel' => 7,
     _ => 1,
   };
-  String? _workingApiBase;
   List<Future<List<Map<String, dynamic>>> Function()> _apiJobs(
     Future<List<Map<String, dynamic>>> Function(String) load,
   ) {
-    var selected = false;
     return bases
         .map<Future<List<Map<String, dynamic>>> Function()>(
-          (base) => () async {
-            final result = await load(base);
-            if (!selected) {
-              selected = true;
-              _workingApiBase = base;
-            }
-            return result;
-          },
+          (base) => () => load(base),
         )
         .toList();
   }
@@ -103,8 +94,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       // Prefer Vercel for public sources even when Auth chose another relay.
       preferVercel: true,
     );
-    final working = _workingApiBase;
-    if (working != null && routes.remove(working)) routes.insert(0, working);
+    // Always start with Vercel, even if a previous request used fallback.
     return routes;
   }
 
