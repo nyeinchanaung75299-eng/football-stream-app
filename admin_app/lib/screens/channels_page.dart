@@ -332,6 +332,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                             ),
                       onTap: () => edit(row),
                       ),
+                      ),
                     ],
                   );
                 },
