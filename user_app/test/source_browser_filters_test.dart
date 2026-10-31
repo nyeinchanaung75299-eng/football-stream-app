@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:football_viewer/screens/source_browser_page.dart';
+import 'package:football_viewer/widgets/premium_bottom_nav.dart';
 import 'package:football_viewer/widgets/source_match_filters.dart';
 
 List<Map<String, dynamic>> _fixtures() {
@@ -49,6 +50,27 @@ List<Map<String, dynamic>> _fixtures() {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  testWidgets('source categories are shown in one bottom nav only, never as top duplicate buttons',
+      (tester) async {
+    await http.runWithClient(() async {
+      await tester.pumpWidget(
+        const MaterialApp(home: SourceBrowserPage(source: 'yyzb')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(PremiumBottomNav), findsOneWidget);
+      for (final title in ['Soco', 'Fawa', 'ColaTV', 'Channels']) {
+        expect(find.descendant(
+          of: find.byType(AppBar), matching: find.text(title),
+        ), findsNothing);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, () => MockClient((request) async =>
+        request.url.path.endsWith('/matches')
+          ? http.Response(jsonEncode({'matches': _fixtures()}), 200)
+          : http.Response('{}', 404)));
+  });
+
 
   testWidgets('legacy Chinese YYZB rows display and search in English', (
     tester,
