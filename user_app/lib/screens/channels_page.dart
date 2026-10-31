@@ -234,16 +234,15 @@ class _ChannelsPageState extends State<ChannelsPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    // Bottom navigation already identifies Channels; no duplicate title.
     appBar: AppBar(
-      title: const Text('Channels'),
-      actions: [
-        IconButton(onPressed: refresh, icon: const Icon(Icons.refresh)),
-      ],
+      toolbarHeight: 0,
+      automaticallyImplyLeading: false,
       bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(64),
+        preferredSize: const Size.fromHeight(53),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          child: TextField(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 5),
+          child: SizedBox(height: 43, child: TextField(
             controller: search,
             onChanged: (_) => setState(() {}),
             autocorrect: false,
@@ -253,7 +252,11 @@ class _ChannelsPageState extends State<ChannelsPage> {
               hintText: 'Search channels',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: search.text.isEmpty
-                  ? null
+                  ? IconButton(
+                      tooltip: 'Refresh channels',
+                      onPressed: refresh,
+                      icon: const Icon(Icons.refresh_rounded),
+                    )
                   : IconButton(
                       tooltip: 'Clear search',
                       onPressed: () {
@@ -268,7 +271,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
-          ),
+          )),
         ),
       ),
     ),
