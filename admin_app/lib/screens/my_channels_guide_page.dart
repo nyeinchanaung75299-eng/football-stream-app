@@ -5,6 +5,7 @@ import '../services/tv_schedule_service.dart';
 import '../services/channel_group_order_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'channels_page.dart';
+import '../widgets/football_match_guide_card.dart';
 
 /// Compact, schedule-first view of the Admin's TV channel guide.
 ///
@@ -99,6 +100,20 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
                 : a.channel.name.compareTo(b.channel.name);
           });
 
+        // Match-first view, like the connected My Channels Match Guide.
+        // Keep all 169 channels in the catalog below the verified football EPG.
+        final matchGroups = <String, List<TvScheduleListing>>{};
+        for (final item in channelListings) {
+          for (final listing in item.listings) {
+            final name = _programmeTitle(listing.programme);
+            final bucket = listing.programme.start.millisecondsSinceEpoch ~/ 900000;
+            matchGroups.putIfAbsent('$name::$bucket', () => []).add(listing);
+          }
+        }
+        final matchEntries = matchGroups.values.toList()
+          ..sort((a, b) => a.first.programme.start
+              .compareTo(b.first.programme.start));
+
         return RefreshIndicator(
           onRefresh: () async => _refresh(),
           child: ListView(
@@ -160,7 +175,36 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 14),
+              const Text('⚽ LIVE & UPCOMING FOOTBALL • YOUR CHANNELS',
+                style: TextStyle(color: FootballGuideColors.mint,
+                  fontWeight: FontWeight.w900, fontSize: 12,
+                  letterSpacing: .6)),
+              const SizedBox(height: 9),
+              if (matchEntries.isEmpty)
+                const _NoChannelMatches()
+              else
+                for (final group in matchEntries.take(60))
+                  FootballMatchGuideCard(
+                    league: _programmeTitle(group.first.programme).contains(':')
+                        ? _programmeTitle(group.first.programme).split(':').first.trim()
+                        : 'Football',
+                    match: _programmeTitle(group.first.programme).contains(':')
+                        ? _programmeTitle(group.first.programme)
+                            .split(':').skip(1).join(':').trim()
+                        : _programmeTitle(group.first.programme),
+                    kickoff: group.first.programme.start,
+                    live: group.any((item) => item.isLive),
+                    airings: [
+                      for (final listing in group)
+                        FootballGuideAiring(
+                          channel: listing.channel.name,
+                          when: listing.programme.start,
+                          region: listing.channel.region,
+                        ),
+                    ],
+                  ),
+              const SizedBox(height: 12),
               Text(
                 '${channelListings.length} CHANNEL${channelListings.length == 1 ? '' : 'S'} • LIVE & NEXT MATCHES',
                 style: TextStyle(
@@ -201,8 +245,9 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
       },
     );
 
-    if (widget.embedded) return content;
+    if (widget.embedded) return ColoredBox(color: FootballGuideColors.background, child: content);
     return Scaffold(
+      backgroundColor: FootballGuideColors.background,
       appBar: AppBar(
         title: const Text('My Channels'),
         actions: [
@@ -280,6 +325,11 @@ class _ChannelScheduleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Card(
+      color: FootballGuideColors.card,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: FootballGuideColors.border),
+      ),
       margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(12),
