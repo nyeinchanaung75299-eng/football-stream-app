@@ -80,7 +80,7 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
     return matches.where((match) {
       final label = '${match['league']} ${match['home_team']} ${match['away_team']}';
       // Schedule is football-only, never replay/highlight or other sports.
-      if (RegExp(r'\\b(replay|highlight|recap|cricket|tennis|basketball|formula 1|motorsport|rugby)\\b',
+      if (RegExp(r'\b(replay|highlight|recap|cricket|tennis|basketball|formula 1|motorsport|rugby)\b',
           caseSensitive: false).hasMatch(label)) return false;
       if (match['is_active'] == false ||
           (match['publish_state'] ?? 'published') != 'published') {
