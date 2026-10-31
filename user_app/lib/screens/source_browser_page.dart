@@ -1081,6 +1081,13 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               slivers: [
+                if (source == 'camel')
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Text('Watch on Camel1 • sign-in required'),
+                    ),
+                  ),
                 SliverToBoxAdapter(
                   child: SourceMatchFilters(
                     controller: _searchController,
