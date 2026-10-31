@@ -8,7 +8,7 @@ class SourceMatchFilters extends StatelessWidget {
     required this.leagues,
     required this.league,
     required this.visibleCount,
-    required this.onRefresh,
+    this.onRefresh,
     required this.onQueryChanged,
     required this.onTodayChanged,
     required this.onLeagueChanged,
@@ -19,7 +19,7 @@ class SourceMatchFilters extends StatelessWidget {
   final List<String> leagues;
   final String? league;
   final int visibleCount;
-  final VoidCallback onRefresh;
+  final VoidCallback? onRefresh;
   final ValueChanged<String> onQueryChanged;
   final ValueChanged<bool> onTodayChanged;
   final ValueChanged<String?> onLeagueChanged;
