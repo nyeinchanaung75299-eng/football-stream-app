@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../analytics_service.dart';
-import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 import 'gateway_request.dart';
 
@@ -14,15 +13,10 @@ class FunctionGateway {
     'PUBLIC_API_BASE',
     defaultValue: 'https://football-api.nyeinchanaung.us.ci',
   );
-  static String? _healthyBase;
-
-  static List<String> get _gatewayBases {
-    final bases = publicApiBases(
-        primary: _publicApiBase, preferVercel: usesVercelBackend);
-    final healthy = _healthyBase;
-    if (healthy != null && bases.remove(healthy)) bases.insert(0, healthy);
-    return bases;
-  }
+  // Public/Admin proxy calls prefer the reachable Vercel route regardless
+  // of which separate Supabase Auth relay was chosen.
+  static List<String> get _gatewayBases =>
+      publicApiBases(primary: _publicApiBase, preferVercel: true);
 
   static Future<dynamic> invoke(String functionName, {Object? body}) async {
     final client = Supabase.instance.client;
@@ -67,7 +61,6 @@ class FunctionGateway {
             properties: {'function': functionName, 'reason': reason})),
       ).run(functionName, token, body: body);
 
-      if (result.base != null) _healthyBase = result.base;
       unawaited(
           AnalyticsService.capture('admin function completed', properties: {
         'function': functionName,

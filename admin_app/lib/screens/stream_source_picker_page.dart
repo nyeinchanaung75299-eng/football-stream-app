@@ -15,7 +15,6 @@ class StreamSourcePickerPage extends StatelessWidget {
     _SourceOption('yyzb', 'YYZB', Icons.sensors_rounded),
     _SourceOption('fawa', 'Fawa', Icons.live_tv_rounded),
     _SourceOption('cola', 'ColaTV', Icons.tv_rounded),
-    _SourceOption('playz', 'Manual HLS', Icons.add_link_rounded),
   ];
 
   void _open(BuildContext context, _SourceOption source) {

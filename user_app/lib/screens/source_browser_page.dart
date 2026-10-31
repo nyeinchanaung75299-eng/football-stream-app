@@ -7,7 +7,6 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../analytics_service.dart';
-import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 import '../native_player.dart';
 import 'channels_page.dart';
@@ -78,21 +77,12 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     'camel' => 7,
     _ => 1,
   };
-  String? _workingApiBase;
   List<Future<List<Map<String, dynamic>>> Function()> _apiJobs(
     Future<List<Map<String, dynamic>>> Function(String) load,
   ) {
-    var selected = false;
     return bases
         .map<Future<List<Map<String, dynamic>>> Function()>(
-          (base) => () async {
-            final result = await load(base);
-            if (!selected) {
-              selected = true;
-              _workingApiBase = base;
-            }
-            return result;
-          },
+          (base) => () => load(base),
         )
         .toList();
   }
@@ -100,10 +90,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   List<String> get bases {
     final routes = publicApiBases(
       primary: _primary,
-      preferVercel: usesVercelBackend,
+      // Prefer Vercel for public sources even when Auth chose another relay.
+      preferVercel: true,
     );
-    final working = _workingApiBase;
-    if (working != null && routes.remove(working)) routes.insert(0, working);
+    // Always start with Vercel, even if a previous request used fallback.
     return routes;
   }
 
@@ -1093,7 +1083,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               title: title + ' unavailable',
               text: source == 'fawa'
                   ? 'Fawa website or source API is unreachable. Refresh later.'
-                  : 'Connect VPN, then refresh.',
+                  : 'Network temporarily unavailable. Refresh to retry backup routes.',
               onRefresh: _refresh,
             );
           }

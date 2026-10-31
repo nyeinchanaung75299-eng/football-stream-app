@@ -69,6 +69,20 @@ test('Admin authorization stays with the original Worker and unsupported proxy t
   });
 });
 
+test('TV schedule metadata forwards through Vercel without requiring VPN access to the client Worker', async () => {
+  await withFetch(async (url, init) => {
+    assert.equal(String(url), worker + '/tv-schedule?date=2026-11-01&days=8');
+    assert.equal(init.method, 'GET');
+    assert.equal(init.headers.has('Authorization'), false);
+    return Response.json({ channels: [], channel_count: 0 });
+  }, async () => {
+    const response = await proxy(new Request(origin +
+      '/tv-schedule?date=2026-11-01&days=8'));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { channels: [], channel_count: 0 });
+  });
+});
+
 test('Channel routes forward to the protected Worker', async () => {
   const seen = [];
   await withFetch(async (url, init) => {

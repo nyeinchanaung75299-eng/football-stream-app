@@ -38,6 +38,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Stream Sources'), findsOneWidget);
       expect(find.text('Soco'), findsOneWidget);
+      expect(find.text('Manual HLS'), findsNothing);
       expect(requests, 0);
       await tester.tap(find.text('Controls'));
       await tester.pumpAndSettle();

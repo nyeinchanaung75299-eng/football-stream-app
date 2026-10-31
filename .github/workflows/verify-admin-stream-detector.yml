@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'admin_app/**'
+      - 'user_app/**'
       - 'cloudflare/public-api/src/website_stream_scanner.mjs'
       - 'scripts/test_website_stream_scanner.mjs'
       - 'scripts/test_browser_stream_scanner.mjs'
@@ -64,4 +65,36 @@ jobs:
           grep -q 'flutter_bootstrap.js?v=' build/web/index.html
       - name: Compile debug APK
         working-directory: admin_app
+        run: flutter build apk --debug
+
+  viewer-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Viewer Android project
+        working-directory: user_app
+        run: |
+          flutter create --platforms=android .
+          rm -f test/widget_test.dart
+      - name: Install Viewer dependencies
+        working-directory: user_app
+        run: flutter pub get
+      - name: Analyze and test Viewer
+        working-directory: user_app
+        run: |
+          flutter analyze --no-fatal-infos
+          flutter test
+      - name: Compile Viewer debug APK
+        working-directory: user_app
         run: flutter build apk --debug
