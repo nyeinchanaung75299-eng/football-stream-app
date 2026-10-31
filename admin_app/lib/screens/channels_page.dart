@@ -8,6 +8,54 @@ import '../services/function_gateway.dart';
 import '../widgets/channel_search_field.dart';
 import 'live_links_page.dart';
 
+const channelGroupPresets = <String>[
+  'beIN Sports',
+  'TNT Sports',
+  'Fubo',
+  'FanCode',
+  'CazéTV',
+  'Arena Sports',
+  'FOX Sports',
+  'D Sports',
+  'TSN',
+  'SporTV',
+  'SPOTV',
+  'Premiere',
+  'Premier Sports',
+  'CBS Sports',
+  'Sport 1 / 2',
+  'Nova Sport',
+  'Eurosport',
+  'JOJ Sport',
+  'ČT Sport',
+  'Sportdigital',
+  'NBA',
+  'Tennis',
+  'Willow Cricket',
+  'Motorsports',
+  'Combat Sports',
+  'Regional Sports',
+  'SportsStars',
+  'M-Sports',
+  'Monomax Sports',
+  'RTVS Sport',
+  'Events / Unverified',
+  'General TV',
+  'Movies & Entertainment',
+  'Documentaries',
+  'Music',
+];
+
+const channelQuickGroups = <String>[
+  'All', 'beIN Sports', 'TNT Sports', 'Fubo', 'FanCode',
+  'CazéTV', 'Arena Sports', 'FOX Sports', 'TSN',
+];
+
+String catalogGroup(Map<String, dynamic> channel) {
+  final value = channel['category']?.toString().trim() ?? '';
+  return value.isEmpty ? 'Other' : value;
+}
+
 class ChannelsPage extends StatefulWidget {
   const ChannelsPage({super.key, this.embedded = false});
 
@@ -22,6 +70,7 @@ class ChannelsPage extends StatefulWidget {
 class _ChannelsPageState extends State<ChannelsPage> {
   final search = TextEditingController();
   String? addingChannelId;
+  String selectedGroup = 'All';
   late Future<List<Map<String, dynamic>>> catalog = load();
   Future<List<Map<String, dynamic>>> load() =>
       ChannelSourceService(Supabase.instance.client).list();
@@ -121,19 +170,117 @@ class _ChannelsPageState extends State<ChannelsPage> {
               if (snapshot.data!.isEmpty) {
                 return const Center(child: Text('No channels yet.'));
               }
-              final rows = snapshot.data!
-                  .where((r) => channelMatchesSearch(r, search.text))
-                  .toList();
-              if (rows.isEmpty) {
-                return const Center(child: Text('No matching channels.'));
+              final groupCounts = <String, int>{};
+              for (final channel in snapshot.data!) {
+                final group = catalogGroup(channel);
+                groupCounts[group] = (groupCounts[group] ?? 0) + 1;
               }
-              return ListView.builder(
+              final availableGroups = groupCounts.keys.toList()
+                ..sort((a, b) {
+                  final ai = channelGroupPresets.indexOf(a);
+                  final bi = channelGroupPresets.indexOf(b);
+                  final ar = ai < 0 ? 999 : ai;
+                  final br = bi < 0 ? 999 : bi;
+                  return ar.compareTo(br) != 0
+                      ? ar.compareTo(br)
+                      : a.compareTo(b);
+                });
+              final activeGroup =
+                  groupCounts.containsKey(selectedGroup) ? selectedGroup : 'All';
+              final rows = snapshot.data!
+                  .where((r) =>
+                      channelMatchesSearch(r, search.text) &&
+                      (activeGroup == 'All' ||
+                          catalogGroup(r) == activeGroup))
+                  .toList();
+              rows.sort((a, b) {
+                final byGroup =
+                    availableGroups.indexOf(catalogGroup(a)).compareTo(
+                      availableGroups.indexOf(catalogGroup(b)));
+                if (byGroup != 0) return byGroup;
+                final byOrder = ((a['sort_order'] as num?)?.toInt() ?? 0)
+                    .compareTo((b['sort_order'] as num?)?.toInt() ?? 0);
+                return byOrder != 0
+                    ? byOrder
+                    : (a['name']?.toString() ?? '')
+                        .compareTo(b['name']?.toString() ?? '');
+              });
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                    child: DropdownButtonFormField<String>(
+                      key: ValueKey('admin-group-$activeGroup'),
+                      value: activeGroup,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Channel group',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        DropdownMenuItem(
+                          value: 'All',
+                          child: Text('All Channels (${snapshot.data!.length})'),
+                        ),
+                        for (final group in availableGroups)
+                          DropdownMenuItem(
+                            value: group,
+                            child: Text('$group (${groupCounts[group]})'),
+                          ),
+                      ],
+                      onChanged: (group) {
+                        if (group != null) setState(() => selectedGroup = group);
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    height: 48,
+                    child: ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        for (final group in channelQuickGroups)
+                          if (group == 'All' || groupCounts.containsKey(group))
+                            Padding(
+                              padding: const EdgeInsets.only(right: 7),
+                              child: ChoiceChip(
+                                label: Text(group == 'All'
+                                    ? 'All (${snapshot.data!.length})'
+                                    : '$group (${groupCounts[group]})'),
+                                selected: activeGroup == group,
+                                onSelected: (_) =>
+                                    setState(() => selectedGroup = group),
+                              ),
+                            ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: rows.isEmpty
+                        ? const Center(child: Text('No matching channels.'))
+                        : ListView.builder(
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
                 itemCount: rows.length,
                 itemBuilder: (context, index) {
                   final row = rows[index];
                   final image = row['image_url']?.toString() ?? '';
-                  return Card(
+                  final group = catalogGroup(row);
+                  final showHeading = index == 0 ||
+                      catalogGroup(rows[index - 1]) != group;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (showHeading)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(7, 10, 7, 7),
+                          child: Text(
+                            '$group (${rows.where((r) => catalogGroup(r) == group).length})',
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      Card(
                     child: ListTile(
                       enabled: addingChannelId == null,
                       leading: image.startsWith('https://')
@@ -184,9 +331,13 @@ class _ChannelsPageState extends State<ChannelsPage> {
                               ],
                             ),
                       onTap: () => edit(row),
-                    ),
+                      ),
+                    ],
                   );
                 },
+              ),
+                  ),
+                ],
               );
             },
           ),
@@ -440,9 +591,29 @@ class _ChannelEditorState extends State<_ChannelEditor> {
                 controller: name,
                 decoration: const InputDecoration(labelText: 'Channel name'),
               ),
+              DropdownButtonFormField<String>(
+                key: ValueKey('category-preset-${category.text}'),
+                value: channelGroupPresets.contains(category.text.trim())
+                    ? category.text.trim()
+                    : null,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Channel group',
+                ),
+                hint: const Text('Choose a network group'),
+                items: [
+                  for (final group in channelGroupPresets)
+                    DropdownMenuItem(value: group, child: Text(group)),
+                ],
+                onChanged: (group) {
+                  if (group != null) setState(() => category.text = group);
+                },
+              ),
               TextField(
                 controller: category,
-                decoration: const InputDecoration(labelText: 'Category'),
+                decoration: const InputDecoration(
+                  labelText: 'Category (custom if needed)',
+                ),
               ),
               TextField(
                 controller: image,

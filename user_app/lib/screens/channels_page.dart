@@ -21,6 +21,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
   late Future<List<Map<String, dynamic>>> catalog = load();
   String? workingBase;
   bool opening = false;
+  String selectedGroup = 'All';
 
   @override
   void dispose() {
@@ -257,18 +258,110 @@ class _ChannelsPageState extends State<ChannelsPage> {
           return Center(
             child: Text('Channel catalog unavailable: ${snapshot.error}'),
           );
+        String groupOf(Map<String, dynamic> row) {
+          final value = row['category']?.toString().trim() ?? '';
+          return value.isEmpty ? 'Other' : value;
+        }
+        final groupCounts = <String, int>{};
+        for (final row in snapshot.data!) {
+          final group = groupOf(row);
+          groupCounts[group] = (groupCounts[group] ?? 0) + 1;
+        }
+        const groupPriority = <String>[
+          'beIN Sports', 'TNT Sports', 'Fubo', 'FanCode', 'CazéTV',
+          'Arena Sports', 'FOX Sports', 'D Sports', 'TSN', 'SporTV',
+          'SPOTV', 'Premiere', 'Premier Sports',
+        ];
+        final availableGroups = groupCounts.keys.toList()
+          ..sort((a, b) {
+            final ai = groupPriority.indexOf(a);
+            final bi = groupPriority.indexOf(b);
+            final ar = ai < 0 ? 999 : ai;
+            final br = bi < 0 ? 999 : bi;
+            return ar.compareTo(br) != 0
+                ? ar.compareTo(br)
+                : a.compareTo(b);
+          });
+        final activeGroup =
+            groupCounts.containsKey(selectedGroup) ? selectedGroup : 'All';
         final groups = <String, List<Map<String, dynamic>>>{};
         for (final row in snapshot.data!.where(matchesSearch)) {
-          final category = row['category']?.toString().trim() ?? 'Other';
-          groups
-              .putIfAbsent(category.isEmpty ? 'Other' : category, () => [])
-              .add(row);
+          final category = groupOf(row);
+          if (activeGroup != 'All' && category != activeGroup) continue;
+          groups.putIfAbsent(category, () => []).add(row);
         }
+        final orderedEntries = groups.entries.toList()
+          ..sort((a, b) =>
+              availableGroups.indexOf(a.key).compareTo(
+                availableGroups.indexOf(b.key)));
         return RefreshIndicator(
           onRefresh: refresh,
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 5),
+                  child: Column(
+                    children: [
+                      DropdownButtonFormField<String>(
+                        key: ValueKey('viewer-group-$activeGroup'),
+                        value: activeGroup,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Channel group',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          DropdownMenuItem(
+                            value: 'All',
+                            child: Text(
+                              'All Channels (${snapshot.data!.length})',
+                            ),
+                          ),
+                          for (final group in availableGroups)
+                            DropdownMenuItem(
+                              value: group,
+                              child: Text('$group (${groupCounts[group]})'),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => selectedGroup = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 45,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: [
+                            for (final group in const [
+                              'All', 'beIN Sports', 'TNT Sports', 'Fubo',
+                              'FanCode', 'CazéTV', 'Arena Sports', 'FOX Sports',
+                            ])
+                              if (group == 'All' ||
+                                  groupCounts.containsKey(group))
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: ChoiceChip(
+                                    label: Text(group == 'All'
+                                        ? 'All (${snapshot.data!.length})'
+                                        : '$group (${groupCounts[group]})'),
+                                    selected: activeGroup == group,
+                                    onSelected: (_) =>
+                                        setState(() => selectedGroup = group),
+                                  ),
+                                ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               if (groups.isEmpty)
                 SliverFillRemaining(
                   hasScrollBody: false,
@@ -280,7 +373,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                     ),
                   ),
                 ),
-              for (final group in groups.entries) ...[
+              for (final group in orderedEntries) ...[
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
                   sliver: SliverToBoxAdapter(

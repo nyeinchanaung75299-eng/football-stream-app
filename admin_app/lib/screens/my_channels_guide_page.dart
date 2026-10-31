@@ -20,6 +20,7 @@ class MyChannelsGuidePage extends StatefulWidget {
 
 class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
   late Future<TvScheduleGuide> _guide = _load();
+  String selectedGroup = 'All';
 
   Future<TvScheduleGuide> _load() => TvScheduleService().load();
 
@@ -44,14 +45,33 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
         }
 
         final guide = snapshot.data!;
+        String categoryOf(TvScheduleChannel channel) =>
+            channel.category.trim().isEmpty ? 'Other' : channel.category.trim();
+        final counts = <String, int>{};
+        for (final channel in guide.channels) {
+          final group = categoryOf(channel);
+          counts[group] = (counts[group] ?? 0) + 1;
+        }
+        final allGroups = counts.keys.toList()..sort();
+        final activeGroup =
+            counts.containsKey(selectedGroup) ? selectedGroup : 'All';
         final channelListings = guide.channels
+            .where((channel) =>
+                activeGroup == 'All' || categoryOf(channel) == activeGroup)
             .map(
               (channel) => _ChannelGuideItems(
                 channel: channel,
                 listings: guide.liveAndUpcomingMatchListingsForChannel(channel),
               ),
             )
-            .toList(growable: false);
+            .toList()
+          ..sort((a, b) {
+            final groupOrder =
+                categoryOf(a.channel).compareTo(categoryOf(b.channel));
+            return groupOrder != 0
+                ? groupOrder
+                : a.channel.name.compareTo(b.channel.name);
+          });
 
         return RefreshIndicator(
           onRefresh: () async => _refresh(),
@@ -65,6 +85,56 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
                   onManage: _openManager,
                 ),
               if (widget.embedded) const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                key: ValueKey('admin-guide-group-$activeGroup'),
+                value: activeGroup,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Channel group',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: [
+                  DropdownMenuItem(
+                    value: 'All',
+                    child: Text('All Channels (${guide.channels.length})'),
+                  ),
+                  for (final group in allGroups)
+                    DropdownMenuItem(
+                      value: group,
+                      child: Text('$group (${counts[group]})'),
+                    ),
+                ],
+                onChanged: (group) {
+                  if (group != null) setState(() => selectedGroup = group);
+                },
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 44,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    for (final group in const [
+                      'All', 'beIN Sports', 'TNT Sports', 'Fubo', 'FanCode',
+                      'CazéTV', 'Arena Sports', 'FOX Sports',
+                    ])
+                      if (group == 'All' || counts.containsKey(group))
+                        Padding(
+                          padding: const EdgeInsets.only(right: 7),
+                          child: ChoiceChip(
+                            label: Text(group == 'All'
+                                ? 'All (${guide.channels.length})'
+                                : '$group (${counts[group]})'),
+                            selected: activeGroup == group,
+                            onSelected: (_) =>
+                                setState(() => selectedGroup = group),
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
               Text(
                 '${channelListings.length} CHANNEL${channelListings.length == 1 ? '' : 'S'} • LIVE & NEXT MATCHES',
                 style: TextStyle(
@@ -78,15 +148,27 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
               if (channelListings.isEmpty)
                 const _NoChannelMatches()
               else
-                ...channelListings.map(
-                  (items) => Padding(
+                for (var index = 0; index < channelListings.length; index++) ...[
+                  if (index == 0 ||
+                      categoryOf(channelListings[index].channel) !=
+                          categoryOf(channelListings[index - 1].channel))
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(3, 9, 3, 8),
+                      child: Text(
+                        categoryOf(channelListings[index].channel),
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                    ),
+                  Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: _ChannelScheduleCard(
-                      channel: items.channel,
-                      listings: items.listings,
+                      channel: channelListings[index].channel,
+                      listings: channelListings[index].listings,
                     ),
                   ),
-                ),
+                ],
             ],
           ),
         );
