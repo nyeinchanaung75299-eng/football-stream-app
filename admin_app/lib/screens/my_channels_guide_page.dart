@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../services/tv_schedule_service.dart';
+import '../services/channel_group_order_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'channels_page.dart';
 
 /// Compact, schedule-first view of the Admin's TV channel guide.
@@ -21,15 +23,35 @@ class MyChannelsGuidePage extends StatefulWidget {
 class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
   late Future<TvScheduleGuide> _guide = _load();
   String selectedGroup = 'All';
+  Map<String, int> groupPositions = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGroupPositions();
+  }
+
+  Future<void> _loadGroupPositions() async {
+    try {
+      final positions = await ChannelGroupOrderService(Supabase.instance.client).positions();
+      if (mounted) setState(() => groupPositions = positions);
+    } catch (_) {
+      // The TV guide continues with alphabetical groups while offline.
+    }
+  }
 
   Future<TvScheduleGuide> _load() => TvScheduleService().load();
 
-  void _refresh() => setState(() => _guide = _load());
+  void _refresh() {
+    setState(() => _guide = _load());
+    _loadGroupPositions();
+  }
 
   Future<void> _openManager() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(builder: (_) => const ChannelsPage()),
     );
+    if (mounted) _refresh();
   }
 
   @override
@@ -52,7 +74,11 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
           final group = categoryOf(channel);
           counts[group] = (counts[group] ?? 0) + 1;
         }
-        final allGroups = counts.keys.toList()..sort();
+        final allGroups = counts.keys.toList()
+          ..sort((a, b) {
+            final rank = (groupPositions[a] ?? 100000).compareTo(groupPositions[b] ?? 100000);
+            return rank != 0 ? rank : a.compareTo(b);
+          });
         final activeGroup =
             counts.containsKey(selectedGroup) ? selectedGroup : 'All';
         final channelListings = guide.channels
@@ -66,8 +92,8 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
             )
             .toList()
           ..sort((a, b) {
-            final groupOrder =
-                categoryOf(a.channel).compareTo(categoryOf(b.channel));
+            final groupOrder = allGroups.indexOf(categoryOf(a.channel))
+                .compareTo(allGroups.indexOf(categoryOf(b.channel)));
             return groupOrder != 0
                 ? groupOrder
                 : a.channel.name.compareTo(b.channel.name);

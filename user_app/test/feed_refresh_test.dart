@@ -31,10 +31,10 @@ void main() {
 
   for (final sourceTab in [false, true]) {
     final label = sourceTab ? 'source tab' : 'Live';
-    testWidgets('$label uses a live backup when the primary domain fails', (
+    testWidgets('$label tries Vercel first then falls back to Cloudflare', (
       tester,
     ) async {
-      final hosts = <String>{};
+      final hosts = <String>[];
       await http.runWithClient(
         () async {
           await tester.pumpWidget(
@@ -46,24 +46,21 @@ void main() {
           );
           await tester.pumpAndSettle();
           expect(find.text('Team Alpha'), findsOneWidget);
+          expect(hosts.first, 'nca-network-backup-test.vercel.app');
           expect(hosts, contains('football-api.nyeinchanaung.us.ci'));
-          expect(hosts.length, greaterThan(1));
           hosts.clear();
           await tester.pump(const Duration(seconds: 61));
           await tester.pumpAndSettle();
-          expect(hosts, isNotEmpty);
-          expect(
-            hosts,
-            isNot(contains('football-api.nyeinchanaung.us.ci')),
-            reason: 'Refresh reuses the route that already succeeded.',
-          );
+          expect(hosts.first, 'nca-network-backup-test.vercel.app',
+              reason: 'Every refresh retries Vercel before Cloudflare fallback.');
+          expect(hosts, contains('football-api.nyeinchanaung.us.ci'));
           await tester.pumpWidget(const SizedBox());
         },
         () => MockClient((request) async {
           if (!request.url.path.endsWith('/matches'))
             return http.Response('{}', 404);
           hosts.add(request.url.host);
-          if (request.url.host == 'football-api.nyeinchanaung.us.ci') {
+          if (request.url.host == 'nca-network-backup-test.vercel.app') {
             return http.Response('{}', 503);
           }
           return http.Response(

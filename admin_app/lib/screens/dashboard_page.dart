@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
 import '../widgets/theme_mode_button.dart';
 import 'channels_page.dart';
+import 'channel_health_page.dart';
 import 'edit_live_page.dart';
 import 'fixture_import_page.dart';
 import 'live_links_page.dart';
@@ -144,11 +145,26 @@ class _DashboardPageState extends State<DashboardPage> {
         onTap: () => open(context, const EditLivePage(), 'matches-scores'),
       ),
       const SizedBox(height: 8),
+      const SizedBox(height: 12),
+      Text(
+        'Channel Management',
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      const SizedBox(height: 8),
       _ActionCard(
         icon: Icons.tv_rounded,
-        title: 'Channel Management',
+        title: 'Manage TV Channels',
         iconColor: const Color(0xFF22C55E),
         onTap: () => open(context, const ChannelsPage(), 'channel-management'),
+      ),
+      const SizedBox(height: 8),
+      _ActionCard(
+        icon: Icons.health_and_safety_rounded,
+        title: 'All TV Channel Health',
+        iconColor: const Color(0xFF10B981),
+        onTap: () => open(context, const ChannelHealthPage(), 'channel-health'),
       ),
     ],
   );

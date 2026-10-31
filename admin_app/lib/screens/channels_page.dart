@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/channel_source_service.dart';
 import '../services/function_gateway.dart';
+import '../services/channel_group_order_service.dart';
+import 'channel_group_order_page.dart';
 import '../widgets/channel_search_field.dart';
 import 'live_links_page.dart';
 
@@ -75,6 +77,32 @@ class _ChannelsPageState extends State<ChannelsPage> {
   Future<List<Map<String, dynamic>>> load() =>
       ChannelSourceService(Supabase.instance.client).list();
 
+  Map<String, int> groupPositions = const {};
+  @override
+  void initState() {
+    super.initState();
+    _loadGroupPositions();
+  }
+
+  Future<void> _loadGroupPositions() async {
+    try {
+      final positions = await ChannelGroupOrderService(Supabase.instance.client).positions();
+      if (mounted) setState(() => groupPositions = positions);
+    } catch (_) {
+      // Fall back to legacy preset ordering if the network is unavailable.
+    }
+  }
+
+  Future<void> _reorderGroups() async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const ChannelGroupOrderPage()),
+    );
+    if (saved == true) {
+      await _loadGroupPositions();
+      refresh();
+    }
+  }
+
   @override
   void dispose() {
     search.dispose();
@@ -103,7 +131,10 @@ class _ChannelsPageState extends State<ChannelsPage> {
     }
   }
 
-  void refresh() => setState(() => catalog = load());
+  void refresh() {
+    setState(() => catalog = load());
+    _loadGroupPositions();
+  }
 
   Future<void> _openLineHealth(Map<String, dynamic> channel) async {
     await showModalBottomSheet<void>(
@@ -146,6 +177,11 @@ class _ChannelsPageState extends State<ChannelsPage> {
                   onPressed: refresh,
                   icon: const Icon(Icons.refresh_rounded),
                 ),
+                IconButton(
+                  tooltip: 'Reorder channel groups',
+                  onPressed: _reorderGroups,
+                  icon: const Icon(Icons.swap_vert_rounded),
+                ),
               ],
             ),
           ),
@@ -179,8 +215,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
                 ..sort((a, b) {
                   final ai = channelGroupPresets.indexOf(a);
                   final bi = channelGroupPresets.indexOf(b);
-                  final ar = ai < 0 ? 999 : ai;
-                  final br = bi < 0 ? 999 : bi;
+                  final ar = groupPositions[a] ?? (ai < 0 ? 999 : ai);
+                  final br = groupPositions[b] ?? (bi < 0 ? 999 : bi);
                   return ar.compareTo(br) != 0
                       ? ar.compareTo(br)
                       : a.compareTo(b);
@@ -353,6 +389,12 @@ class _ChannelsPageState extends State<ChannelsPage> {
               title: const Text('My Channels'),
               actions: [
                 IconButton(
+                  tooltip: 'Reorder channel groups',
+                  onPressed: _reorderGroups,
+                  icon: const Icon(Icons.swap_vert_rounded),
+                ),
+                IconButton(
+                  tooltip: 'Refresh channels',
                   onPressed: refresh,
                   icon: const Icon(Icons.refresh_rounded),
                 ),

@@ -14,7 +14,7 @@ function failure(message, status) {
 }
 
 function routeKind(path) {
-  if (["/health", "/matches", "/channels", "/backend-health"].includes(path) ||
+  if (["/health", "/matches", "/channels", "/tv-schedule", "/backend-health"].includes(path) ||
       /^\/matches\/[A-Za-z0-9_-]+\/streams$/.test(path) ||
       /^\/channels\/[A-Za-z0-9_-]+\/streams$/.test(path) ||
       /^\/p\/[A-Za-z0-9_-]+(?:\/.*)?$/.test(path) ||

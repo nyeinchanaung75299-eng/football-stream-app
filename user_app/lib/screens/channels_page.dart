@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../native_player.dart';
 import '../network_endpoints.dart';
@@ -19,9 +20,34 @@ class ChannelsPage extends StatefulWidget {
 class _ChannelsPageState extends State<ChannelsPage> {
   final search = TextEditingController();
   late Future<List<Map<String, dynamic>>> catalog = load();
-  String? workingBase;
   bool opening = false;
   String selectedGroup = 'All';
+  Map<String, int> groupPositions = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGroupPositions();
+  }
+
+  Future<void> _loadGroupPositions() async {
+    try {
+      // Read public category metadata through the resolved Supabase relay.
+      // If that relay is unavailable, the channel catalog still works.
+      final rows = await Supabase.instance.client
+          .from('channel_group_order')
+          .select('category,position')
+          .order('position')
+          .timeout(const Duration(seconds: 7));
+      final positions = {
+        for (final row in rows)
+          row['category'].toString(): (row['position'] as num).toInt(),
+      };
+      if (mounted) setState(() => groupPositions = positions);
+    } catch (_) {
+      // Keep default category order when its metadata can't be loaded.
+    }
+  }
 
   @override
   void dispose() {
@@ -43,8 +69,6 @@ class _ChannelsPageState extends State<ChannelsPage> {
 
   Future<Map<String, dynamic>> request(String path) async {
     final bases = publicApiBases();
-    if (workingBase != null && bases.remove(workingBase))
-      bases.insert(0, workingBase!);
     final result = Completer<Map<String, dynamic>>();
     Object? lastError;
     var next = 0;
@@ -70,7 +94,6 @@ class _ChannelsPageState extends State<ChannelsPage> {
             throw const FormatException('Invalid channel response');
           }
           if (!result.isCompleted) {
-            workingBase = base;
             result.complete(Map<String, dynamic>.from(decoded));
           }
         } catch (error) {
@@ -117,6 +140,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
 
   Future<void> refresh() async {
     setState(() => catalog = load());
+    _loadGroupPositions();
     try {
       await catalog;
     } catch (_) {}
@@ -276,8 +300,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
           ..sort((a, b) {
             final ai = groupPriority.indexOf(a);
             final bi = groupPriority.indexOf(b);
-            final ar = ai < 0 ? 999 : ai;
-            final br = bi < 0 ? 999 : bi;
+            final ar = groupPositions[a] ?? (ai < 0 ? 999 : ai);
+            final br = groupPositions[b] ?? (bi < 0 ? 999 : bi);
             return ar.compareTo(br) != 0
                 ? ar.compareTo(br)
                 : a.compareTo(b);
