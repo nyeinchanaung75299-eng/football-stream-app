@@ -1589,7 +1589,7 @@ class _HomePageState extends State<HomePage> {
             return _StateMessage(
               icon: Icons.vpn_key_off_outlined,
               title: 'Live feed unavailable',
-              subtitle: 'Connect VPN, then tap refresh.',
+              subtitle: 'Network temporarily unavailable. Tap refresh to retry backup routes.',
               onPressed: refresh,
             );
           }
