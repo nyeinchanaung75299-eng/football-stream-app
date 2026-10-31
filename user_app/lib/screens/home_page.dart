@@ -81,7 +81,8 @@ class _HomePageState extends State<HomePage> {
   List<String> get _publicApiBases {
     final bases = publicApiBases(
       primary: _publicApiBase,
-      preferVercel: usesVercelBackend,
+      // Public API routing is independent of which Supabase Auth relay won.
+      preferVercel: true,
     );
     final working = _workingApiBase;
     if (working != null && bases.remove(working)) bases.insert(0, working);
