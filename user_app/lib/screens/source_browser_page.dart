@@ -7,7 +7,6 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../analytics_service.dart';
-import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 import '../native_player.dart';
 import 'channels_page.dart';
