@@ -19,7 +19,6 @@ class ChannelsPage extends StatefulWidget {
 class _ChannelsPageState extends State<ChannelsPage> {
   final search = TextEditingController();
   late Future<List<Map<String, dynamic>>> catalog = load();
-  String? workingBase;
   bool opening = false;
   String selectedGroup = 'All';
 
@@ -43,8 +42,6 @@ class _ChannelsPageState extends State<ChannelsPage> {
 
   Future<Map<String, dynamic>> request(String path) async {
     final bases = publicApiBases();
-    if (workingBase != null && bases.remove(workingBase))
-      bases.insert(0, workingBase!);
     final result = Completer<Map<String, dynamic>>();
     Object? lastError;
     var next = 0;
@@ -70,7 +67,6 @@ class _ChannelsPageState extends State<ChannelsPage> {
             throw const FormatException('Invalid channel response');
           }
           if (!result.isCompleted) {
-            workingBase = base;
             result.complete(Map<String, dynamic>.from(decoded));
           }
         } catch (error) {
