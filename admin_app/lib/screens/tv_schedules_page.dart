@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../football_english.dart';
 import '../services/tv_schedule_service.dart';
+import '../widgets/football_match_guide_card.dart';
 
 /// Compact match schedule for the Admin's own fixture list.
 ///
@@ -77,6 +78,10 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
   ) {
     final now = DateTime.now().toUtc();
     return matches.where((match) {
+      final label = '${match['league']} ${match['home_team']} ${match['away_team']}';
+      // Schedule is football-only, never replay/highlight or other sports.
+      if (RegExp(r'\\b(replay|highlight|recap|cricket|tennis|basketball|formula 1|motorsport|rugby)\\b',
+          caseSensitive: false).hasMatch(label)) return false;
       if (match['is_active'] == false ||
           (match['publish_state'] ?? 'published') != 'published') {
         return false;
@@ -161,8 +166,9 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
       },
     );
 
-    if (widget.embedded) return page;
+    if (widget.embedded) return ColoredBox(color: FootballGuideColors.background, child: page);
     return Scaffold(
+      backgroundColor: FootballGuideColors.background,
       appBar: AppBar(
         title: const Text('TV Schedule'),
         actions: [
@@ -247,13 +253,11 @@ class _ScheduleHeader extends StatelessWidget {
 
 class _MatchScheduleCard extends StatelessWidget {
   const _MatchScheduleCard({required this.match, required this.guide});
-
   final Map<String, dynamic> match;
   final TvScheduleGuide? guide;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     final home = englishKnownFootballName(
       match['home_team']?.toString() ?? 'Home',
     );
@@ -261,82 +265,22 @@ class _MatchScheduleCard extends StatelessWidget {
       match['away_team']?.toString() ?? 'Away',
     );
     final league = englishKnownFootballName(
-      match['league']?.toString() ?? 'Football',
-      kind: 'league',
+      match['league']?.toString() ?? 'Football', kind: 'league',
     );
-    final kickoff = DateTime.tryParse(match['kickoff_at']?.toString() ?? '');
-    final isLive = match['is_live'] == true;
     final airings = guide?.airingsForMatch({
-          ...match,
-          'home_team': home,
-          'away_team': away,
-        }) ??
-        const <TvScheduleAiring>[];
-
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    league,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: colors.primary,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-                _StatusPill(isLive: isLive),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '$home vs $away',
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 5),
-            Row(
-              children: [
-                Icon(
-                  Icons.schedule_rounded,
-                  size: 15,
-                  color: colors.onSurfaceVariant,
-                ),
-                const SizedBox(width: 5),
-                Text(
-                  kickoff == null
-                      ? 'Kickoff time unavailable'
-                      : '${DateFormat('EEE, d MMM • h:mm a', 'en_US').format(_yangon(kickoff))} MMT',
-                  style: TextStyle(
-                    color: colors.onSurfaceVariant,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-            if (airings.isNotEmpty) ...[
-              const SizedBox(height: 9),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final airing in airings.take(3))
-                    _AiringChip(airing: airing),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
+      ...match, 'home_team': home, 'away_team': away,
+    }) ?? const <TvScheduleAiring>[];
+    return FootballMatchGuideCard(
+      league: league,
+      match: '$home vs $away',
+      kickoff: DateTime.tryParse(match['kickoff_at']?.toString() ?? ''),
+      live: match['is_live'] == true,
+      airings: [
+        for (final airing in airings)
+          FootballGuideAiring(
+            channel: airing.channel, when: airing.when, region: airing.region,
+          ),
+      ],
     );
   }
 }
