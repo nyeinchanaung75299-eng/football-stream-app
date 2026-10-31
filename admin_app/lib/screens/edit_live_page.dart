@@ -278,6 +278,13 @@ class _LiveEditCard extends StatelessWidget {
                     ),
                   ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            // Keep the scheduled status and edit actions centered above kickoff.
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
                 _StatusPill(label: isLive ? 'LIVE' : 'SCHEDULED'),
                 IconButton(
                   tooltip: 'Edit match',
