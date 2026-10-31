@@ -100,7 +100,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   List<String> get bases {
     final routes = publicApiBases(
       primary: _primary,
-      preferVercel: usesVercelBackend,
+      // Prefer Vercel for public sources even when Auth chose another relay.
+      preferVercel: true,
     );
     final working = _workingApiBase;
     if (working != null && routes.remove(working)) routes.insert(0, working);
