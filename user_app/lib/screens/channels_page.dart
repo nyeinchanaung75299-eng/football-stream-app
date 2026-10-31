@@ -49,9 +49,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
           final title = (item['title'] ?? item['subtitle'] ?? '').toString();
           final extra = (item['description'] ?? '').toString();
           final body = '$title $extra';
-          if (!RegExp(r'\\b(vs|v|versus)\\b', caseSensitive: false)
+          if (!RegExp(r'\b(vs|v|versus)\b', caseSensitive: false)
               .hasMatch(body)) continue;
-          if (RegExp(r'\\b(replay|highlights?|recap|preview|repeat|classic|rugby|cricket|tennis|basketball)\\b',
+          if (RegExp(r'\b(replay|highlights?|recap|preview|repeat|classic|rugby|cricket|tennis|basketball)\b',
               caseSensitive: false).hasMatch(body)) continue;
           final ms = (item['start'] as num?)?.toInt();
           if (ms == null) continue;
