@@ -72,8 +72,6 @@ class _HomePageState extends State<HomePage> {
   final Map<String, Future<List<Map<String, dynamic>>>> _streamLinkInflight =
       {};
 
-  String? _workingApiBase;
-
   static const _publicApiBase = String.fromEnvironment(
     'PUBLIC_API_BASE',
     defaultValue: 'https://football-api.nyeinchanaung.us.ci',
@@ -84,8 +82,7 @@ class _HomePageState extends State<HomePage> {
       // Public API routing is independent of which Supabase Auth relay won.
       preferVercel: true,
     );
-    final working = _workingApiBase;
-    if (working != null && bases.remove(working)) bases.insert(0, working);
+    // Keep Vercel first on every request; don't promote a previous Cloudflare fallback.
     return bases;
   }
 
@@ -186,18 +183,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   List<Future<T> Function()> _apiJobs<T>(Future<T> Function(String) load) {
-    var selected = false;
     return _publicApiBases
-        .map<Future<T> Function()>(
-          (base) => () async {
-            final result = await load(base);
-            if (!selected) {
-              selected = true;
-              _workingApiBase = base;
-            }
-            return result;
-          },
-        )
+        .map<Future<T> Function()>((base) => () => load(base))
         .toList();
   }
 
