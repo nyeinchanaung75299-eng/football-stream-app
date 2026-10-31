@@ -663,7 +663,8 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: Colors.black,
+        toolbarHeight: 48,
+        backgroundColor: const Color(0xFF15151E),
         foregroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         titleSpacing: 0,
@@ -764,7 +765,7 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
                                 height: 18,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2.2,
-                                  color: colors.primary,
+                                  color: const Color(0xFF54E6C1),
                                 ),
                               ),
                               const SizedBox(width: 10),
