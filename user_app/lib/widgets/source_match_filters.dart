@@ -8,6 +8,7 @@ class SourceMatchFilters extends StatelessWidget {
     required this.leagues,
     required this.league,
     required this.visibleCount,
+    this.onRefresh,
     required this.onQueryChanged,
     required this.onTodayChanged,
     required this.onLeagueChanged,
@@ -18,6 +19,7 @@ class SourceMatchFilters extends StatelessWidget {
   final List<String> leagues;
   final String? league;
   final int visibleCount;
+  final VoidCallback? onRefresh;
   final ValueChanged<String> onQueryChanged;
   final ValueChanged<bool> onTodayChanged;
   final ValueChanged<String?> onLeagueChanged;
@@ -103,7 +105,7 @@ class SourceMatchFilters extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          TextField(
+          SizedBox(height: 43, child: TextField(
             key: const ValueKey('source-match-search'),
             controller: controller,
             onChanged: onQueryChanged,
@@ -112,7 +114,8 @@ class SourceMatchFilters extends StatelessWidget {
             decoration: InputDecoration(
               hintText: 'Search teams or leagues',
               hintStyle: const TextStyle(fontSize: 13),
-              prefixIcon: const Icon(Icons.search_rounded, size: 20),
+              prefixIcon: const Icon(Icons.search_rounded, size: 19),
+              prefixIconConstraints: const BoxConstraints(minWidth: 37, minHeight: 35),
               suffixIcon: controller.text.isEmpty
                   ? null
                   : IconButton(
@@ -124,20 +127,28 @@ class SourceMatchFilters extends StatelessWidget {
                       },
                     ),
               isDense: true,
-              contentPadding: const EdgeInsets.symmetric(vertical: 7),
+              contentPadding: const EdgeInsets.symmetric(vertical: 5, horizontal: 6),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
-          ),
+          )),
           const SizedBox(height: 4),
           _filterChoices(context),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              '$visibleCount ${visibleCount == 1 ? 'match' : 'matches'}',
-              style: TextStyle(color: colors.onSurfaceVariant, fontSize: 11),
-            ),
+          Row(
+            children: [
+              Expanded(child: Text(
+                '$visibleCount ${visibleCount == 1 ? 'match' : 'matches'}',
+                style: TextStyle(color: colors.onSurfaceVariant, fontSize: 11),
+              )),
+              IconButton(
+                tooltip: 'Refresh matches',
+                onPressed: onRefresh,
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints(minHeight: 36, minWidth: 40),
+              ),
+            ],
           ),
         ],
       ),

@@ -15,10 +15,16 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
   final search = TextEditingController();
   String selectedStatus = 'all';
   String? checkingChannel;
+  bool scanningAll = false;
+  bool cancelScan = false;
+  int scanChecked = 0;
+  int scanTotal = 0;
+  int scanErrors = 0;
   late Future<List<Map<String, dynamic>>> rows = _load();
 
   @override
   void dispose() {
+    cancelScan = true;
     search.dispose();
     super.dispose();
   }
@@ -59,6 +65,12 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
         : statuses.contains('slow') ? 'slow'
         : statuses.every((value) => value == 'healthy') ? 'healthy'
         : 'unknown';
+    final latencies = active
+        .map((line) => line['health_latency_ms'])
+        .whereType<num>()
+        .map((value) => value.toInt())
+        .where((value) => value > 0)
+        .toList();
     final checked = active
         .map((line) => DateTime.tryParse(line['last_checked_at']?.toString() ?? ''))
         .whereType<DateTime>()
@@ -67,6 +79,7 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
       ...channel,
       'status': status,
       'line_count': active.length,
+      'latency_ms': latencies.isEmpty ? null : latencies.reduce((a, b) => a > b ? a : b),
       'checked_at': checked.isNotEmpty ? checked.first : null,
     };
   }
@@ -75,8 +88,53 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
     if (mounted) setState(() => rows = _load());
   }
 
+  /// The All control performs an actual scan, not only a database filter.
+  /// Limit client concurrency to three channel requests, each using the
+  /// authenticated, server-side stream-health probe. Never expose URLs.
+  Future<void> _checkAll(List<Map<String, dynamic>> channels) async {
+    if (scanningAll || checkingChannel != null) return;
+    final targets = channels
+        .where((channel) => (channel['line_count'] as int) > 0)
+        .toList(growable: false);
+    if (targets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No active channel lines to check.')),
+      );
+      return;
+    }
+    setState(() {
+      scanningAll = true;
+      cancelScan = false;
+      scanTotal = targets.length;
+      scanChecked = 0;
+      scanErrors = 0;
+    });
+    var index = 0;
+    Future<void> worker() async {
+      while (!cancelScan && index < targets.length) {
+        final channel = targets[index++];
+        try {
+          await FunctionGateway.invoke(
+            'stream-health', body: {'channel_id': channel['id'].toString()},
+          ).timeout(const Duration(seconds: 40));
+        } catch (_) {
+          scanErrors++;
+        }
+        if (mounted) setState(() => scanChecked++);
+      }
+    }
+    await Future.wait(List.generate(3, (_) => worker()));
+    if (!mounted) return;
+    setState(() => scanningAll = false);
+    _refresh();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Checked $scanChecked of $scanTotal channels'
+          '${scanErrors == 0 ? '' : ' • $scanErrors requests failed'}'),
+    ));
+  }
+
   Future<void> _check(Map<String, dynamic> channel) async {
-    if (checkingChannel != null) return;
+    if (checkingChannel != null || scanningAll) return;
     final id = channel['id'].toString();
     setState(() => checkingChannel = id);
     try {
@@ -140,7 +198,32 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
           ),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-            child: Text('Health is reachability metadata from prior Admin checks, not a playback guarantee. Check a channel to refresh its active lines.'),
+            child: Text('All runs a bounded check of every active TV channel. Healthy means the first stream bytes were reachable, not confirmed playback.'),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 5, 14, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                FilledButton.icon(
+                  onPressed: scanningAll ? null : () => _checkAll(data),
+                  icon: const Icon(Icons.fact_check_rounded),
+                  label: Text(scanningAll
+                      ? 'CHECKING $scanChecked / $scanTotal'
+                      : 'CHECK ALL ${data.length} CHANNELS'),
+                ),
+                if (scanningAll) ...[
+                  const SizedBox(height: 7),
+                  LinearProgressIndicator(
+                    value: scanTotal == 0 ? null : scanChecked / scanTotal,
+                    minHeight: 5,
+                  ),
+                  const SizedBox(height: 4),
+                  Text('$scanChecked / $scanTotal checked • $scanErrors request errors',
+                      style: Theme.of(context).textTheme.labelSmall),
+                ],
+              ],
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
@@ -165,7 +248,11 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                   DropdownMenuItem(value: 'failed', child: Text('Failed')),
                   DropdownMenuItem(value: 'unknown', child: Text('Unknown')),
                 ],
-                onChanged: (value) { if (value != null) setState(() => selectedStatus = value); },
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => selectedStatus = value);
+                  if (value == 'all') _checkAll(data);
+                },
               ),
             ]),
           ),
@@ -193,12 +280,12 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                     title: Text(channel['name']?.toString() ?? 'Channel',
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: Text(
-                      '${channel['category']} • ${channel['line_count']} active lines\n${status.toUpperCase()} • $detail',
+                      '${channel['category']} • ${channel['line_count']} active lines\n${status.toUpperCase()} • $detail • ${channel['latency_ms'] == null ? 'No latency yet' : '${channel['latency_ms']} ms'}',
                       maxLines: 2,
                     ),
                     isThreeLine: true,
                     trailing: OutlinedButton(
-                      onPressed: checkingChannel == null &&
+                      onPressed: checkingChannel == null && !scanningAll &&
                               (channel['line_count'] as int) > 0
                           ? () => _check(channel) : null,
                       child: checkingChannel == id

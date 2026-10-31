@@ -137,6 +137,24 @@
     @keyframes nca-loading-spin{to{transform:rotate(360deg)}}
     @media(prefers-reduced-motion:reduce){#nca-app-loading .nca-spinner{animation:none}}
   </style>
+  <!-- Compact dark player matching the supplied portrait/landscape reference. -->
+  <style id="nca-reference-player-style">
+    #football-player-overlay{background:#000}
+    #football-player-topbar{min-height:48px;gap:7px;padding:5px 10px;background:#15151e}
+    #football-player-title{font-size:13px;font-weight:750}
+    #football-player-line-rail{background:#101018}
+    .football-control{background:#1e1e29;border-color:#393945;border-radius:7px;font-size:12px}
+    #football-player-overlay.ios-native-mode #football-player-topbar{
+      min-height:44px;background:#15151e
+    }
+    #football-player-overlay.ios-native-mode #football-player-title{
+      display:block!important;min-width:0;flex:1 1 auto;
+      font-size:12px;font-weight:750
+    }
+    #football-player-video{object-fit:contain}
+    #football-player-video-wrap{background:#000}
+    #football-player-ios-fullscreen{touch-action:manipulation}
+  </style>
 </head>
 <body>
   <!-- Web shell start -->
