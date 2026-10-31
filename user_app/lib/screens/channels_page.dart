@@ -23,11 +23,50 @@ class _ChannelsPageState extends State<ChannelsPage> {
   bool opening = false;
   String selectedGroup = 'All';
   Map<String, int> groupPositions = const {};
+  Map<String, String> nextFootball = const {};
 
   @override
   void initState() {
     super.initState();
     _loadGroupPositions();
+    _loadChannelEpg();
+  }
+
+  /// Optional football-only EPG summary. Its failure never blocks channels.
+  Future<void> _loadChannelEpg() async {
+    try {
+      final now = DateTime.now().toUtc();
+      final today = now.add(const Duration(hours: 6, minutes: 30));
+      final date = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      final data = await request('/tv-schedule?date=$date&days=8');
+      final result = <String, String>{};
+      for (final raw in (data['channels'] as List? ?? const [])) {
+        if (raw is! Map || raw['matchedEPG'] != true) continue;
+        final id = raw['id']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        for (final item in (raw['programmes'] as List? ?? const [])) {
+          if (item is! Map) continue;
+          final title = (item['title'] ?? item['subtitle'] ?? '').toString();
+          final extra = (item['description'] ?? '').toString();
+          final body = '$title $extra';
+          if (!RegExp(r'\\b(vs|v|versus)\\b', caseSensitive: false)
+              .hasMatch(body)) continue;
+          if (RegExp(r'\\b(replay|highlights?|recap|preview|repeat|classic|rugby|cricket|tennis|basketball)\\b',
+              caseSensitive: false).hasMatch(body)) continue;
+          final ms = (item['start'] as num?)?.toInt();
+          if (ms == null) continue;
+          final start = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
+          if (start.isBefore(now.subtract(const Duration(hours: 3)))) continue;
+          final label = title.isNotEmpty ? title : extra;
+          final live = !start.isAfter(now);
+          result[id] = '${live ? 'LIVE' : 'NEXT'} • $label';
+          break;
+        }
+      }
+      if (mounted) setState(() => nextFootball = result);
+    } catch (_) {
+      // Keep channel grid interactive when guide or relay is offline.
+    }
   }
 
   Future<void> _loadGroupPositions() async {
@@ -141,6 +180,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
   Future<void> refresh() async {
     setState(() => catalog = load());
     _loadGroupPositions();
+    _loadChannelEpg();
     try {
       await catalog;
     } catch (_) {}
@@ -421,7 +461,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                           crossAxisCount: 2,
                           crossAxisSpacing: 10,
                           mainAxisSpacing: 12,
-                          mainAxisExtent: 150,
+                          mainAxisExtent: 168,
                         ),
                     itemCount: group.value.length,
                     itemBuilder: (context, index) {
@@ -457,6 +497,21 @@ class _ChannelsPageState extends State<ChannelsPage> {
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
+                              if (nextFootball.containsKey(channel['id']?.toString()))
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                                  child: Text(
+                                    nextFootball[channel['id']!.toString()]!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: Color(0xFF54E6C1),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                         ),
