@@ -330,5 +330,4 @@ class _RetryState extends StatelessWidget {
       );
 }
 
-DateTime _yangon(DateTime value) =>
-    value.toUtc().add(const Duration(hours: 6, minutes: 30));
+
