@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../football_english.dart';
@@ -281,60 +280,6 @@ class _MatchScheduleCard extends StatelessWidget {
             channel: airing.channel, when: airing.when, region: airing.region,
           ),
       ],
-    );
-  }
-}
-
-class _AiringChip extends StatelessWidget {
-  const _AiringChip({required this.airing});
-
-  final TvScheduleAiring airing;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final time = DateFormat('h:mm a', 'en_US').format(_yangon(airing.when));
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: colors.primaryContainer.withValues(alpha: .45),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        '${airing.channel} • $time',
-        style: TextStyle(
-          color: colors.onPrimaryContainer,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-}
-
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.isLive});
-
-  final bool isLive;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: (isLive ? colors.error : colors.primary).withValues(alpha: .12),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        isLive ? 'LIVE' : 'UPCOMING',
-        style: TextStyle(
-          color: isLive ? colors.error : colors.primary,
-          fontSize: 9,
-          fontWeight: FontWeight.w900,
-          letterSpacing: .5,
-        ),
-      ),
     );
   }
 }
