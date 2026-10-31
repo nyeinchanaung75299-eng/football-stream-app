@@ -58,6 +58,14 @@ String catalogGroup(Map<String, dynamic> channel) {
   return value.isEmpty ? 'Other' : value;
 }
 
+/// Dedicated new-channel form; existing channels stay unchanged until Save.
+class ChannelUploadPage extends StatelessWidget {
+  const ChannelUploadPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => const _ChannelEditor();
+}
+
 class ChannelsPage extends StatefulWidget {
   const ChannelsPage({super.key, this.embedded = false});
 
@@ -386,7 +394,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
       appBar: widget.embedded
           ? null
           : AppBar(
-              title: const Text('My Channels'),
+              title: const Text('Edit & Delete Channels'),
               actions: [
                 IconButton(
                   tooltip: 'Reorder channel groups',
@@ -620,6 +628,40 @@ class _ChannelEditorState extends State<_ChannelEditor> {
     }
   }
 
+  Future<void> deleteChannel() async {
+    final id = widget.channel?['id']?.toString();
+    if (id == null || saving) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Delete TV channel?'),
+        content: const Text(
+          'This removes the channel and its lines. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: const Text('CANCEL'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: const Text('DELETE'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => saving = true);
+    try {
+      await Supabase.instance.client.from('channels').delete().eq('id', id);
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (_) {
+      if (mounted) notice('Could not delete channel. Please retry.');
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -714,6 +756,14 @@ class _ChannelEditorState extends State<_ChannelEditor> {
                 onPressed: saving || loadFailed ? null : save,
                 child: Text(saving ? 'SAVING…' : 'SAVE CHANNEL'),
               ),
+              if (widget.channel != null) ...[
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: saving ? null : deleteChannel,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                  label: const Text('DELETE CHANNEL'),
+                ),
+              ],
             ],
           ),
   );
