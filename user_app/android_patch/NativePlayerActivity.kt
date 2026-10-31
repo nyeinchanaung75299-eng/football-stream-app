@@ -289,7 +289,7 @@ class NativePlayerActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(10), dp(12), dp(6))
-            setBackgroundColor(Color.argb(115, 0, 0, 0))
+            setBackgroundColor(Color.rgb(21, 21, 30))
             // Server name / quality / back button stay hidden until player
             // controls are shown by a tap.
             visibility = View.GONE
@@ -395,7 +395,7 @@ class NativePlayerActivity : Activity() {
         }
         serverRailScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
-            setBackgroundColor(Color.argb(150, 0, 0, 0))
+            setBackgroundColor(Color.rgb(16, 16, 24))
             addView(
                 serverRail,
                 FrameLayout.LayoutParams(
