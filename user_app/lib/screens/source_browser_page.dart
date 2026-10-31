@@ -1043,35 +1043,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 52,
-        titleSpacing: 12,
-        bottom: source == 'camel'
-            ? const PreferredSize(
-                preferredSize: Size.fromHeight(32),
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: 8),
-                  child: Text('Watch on Camel1 • sign-in required'),
-                ),
-              )
-            : null,
-        title: Text(
-          title,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w900,
-            letterSpacing: -.25,
-          ),
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh source',
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-          const SizedBox(width: 3),
-        ],
-      ),
+      // Bottom navigation is the only provider label; no duplicate page title.
       body: AnimatedBuilder(
         animation: _feed,
         builder: (_, _) {
@@ -1116,6 +1088,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                     league: _league,
                     leagues: sourceMatchLeagues(allMatches),
                     visibleCount: matches.length,
+                     onRefresh: _refresh,
                     onQueryChanged: (value) => setState(() => _query = value),
                     onTodayChanged: (value) =>
                         setState(() => _todayOnly = value),
