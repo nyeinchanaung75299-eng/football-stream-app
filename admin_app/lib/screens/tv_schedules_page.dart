@@ -187,15 +187,9 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
 }
 
 class _ScheduleData {
-  const _ScheduleData({
-    required this.matches,
-    this.guide,
-    this.guideError,
-  });
+  const _ScheduleData({required this.matches});
 
   final List<Map<String, dynamic>> matches;
-  final TvScheduleGuide? guide;
-  final String? guideError;
 }
 
 class _GuideResult {
