@@ -4,7 +4,7 @@ import { GET as proxy } from './api/proxy.js';
 
 const origin = 'https://backup.example';
 const backend = 'https://woggzixprvyjnfjzsglz.supabase.co';
-const worker = 'https://football-public-api.nyeinchanaung75299-eng.workers.dev';
+const worker = 'https://football-api.nyeinchanaung.us.ci';
 
 async function withFetch(stub, action) {
   const previous = globalThis.fetch;
