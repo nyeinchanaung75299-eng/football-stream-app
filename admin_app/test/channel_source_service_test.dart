@@ -15,6 +15,27 @@ void main() {
     expect(channelMatchesSearch(row, ''), isTrue);
   });
 
+  test('team search finds EPG-confirmed Fubo channels ahead of name matches', () {
+    const channels = <Map<String, dynamic>>[
+      {'id': 'willow', 'name': 'WILLOW SPORTS HD', 'category': 'Cricket'},
+      {'id': 'fubo1', 'name': 'FUBO SPORTS FHD', 'category': 'Sports'},
+      {'id': 'fubo2', 'name': 'Fubo Sports Network Canada', 'category': 'Sports'},
+      {'id': 'arsenal', 'name': 'Arsenal TV', 'category': 'Club'},
+    ];
+    const guide = <Map<String, dynamic>>[
+      {'channel_id': 'fubo1', 'home_team': 'Liverpool', 'away_team': 'Arsenal'},
+      {'channel_id': 'fubo2', 'home_team': 'Liverpool', 'away_team': 'Arsenal'},
+      {'channel_id': 'willow', 'home_team': 'Bengal', 'away_team': 'Mumbai'},
+    ];
+    final matches = searchChannelsWithEpg(channels, guide, 'Arsenal');
+    expect(matches.map((row) => row['id']).toList(),
+        ['fubo1', 'fubo2', 'arsenal']);
+    expect(matches.first['epg_fixture'], 'Liverpool Arsenal');
+    expect(searchChannelsWithEpg(channels, guide, 'Fubo').length, 2);
+    expect(searchChannelsWithEpg(channels, guide, '').length, 4);
+    expect(searchChannelsWithEpg(channels, [], 'Willow').length, 1);
+  });
+
   test(
       'selection reads the first active private line and preserves DRM/headers',
       () async {
