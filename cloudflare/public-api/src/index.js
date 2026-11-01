@@ -768,7 +768,7 @@ function sanitizeTvSchedule(raw, date, days) {
     days,
     timezone: text(source.timezone, 80) || "Asia/Yangon",
     updated_at: text(source.updated_at, 80) || new Date().toISOString(),
-    sources: Array.isArray(source.sources) ? source.sources.slice(0, 16)
+    sources: Array.isArray(source.sources) ? source.sources.slice(0, 32)
       .map((row) => ({ name: text(row?.name, 80), ok: row?.ok === true }))
       .filter((row) => row.name) : [],
     matched_channels: Array.isArray(source.channels)
