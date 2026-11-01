@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="NCA Admin — Manage live matches and TV channels">
+  <meta name="theme-color" content="#0A121C">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="NCA Admin">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="manifest" href="manifest.json">
+  <link rel="preload" href="main.dart.js" as="script" crossorigin="anonymous">
+  <title>NCA Admin</title>
+  <style>
+    html,body {margin:0;min-height:100%;background:#0A121C;color:#e8f7f2;font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif}
+    #nca-startup-shell {position:fixed;inset:0;z-index:2147483640;display:flex;align-items:center;justify-content:center;background:#0A121C;box-sizing:border-box;padding:26px;text-align:center}
+    #nca-startup-inner {max-width:340px;width:100%}
+    #nca-startup-logo {display:inline-flex;width:66px;height:66px;border-radius:22px;background:#193a36;color:#54E6C1;align-items:center;justify-content:center;font-size:34px;font-weight:900}
+    #nca-startup-title {margin:19px 0 8px;font-size:25px;font-weight:800;letter-spacing:-.5px}
+    #nca-startup-message {font-size:14px;line-height:1.65;color:#afc3bc;min-height:48px}
+    #nca-startup-spinner {margin:20px auto;width:32px;height:32px;border:3px solid #234f48;border-top-color:#54E6C1;border-radius:50%;animation:nca-spin 1s linear infinite}
+    @keyframes nca-spin {to{transform:rotate(360deg)}}
+    #nca-startup-retry {display:none;margin:14px auto 0;padding:12px 22px;border:0;border-radius:13px;background:#54E6C1;color:#052018;font-size:14px;font-weight:800;cursor:pointer}
+    #nca-startup-detail {margin-top:14px;color:#879c98;font-size:12px}
+    @media (prefers-reduced-motion:reduce){#nca-startup-spinner{animation:none}}
+  </style>
+</head>
+<body>
+  <!-- Render immediately, even when Flutter JS/WASM is slow on mobile networks. -->
+  <div id="nca-startup-shell" role="status" aria-live="polite">
+    <div id="nca-startup-inner">
+      <div id="nca-startup-logo" aria-hidden="true">A</div>
+      <div id="nca-startup-title">NCA Admin</div>
+      <div id="nca-startup-spinner" aria-hidden="true"></div>
+      <div id="nca-startup-message">Loading Admin website…</div>
+      <button id="nca-startup-retry" type="button">Retry loading</button>
+      <div id="nca-startup-detail">Secure Admin login • GitHub Pages</div>
+    </div>
+  </div>
+  <script>
+  (function () {
+    'use strict';
+    var shell = document.getElementById('nca-startup-shell');
+    var message = document.getElementById('nca-startup-message');
+    var button = document.getElementById('nca-startup-retry');
+    var completed = false;
+    var rendererSeen = false;
+    function finish() {
+      if (completed) return;
+      completed = true;
+      if (shell) shell.remove();
+      observer.disconnect();
+    }
+    function warn(text) {
+      if (completed) return;
+      message.textContent = text;
+      button.style.display = 'block';
+    }
+    button.addEventListener('click', function () {
+      button.disabled = true;
+      message.textContent = 'Retrying Admin website…';
+      window.location.reload();
+    });
+    window.addEventListener('flutter-first-frame', finish, {once:true});
+    document.addEventListener('flutter-first-frame', finish, {once:true});
+    // Old/new Flutter web engines differ in event propagation on Safari.
+    // A real Flutter host with rendered children is a safe secondary signal.
+    var observer = new MutationObserver(function () {
+      if (completed || rendererSeen) return;
+      var flutter = document.querySelector('flutter-view');
+      if (flutter && flutter.children.length > 0) {
+        rendererSeen = true;
+        setTimeout(finish, 1200);
+      }
+    });
+    observer.observe(document.body, {childList:true, subtree:true});
+    window.addEventListener('error', function (event) {
+      if (completed) return;
+      var filename = String(event.filename || (event.target && event.target.src) || '');
+      if (/flutter_bootstrap\.js|main\.dart\.js|canvaskit|skwasm/i.test(filename)) {
+        warn('The Admin web engine could not load. Check your connection and retry.');
+      }
+    }, true);
+    setTimeout(function () {
+      if (completed) return;
+      message.textContent = 'Still loading. A weak connection may delay the Admin web engine.';
+    }, 12000);
+    setTimeout(function () {
+      if (completed) return;
+      warn('Loading is taking longer than expected. You can retry this page.');
+    }, 30000);
+  })();
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
