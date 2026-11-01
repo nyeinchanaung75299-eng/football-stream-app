@@ -37,6 +37,17 @@
     {label:'Supabase relay • us.ci',base:'https://supabase-api.nyeinchanaung.us.ci',kind:'backend'},
     {label:'Supabase relay • ccwu.cc',base:'https://supabase-api.nyeinchanaung.ccwu.cc',kind:'backend'},
   ];
+  // The metadata API may be reached through Vercel/Pages, while the
+  // canonical signed media endpoint lives on a Cloudflare custom domain.
+  // Do not reject it merely because its origin differs from the API route.
+  const approvedMediaOrigins=new Set([
+    'https://football-api.nyeinchanaung.us.ci',
+    'https://football-api.nyeinchanaung.ccwu.cc',
+  ]);
+  function isAllowedMediaUrl(url,apiBase){
+    return url.origin===apiBase ||
+      (approvedMediaOrigins.has(url.origin) && url.pathname.startsWith('/p/'));
+  }
   const run=document.getElementById('run'),copy=document.getElementById('copy');
   const status=document.getElementById('status'),list=document.getElementById('results');
   const summary=document.getElementById('summary');
@@ -127,18 +138,18 @@
       if(!line)throw new Error('API OK • HLS/DASH စမ်းဖို့ line မရှိပါ');
       result.line=String(line.label || 'Line').slice(0,80);
       const manifestUrl=new URL(line.stream_url);
-      if(manifestUrl.origin!==route.base)throw new Error('Stream points to a different API host');
+      if(!isAllowedMediaUrl(manifestUrl,route.base))throw new Error('Stream URL is not an approved playback host');
       let manifest=(await step('Manifest',manifestUrl)).text;
       let next=mediaUrl(manifest,manifestUrl);
       result.manifest=manifest.trimStart().startsWith('#EXTM3U') || /<(?:[A-Za-z_][\w.-]*:)?MPD[\s>]/.test(manifest);
       if(!result.manifest || !next)throw new Error('Manifest ရပေမယ့် media URL ကို မစမ်းနိုင်သေးပါ');
-      if(next.origin!==route.base)throw new Error('Media points to a different API host');
+      if(!isAllowedMediaUrl(next,route.base))throw new Error('Media URL is not an approved playback host');
       // A master HLS playlist may point to a child playlist. Resolve one
       // level before sampling a media chunk, without downloading full video.
       if(manifest.trimStart().startsWith('#EXTM3U') && !manifest.includes('#EXTINF') && !manifest.includes('#EXT-X-MAP')){
         const child=(await step('HLS playlist',next)).text;
         next=mediaUrl(child,next);
-        if(!next || next.origin!==route.base)throw new Error('No media URL on this route');
+        if(!next || !isAllowedMediaUrl(next,route.base))throw new Error('No approved media URL on this route');
       }
       const media=await step('Video data',next,{sample:true});
       if(!media.bytes)throw new Error('Media response was empty');
