@@ -286,11 +286,53 @@ class TvScheduleService {
   final http.Client? _httpClient;
   final List<String>? _apiBases;
 
-  Future<TvScheduleGuide> load({DateTime? now}) async {
+  // Both Admin tabs read exactly the same public guide. Reuse one in-flight
+  // request and the successful response for two minutes when changing tabs.
+  // Injected clients / explicit dates remain uncached for deterministic tests.
+  static Future<TvScheduleGuide>? _sharedGuide;
+  static String? _sharedDate;
+  static DateTime? _sharedLoadedAt;
+  static int _sharedGeneration = 0;
+  static const guideDays = 3;
+  static const _sharedTtl = Duration(minutes: 2);
+
+  Future<TvScheduleGuide> load({DateTime? now, bool refresh = false}) {
+    final date = _yangonDate(now ?? DateTime.now());
+    if (_httpClient != null || _apiBases != null || now != null) {
+      return _fetch(date);
+    }
+    final loaded = _sharedLoadedAt;
+    if (!refresh && _sharedGuide != null && _sharedDate == date &&
+        (loaded == null ||
+         DateTime.now().difference(loaded) < _sharedTtl)) {
+      return _sharedGuide!;
+    }
+    final generation = ++_sharedGeneration;
+    _sharedDate = date;
+    _sharedLoadedAt = null;
+    Future<TvScheduleGuide> getAndRemember() async {
+      try {
+        final guide = await _fetch(date);
+        if (generation == _sharedGeneration) {
+          _sharedLoadedAt = DateTime.now();
+        }
+        return guide;
+      } catch (_) {
+        if (generation == _sharedGeneration) {
+          _sharedGuide = null;
+          _sharedDate = null;
+          _sharedLoadedAt = null;
+        }
+        rethrow;
+      }
+    }
+    return _sharedGuide = getAndRemember();
+  }
+
+  Future<TvScheduleGuide> _fetch(String date) async {
     final client = _httpClient ?? http.Client();
     final ownsClient = _httpClient == null;
     try {
-      final date = _yangonDate(now ?? DateTime.now());
       // Use the configured custom domain first. The workers.dev hostname can
       // serve an older deployment while the production route is updated.
       final bases = _apiBases ?? publicApiBases();
@@ -299,7 +341,7 @@ class TvScheduleService {
         if (base.isEmpty) continue;
         try {
           final uri = Uri.parse('$base/tv-schedule').replace(
-            queryParameters: {'date': date, 'days': '8'},
+            queryParameters: {'date': date, 'days': '$guideDays'},
           );
           final response = await client
               .get(uri, headers: const {'Accept': 'application/json'})
