@@ -142,6 +142,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
             throw const FormatException('Invalid channel response');
           }
           if (!result.isCompleted) {
+            rememberVerifiedPublicApiBase(base);
             result.complete(Map<String, dynamic>.from(decoded));
           }
         } catch (error) {
