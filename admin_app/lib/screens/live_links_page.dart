@@ -163,10 +163,28 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
           .eq('match_id', id)
           .order('programme_start')
           .timeout(const Duration(seconds: 12));
+      final guide = List<Map<String, dynamic>>.from(result);
+      try {
+        final linkedRows = await Supabase.instance.client
+            .from('stream_links')
+            .select('channel_id,channel_line_id')
+            .eq('match_id', id)
+            .timeout(const Duration(seconds: 12));
+        final linkedIds = List<Map<String, dynamic>>.from(linkedRows)
+            .where((row) => row['channel_line_id'] != null)
+            .map((row) => row['channel_id']?.toString())
+            .toSet();
+        for (final row in guide) {
+          row['auto_attached'] =
+              linkedIds.contains(row['channel_id']?.toString());
+        }
+      } catch (_) {
+        // The verified EPG data can still be displayed without link status.
+      }
       if (mounted && matchId == id) {
         setState(() => _linksFuture = _startLinksLoad());
       }
-      return List<Map<String, dynamic>>.from(result);
+      return guide;
     } catch (_) {
       return <Map<String, dynamic>>[];
     }
@@ -207,8 +225,9 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                             ? ((row['channels'] as Map)['name']?.toString()
                                 ?? 'TV Channel')
                             : 'TV Channel'),
-                        subtitle: const Text(
-                            'EPG matched • eligible direct lines auto-added'),
+                        subtitle: Text(row['auto_attached'] == true
+                            ? 'Direct channel line auto-saved to match'
+                            : 'EPG verified • direct line not attached'),
                       ),
                     Text('Protected channels are listed for reference. '
                         'DRM keys and session URLs are not copied.',
