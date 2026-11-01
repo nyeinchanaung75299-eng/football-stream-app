@@ -24,6 +24,8 @@ class MatchChannelLinesPage extends StatefulWidget {
 class _MatchChannelLinesPageState extends State<MatchChannelLinesPage> {
   late Future<List<Map<String, dynamic>>> _lines = _load();
   bool _adding = false;
+  bool _syncingGuide = false;
+  String? _lastGuideSummary;
   String? _removingId;
 
   String get _matchId => widget.match['id'].toString();
@@ -129,6 +131,42 @@ class _MatchChannelLinesPageState extends State<MatchChannelLinesPage> {
       _message('Could not add this TV channel line. Please retry.');
     } finally {
       if (mounted) setState(() => _adding = false);
+    }
+  }
+
+  // Uses server-side EPG matching. No player URL or DRM key crosses the UI.
+  Future<void> _syncGuide() async {
+    if (_syncingGuide) return;
+    setState(() => _syncingGuide = true);
+    try {
+      final result = await Supabase.instance.client.functions
+          .invoke('auto-match-channels', body: {'match_id': _matchId})
+          .timeout(const Duration(seconds: 65));
+      if (result.status < 200 || result.status >= 300) {
+        _message('TV schedule sync unavailable. Existing match lines are unchanged.');
+        return;
+      }
+      final payload = result.data;
+      if (payload is! Map || payload['ok'] != true) {
+        _message('TV schedule could not be verified. Refresh and retry.');
+        return;
+      }
+      final mapped = (payload['mapped'] as num?)?.toInt() ?? 0;
+      final attached = (payload['addedLines'] as num?)?.toInt() ?? 0;
+      final protected = (payload['skippedProtected'] as num?)?.toInt() ?? 0;
+      final message = 'EPG matched $mapped channel(s), added $attached direct line(s). '
+          '$protected channel(s) have no eligible keyless direct line.';
+      if (mounted) setState(() => _lastGuideSummary = message);
+      _message(message);
+      _reload();
+    } on TimeoutException {
+      _message('TV guide sync timed out. Refresh to check for saved results.');
+      _reload();
+    } catch (_) {
+      _message('TV schedule sync failed. No existing lines were removed.');
+      _reload();
+    } finally {
+      if (mounted) setState(() => _syncingGuide = false);
     }
   }
 
@@ -249,6 +287,40 @@ class _MatchChannelLinesPageState extends State<MatchChannelLinesPage> {
                             : DateFormat('EEE, d MMM • h:mm a', 'en_US')
                                 .format(kickoff),
                         style: TextStyle(color: colors.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('📺 AUTO USE CHANNELS • TV SCHEDULE',
+                          style: TextStyle(fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 7),
+                      const Text(
+                        'Checks confirmed football EPG (both teams + kickoff time). '
+                        'Direct keyless channel lines are attached automatically. '
+                        'Protected channel lines stay in the Channels catalog; '
+                        'your manually attached match lines are preserved.',
+                      ),
+                      if (_lastGuideSummary != null) ...[
+                        const SizedBox(height: 9),
+                        Text(_lastGuideSummary!),
+                      ],
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: _syncingGuide ? null : _syncGuide,
+                        icon: _syncingGuide
+                            ? const SizedBox(width: 16, height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.auto_awesome_rounded),
+                        label: Text(_syncingGuide ? 'SYNCING TV GUIDE…' :
+                            'SYNC MATCH CHANNELS NOW'),
                       ),
                     ],
                   ),
