@@ -962,6 +962,7 @@
       index=Math.max(0,Math.min(Number(index)||0,sources.length-1));
       const source=sources[index], url=String(source.url||'').trim(), type=sourceType(source);
       const support=sourceSupport(source);
+      let engineReadyMs=0;
 
       currentSourceIndex=index;
       updateServerButton(index);
@@ -986,6 +987,7 @@
           line_count:sources.length,
           stream_type:type,
           startup_ms:Math.max(0,Math.round(playbackClock()-playbackAttemptStartedAt)),
+          engine_ready_ms:engineReadyMs,
           resolution:/^(\d{3,4}p|auto|hd|sd|fhd|uhd|4k)$/i.test(String(source.resolution||''))
             ? String(source.resolution).toLowerCase() : 'unknown',
           health_status:['healthy','unknown','slow','failed'].includes(source.healthStatus||source.health_status)
@@ -1000,7 +1002,9 @@
         return;
       }
       try{
+        const engineStartedAt=playbackClock();
         await ensurePlayerEngine(type,url);
+        engineReadyMs=Math.max(0,Math.round(playbackClock()-engineStartedAt));
         if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
         if(type==='flv'){
           if(!window.mpegts||!mpegts.isSupported())throw new Error('FLV is not supported by this browser.');
