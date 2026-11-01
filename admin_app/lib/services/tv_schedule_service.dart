@@ -342,60 +342,7 @@ List<String> _teamAliases(String team) {
   if (short.length >= 4) values.add(short);
   final simplified = normalised
       .replaceFirst(RegExp(r'^(?:s s c|a s|a c|r c|u s|f c|fc|cf|ac|rc|ssc|sc)\s+'), '')
-      .replaceFirst(RegExp(r'\s+(?:f c|a c|s c|c f|fc|cf|afc|sc|balompie)
-
-  const overrides = <String, List<String>>{
-    'udinese calcio': ['udinese'],
-    'a s roma': ['roma', 'as roma'],
-    'real betis balompie': ['real betis', 'betis'],
-    'racing santander': ['racing de santander'],
-    'juventus f c': ['juventus'],
-    's s c napoli': ['napoli'],
-    'rc strasbourg alsace': ['strasbourg'],
-    'olympique lyonnais': ['lyon'],
-    'olympique de marseille': ['marseille'],
-    'bologna f c 1909': ['bologna'],
-    'a c monza': ['monza'],
-    'ac milan': ['milan'],
-    'inter milan': ['inter'],
-    'bayer 04 leverkusen': ['leverkusen', 'bayer leverkusen'],
-    'vfb stuttgart': ['stuttgart'],
-    'fc bayern munich': ['bayern', 'bayern munich'],
-    'borussia dortmund': ['dortmund'],
-    'atalanta b c': ['atalanta'],
-    'acf fiorentina': ['fiorentina'],
-    'newcastle united': ['newcastle'],
-    'newcastle utd': ['newcastle'],
-    'fc bayern munchen': ['bayern munchen', 'bayern munich', 'bayern'],
-    'athletic club': ['athletic bilbao', 'athletic club'],
-    'sevilla fc': ['sevilla'],
-    'ae prat': ['ae prat', 'prat'],
-    'sporting hortaleza': ['sporting hortaleza'],
-    'fc magdeburg': ['magdeburg'],
-    '1 fc magdeburg': ['magdeburg'],
-  };
-  values.addAll(overrides[normalised] ?? const []);
-  return values
-      .map(_normalise)
-      .where((value) => value.length >= 4)
-      .toSet()
-      .toList(growable: false);
-}
-
-bool _containsAlias(String body, List<String> aliases) => aliases.any(
-      (alias) => ' $body '.contains(' $alias '),
-    );
-
-bool _looksLikeMatch(String body) => RegExp(
-      r'\b(?:vs|v|versus)\b',
-      caseSensitive: false,
-    ).hasMatch(body);
-
-bool _isReplay(String body) => RegExp(
-      r'\b(?:replay|repeat|re run|rebroadcast|recorded|highlights?|mini match|full impact|classic|recap|review|magazine|preview|match of the day|z zaznam|zaznam|aufzeichnung|ripetizione|rediffusion|resume|resumen|souhrn)\b',
-      caseSensitive: false,
-    ).hasMatch(body);
-), '')
+      .replaceFirst(RegExp(r'\s+(?:f c|a c|s c|c f|fc|cf|afc|sc|balompie)$'), '')
       .trim();
   if (simplified.length >= 5) values.add(simplified);
 
@@ -451,9 +398,7 @@ bool _isReplay(String body) => RegExp(
       caseSensitive: false,
     ).hasMatch(body);
 
-/// TV guide sources include non-football events written as "Team A v Team B".
-/// The simple team-versus-team pattern is not proof of association football.
-/// These are known other-sport descriptions; don't classify them as soccer.
+/// Other sports may also have team-v-team listings, but they are not soccer.
 bool _isNonFootball(String body) => RegExp(
   r'\b(?:aflw?|australian rules|aussie rules|essendon bombers|collingwood magpies|'
   r'american football|super bowl|nfl|nba|wnba|basketball|baseball|mlb|nhl|'
