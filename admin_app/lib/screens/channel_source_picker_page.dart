@@ -14,7 +14,59 @@ class _ChannelSourcePickerPageState extends State<ChannelSourcePickerPage> {
   final search = TextEditingController();
   late final service = ChannelSourceService(Supabase.instance.client);
   late Future<List<Map<String, dynamic>>> catalog = service.list();
+  Future<List<Map<String, dynamic>>>? _guide;
   String? openingId;
+
+  Future<List<Map<String, dynamic>>> _loadGuide() async {
+    try {
+      return await service.listEpgFixtureChannels();
+    } catch (_) {
+      // Keep ordinary channel-name search usable if EPG is unavailable.
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  Widget _channelResults(List<Map<String, dynamic>> rows) {
+    if (rows.isEmpty) {
+      return Center(
+        child: Text(search.text.trim().isEmpty
+            ? 'No channels yet.'
+            : 'No matching channels or verified TV schedule.'),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: rows.length,
+      itemBuilder: (context, index) {
+        final row = rows[index];
+        final image = row['image_url']?.toString() ?? '';
+        final fixture = row['epg_fixture']?.toString();
+        return Card(
+          child: ListTile(
+            enabled: openingId == null,
+            leading: image.startsWith('https://')
+                ? Image.network(image,
+                    width: 52,
+                    height: 42,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(Icons.tv))
+                : const Icon(Icons.tv),
+            title: Text(row['name']?.toString() ?? 'Channel'),
+            subtitle: Text(fixture == null
+                ? '${row['category'] ?? ''}${row['is_active'] == false ? ' • Hidden' : ''}'
+                : 'EPG • $fixture${row['is_active'] == false ? ' • Hidden' : ''}'),
+            trailing: openingId == row['id'].toString()
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.add_link),
+            onTap: () => choose(row),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   void dispose() {
@@ -50,7 +102,12 @@ class _ChannelSourcePickerPageState extends State<ChannelSourcePickerPage> {
             preferredSize: const Size.fromHeight(64),
             child: ChannelSearchField(
               controller: search,
-              onChanged: (_) => setState(() {}),
+              onChanged: (value) {
+                if (value.trim().isNotEmpty) {
+                  _guide ??= _loadGuide();
+                }
+                setState(() {});
+              },
             ),
           ),
         ),
@@ -69,43 +126,19 @@ class _ChannelSourcePickerPageState extends State<ChannelSourcePickerPage> {
             if (!snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
-            final rows = snapshot.data!
-                .where((r) => channelMatchesSearch(r, search.text))
-                .toList();
-            if (rows.isEmpty) {
-              return Center(
-                  child: Text(search.text.trim().isEmpty
-                      ? 'No channels yet.'
-                      : 'No matching channels.'));
+            final query = search.text.trim();
+            if (query.isEmpty) {
+              return _channelResults(snapshot.data!);
             }
-            return ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: rows.length,
-              itemBuilder: (context, index) {
-                final row = rows[index];
-                final image = row['image_url']?.toString() ?? '';
-                return Card(
-                  child: ListTile(
-                    enabled: openingId == null,
-                    leading: image.startsWith('https://')
-                        ? Image.network(image,
-                            width: 52,
-                            height: 42,
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => const Icon(Icons.tv))
-                        : const Icon(Icons.tv),
-                    title: Text(row['name']?.toString() ?? 'Channel'),
-                    subtitle: Text(
-                        '${row['category'] ?? ''}${row['is_active'] == false ? ' • Hidden' : ''}'),
-                    trailing: openingId == row['id'].toString()
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.add_link),
-                    onTap: () => choose(row),
-                  ),
-                );
+            return FutureBuilder<List<Map<String, dynamic>>>(
+              future: _guide ??= _loadGuide(),
+              builder: (context, guideSnapshot) {
+                final rows = searchChannelsWithEpg(
+                    snapshot.data!, guideSnapshot.data ?? [], query);
+                if (rows.isEmpty && !guideSnapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                return _channelResults(rows);
               },
             );
           },
