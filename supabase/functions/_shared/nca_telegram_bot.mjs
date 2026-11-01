@@ -72,6 +72,73 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
         "\n" + text(m.league, 70) + " • " + dateInMyanmar(m.kickoff_at)).join("\n\n") +
       "\n\nWatch on NCA: " + VIEWER_SITE;
   }
+  // Private Admin navigation: only safe, non-credential channel metadata is sent.
+  const PAGE_SIZE = 8;
+  function makePage(rows, page, prefix, title) {
+    const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+    const requested = /^\d{1,4}$/.test(String(page)) ? Number(page) : 0;
+    const current = Math.min(Math.max(requested, 0), totalPages - 1);
+    const inline_keyboard = rows.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE)
+      .map(row => [{ text: text(row.name, 58), callback_data: "channel:" + row.id }]);
+    const navigation = [];
+    if (current > 0) navigation.push({ text: "⬅️ Previous", callback_data: prefix + ":" + (current - 1) });
+    if (current + 1 < totalPages) navigation.push({ text: "Next ➡️", callback_data: prefix + ":" + (current + 1) });
+    if (navigation.length) inline_keyboard.push(navigation);
+    inline_keyboard.push([
+      { text: "📁 Categories", callback_data: "/categories" },
+      { text: "🏠 Main menu", callback_data: "/start" },
+    ]);
+    return {
+      responseText: "📺 " + title + " (" + rows.length + ")\nPage " + (current + 1) +
+        "/" + totalPages + "\nSelect a channel to view its details.",
+      keyboard: { inline_keyboard },
+    };
+  }
+  function groupCategories(rows) {
+    const groups = new Map();
+    for (const row of rows) {
+      const category = String(row.category || "Other").trim() || "Other";
+      groups.set(category, (groups.get(category) || 0) + 1);
+    }
+    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }
+  function makeCategoryPage(rows, page) {
+    const groups = groupCategories(rows);
+    const totalPages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
+    const requested = /^\d{1,4}$/.test(String(page)) ? Number(page) : 0;
+    const current = Math.min(Math.max(requested, 0), totalPages - 1);
+    const inline_keyboard = groups.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE)
+      .map(([name, count], index) => [{
+        text: text(name, 42) + " (" + count + ")",
+        callback_data: "cat:" + (current * PAGE_SIZE + index) + ":0",
+      }]);
+    const navigation = [];
+    if (current > 0) navigation.push({ text: "⬅️ Previous", callback_data: "cats:" + (current - 1) });
+    if (current + 1 < totalPages) navigation.push({ text: "Next ➡️", callback_data: "cats:" + (current + 1) });
+    if (navigation.length) inline_keyboard.push(navigation);
+    inline_keyboard.push([{ text: "📺 All Channels", callback_data: "/channels" },
+      { text: "🏠 Main menu", callback_data: "/start" }]);
+    return {
+      responseText: "📁 Categories (" + groups.length + ")\nPage " + (current + 1) + "/" +
+        totalPages + "\nChoose a category.",
+      keyboard: { inline_keyboard },
+    };
+  }
+  function searchToken(query) {
+    const bytes = new TextEncoder().encode(query);
+    if (!bytes.length || bytes.length > 32) return null;
+    return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function decodeSearchToken(token) {
+    if (!/^[A-Za-z0-9_-]{1,43}$/.test(token)) return null;
+    try {
+      const decoded = atob(token.replace(/-/g, "+").replace(/_/g, "/"));
+      const bytes = Uint8Array.from(decoded, ch => ch.charCodeAt(0));
+      return bytes.length > 32 ? null : new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      return null;
+    }
+  }
   async function channelList(env, onlyBein) {
     const rows = await database("channels?select=id,name,category,epg_id,epg_source" +
       "&is_active=eq.true&order=name.asc&limit=250", env);
@@ -82,16 +149,17 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     const rows = await database("channels?select=id,name,category,epg_id,epg_source" +
       "&is_active=eq.true&id=eq." + encodeURIComponent(id) + "&limit=1", env);
     if (!rows.length) return "Channel not found.";
-    const lines = await database("channel_lines?select=stream_type,health_status,last_checked_at" +
+    // Never retrieve stream_url, key_id, key_data, or session credentials in Telegram.
+    const lines = await database("channel_lines?select=label,stream_type,health_status,last_checked_at" +
       "&is_active=eq.true&channel_id=eq." + encodeURIComponent(id) + "&limit=20", env);
     const channel = rows[0];
-    const statuses = lines.map((line, n) => "Line " + (n + 1) + ": " +
-      text(line.stream_type, 20) + " • " + text(line.health_status || "unknown", 30));
-    return "📺 " + text(channel.name, 110) + "\nCategory: " +
-      text(channel.category, 65) + "\nEPG: " +
-      text(channel.epg_id || "Not linked", 80) +
-      "\nActive lines: " + lines.length + "\n" + statuses.join("\n") +
-      "\n\nManage protected stream details in NCA Admin:\n" + ADMIN_SITE;
+    const statuses = lines.map((line, n) => "Line " + (n + 1) +
+      " (" + text(line.label || "Server", 28) + "): " + text(line.stream_type || "auto", 16) +
+      " • " + text(line.health_status || "unknown", 22));
+    return "📺 " + text(channel.name, 110) + "\nCategory: " + text(channel.category, 65) +
+      "\nEPG: " + text(channel.epg_id || "Not linked", 80) +
+      "\nActive lines: " + lines.length + (statuses.length ? "\n" + statuses.join("\n") : "") +
+      "\n\nManage protected playback details in the authenticated NCA Admin:\n" + ADMIN_SITE;
   }
   async function health(env) {
     const [channels, lines] = await Promise.all([
@@ -177,20 +245,63 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
         responseText = await health(env);
       } else if (cmd === "/build") {
         responseText = await builds();
-      } else if (cmd === "/bein") {
-        const rows = (await channelList(env, true)).slice(0, 30);
-        responseText = "📺 beIN Sports (" + rows.length + ")\nSelect a channel for metadata:";
-        keyboard = { inline_keyboard: rows.map(r => [{
-          text: text(r.name, 55), callback_data: "channel:" + r.id,
-        }]) };
-        if (!rows.length) responseText = "No active beIN Sports channel found.";
+      } else if (cmd === "/channels" || /^all:\d{1,4}$/.test(raw)) {
+        const rows = await channelList(env, false);
+        ({ responseText, keyboard } = makePage(rows, cmd === "/channels" ? 0 : raw.split(":")[1],
+          "all", "All Channels"));
+      } else if (cmd === "/categories" || /^cats:\d{1,4}$/.test(raw)) {
+        const rows = await channelList(env, false);
+        ({ responseText, keyboard } = makeCategoryPage(rows, cmd === "/categories" ? 0 : raw.split(":")[1]));
+      } else if (/^cat:\d{1,4}:\d{1,4}$/.test(raw)) {
+        const [_, categoryIndex, page] = raw.split(":");
+        const rows = await channelList(env, false);
+        const categories = groupCategories(rows);
+        const category = categories[Number(categoryIndex)]?.[0];
+        if (!category) {
+          responseText = "Category not found. Open /categories again.";
+        } else {
+          ({ responseText, keyboard } = makePage(
+            rows.filter(row => (String(row.category || "Other").trim() || "Other") === category),
+            page, "cat:" + categoryIndex, category));
+        }
+      } else if (cmd === "/bein" || /^bein:\d{1,4}$/.test(raw)) {
+        const rows = await channelList(env, true);
+        ({ responseText, keyboard } = makePage(rows, cmd === "/bein" ? 0 : raw.split(":")[1],
+          "bein", "beIN Sports"));
+      } else if (cmd === "/search" || /^search:[A-Za-z0-9_-]{1,43}:\d{1,4}$/.test(raw)) {
+        let query, page = 0, token;
+        if (cmd === "/search") {
+          query = raw.replace(/^\/search(?:@\w+)?/i, "").trim();
+          token = searchToken(query);
+        } else {
+          const parts = raw.split(":");
+          token = parts[1];
+          page = parts[2];
+          query = decodeSearchToken(token);
+        }
+        if (!query) {
+          responseText = "🔎 Search channels\nSend /search followed by a channel name.\nExample: /search sports";
+        } else if (!token || !decodeSearchToken(token)) {
+          responseText = "Search is too long. Use a shorter name (up to 32 UTF-8 bytes).";
+        } else {
+          const rows = (await channelList(env, false)).filter(row =>
+            String(row.name || "").toLocaleLowerCase().includes(query.toLocaleLowerCase()) ||
+            String(row.category || "").toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+          ({ responseText, keyboard } = makePage(rows, page, "search:" + token, 'Search: ' + text(query, 45)));
+        }
       } else if (raw.startsWith("channel:")) {
         responseText = await channelDetails(raw.slice("channel:".length), env);
+        keyboard = { inline_keyboard: [
+          [{ text: "📺 All Channels", callback_data: "/channels" },
+           { text: "📁 Categories", callback_data: "/categories" }],
+          [{ text: "🏠 Main menu", callback_data: "/start" }],
+        ] };
       } else {
-        responseText = "🛡️ NCA Private Admin\nRead-only commands: /health /bein /build /whoami.\n" +
+        responseText = "🛡️ NCA Private Admin\nCommands: /channels /categories /search /bein /health /build /whoami.\n" +
           "Protected stream data and keys stay in the authenticated Admin website.";
         keyboard = { inline_keyboard: [
-          [{ text: "📺 beIN Sports", callback_data: "/bein" }],
+          [{ text: "📺 All Channels", callback_data: "/channels" }, { text: "📁 Categories", callback_data: "/categories" }],
+          [{ text: "🔎 Search", callback_data: "/search" }, { text: "📺 beIN Sports", callback_data: "/bein" }],
           [{ text: "🟢 Channel Health", callback_data: "/health" }, { text: "🛠️ Builds", callback_data: "/build" }],
           [{ text: "Open Admin", url: ADMIN_SITE }],
         ] };
