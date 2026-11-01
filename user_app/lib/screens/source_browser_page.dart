@@ -51,6 +51,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
   late final LiveFeedController<List<Map<String, dynamic>>> _feed;
   Timer? _sourceRefreshTimer;
+  DateTime? _lastSourcePoll;
   bool _openingPlayer = false;
   int _sourceGeneration = 0;
   SourceLineLoader? _sourceOperation;
@@ -115,6 +116,13 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           !_openingPlayer &&
           (state == null || state == AppLifecycleState.resumed) &&
           ModalRoute.of(context)?.isCurrent != false) {
+        final live = _feed.data?.any(_live) ?? false;
+        final now = DateTime.now();
+        if (!live && _lastSourcePoll != null &&
+            now.difference(_lastSourcePoll!) < const Duration(minutes: 2)) {
+          return;
+        }
+        _lastSourcePoll = now;
         unawaited(_refresh(silent: true));
       }
     });
@@ -124,6 +132,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   void didUpdateWidget(covariant SourceBrowserPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.source != widget.source) {
+      _lastSourcePoll = null;
       _cancelSourceOperation();
       _query = '';
       _searchController.clear();
