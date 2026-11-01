@@ -3,7 +3,7 @@ import test from 'node:test';
 import { GET as proxy } from './api/proxy.js';
 
 const origin = 'https://backup.example';
-const backend = 'https://supabase-api.nyeinchanaung.us.ci';
+const backend = 'https://woggzixprvyjnfjzsglz.supabase.co';
 const worker = 'https://football-public-api.nyeinchanaung75299-eng.workers.dev';
 
 async function withFetch(stub, action) {
@@ -11,6 +11,20 @@ async function withFetch(stub, action) {
   globalThis.fetch = stub;
   try { return await action(); } finally { globalThis.fetch = previous; }
 }
+
+test('Admin health checks real Supabase Auth with a caller-supplied public key', async () => {
+  await withFetch(async (url, init) => {
+    assert.equal(String(url), backend + '/auth/v1/health');
+    assert.equal(init.headers.get('apikey'), 'test-public-key');
+    return Response.json({name: 'GoTrue'});
+  }, async () => {
+    const response = await proxy(new Request(origin + '/backend-health', {
+      headers: {'apikey': 'test-public-key'},
+    }));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).name, 'GoTrue');
+  });
+});
 
 test('Auth credentials, user JWTs, REST writes and count headers pass through unchanged', async () => {
   const seen = [];

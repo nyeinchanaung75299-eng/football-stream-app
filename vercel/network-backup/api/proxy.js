@@ -1,5 +1,6 @@
 const publicOrigin = "https://football-public-api.nyeinchanaung75299-eng.workers.dev";
-const backendOrigin = "https://supabase-api.nyeinchanaung.us.ci";
+// Direct Supabase is reachable from Vercel; the Cloudflare Auth relay was not.
+const backendOrigin = "https://woggzixprvyjnfjzsglz.supabase.co";
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE",
@@ -78,7 +79,7 @@ async function proxy(request) {
   }
 
   const backend = kind === "backend" || path === "/backend-health";
-  const upstream = new URL(path === "/backend-health" ? "/health" : path, backend ? backendOrigin : publicOrigin);
+  const upstream = new URL(path === "/backend-health" ? "/auth/v1/health" : path, backend ? backendOrigin : publicOrigin);
   if (path !== "/backend-health" && routeKind(upstream.pathname) !== kind) return failure("Not found.", 404);
   upstream.search = incoming.search;
   const headers = new Headers({
