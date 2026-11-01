@@ -23,6 +23,7 @@ class MatchChannelLinesPage extends StatefulWidget {
 
 class _MatchChannelLinesPageState extends State<MatchChannelLinesPage> {
   late Future<List<Map<String, dynamic>>> _lines = _load();
+  late Future<List<Map<String, dynamic>>> _epgMatches = _loadEpgMatches();
   bool _adding = false;
   bool _syncingGuide = false;
   String? _lastGuideSummary;
@@ -35,7 +36,20 @@ class _MatchChannelLinesPageState extends State<MatchChannelLinesPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value)));
   }
 
-  void _reload() => setState(() => _lines = _load());
+  void _reload() => setState(() {
+    _lines = _load();
+    _epgMatches = _loadEpgMatches();
+  });
+
+  Future<List<Map<String, dynamic>>> _loadEpgMatches() async {
+    final rows = await Supabase.instance.client
+        .from('nca_epg_auto_match_channels')
+        .select('channel_id,programme_title,programme_start,channels(name)')
+        .eq('match_id', _matchId)
+        .order('programme_start')
+        .timeout(const Duration(seconds: 10));
+    return List<Map<String, dynamic>>.from(rows);
+  }
 
   Future<List<Map<String, dynamic>>> _load() async {
     final rows = await Supabase.instance.client
@@ -325,6 +339,44 @@ class _MatchChannelLinesPageState extends State<MatchChannelLinesPage> {
                     ],
                   ),
                 ),
+              ),
+              const SizedBox(height: 12),
+              FutureBuilder<List<Map<String, dynamic>>>(
+                future: _epgMatches,
+                builder: (context, guideSnapshot) {
+                  if (guideSnapshot.hasError) {
+                    return const Text('Verified TV guide data unavailable. Try refresh.');
+                  }
+                  if (!guideSnapshot.hasData) {
+                    return const LinearProgressIndicator();
+                  }
+                  final schedules = guideSnapshot.data!;
+                  if (schedules.isEmpty) {
+                    return const Text('No verified channel assignment for this match yet.');
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('VERIFIED TV SCHEDULE • ' +
+                          schedules.length.toString() + ' CHANNEL(S)',
+                        style: const TextStyle(fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 6),
+                      for (final item in schedules) ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.verified_rounded),
+                        title: Text(
+                          (item['channels'] is Map)
+                              ? (item['channels']['name']?.toString() ?? 'Channel')
+                              : 'Channel',
+                        ),
+                        subtitle: Text(
+                          (item['programme_title']?.toString() ?? 'Football programme') +
+                          '\nEPG assignment only; protected lines are not attached.',
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 14),
               Text(
