@@ -135,3 +135,66 @@ test('TV schedule relay returns programme metadata only', async () => {
     assert.equal(body.sources[0].secret, undefined);
   } finally { globalThis.fetch = original; }
 });
+
+test('TV schedule joins the public MX and UK extended feeds by existing channel id', async () => {
+  const original = globalThis.fetch;
+  const kickoff = Date.parse('2026-11-01T13:00:00Z');
+  const start = kickoff - 5 * 60 * 1000;
+  const ids = { mx: 'canal-5', uk: 'premier-2' };
+  globalThis.fetch = async url => {
+    const request = new URL(url);
+    if (request.pathname === '/api/schedule') {
+      return Response.json({
+        sources: [{ name: 'uk', ok: true }],
+        channels: [
+          { id: ids.mx, name: 'Canal 5', matchedEPG: false, programmes: [] },
+          { id: ids.uk, name: 'Premier Sports 2 UK', matchedEPG: false, programmes: [] },
+        ],
+      });
+    }
+    if (request.pathname === '/api/epg-mx') {
+      return Response.json({
+        sources: [{ name: 'mx', ok: true }],
+        channels: [{
+          id: ids.mx, matchedEPG: true, region: 'mx',
+          programmes: [{
+            start, title: 'Getafe vs Sevilla En Vivo',
+            stream_url: 'https://private.example/secret.m3u8',
+          }],
+        }],
+      });
+    }
+    if (request.pathname === '/api/uk-extended') {
+      return Response.json({
+        channels: [{
+          id: ids.uk, matchedEPG: true, region: 'uk',
+          programmes: [{
+            start, title: 'Live: LaLiga',
+            subtitle: 'Getafe CF v Sevilla FC',
+            description: 'Live football',
+            drm_key: 'private-secret',
+          }],
+        }],
+      });
+    }
+    return Response.json({ channels: [], sources: [{ name: 'feed', ok: true }] });
+  };
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/tv-schedule?date=2026-11-01&days=8'),
+      env, {},
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.channels.length, 2);
+    assert.equal(body.matched_channels, 2);
+    const mx = body.channels.find(c => c.id === ids.mx);
+    const uk = body.channels.find(c => c.id === ids.uk);
+    assert.equal(mx.programmes[0].title, 'Getafe vs Sevilla En Vivo');
+    assert.equal(uk.programmes[0].subtitle, 'Getafe CF v Sevilla FC');
+    assert.equal(mx.programmes[0].stream_url, undefined);
+    assert.equal(uk.programmes[0].drm_key, undefined);
+    assert.equal(mx.programmes[0].start, start);
+    assert.equal(uk.programmes[0].start, start);
+  } finally { globalThis.fetch = original; }
+});
