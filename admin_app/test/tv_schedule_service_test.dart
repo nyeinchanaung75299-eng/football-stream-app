@@ -106,6 +106,62 @@ void main() {
     expect(listings.last.programme.title, 'Chelsea vs Liverpool');
   });
 
+  test('Non-football Australian rules teams are not football EPG matches', () {
+    final now = DateTime.utc(2026, 11, 1, 2);
+    final guide = TvScheduleGuide.fromJson({
+      'channels': [
+        {
+          'id': 'tnt-4', 'name': 'TNT Sports 4',
+          'matchedEPG': true,
+          'programmes': [
+            {
+              'start': now.millisecondsSinceEpoch,
+              'title': "Live: Women's Australian Rules",
+              'subtitle': 'Essendon Bombers v Collingwood Magpies',
+              'description': 'AFLW action from Melbourne',
+            },
+            {
+              'start': now.add(const Duration(hours: 1)).millisecondsSinceEpoch,
+              'title': 'Getafe vs Sevilla FC',
+              'stream_ambiguous': true,
+            },
+            {
+              'start': now.add(const Duration(hours: 2)).millisecondsSinceEpoch,
+              'title': 'Getafe vs Sevilla FC',
+              'description': 'Spanish La Liga live football',
+            },
+          ],
+        },
+      ],
+    });
+    final rows = guide.liveAndUpcomingMatchListings(now: now);
+    expect(rows, hasLength(1));
+    expect(rows.single.programme.title, 'Getafe vs Sevilla FC');
+    expect(rows.single.programme.start,
+        now.add(const Duration(hours: 2)));
+  });
+
+  test('Match airings recognise broadcaster club name variants', () {
+    final kickoff = DateTime.utc(2026, 11, 1, 13);
+    final guide = TvScheduleGuide.fromJson({
+      'channels': [{
+        'id': 'canal', 'name': 'Canal 5', 'matchedEPG': true,
+        'programmes': [{
+          'start': kickoff.subtract(const Duration(minutes: 5))
+              .millisecondsSinceEpoch,
+          'title': 'La Liga',
+          'description': 'Getafe v Sevilla',
+        }],
+      }],
+    });
+    final airings = guide.airingsForMatch({
+      'home_team': 'Getafe', 'away_team': 'Sevilla FC',
+      'kickoff_at': kickoff.toIso8601String(),
+    });
+    expect(airings, hasLength(1));
+    expect(airings.single.channel, 'Canal 5');
+  });
+
   test('TV guide loader uses the NCA relay and reads no playback fields', () async {
     final client = MockClient((request) async {
       expect(request.url.path, '/tv-schedule');
