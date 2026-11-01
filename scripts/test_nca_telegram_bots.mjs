@@ -135,3 +135,25 @@ test("Admin /build presents current GitHub build summary", async () => {
   assert.match(f.sent[0].body.text, /Build and Deploy Web Viewer/);
   assert.match(f.sent[0].body.text, /success/);
 });
+
+test("Admin /whoami securely returns only the requester's own ID before allowlisting", async () => {
+  const f = fixture("admin");
+  const response = await f.handler(mkRequest("admin", "/whoami", 7777));
+  assert.equal(response.status, 200);
+  assert.match(f.sent[0].body.text, /7777/);
+  assert.equal(f.dbPaths.length, 0);
+});
+
+test("Private Admin bot cannot be used in a group even by an approved user", async () => {
+  const f = fixture("admin");
+  const update = { message: { text: "/health", from: { id: 4242 }, chat: { id: -111, type: "group" } } };
+  const response = await f.handler(new Request("https://edge.example", {
+    method: "POST", headers: {
+      "X-Telegram-Bot-Api-Secret-Token": env.TG_ADMIN_WEBHOOK_SECRET,
+      "Content-Type": "application/json",
+    }, body: JSON.stringify(update),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(f.sent.length, 0);
+  assert.equal(f.dbPaths.length, 0);
+});
