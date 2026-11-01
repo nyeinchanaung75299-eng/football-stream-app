@@ -12,6 +12,7 @@ import 'live_upload_page.dart';
 import 'my_channels_guide_page.dart';
 import 'stream_source_picker_page.dart';
 import 'tv_schedules_page.dart';
+import 'telegram_setup_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -172,6 +173,20 @@ class _DashboardPageState extends State<DashboardPage> {
         title: 'All TV Channel Health',
         iconColor: const Color(0xFF10B981),
         onTap: () => open(context, const ChannelHealthPage(), 'channel-health'),
+      ),
+      const SizedBox(height: 12),
+      Text(
+        'Telegram Integration',
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      const SizedBox(height: 8),
+      _ActionCard(
+        icon: Icons.send_rounded,
+        title: 'Connect Telegram Bots',
+        iconColor: const Color(0xFF54E6C1),
+        onTap: () => open(context, const TelegramSetupPage(), 'telegram-bots'),
       ),
     ],
   );
