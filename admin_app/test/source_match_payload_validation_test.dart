@@ -10,6 +10,17 @@ void main() {
     'anchors': const [],
   };
 
+  test('status cache is reused for two minutes and expires safely', () {
+    final now = DateTime.utc(2026, 11, 1, 12);
+    expect(sourceStatusIsFresh(null, now), isFalse);
+    expect(sourceStatusIsFresh(now.subtract(const Duration(seconds: 30)), now),
+        isTrue);
+    expect(sourceStatusIsFresh(now.subtract(const Duration(minutes: 2)), now),
+        isFalse);
+    expect(sourceStatusIsFresh(now.add(const Duration(seconds: 1)), now),
+        isFalse);
+  });
+
   test('accepts only rows proven to belong to the selected provider', () {
     final rows = validateSourceMatchRows({
       'source': 'cola',
