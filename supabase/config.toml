@@ -20,3 +20,8 @@ verify_jwt = false
 
 [functions.telegram-admin]
 verify_jwt = false
+
+# Management endpoint validates the live Supabase Auth session plus profiles.role=admin
+# before reading BotFather secrets or registering webhooks.
+[functions.telegram-connect]
+verify_jwt = false
