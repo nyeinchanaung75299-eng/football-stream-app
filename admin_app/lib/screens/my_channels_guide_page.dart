@@ -108,10 +108,12 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
 
         return RefreshIndicator(
           onRefresh: () async => _refresh(),
-          child: ListView(
+          child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
-            children: [
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                sliver: SliverList.list(children: [
               if (widget.embedded)
                 _GuideHeader(
                   onRefresh: _refresh,
@@ -209,30 +211,45 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
                 ),
               ),
               const SizedBox(height: 7),
-              if (channelListings.isEmpty)
-                const _NoChannelMatches()
-              else
-                for (var index = 0; index < channelListings.length; index++) ...[
-                  if (index == 0 ||
-                      categoryOf(channelListings[index].channel) !=
-                          categoryOf(channelListings[index - 1].channel))
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(3, 9, 3, 8),
-                      child: Text(
-                        categoryOf(channelListings[index].channel),
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
+                  if (channelListings.isEmpty)
+                    const _NoChannelMatches(),
+                ]),
+              ),
+              if (channelListings.isNotEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  sliver: SliverList.builder(
+                    itemCount: channelListings.length,
+                    itemBuilder: (context, index) {
+                      final item = channelListings[index];
+                      final group = categoryOf(item.channel);
+                      final beginsGroup = index == 0 ||
+                          group != categoryOf(channelListings[index - 1].channel);
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (beginsGroup)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(3, 9, 3, 8),
+                              child: Text(
+                                group,
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              ),
                             ),
-                      ),
-                    ),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _ChannelScheduleCard(
-                      channel: channelListings[index].channel,
-                      listings: channelListings[index].listings,
-                    ),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _ChannelScheduleCard(
+                              channel: item.channel,
+                              listings: item.listings,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
-                ],
+                ),
+              const SliverToBoxAdapter(child: SizedBox(height: 24)),
             ],
           ),
         );
