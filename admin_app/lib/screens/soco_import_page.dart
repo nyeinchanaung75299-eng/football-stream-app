@@ -335,7 +335,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (!current()) return;
       // A one-minute background catalog refresh must not reset all streamer
       // statuses and trigger an identical network probe storm.
-      if (silent && jsonEncode(sourceMatches) == jsonEncode(parsed)) return;
+      if (silent && jsonEncode(sourceMatches) == jsonEncode(parsed)) {
+        // Keep the catalog without repainting. Only TTL-expired statuses
+        // are rechecked; unchanged results never trigger a full probe storm.
+        unawaited(
+          Future<void>.delayed(Duration.zero, _probeVisibleAnchorStatuses),
+        );
+        return;
+      }
       final currentKeys = <String>{
         for (final match in parsed)
           for (final anchor in List<Map<String, dynamic>>.from(
@@ -1911,7 +1918,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                       ? ' • READY ($lineCount)'
                                       : ' • READY',
                                   'offline' => ' • OFFLINE',
-                                  'checking' => ' • CHECKING',
+                                  'checking' => ' • CHECKING (TAP)',
                                   _ => ' • UNKNOWN',
                                 };
                                 final color = switch (status) {
