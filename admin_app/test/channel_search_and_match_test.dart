@@ -147,15 +147,14 @@ void main() {
   });
 
   testWidgets(
-      'Match channel picker searches and replaces stale WebView/DRM settings',
+      'Match channel picker searches and keeps direct-link form free of WebView controls',
       (tester) async {
     tallPhone(tester);
     await tester.pumpWidget(
         const MaterialApp(home: LiveLinksPage(initialMatchId: 'match-1')));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Use WebView'));
-    await tester.tap(find.byType(Switch).first);
-    await tester.pumpAndSettle();
+    expect(find.text('Use WebView'), findsNothing);
+    expect(find.widgetWithText(TextField, 'WebView'), findsNothing);
     await tester.ensureVisible(find.text('USE CHANNEL'));
     await tester.tap(find.text('USE CHANNEL'));
     await tester.pumpAndSettle();
@@ -167,8 +166,8 @@ void main() {
     expect(value(tester, 'Resolution'), 'BEIN SPORTS 1');
     expect(value(tester, 'keyID'), '00112233445566778899aabbccddeeff');
     expect(value(tester, 'keyData'), 'ffeeddccbbaa99887766554433221100');
-    expect(value(tester, 'WebView'), isEmpty);
-    expect(tester.widget<Switch>(find.byType(Switch).first).value, isFalse);
+    expect(find.widgetWithText(TextField, 'WebView'), findsNothing);
+    expect(find.text('Use WebView'), findsNothing);
     await save(tester);
     expect(writes.single['use_webview'], isFalse);
   });
