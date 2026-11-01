@@ -12,6 +12,20 @@ void main() {
     expect(bases.toSet().length, bases.length);
   });
 
+  test('Only a configured, recently healthy public API can lead the route list', () {
+    final original = publicApiBases();
+    expect(original.first, vercelBackupBase);
+    rememberVerifiedPublicApiBase('https://untrusted.invalid');
+    expect(publicApiBases().first, vercelBackupBase);
+    rememberVerifiedPublicApiBase('https://football-api.nyeinchanaung.us.ci');
+    expect(publicApiBases().first, 'https://football-api.nyeinchanaung.us.ci');
+    expect(publicApiBases().contains(vercelBackupBase), isTrue);
+    expect(publicApiBases().toSet().length, publicApiBases().length);
+    expect(publicApiBases().contains(
+        'https://football-public-api.nyeinchanaung75299-eng.workers.dev'),
+        isFalse);
+  });
+
   test(
     'a fast rejected health response cannot beat a healthy backend',
     () async {
