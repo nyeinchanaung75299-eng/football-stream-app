@@ -5,6 +5,8 @@ import 'package:football_viewer/backend_endpoint.dart';
 import 'package:football_viewer/network_endpoints.dart';
 
 void main() {
+  setUp(() => rememberVerifiedPublicApiBase(vercelBackupBase));
+
   test('Vercel first for public data, Cloudflare retained as fallback', () {
     final bases = publicApiBases(primary: 'https://football-api.example/');
     expect(bases.first, vercelBackupBase);
