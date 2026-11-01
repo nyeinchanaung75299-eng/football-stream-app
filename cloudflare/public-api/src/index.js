@@ -131,7 +131,7 @@ export default {
     if (channelRoute) return handleChannelStreams(request, channelRoute[1], env, url.origin);
 
     if (url.pathname === "/tv-schedule") {
-      return handleTvSchedule(request, env, url);
+      return handleTvSchedule(request, env, url, ctx);
     }
 
     const sourceMatchesRoute = url.pathname.match(
@@ -601,7 +601,7 @@ async function handleChannels(env) {
   }
 }
 
-async function handleTvSchedule(request, env, incoming) {
+async function handleTvSchedule(request, env, incoming, ctx) {
   if (!(await allowRequest(request, env, "tv-schedule", 20))) {
     return json({ error: "Too many TV schedule requests. Try again shortly." }, 429, {
       "Retry-After": "60",
@@ -630,18 +630,33 @@ async function handleTvSchedule(request, env, incoming) {
       headers: { Accept: "application/json" },
     }, METADATA_TIMEOUT_MS);
     let schedule = sanitizeTvSchedule(data, date, days);
-    // Missing optional feeds must never make the baseline schedule unavailable.
+    // The 18 optional regional feeds used to hold up every uncached guide
+    // response for as long as 8.5 seconds. Give enrichment a short chance;
+    // otherwise serve the verified baseline and finish the optional work in
+    // the background. A cached regional result keeps coverage on warm loads.
+    const cacheKey = `${date}:${days}`;
+    const cached = tvGuideCache?.key === cacheKey ? tvGuideCache.results : null;
+    const enrichment = loadExtendedTvGuide(date, days);
+    let supplements = cached;
     try {
-      const supplements = await loadExtendedTvGuide(date, days);
+      const candidate = await Promise.race([
+        enrichment,
+        new Promise((resolve) => setTimeout(() => resolve(null), 1100)),
+      ]);
+      if (candidate) supplements = candidate;
+    } catch (_) {
+      // The primary guide is authoritative even when optional feeds fail.
+    }
+    if (supplements) {
       schedule = sanitizeTvSchedule(
         mergeTvScheduleSources(data, supplements), date, days);
-    } catch (_) {
-      // Preserve the verified baseline if an optional provider fails.
     }
+    if (ctx?.waitUntil) ctx.waitUntil(enrichment.catch(() => {}));
     return json(schedule, 200, {
-      // Schedule data is public metadata and may be briefly cached by
-      // clients. The upstream can still refresh it independently.
-      "Cache-Control": "public, max-age=120",
+      // A baseline-only response gets a short TTL so regional enrichment can
+      // appear on the next request; full guides stay cacheable for 2 minutes.
+      "Cache-Control": supplements
+        ? "public, max-age=120" : "public, max-age=10",
     });
   } catch (_) {
     return json({ error: "TV schedule is temporarily unavailable." }, 502, {
@@ -665,13 +680,15 @@ const EXTENDED_TV_GUIDES = [
   { path: "/api/uk-extended", source: "uk-extended" },
 ];
 let tvGuideCache = null;
+let tvGuideInflight = null;
 
 async function loadExtendedTvGuide(date, days) {
   const key = `${date}:${days}`;
   if (tvGuideCache?.key === key && Date.now() - tvGuideCache.at < 90000) {
     return tvGuideCache.results;
   }
-  const results = await Promise.all(EXTENDED_TV_GUIDES.map(async ({ path, source }) => {
+  if (tvGuideInflight?.key === key) return tvGuideInflight.promise;
+  const promise = Promise.all(EXTENDED_TV_GUIDES.map(async ({ path, source }) => {
     const url = new URL(path, TV_GUIDE_ORIGIN);
     url.searchParams.set("date", date);
     url.searchParams.set("days", String(days));
@@ -687,9 +704,14 @@ async function loadExtendedTvGuide(date, days) {
     } catch (_) {
       return { source, data: null, ok: false };
     }
-  }));
-  tvGuideCache = { key, at: Date.now(), results };
-  return results;
+  })).then((results) => {
+    tvGuideCache = { key, at: Date.now(), results };
+    return results;
+  }).finally(() => {
+    if (tvGuideInflight?.key === key) tvGuideInflight = null;
+  });
+  tvGuideInflight = { key, promise };
+  return promise;
 }
 
 function mergeTvScheduleSources(base, supplements) {
