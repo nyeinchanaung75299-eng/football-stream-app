@@ -49,6 +49,14 @@ List<Map<String, dynamic>> validateSourceMatchRows(
   }).toList(growable: false);
 }
 
+@visibleForTesting
+bool sourceStatusIsFresh(DateTime? checkedAt, DateTime now,
+    {Duration ttl = const Duration(minutes: 2)}) {
+  return checkedAt != null &&
+      !checkedAt.isAfter(now) &&
+      now.difference(checkedAt) < ttl;
+}
+
 class SocoImportPage extends StatefulWidget {
   const SocoImportPage({
     super.key,
@@ -432,7 +440,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         }
 
         final checked = _anchorStatusCheckedAt[key];
-        if (checked != null && now.difference(checked) < _statusTtl) {
+        if (sourceStatusIsFresh(checked, now, ttl: _statusTtl)) {
           continue;
         }
         if (pending.length >= _initialStatusProbeLimit) continue;
