@@ -41,10 +41,11 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
     }
   }
 
-  Future<TvScheduleGuide> _load() => TvScheduleService().load();
+  Future<TvScheduleGuide> _load({bool refresh = false}) =>
+      TvScheduleService().load(refresh: refresh);
 
   void _refresh() {
-    setState(() => _guide = _load());
+    setState(() => _guide = _load(refresh: true));
     _loadGroupPositions();
   }
 
