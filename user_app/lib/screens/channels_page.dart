@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../native_player.dart';
 import '../network_endpoints.dart';
+import '../public_guide_cache.dart';
 import '../widgets/premium_bottom_nav.dart';
 import 'home_page.dart';
 import 'source_browser_page.dart';
@@ -18,6 +19,9 @@ class ChannelsPage extends StatefulWidget {
 }
 
 class _ChannelsPageState extends State<ChannelsPage> {
+  static final PublicGuideCache<Map<String, dynamic>> _guideCache =
+      PublicGuideCache<Map<String, dynamic>>();
+  int _guideEpoch = 0;
   final search = TextEditingController();
   late Future<List<Map<String, dynamic>>> catalog = load();
   bool opening = false;
@@ -35,12 +39,17 @@ class _ChannelsPageState extends State<ChannelsPage> {
   }
 
   /// Optional football-only EPG summary. Its failure never blocks channels.
-  Future<void> _loadChannelEpg() async {
+  Future<void> _loadChannelEpg({bool refresh = false}) async {
+    final generation = ++_guideEpoch;
     try {
       final now = DateTime.now().toUtc();
       final today = now.add(const Duration(hours: 6, minutes: 30));
       final date = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-      final data = await request('/tv-schedule?date=$date&days=3');
+      final data = await _guideCache.load(
+        date,
+        () => request('/tv-schedule?date=$date&days=3'),
+        refresh: refresh,
+      );
       final result = <String, String>{};
       final linked = <String>{};
       for (final raw in (data['channels'] as List? ?? const [])) {
@@ -68,7 +77,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
           break;
         }
       }
-      if (mounted) setState(() {
+      if (mounted && generation == _guideEpoch) setState(() {
         nextFootball = result;
         epgLinkedIds = linked;
         guideLoaded = true;
@@ -190,7 +199,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
   Future<void> refresh() async {
     setState(() => catalog = load());
     _loadGroupPositions();
-    _loadChannelEpg();
+    _loadChannelEpg(refresh: true);
     try {
       await catalog;
     } catch (_) {}
