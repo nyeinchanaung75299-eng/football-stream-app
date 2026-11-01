@@ -40,7 +40,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
       final now = DateTime.now().toUtc();
       final today = now.add(const Duration(hours: 6, minutes: 30));
       final date = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-      final data = await request('/tv-schedule?date=$date&days=8');
+      final data = await request('/tv-schedule?date=$date&days=3');
       final result = <String, String>{};
       final linked = <String>{};
       for (final raw in (data['channels'] as List? ?? const [])) {
