@@ -2,6 +2,12 @@ name: Build Android V9.8 APKs
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_update:
+        description: 'Publish NCA Viewer APK to the in-app updater (manual only)'
+        type: boolean
+        required: true
+        default: false
   push:
     branches: [ "main", "master" ]
     paths:
@@ -126,6 +132,80 @@ jobs:
           shutil.copy2('../user_app/assets/nca_icon.webp', icon)
           PY2
 
+      - name: Configure stable Admin signing
+        working-directory: admin_app
+        env:
+          NCA_KEYSTORE_B64: ${{ secrets.NCA_KEYSTORE_B64 }}
+          NCA_KEYSTORE_PASSWORD: ${{ secrets.NCA_KEYSTORE_PASSWORD }}
+          NCA_KEY_ALIAS: ${{ secrets.NCA_KEY_ALIAS }}
+          NCA_KEY_PASSWORD: ${{ secrets.NCA_KEY_PASSWORD }}
+        run: |
+          set -e
+          if [ -z "$NCA_KEYSTORE_B64" ] || [ -z "$NCA_KEYSTORE_PASSWORD" ] || [ -z "$NCA_KEY_ALIAS" ] || [ -z "$NCA_KEY_PASSWORD" ]; then
+            echo "NCA_ADMIN_SIGNING_READY=false" >> "$GITHUB_ENV"
+            echo "Stable signing secrets are not configured. Building fallback Admin APK only."
+            exit 0
+          fi
+
+          echo "$NCA_KEYSTORE_B64" | base64 -d > android/app/nca-release.jks
+          cat > android/key.properties <<EOF
+          storePassword=$NCA_KEYSTORE_PASSWORD
+          keyPassword=$NCA_KEY_PASSWORD
+          keyAlias=$NCA_KEY_ALIAS
+          storeFile=nca-release.jks
+          EOF
+
+          python3 - <<'PY2'
+          from pathlib import Path
+
+          gk = Path('android/app/build.gradle.kts')
+          if not gk.exists():
+              raise SystemExit('Expected Kotlin Gradle build file was not generated.')
+
+          s = gk.read_text()
+          if 'val ncaKeystoreProperties = Properties()' not in s:
+              imports = (
+                  'import java.io.FileInputStream\n'
+                  'import java.util.Properties\n\n'
+              )
+              properties = (
+                  'val ncaKeystoreProperties = Properties()\n'
+                  'val ncaKeystorePropertiesFile = rootProject.file("key.properties")\n'
+                  'if (ncaKeystorePropertiesFile.exists()) {\n'
+                  '    ncaKeystoreProperties.load(FileInputStream(ncaKeystorePropertiesFile))\n'
+                  '}\n\n'
+              )
+              if 'plugins {' not in s or 'android {' not in s:
+                  raise SystemExit('Expected Flutter Gradle template blocks were not found.')
+              # Gradle requires plugins before arbitrary declarations/blocks.
+              s = imports + s.replace('android {', properties + 'android {', 1)
+
+          if 'create("ncaRelease")' not in s:
+              signing = (
+                  '    signingConfigs {\n'
+                  '        create("ncaRelease") {\n'
+                  '            keyAlias = ncaKeystoreProperties["keyAlias"] as String\n'
+                  '            keyPassword = ncaKeystoreProperties["keyPassword"] as String\n'
+                  '            storeFile = file(ncaKeystoreProperties["storeFile"] as String)\n'
+                  '            storePassword = ncaKeystoreProperties["storePassword"] as String\n'
+                  '        }\n'
+                  '    }\n\n'
+              )
+              if '    buildTypes {' not in s:
+                  raise SystemExit('Expected Flutter Gradle buildTypes block was not found.')
+              s = s.replace('    buildTypes {', signing + '    buildTypes {', 1)
+
+          s = s.replace(
+              'signingConfig = signingConfigs.getByName("debug")',
+              'signingConfig = signingConfigs.getByName("ncaRelease")',
+          )
+          if 'signingConfig = signingConfigs.getByName("ncaRelease")' not in s:
+              raise SystemExit('Release signing configuration was not applied.')
+          gk.write_text(s)
+          PY2
+
+          echo "NCA_ADMIN_SIGNING_READY=true" >> "$GITHUB_ENV"
+
       - name: Get Admin dependencies
         working-directory: admin_app
         run: flutter pub get
@@ -246,11 +326,16 @@ jobs:
           NCA_KEYSTORE_PASSWORD: ${{ secrets.NCA_KEYSTORE_PASSWORD }}
           NCA_KEY_ALIAS: ${{ secrets.NCA_KEY_ALIAS }}
           NCA_KEY_PASSWORD: ${{ secrets.NCA_KEY_PASSWORD }}
+          NCA_PUBLISH_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_update == true }}
         run: |
           set -e
           if [ -z "$NCA_KEYSTORE_B64" ] || [ -z "$NCA_KEYSTORE_PASSWORD" ] || [ -z "$NCA_KEY_ALIAS" ] || [ -z "$NCA_KEY_PASSWORD" ]; then
             echo "NCA_SIGNING_READY=false" >> "$GITHUB_ENV"
-            echo "Stable signing secrets are not configured. Building fallback APK only; in-app updater publication will be skipped."
+            if [ "$NCA_PUBLISH_REQUESTED" = "true" ]; then
+              echo "Cannot publish a Viewer update without all four stable signing secrets." >&2
+              exit 1
+            fi
+            echo "Stable signing secrets are not configured. Building fallback APK only; no update will be published."
             exit 0
           fi
 
@@ -352,8 +437,11 @@ jobs:
           name: NCA-V9.8-Release-APKs
           path: user_app/build/app/outputs/flutter-apk/*-release.apk
 
+      # A routine push, or a manual Build with the default unchecked input,
+      # must never publish to the in-app updater. Only main + explicit opt-in
+      # + successful stable signing may replace the public release manifest.
       - name: Publish in-app updater release
-        if: env.NCA_SIGNING_READY == 'true'
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true && env.NCA_SIGNING_READY == 'true' }}
         run: |
           set -e
           git config user.name "github-actions[bot]"
@@ -403,7 +491,7 @@ jobs:
           exit 1
 
       - name: Refresh GitHub Pages release files
-        if: env.NCA_SIGNING_READY == 'true'
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true && env.NCA_SIGNING_READY == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy-web.yml --ref "${GITHUB_REF_NAME}"
