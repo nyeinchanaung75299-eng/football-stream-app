@@ -24,6 +24,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
   String selectedGroup = 'All';
   Map<String, int> groupPositions = const {};
   Map<String, String> nextFootball = const {};
+  Set<String> epgLinkedIds = const {};
+  bool guideLoaded = false;
 
   @override
   void initState() {
@@ -40,10 +42,12 @@ class _ChannelsPageState extends State<ChannelsPage> {
       final date = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
       final data = await request('/tv-schedule?date=$date&days=8');
       final result = <String, String>{};
+      final linked = <String>{};
       for (final raw in (data['channels'] as List? ?? const [])) {
         if (raw is! Map || raw['matchedEPG'] != true) continue;
         final id = raw['id']?.toString() ?? '';
         if (id.isEmpty) continue;
+        linked.add(id);
         for (final item in (raw['programmes'] as List? ?? const [])) {
           if (item is! Map) continue;
           final title = (item['title'] ?? item['subtitle'] ?? '').toString();
@@ -51,8 +55,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
           final body = '$title $extra';
           if (!RegExp(r'\b(vs|v|versus)\b', caseSensitive: false)
               .hasMatch(body)) continue;
-          if (RegExp(r'\b(replay|highlights?|recap|preview|repeat|classic|rugby|cricket|tennis|basketball)\b',
-              caseSensitive: false).hasMatch(body)) continue;
+          if (item['stream_ambiguous'] == true ||
+              RegExp(r'\b(replay|highlights?|recap|preview|repeat|classic|aflw?|australian rules|aussie rules|american football|nfl|nba|hockey|rugby|cricket|tennis|basketball|motorsport|esports|formula 1)\b',
+                  caseSensitive: false).hasMatch(body)) continue;
           final ms = (item['start'] as num?)?.toInt();
           if (ms == null) continue;
           final start = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
@@ -63,7 +68,11 @@ class _ChannelsPageState extends State<ChannelsPage> {
           break;
         }
       }
-      if (mounted) setState(() => nextFootball = result);
+      if (mounted) setState(() {
+        nextFootball = result;
+        epgLinkedIds = linked;
+        guideLoaded = true;
+      });
     } catch (_) {
       // Keep channel grid interactive when guide or relay is offline.
     }
@@ -400,6 +409,20 @@ class _ChannelsPageState extends State<ChannelsPage> {
                         },
                       ),
                       const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          guideLoaded
+                              ? '${snapshot.data!.length} channels • ${epgLinkedIds.length} with EPG • ${nextFootball.length} with live/next football'
+                              : '${snapshot.data!.length} channels • TV guide loading or unavailable',
+                          style: const TextStyle(
+                            color: Color(0xFF54E6C1),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       SizedBox(
                         height: 45,
                         child: ListView(
@@ -461,7 +484,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                           crossAxisCount: 2,
                           crossAxisSpacing: 10,
                           mainAxisSpacing: 12,
-                          mainAxisExtent: 168,
+                          mainAxisExtent: 176,
                         ),
                     itemCount: group.value.length,
                     itemBuilder: (context, index) {
@@ -497,6 +520,10 @@ class _ChannelsPageState extends State<ChannelsPage> {
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
+                              if (guideLoaded && epgLinkedIds.contains(channel['id']?.toString()))
+                                const Text('● EPG',
+                                  style: TextStyle(color: Color(0xFF54E6C1),
+                                      fontSize: 9, fontWeight: FontWeight.w700)),
                               if (nextFootball.containsKey(channel['id']?.toString()))
                                 Padding(
                                   padding: const EdgeInsets.symmetric(horizontal: 4),
