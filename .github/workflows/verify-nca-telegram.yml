@@ -1,0 +1,31 @@
+name: Verify NCA Telegram Bots
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/functions/_shared/nca_telegram_bot.mjs'
+      - 'supabase/functions/telegram-viewer/**'
+      - 'supabase/functions/telegram-admin/**'
+      - 'supabase/config.toml'
+      - 'scripts/test_nca_telegram_bots.mjs'
+      - 'scripts/register_nca_telegram_webhooks.mjs'
+      - '.github/workflows/verify-nca-telegram.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  telegram-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify bot security and webhook behavior
+        run: |
+          node --check supabase/functions/_shared/nca_telegram_bot.mjs
+          node --check scripts/register_nca_telegram_webhooks.mjs
+          node --test scripts/test_nca_telegram_bots.mjs

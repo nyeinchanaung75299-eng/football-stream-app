@@ -12,3 +12,11 @@ verify_jwt = false
 # Auth /user and rechecks profiles.role before any monitoring read or write.
 [functions.system-monitor]
 verify_jwt = false
+
+# Telegram's signed webhook header is validated inside the functions.
+# These public gateways must NEVER return channel stream URLs or DRM keys.
+[functions.telegram-viewer]
+verify_jwt = false
+
+[functions.telegram-admin]
+verify_jwt = false
