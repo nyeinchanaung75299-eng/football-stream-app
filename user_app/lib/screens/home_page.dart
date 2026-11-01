@@ -183,8 +183,16 @@ class _HomePageState extends State<HomePage> {
   }
 
   List<Future<T> Function()> _apiJobs<T>(Future<T> Function(String) load) {
+    var winnerRecorded = false;
     return _publicApiBases
-        .map<Future<T> Function()>((base) => () => load(base))
+        .map<Future<T> Function()>((base) => () async {
+              final value = await load(base);
+              if (!winnerRecorded) {
+                winnerRecorded = true;
+                rememberVerifiedPublicApiBase(base);
+              }
+              return value;
+            })
         .toList();
   }
 
