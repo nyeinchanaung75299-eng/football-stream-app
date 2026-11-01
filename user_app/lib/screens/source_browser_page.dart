@@ -80,10 +80,16 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   List<Future<List<Map<String, dynamic>>> Function()> _apiJobs(
     Future<List<Map<String, dynamic>>> Function(String) load,
   ) {
+    var winnerRecorded = false;
     return bases
-        .map<Future<List<Map<String, dynamic>>> Function()>(
-          (base) => () => load(base),
-        )
+        .map<Future<List<Map<String, dynamic>>> Function()>((base) => () async {
+              final rows = await load(base);
+              if (!winnerRecorded) {
+                winnerRecorded = true;
+                rememberVerifiedPublicApiBase(base);
+              }
+              return rows;
+            })
         .toList();
   }
 
