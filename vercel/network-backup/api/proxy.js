@@ -106,6 +106,18 @@ async function proxy(request) {
     }
     const response = await fetch(upstream, init);
     const outputHeaders = new Headers(cors);
+    // Cache only public, non-sensitive guide/catalog metadata. Protected media,
+    // private Auth, Admin functions and stream URLs always remain no-store.
+    if (!backend && kind === "public" && method === "GET" && response.ok) {
+      if (path === "/tv-schedule") {
+        outputHeaders.set("Cache-Control",
+          response.headers.get("Cache-Control")?.startsWith("public,")
+            ? response.headers.get("Cache-Control")
+            : "public, max-age=15");
+      } else if (path === "/channels") {
+        outputHeaders.set("Cache-Control", "public, max-age=15");
+      }
+    }
     for (const name of ["Content-Type", "Content-Range", "Accept-Ranges", "Content-Location", "Retry-After"]) {
       if (response.headers.has(name)) outputHeaders.set(name, response.headers.get(name));
     }
