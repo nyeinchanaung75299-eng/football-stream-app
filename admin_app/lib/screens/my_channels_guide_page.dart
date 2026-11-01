@@ -100,19 +100,10 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
                 : a.channel.name.compareTo(b.channel.name);
           });
 
-        // Match-first view, like the connected My Channels Match Guide.
-        // Keep all 169 channels in the catalog below the verified football EPG.
-        final matchGroups = <String, List<TvScheduleListing>>{};
-        for (final item in channelListings) {
-          for (final listing in item.listings) {
-            final name = _programmeTitle(listing.programme);
-            final bucket = listing.programme.start.millisecondsSinceEpoch ~/ 900000;
-            matchGroups.putIfAbsent('$name::$bucket', () => []).add(listing);
-          }
-        }
-        final matchEntries = matchGroups.values.toList()
-          ..sort((a, b) => a.first.programme.start
-              .compareTo(b.first.programme.start));
+        // This tab is CHANNEL-first. TV Schedule remains match-first.
+        final epgChannels = guide.channels.where((c) => c.hasGuide).length;
+        final footballChannels = guide.channels.where((c) =>
+            guide.liveAndUpcomingMatchListingsForChannel(c).isNotEmpty).length;
 
         return RefreshIndicator(
           onRefresh: () async => _refresh(),
@@ -175,36 +166,38 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
-              const Text('⚽ LIVE & UPCOMING FOOTBALL • YOUR CHANNELS',
-                style: TextStyle(color: FootballGuideColors.mint,
-                  fontWeight: FontWeight.w900, fontSize: 12,
-                  letterSpacing: .6)),
-              const SizedBox(height: 9),
-              if (matchEntries.isEmpty)
-                const _NoChannelMatches()
-              else
-                for (final group in matchEntries.take(60))
-                  FootballMatchGuideCard(
-                    league: _programmeTitle(group.first.programme).contains(':')
-                        ? _programmeTitle(group.first.programme).split(':').first.trim()
-                        : 'Football',
-                    match: _programmeTitle(group.first.programme).contains(':')
-                        ? _programmeTitle(group.first.programme)
-                            .split(':').skip(1).join(':').trim()
-                        : _programmeTitle(group.first.programme),
-                    kickoff: group.first.programme.start,
-                    live: group.any((item) => item.isLive),
-                    airings: [
-                      for (final listing in group)
-                        FootballGuideAiring(
-                          channel: listing.channel.name,
-                          when: listing.programme.start,
-                          region: listing.channel.region,
-                        ),
-                    ],
-                  ),
               const SizedBox(height: 12),
+              Wrap(
+                spacing: 9,
+                runSpacing: 9,
+                children: [
+                  _GuideStat(label: 'Your TV Channels',
+                      value: '${guide.channels.length}',
+                      color: FootballGuideColors.mint),
+                  _GuideStat(label: 'Channels with TV Guide',
+                      value: '$epgChannels / ${guide.channels.length}',
+                      color: const Color(0xFF93BAFF)),
+                  _GuideStat(label: 'Live / Next Football EPG',
+                      value: '$footballChannels',
+                      color: const Color(0xFFE2D8FF)),
+                  _GuideStat(label: 'TV Guide Feeds Online',
+                      value: '${guide.onlineSources}/${guide.totalSources}',
+                      color: const Color(0xFFF5DB91)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'EPG coverage is live guide data, not a fixed 92-channel count. '
+                'Other sports, replays and highlights are excluded.',
+                style: const TextStyle(color: FootballGuideColors.muted,
+                    fontSize: 11, height: 1.5),
+              ),
+              const SizedBox(height: 14),
+              const Text('📺 YOUR CHANNELS • FOOTBALL EPG',
+                style: TextStyle(color: FootballGuideColors.mint,
+                    fontWeight: FontWeight.w900, fontSize: 12,
+                    letterSpacing: .6)),
+              const SizedBox(height: 9),
               Text(
                 '${channelListings.length} CHANNEL${channelListings.length == 1 ? '' : 'S'} • LIVE & NEXT MATCHES',
                 style: TextStyle(
@@ -268,6 +261,32 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
   }
 }
 
+class _GuideStat extends StatelessWidget {
+  const _GuideStat({required this.label, required this.value,
+    required this.color});
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    constraints: const BoxConstraints(minWidth: 144),
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    decoration: BoxDecoration(
+      color: FootballGuideColors.surface,
+      border: Border.all(color: FootballGuideColors.border),
+      borderRadius: BorderRadius.circular(15),
+    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: const TextStyle(
+        color: FootballGuideColors.muted, fontSize: 11)),
+      const SizedBox(height: 6),
+      Text(value, style: TextStyle(
+        color: color, fontSize: 20, fontWeight: FontWeight.w900)),
+    ]),
+  );
+}
+
 class _GuideHeader extends StatelessWidget {
   const _GuideHeader({required this.onRefresh, required this.onManage});
 
@@ -313,96 +332,114 @@ class _GuideHeader extends StatelessWidget {
 }
 
 class _ChannelScheduleCard extends StatelessWidget {
-  const _ChannelScheduleCard({
-    required this.channel,
-    required this.listings,
-  });
-
+  const _ChannelScheduleCard({required this.channel, required this.listings});
   final TvScheduleChannel channel;
   final List<TvScheduleListing> listings;
 
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Card(
-      color: FootballGuideColors.card,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: const BorderSide(color: FootballGuideColors.border),
-      ),
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                _ChannelImage(channel: channel),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        channel.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 16,
-                        ),
-                      ),
-                      if (channel.region.isNotEmpty || channel.category.isNotEmpty)
-                        Text(
-                          channel.region.isNotEmpty
-                              ? channel.region.toUpperCase()
-                              : channel.category.toUpperCase(),
-                          style: TextStyle(
-                            color: colors.onSurfaceVariant,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                if (listings.any((listing) => listing.isLive))
-                  const _LivePill(label: 'LIVE'),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (listings.isEmpty)
-              Text(
-                'No live or next match in the guide.',
-                style: TextStyle(
-                  color: colors.onSurfaceVariant,
-                  fontSize: 12,
-                ),
-              )
-            else ...[
-              for (var index = 0; index < listings.take(2).length; index++) ...[
-                _ProgrammeRow(listing: listings[index]),
-                if (index + 1 < listings.take(2).length)
-                  const Divider(height: 14),
-              ],
-              if (listings.length > 2) ...[
-                const SizedBox(height: 2),
-                Text(
-                  '+${listings.length - 2} more upcoming match${listings.length == 3 ? '' : 'es'}',
-                  style: TextStyle(
-                    color: colors.onSurfaceVariant,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+  void _allListings(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: .72,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            children: [
+              Text(channel.name, style: Theme.of(sheet).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Text('${listings.length} football EPG matches • MMT',
+                  style: const TextStyle(color: FootballGuideColors.muted)),
+              const SizedBox(height: 12),
+              for (final item in listings) ...[
+                _ProgrammeRow(listing: item),
+                const SizedBox(height: 8),
               ],
             ],
-          ],
+          ),
         ),
       ),
     );
   }
+
+  @override
+  Widget build(BuildContext context) => Card(
+    color: FootballGuideColors.card,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(16),
+      side: const BorderSide(color: FootballGuideColors.border),
+    ),
+    margin: EdgeInsets.zero,
+    child: Padding(
+      padding: const EdgeInsets.all(13),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          _ChannelImage(channel: channel),
+          const SizedBox(width: 10),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(channel.name, maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: FootballGuideColors.text,
+                  fontWeight: FontWeight.w900, fontSize: 15)),
+              const SizedBox(height: 3),
+              Text(
+                '${channel.category}${channel.region.isEmpty ? '' : ' • ${channel.region.toUpperCase()}'}',
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: FootballGuideColors.muted,
+                    fontSize: 11)),
+            ],
+          )),
+          const SizedBox(width: 8),
+          Text(channel.hasGuide ? '● EPG' : 'NO EPG',
+            style: TextStyle(
+              color: channel.hasGuide
+                  ? FootballGuideColors.mint : FootballGuideColors.muted,
+              fontSize: 11, fontWeight: FontWeight.w900)),
+        ]),
+        const SizedBox(height: 13),
+        if (listings.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: FootballGuideColors.surface,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              channel.hasGuide
+                  ? 'EPG connected • no live/next football match confirmed.'
+                  : 'No TV guide matched to this channel yet.',
+              style: const TextStyle(
+                color: FootballGuideColors.muted, fontSize: 12)),
+          )
+        else ...[
+          for (final item in listings.take(3)) ...[
+            _ProgrammeRow(listing: item),
+            const SizedBox(height: 9),
+          ],
+          if (listings.length > 3)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => _allListings(context),
+                child: Text('View all ${listings.length} football listings  •  '
+                    '+${listings.length - 3} more'),
+              ),
+            ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text('${listings.length} football listings',
+              style: const TextStyle(
+                color: FootballGuideColors.muted, fontSize: 11)),
+          ),
+        ],
+      ]),
+    ),
+  );
 }
 
 class _ChannelGuideItems {
@@ -449,64 +486,39 @@ class _ChannelImage extends StatelessWidget {
 
 class _ProgrammeRow extends StatelessWidget {
   const _ProgrammeRow({required this.listing});
-
   final TvScheduleListing listing;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     final programme = listing.programme;
     final title = _programmeTitle(programme);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _LivePill(label: listing.isLive ? 'LIVE' : 'NEXT'),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          _timeLabel(programme.start),
-          style: TextStyle(
-            color: colors.primary,
-            fontWeight: FontWeight.w900,
-            fontSize: 12,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _LivePill extends StatelessWidget {
-  const _LivePill({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final live = label == 'LIVE';
-    final colors = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: (live ? colors.error : colors.primary).withValues(alpha: .12),
-        borderRadius: BorderRadius.circular(999),
+        color: FootballGuideColors.surface,
+        border: Border.all(color: FootballGuideColors.border),
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: live ? colors.error : colors.primary,
-          fontSize: 9,
-          fontWeight: FontWeight.w900,
-          letterSpacing: .45,
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(_timeLabel(programme.start),
+            style: const TextStyle(color: FootballGuideColors.mint,
+                fontSize: 12, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 5),
+          Text(title, style: const TextStyle(
+            color: FootballGuideColors.text, fontWeight: FontWeight.w800,
+            fontSize: 14, height: 1.35)),
+          if (programme.description.trim().isNotEmpty &&
+              programme.description.trim() != title) ...[
+            const SizedBox(height: 4),
+            Text(programme.description, maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: FootballGuideColors.muted,
+                  fontSize: 11)),
+          ],
+        ],
       ),
     );
   }
