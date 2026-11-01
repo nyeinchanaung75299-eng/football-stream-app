@@ -21,21 +21,17 @@ class TvSchedulesPage extends StatefulWidget {
 
 class _TvSchedulesPageState extends State<TvSchedulesPage> {
   late Future<_ScheduleData> _schedule = _load();
+  late Future<_GuideResult> _guide = _loadGuide();
   String _view = 'upcoming';
 
-  void _refresh() => setState(() => _schedule = _load(refreshGuide: true));
+  void _refresh() => setState(() {
+        _schedule = _load();
+        _guide = _loadGuide(refresh: true);
+      });
 
-  Future<_ScheduleData> _load({bool refreshGuide = false}) async {
-    final matchesFuture = _loadMatches();
-    final guideFuture = _loadGuide(refresh: refreshGuide);
-    final matches = await matchesFuture;
-    final guideResult = await guideFuture;
-    return _ScheduleData(
-      matches: matches,
-      guide: guideResult.guide,
-      guideError: guideResult.error,
-    );
-  }
+  // Matches are essential; optional EPG must never block showing fixtures.
+  Future<_ScheduleData> _load() async =>
+      _ScheduleData(matches: await _loadMatches());
 
   Future<_GuideResult> _loadGuide({bool refresh = false}) async {
     try {
@@ -110,7 +106,11 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
 
         final data = snapshot.data!;
         final matches = _visibleMatches(data.matches);
-        return RefreshIndicator(
+        return FutureBuilder<_GuideResult>(
+          future: _guide,
+          builder: (context, guideSnapshot) {
+            final guide = guideSnapshot.data;
+            return RefreshIndicator(
           onRefresh: () async => _refresh(),
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -118,7 +118,7 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
             children: [
               if (widget.embedded)
                 _ScheduleHeader(
-                  guideError: data.guideError,
+                  guideError: guide?.error,
                   onRefresh: _refresh,
                 ),
               if (widget.embedded) const SizedBox(height: 10),
@@ -156,12 +156,14 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
                     padding: const EdgeInsets.only(bottom: 8),
                     child: _MatchScheduleCard(
                       match: match,
-                      guide: data.guide,
+                      guide: guide?.guide,
                     ),
                   ),
                 ),
             ],
           ),
+        );
+          },
         );
       },
     );
