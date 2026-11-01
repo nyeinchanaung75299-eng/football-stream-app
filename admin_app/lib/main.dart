@@ -119,7 +119,7 @@ Future<void> _initializeBackendOnce() async {
     );
     if (preferences != null) {
       try {
-        unawaited(preferences.setString(routeKey, url));
+        unawaited(preferences.setString(routeKey, url).catchError((_) => false));
       } catch (_) {
         // A storage failure must not delay a verified Admin Auth route.
       }
