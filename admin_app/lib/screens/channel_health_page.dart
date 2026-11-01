@@ -251,7 +251,7 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                 onChanged: (value) {
                   if (value == null) return;
                   setState(() => selectedStatus = value);
-                  if (value == 'all') _checkAll(data);
+                  // The separate CHECK ALL button starts an explicit scan.
                 },
               ),
             ]),
