@@ -122,15 +122,25 @@ class TvScheduleGuide {
     required this.timezone,
     required this.updatedAt,
     required this.channels,
+    this.totalSources = 0,
+    this.onlineSources = 0,
   });
 
   final String timezone;
   final DateTime? updatedAt;
   final List<TvScheduleChannel> channels;
+  final int totalSources;
+  final int onlineSources;
 
   factory TvScheduleGuide.fromJson(Map<String, dynamic> json) {
     final rawChannels = json['channels'];
+    final rawSources = json['sources'];
+    final sources = rawSources is List
+        ? rawSources.whereType<Map>().toList(growable: false)
+        : const <Map>[];
     return TvScheduleGuide(
+      totalSources: sources.length,
+      onlineSources: sources.where((source) => source['ok'] == true).length,
       timezone: _text(json['timezone']).isEmpty
           ? 'Asia/Yangon'
           : _text(json['timezone']),
