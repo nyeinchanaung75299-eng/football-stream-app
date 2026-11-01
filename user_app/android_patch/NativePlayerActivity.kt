@@ -269,8 +269,8 @@ class NativePlayerActivity : Activity() {
 
         playerView = PlayerView(this).apply {
             setBackgroundColor(Color.BLACK)
-            // Preserve the source aspect ratio by default. FILL remains
-            // available from the display-mode button for users who prefer it.
+            // Preserve the original aspect ratio by default. The display-mode
+            // control also offers edge-to-edge ZOOM and stretched FILL.
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             useController = true
             // Keep the video clean. Controls appear only after the user taps.
@@ -337,6 +337,7 @@ class NativePlayerActivity : Activity() {
         }
 
         displayModeButton = overlayButton("Fit").apply {
+            contentDescription = "Original aspect ratio; tap to zoom full screen"
             textSize = 13f
             setPadding(dp(10), 0, dp(10), 0)
             setOnClickListener { toggleDisplayMode() }
@@ -974,14 +975,25 @@ class NativePlayerActivity : Activity() {
     private fun toggleDisplayMode() {
         if (!::playerView.isInitialized || !::displayModeButton.isInitialized) return
 
-        if (playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FILL) {
-            // FIT preserves the original aspect ratio and can show bars.
-            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-            displayModeButton.text = "Fit"
-        } else {
-            // FILL stretches to the exact screen bounds: no crop, no zoom, no bars.
-            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
-            displayModeButton.text = "Fill"
+        // FIT -> ZOOM -> FILL -> FIT
+        // ZOOM fills the screen without stretching, cropping edges if required.
+        // FILL stretches to all screen bounds without cropping.
+        when (playerView.resizeMode) {
+            AspectRatioFrameLayout.RESIZE_MODE_FIT -> {
+                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                displayModeButton.text = "Zoom"
+                displayModeButton.contentDescription = "Zoomed video; tap for stretched fill"
+            }
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> {
+                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+                displayModeButton.text = "Fill"
+                displayModeButton.contentDescription = "Stretched video; tap for original aspect ratio"
+            }
+            else -> {
+                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                displayModeButton.text = "Fit"
+                displayModeButton.contentDescription = "Original aspect ratio; tap to zoom full screen"
+            }
         }
     }
 
