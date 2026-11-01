@@ -1,4 +1,5 @@
-const publicOrigin = "https://football-public-api.nyeinchanaung75299-eng.workers.dev";
+// Keep this mirror aligned with the live Vercel project: workers.dev is disabled.
+const publicOrigin = "https://football-api.nyeinchanaung.us.ci";
 // Direct Supabase is reachable from Vercel; the Cloudflare Auth relay was not.
 const backendOrigin = "https://woggzixprvyjnfjzsglz.supabase.co";
 const cors = {
