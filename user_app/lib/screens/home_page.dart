@@ -65,6 +65,7 @@ class _HomePageState extends State<HomePage> {
   RealtimeChannel? _channel;
   Timer? _debounce;
   Timer? _feedRefresh;
+  DateTime? _lastBackgroundPoll;
   bool _openingPlayer = false;
   late Future<String> _versionLabel;
   late Future<String> _updateVersionLabel;
@@ -224,6 +225,15 @@ class _HomePageState extends State<HomePage> {
           !_openingPlayer &&
           (state == null || state == AppLifecycleState.resumed) &&
           ModalRoute.of(context)?.isCurrent != false) {
+        final live = _feed.data?.any((match) => match['is_live'] == true) ?? false;
+        final now = DateTime.now();
+        // Keep live matches fresh; avoid repeating unchanged off-air catalog
+        // requests every minute when no match is in progress.
+        if (!live && _lastBackgroundPoll != null &&
+            now.difference(_lastBackgroundPoll!) < const Duration(minutes: 2)) {
+          return;
+        }
+        _lastBackgroundPoll = now;
         unawaited(refresh(silent: true));
       }
     });
