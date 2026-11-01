@@ -7,7 +7,7 @@ import {findVerifiedGuideMatches,isAuthorizedKeylessLine} from "../_shared/nca_e
 const SOURCES=[
  "https://football-api.nyeinchanaung.us.ci",
  "https://nca-network-backup-test.vercel.app",
- "https://football-public-api-nyeinchanaung75299-eng.workers.dev",
+ "https://football-public-api.nyeinchanaung75299-eng.workers.dev",
 ];
 const json=(data,status=200)=>Response.json(data,{status,headers:{"Cache-Control":"no-store"}});
 const hex=bytes=>Array.from(bytes,x=>x.toString(16).padStart(2,"0")).join("");
