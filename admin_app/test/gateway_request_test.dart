@@ -3,8 +3,19 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:football_admin/services/gateway_request.dart';
+import 'package:football_admin/services/function_gateway.dart';
 
 void main() {
+  test('known healthy gateway is preferred only when present in allowlist',
+      () {
+    final known = ['https://vercel.test', 'https://worker.test', 'https://direct.test'];
+    expect(prioritizeKnownGateway(known, 'https://worker.test'),
+        ['https://worker.test', 'https://vercel.test', 'https://direct.test']);
+    expect(prioritizeKnownGateway(known, 'https://untrusted.example'), known);
+    expect(prioritizeKnownGateway(known, null), known);
+    expect(known.first, 'https://vercel.test');
+  });
+
   test('successful responses stop failover, even for mutations', () async {
     var sent = 0;
     var direct = 0;
