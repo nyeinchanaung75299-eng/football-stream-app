@@ -7,6 +7,7 @@ import 'channels_page.dart';
 import 'channel_health_page.dart';
 import 'edit_live_page.dart';
 import 'fixture_import_page.dart';
+import 'sportscore_test_page.dart';
 import 'live_links_page.dart';
 import 'live_upload_page.dart';
 import 'my_channels_guide_page.dart';
@@ -123,6 +124,17 @@ class _DashboardPageState extends State<DashboardPage> {
         iconColor: const Color(0xFFF59E0B),
         onTap: () =>
             open(context, const FixtureImportPage(), 'pick-big-matches'),
+      ),
+      const SizedBox(height: 8),
+      _ActionCard(
+        icon: Icons.science_outlined,
+        title: 'SportScore Test Schedule',
+        iconColor: const Color(0xFF14B8A6),
+        onTap: () => open(
+          context,
+          const SportScoreTestPage(),
+          'sportscore-test-schedule',
+        ),
       ),
       const SizedBox(height: 8),
       _ActionCard(
