@@ -28,6 +28,20 @@ The Edge Functions use existing server-only SUPABASE_URL and SUPABASE_SERVICE_RO
 
 For first-time pairing, configure the four bot tokens/secrets, deploy both functions and register webhooks, then privately send /whoami to @NCAPrivate_bot. Copy the numeric ID from your *own Telegram chat* into TG_ADMIN_USER_IDS. The bot responds to /whoami even before allowlisting.
 
+
+## One-click setup from the Admin website (recommended)
+
+After saving the four BotFather/webhook secrets to Edge Functions Secrets:
+
+1. Open https://nyeinchanaung75299-eng.github.io/football-stream-app/admin/ and sign in as an authorized Admin.
+2. From **Controls**, scroll to **Telegram Integration → Connect Telegram Bots**.
+3. Tap **CONNECT TELEGRAM BOTS**. The server verifies your Supabase session, checks `profiles.role = admin`, privately verifies both BotFather usernames, then registers both Telegram webhooks. No token is sent to your browser or to GitHub.
+4. Open @NCAFootballViewer_bot and send `/start`.
+5. Open @NCAPrivate_bot and send `/whoami`. Add the returned *numeric user ID* as `TG_ADMIN_USER_IDS` in Supabase Secrets (not the username or chat link). Then send `/health` or `/bein`.
+6. If the connection reports a missing/invalid secret, review the four saved secret names, check that webhook secret values are **different random 32–128 character strings** (not names of other secrets), and repeat the button.
+
+Connection uses a separate `telegram-connect` Edge Function, accessible only after a validated NCA Admin session and role lookup. The Vercel Supabase relay passes the existing Admin JWT unchanged. It does not grant Admin access based on a Telegram username. The connect action is safe to repeat.
+
 ## Deploy and register
 
 Deploy the two functions via CLI or the Supabase Dashboard:
