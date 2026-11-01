@@ -125,8 +125,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     if (req.method !== "POST") return reply({ error: "Method not allowed" }, 405);
     const token = env[prefix + "_BOT_TOKEN"];
     const secret = env[prefix + "_WEBHOOK_SECRET"];
-    if (!token || !secret || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY ||
-      (mode === "admin" && !env.TG_ADMIN_USER_IDS)) {
+    if (!token || !secret || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
       return reply({ error: "Bot not configured" }, 503);
     }
     if (!await sameSecret(req.headers.get("X-Telegram-Bot-Api-Secret-Token"), secret)) {
@@ -139,16 +138,23 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     const from = callback?.from || update.message?.from;
     const chat = message?.chat;
     if (!chat || !from || !Number.isSafeInteger(chat.id) || !Number.isSafeInteger(from.id)) return reply({ ok: true });
-    // Admin bot must remain a private one-to-one chat, and caller ID must be allowlisted.
-    if (mode === "admin") {
-      const allowed = new Set(env.TG_ADMIN_USER_IDS.split(",").map(s => s.trim()).filter(Boolean));
-      if (chat.type !== "private" || String(chat.id) !== String(from.id) || !allowed.has(String(from.id))) {
-        return reply({ ok: true });
-      }
-    }
-    if (callback && callback.id) await telegram("answerCallbackQuery", token, { callback_query_id: callback.id });
     const raw = String(callback ? callback.data || "" : message.text || "").trim();
     const cmd = raw.split(/\s+/)[0].split("@")[0].toLowerCase();
+    // The pairing command returns only the requesting user's OWN ID.
+    // All Admin data remains inaccessible until that ID is explicitly allowlisted.
+    if (mode === "admin") {
+      if (chat.type !== "private" || String(chat.id) !== String(from.id)) return reply({ ok: true });
+      if (cmd === "/whoami") {
+        await telegram("sendMessage", token, {
+          chat_id: chat.id, text: "Your Telegram User ID: " + String(from.id) +
+            "\nAdd this ID to the private Supabase secret TG_ADMIN_USER_IDS to enable Admin commands.",
+        });
+        return reply({ ok: true });
+      }
+      const allowed = new Set((env.TG_ADMIN_USER_IDS || "").split(",").map(s => s.trim()).filter(Boolean));
+      if (!allowed.has(String(from.id))) return reply({ ok: true });
+    }
+    if (callback && callback.id) await telegram("answerCallbackQuery", token, { callback_query_id: callback.id });
     let responseText, keyboard;
     try {
       if (mode === "viewer") {
@@ -181,7 +187,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       } else if (raw.startsWith("channel:")) {
         responseText = await channelDetails(raw.slice("channel:".length), env);
       } else {
-        responseText = "🛡️ NCA Private Admin\nRead-only commands: /health /bein /build.\n" +
+        responseText = "🛡️ NCA Private Admin\nRead-only commands: /health /bein /build /whoami.\n" +
           "Protected stream data and keys stay in the authenticated Admin website.";
         keyboard = { inline_keyboard: [
           [{ text: "📺 beIN Sports", callback_data: "/bein" }],
