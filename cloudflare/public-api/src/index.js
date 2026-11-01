@@ -622,10 +622,17 @@ async function handleTvSchedule(request, env, incoming) {
     const upstream = new URL("/api/schedule", TV_GUIDE_ORIGIN);
     upstream.searchParams.set("date", date);
     upstream.searchParams.set("days", String(days));
+    // Start all public EPG lookups together. The reference site exposes 26
+    // regional feeds through separate read-only routes; /api/schedule by
+    // itself includes only the UK/US/AU/MY base subset. The merged response
+    // never includes stream URLs, auth tokens, DRM material or credentials.
+    const extended = loadExtendedTvGuide(date, days);
     const { data } = await fetchJsonWithTimeout(upstream, {
       headers: { Accept: "application/json" },
     }, METADATA_TIMEOUT_MS);
-    const schedule = sanitizeTvSchedule(data, date, days);
+    const supplements = await extended;
+    const schedule = sanitizeTvSchedule(
+      mergeTvScheduleSources(data, supplements), date, days);
     return json(schedule, 200, {
       // Schedule data is public metadata and may be briefly cached by
       // clients. The upstream can still refresh it independently.
@@ -638,6 +645,98 @@ async function handleTvSchedule(request, env, incoming) {
   }
 }
 
+// Every route is fixed and owned by the user's public match-guide deployment.
+// No arbitrary client URL is accepted, and partial provider outages simply
+// leave their rows unmatched. Limit enrichment time so Vercel-first remains
+// usable on slow Myanmar mobile networks.
+const EXTENDED_TV_GUIDES = [
+  ...["UK1", "US2", "CZ1", "AU1", "SK1", "MY1"]
+    .map((source) => ({ path: "/api/epg-match", source })),
+  ...["IC_BR", "IC_CA", "IC_UY", "IC_ID", "IC_PH", "IC_DE", "IC_TH", "IC_US"]
+    .map((source) => ({ path: "/api/epg-country", source })),
+  { path: "/api/epg-mx", source: "MX1" },
+  { path: "/api/epg-ca", source: "CA1" },
+  { path: "/api/regional", source: "regional" },
+  { path: "/api/uk-extended", source: "uk-extended" },
+];
+let tvGuideCache = null;
+
+async function loadExtendedTvGuide(date, days) {
+  const key = `${date}:${days}`;
+  if (tvGuideCache?.key === key && Date.now() - tvGuideCache.at < 90000) {
+    return tvGuideCache.results;
+  }
+  const results = await Promise.all(EXTENDED_TV_GUIDES.map(async ({ path, source }) => {
+    const url = new URL(path, TV_GUIDE_ORIGIN);
+    url.searchParams.set("date", date);
+    url.searchParams.set("days", String(days));
+    if (path === "/api/epg-match" || path === "/api/epg-country") {
+      url.searchParams.set("source", source);
+    }
+    try {
+      const { data } = await fetchJsonWithTimeout(url, {
+        headers: { Accept: "application/json" },
+      }, 8500);
+      if (!Array.isArray(data?.channels)) throw Error("Guide had no channels");
+      return { source, data, ok: true };
+    } catch (_) {
+      return { source, data: null, ok: false };
+    }
+  }));
+  tvGuideCache = { key, at: Date.now(), results };
+  return results;
+}
+
+function mergeTvScheduleSources(base, supplements) {
+  const safeBase = base && typeof base === "object" ? base : {};
+  const existing = Array.isArray(safeBase.channels) ? safeBase.channels : [];
+  const rows = existing.map((channel) => ({
+    ...channel,
+    programmes: Array.isArray(channel.programmes) ? [...channel.programmes] : [],
+  }));
+  const byId = new Map(rows.map((channel) => [String(channel.id), channel]));
+  const sourceRows = Array.isArray(safeBase.sources) ? [...safeBase.sources] : [];
+  for (const supplement of supplements) {
+    const { source, data, ok } = supplement;
+    // A regional API can report several distinct EPG feed health statuses.
+    if (ok && Array.isArray(data?.sources) && data.sources.length) {
+      for (const feed of data.sources) {
+        sourceRows.push({
+          name: source === "regional"
+            ? `regional:${String(feed.name || "unknown")}` : source,
+          ok: feed.ok === true,
+        });
+      }
+    } else if (source !== "uk-extended") {
+      sourceRows.push({ name: source, ok: false });
+    }
+    if (!ok) continue;
+    for (const found of data.channels) {
+      const channel = byId.get(String(found?.id || ""));
+      if (!channel || found?.matchedEPG !== true) continue;
+      const programmes = Array.isArray(found.programmes)
+        ? found.programmes.filter((p) => p && Number(p.start) > 0)
+        : [];
+      if (!programmes.length) continue;
+      channel.matchedEPG = true;
+      if (!channel.region) channel.region = found.region;
+      if (!channel.guide_candidate) channel.guide_candidate = found.guide_candidate === true;
+      channel.programmes.push(...programmes);
+    }
+  }
+  for (const channel of rows) {
+    const unique = new Map();
+    for (const programme of channel.programmes) {
+      const key = `${programme.start}:${programme.title || ""}:${programme.subtitle || ""}`;
+      if (!unique.has(key)) unique.set(key, programme);
+    }
+    channel.programmes = [...unique.values()]
+      .sort((a, b) => Number(a.start) - Number(b.start))
+      .slice(0, 60);
+  }
+  return { ...safeBase, sources: sourceRows, channels: rows };
+}
+
 function sanitizeTvSchedule(raw, date, days) {
   const source = raw && typeof raw === "object" ? raw : {};
   const text = (value, limit = 240) =>
@@ -646,7 +745,7 @@ function sanitizeTvSchedule(raw, date, days) {
     const number = Number(value);
     return Number.isFinite(number) && number > 0 ? Math.floor(number) : null;
   };
-  const programmes = (rows) => Array.isArray(rows) ? rows.slice(0, 80)
+  const programmes = (rows) => Array.isArray(rows) ? rows.slice(0, 60)
     .map((row) => {
       const start = timestamp(row?.start);
       if (start == null) return null;
@@ -654,8 +753,8 @@ function sanitizeTvSchedule(raw, date, days) {
         start,
         end: timestamp(row?.end),
         title: text(row?.title),
-        subtitle: text(row?.subtitle, 500),
-        description: text(row?.description, 1000),
+        subtitle: text(row?.subtitle, 260),
+        description: text(row?.description, 360),
         // Public EPG confidence flags, never credentials or video URLs.
         stream_ambiguous: row?.stream_ambiguous === true,
         stream_confirmed: row?.stream_confirmed === true,
@@ -672,6 +771,8 @@ function sanitizeTvSchedule(raw, date, days) {
     sources: Array.isArray(source.sources) ? source.sources.slice(0, 16)
       .map((row) => ({ name: text(row?.name, 80), ok: row?.ok === true }))
       .filter((row) => row.name) : [],
+    matched_channels: Array.isArray(source.channels)
+      ? source.channels.filter((c) => c?.matchedEPG === true && c?.programmes?.length).length : 0,
     channels: Array.isArray(source.channels) ? source.channels.slice(0, 300)
       .map((row) => ({
         id: text(row?.id, 100),
