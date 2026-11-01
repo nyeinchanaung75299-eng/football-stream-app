@@ -219,3 +219,33 @@ test('Xoilac and Camel1 metadata use the protected public backend', async () => 
     }
   });
 });
+
+
+test('Telegram connector forwards only an Admin bearer session to the trusted Supabase Edge Function', async () => {
+  const calls = [];
+  await withFetch(async (url, init) => {
+    calls.push({url:String(url),auth:init.headers.get('Authorization'),apiKey:init.headers.get('apikey')});
+    return Response.json({error:'Admin role required'}, {status:403});
+  }, async () => {
+    const result = await proxy(new Request(origin + '/functions/v1/telegram-connect', {
+      method:'POST',
+      headers: {
+        Authorization:'Bearer admin-session-fixture',
+        apikey:'public-key-fixture',
+        'Content-Type':'application/json',
+      }, body:'{}',
+    }));
+    assert.equal(result.status,403);
+    await result.body.cancel();
+  });
+  assert.deepEqual(calls,[{
+    url: backend + '/functions/v1/telegram-connect',
+    auth:'Bearer admin-session-fixture',apiKey:'public-key-fixture',
+  }]);
+  await withFetch(async () => { throw new Error('Unexpected upstream fetch'); }, async () => {
+    const response=await proxy(new Request(origin + '/functions/v1/unapproved-telegram-function', {
+      method:'POST',body:'{}',
+    }));
+    assert.equal(response.status,404);
+  });
+});
