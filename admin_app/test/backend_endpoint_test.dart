@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -26,7 +28,7 @@ void main() {
         () => MockClient((request) async {
           if (request.url.host == 'database.example') {
             await Future<void>.delayed(Duration.zero);
-            return http.Response('{}', 200);
+            return http.Response('{"name":"GoTrue"}', 200);
           }
           return http.Response('{}', 401);
         }),
@@ -90,11 +92,73 @@ void main() {
         () => MockClient((request) async {
               if (request.url.host == 'database.example') {
                 await Future<void>.delayed(Duration.zero);
-                return http.Response('{}', 200);
+                return http.Response('{"name":"GoTrue"}', 200);
               }
               return http.Response(
                   '{"ok":true,"service":"football-public-api"}', 200);
             }));
+  });
+
+  test(
+      'slow or blocked relay does not hold up a healthy direct Auth route',
+      () async {
+    final pendingRelay = Completer<http.Response>();
+    await http.runWithClient(() async {
+      final result = await resolveSupabaseUrl(
+        directUrl: 'https://database.example',
+        publishableKey: 'test-public-key',
+      );
+      expect(result, 'https://database.example');
+      // A sequential selector would be stuck on the first relay forever
+      // rather than resolving through the direct Auth route.
+      pendingRelay.complete(http.Response('{"name":"GoTrue"}', 200));
+    }, () => MockClient((request) async {
+      if (request.url.host == 'database.example') {
+        return http.Response('{"name":"GoTrue"}', 200);
+      }
+      return pendingRelay.future;
+    }));
+  });
+
+  test('stale remembered route does not block another verified backend',
+      () async {
+    await http.runWithClient(() async {
+      final resolved = await resolveSupabaseUrl(
+        directUrl: 'https://database.example',
+        publishableKey: 'test-public-key',
+        preferredBase: vercelBackupBase,
+      );
+      expect(resolved, 'https://database.example');
+    }, () => MockClient((request) async {
+      if (request.url.host == 'database.example') {
+        return http.Response('{"name":"GoTrue"}', 200);
+      }
+      return http.Response('{"error":"not available"}', 503);
+    }));
+  });
+
+  test('generic public relay health cannot be used instead of GoTrue', () async {
+    final routes = <Uri>[];
+    await http.runWithClient(() async {
+      final resolved = await resolveSupabaseUrl(
+        directUrl: 'https://database.example',
+        publishableKey: 'test-public-key',
+      );
+      expect(resolved, 'https://database.example');
+      expect(routes.where((url) => url.host.contains('supabase-api')),
+          everyElement(isA<Uri>()));
+      expect(routes.where((url) => url.host.contains('supabase-api')),
+          isNotEmpty);
+      expect(routes.where((url) => url.host.contains('supabase-api')),
+          everyElement(predicate<Uri>(
+              (url) => url.path == '/auth/v1/health')));
+    }, () => MockClient((request) async {
+      routes.add(request.url);
+      if (request.url.host == 'database.example') {
+        return http.Response('{"name":"GoTrue"}', 200);
+      }
+      return http.Response('{"ok":true,"service":"supabase-relay"}', 200);
+    }));
   });
 
   test(
