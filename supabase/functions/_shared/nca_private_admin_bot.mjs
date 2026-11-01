@@ -400,29 +400,32 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
         "&is_active=eq.true&order=last_checked_at.asc.nullsfirst&limit=8",env);
       const channelRows=await allChannels();
       const names=new Map(channelRows.filter(c=>c.is_active).map(c=>[c.id,c.name]));
-      for(const line of lines){
-        if(!names.has(line.channel_id))continue;
-        try{
-          const probe=await probeStreamFirstChunk(line.stream_url,{headers:{
-            "Range":"bytes=0-4095","Accept":"*/*",
-            ...(line.referer?{"Referer":line.referer}:{}),
-            ...(line.origin?{"Origin":line.origin}:{}),
-          },timeoutMs:4500});
-          checked++;
-          await writeDb("channel_lines?id=eq."+line.id,"PATCH",{
-            health_status:probe.status,health_latency_ms:probe.latencyMs,
-            last_checked_at:new Date().toISOString(),
-          });
-          if(probe.status==="failed" && line.health_status!=="failed" && line.last_checked_at){
-            const key="health:"+line.id+":"+new Date().toISOString().slice(0,10);
-            for(const p of prefs.filter(x=>x.monitor_enabled)){
-              await notify(p.chat_id,"health",key,
-                "⚠️ NCA CHANNEL REACHABILITY ALERT\n📺 "+text(names.get(line.channel_id),85)+
-                "\nStatus: Failed (probe only)\nLast check: "+new Date().toISOString()+
-                "\n/health and /logs for details. Playback not verified.");
+      // Bound concurrency: two batches of four probes, instead of eight sequential timeouts.
+      for(let offset=0;offset<lines.length;offset+=4){
+        await Promise.allSettled(lines.slice(offset,offset+4).map(async line=>{
+          if(!names.has(line.channel_id))return;
+          try{
+            const probe=await probeStreamFirstChunk(line.stream_url,{headers:{
+              "Range":"bytes=0-4095","Accept":"*/*",
+              ...(line.referer?{"Referer":line.referer}:{}),
+              ...(line.origin?{"Origin":line.origin}:{}),
+            },timeoutMs:4500});
+            checked++;
+            await writeDb("channel_lines?id=eq."+line.id,"PATCH",{
+              health_status:probe.status,health_latency_ms:probe.latencyMs,
+              last_checked_at:new Date().toISOString(),
+            });
+            if(probe.status==="failed" && line.health_status!=="failed" && line.last_checked_at){
+              const key="health:"+line.id+":"+new Date().toISOString().slice(0,10);
+              for(const admin of prefs.filter(x=>x.monitor_enabled)){
+                await notify(admin.chat_id,"health",key,
+                  "⚠️ NCA CHANNEL REACHABILITY ALERT\n📺 "+text(names.get(line.channel_id),85)+
+                  "\nStatus: Failed (probe only)\nLast check: "+new Date().toISOString()+
+                  "\n/health and /logs for details. Playback not verified.");
+              }
             }
-          }
-        }catch { /* do not leak probe errors, and continue to next line */ }
+          }catch{ /* Isolate failures per channel, never expose URL or private headers. */ }
+        }));
       }
     }
     if(prefs.some(p=>p.football_enabled)){
