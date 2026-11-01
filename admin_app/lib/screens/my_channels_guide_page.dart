@@ -524,34 +524,6 @@ class _ProgrammeRow extends StatelessWidget {
   }
 }
 
-class _LivePill extends StatelessWidget {
-  const _LivePill({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final live = label == 'LIVE';
-    final colors = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: (live ? colors.error : colors.primary).withValues(alpha: .12),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: live ? colors.error : colors.primary,
-          fontSize: 9,
-          fontWeight: FontWeight.w900,
-          letterSpacing: .45,
-        ),
-      ),
-    );
-  }
-}
-
 class _NoChannelMatches extends StatelessWidget {
   const _NoChannelMatches();
 
