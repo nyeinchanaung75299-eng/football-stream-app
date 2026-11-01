@@ -296,12 +296,16 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     return database("matches?select=id,league,home_team,away_team,kickoff_at,is_live,is_finished,home_score,away_score,status_short,is_active,publish_state&is_active=eq.true&publish_state=eq.published&deleted_at=is.null&order=kickoff_at.asc&limit=300",env);
   }
   async function mappings(){
-    const [links,manual]=await Promise.all([
+    const [links,manual,epg]=await Promise.all([
       database("stream_links?select=match_id,channel_id&is_active=eq.true&channel_id=not.is.null&limit=500",env),
-      database("nca_bot_match_channels?select=match_id,channel_id&limit=500",env)
+      database("nca_bot_match_channels?select=match_id,channel_id&limit=500",env),
+      database("nca_epg_auto_match_channels?select=match_id,channel_id,last_verified_at&limit=500",env)
     ]);
+    // Auto TV guide assignments must have a recent schedule verification.
+    const cutoff=clock().getTime()-36*3600000;
+    const freshEpg=epg.filter(x=>Date.parse(x.last_verified_at)>=cutoff);
     const result=new Map();
-    for(const link of links.concat(manual)){
+    for(const link of links.concat(manual,freshEpg)){
       if(!uuidValid(link.match_id)||!uuidValid(link.channel_id))continue;
       if(!result.has(link.match_id)) result.set(link.match_id,new Set());
       result.get(link.match_id).add(link.channel_id);
