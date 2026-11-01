@@ -3,6 +3,88 @@ import { probeStreamFirstChunk } from "./stream_probe.mjs";
 // NO stream URLs, key IDs, key data, DRM, service keys or session tokens in replies.
 export const VIEWER_SITE = "https://nyeinchanaung75299-eng.github.io/football-stream-app/";
 export const ADMIN_SITE = VIEWER_SITE + "admin/";
+// Persistent Telegram ReplyKeyboardMarkup for allowlisted NCA Private Admin users only.
+const ADMIN_BOTTOM_KEYBOARD = {
+  "keyboard": [
+    [
+      {
+        "text": "📡 Auto Stream Monitoring"
+      },
+      {
+        "text": "🚨 Channel Error Alerts"
+      }
+    ],
+    [
+      {
+        "text": "📺 Channel Details"
+      },
+      {
+        "text": "🔎 Advanced Search"
+      }
+    ],
+    [
+      {
+        "text": "📊 Database Statistics"
+      },
+      {
+        "text": "⚽ Fixtures & Alerts"
+      }
+    ],
+    [
+      {
+        "text": "🛠 Channel Enable/Disable"
+      },
+      {
+        "text": "🧾 Audit & Health History"
+      }
+    ],
+    [
+      {
+        "text": "🗃 Backup Status Report"
+      },
+      {
+        "text": "🔒 Admin Security"
+      }
+    ],
+    [
+      {
+        "text": "📅 Channel–Match Schedule"
+      },
+      {
+        "text": "🔗 Match–Channel Mapping"
+      }
+    ],
+    [
+      {
+        "text": "📺 All Channels"
+      },
+      {
+        "text": "🏠 Main Menu"
+      }
+    ]
+  ],
+  "resize_keyboard": true,
+  "is_persistent": true,
+  "one_time_keyboard": false,
+  "input_field_placeholder": "NCA Admin commands"
+};
+const ADMIN_BOTTOM_COMMANDS = {
+  "📡 Auto Stream Monitoring": "/monitor",
+  "🚨 Channel Error Alerts": "/alerts",
+  "📺 Channel Details": "/channels",
+  "🔎 Advanced Search": "/search",
+  "📊 Database Statistics": "/stats",
+  "⚽ Fixtures & Alerts": "/matches",
+  "🛠 Channel Enable/Disable": "/manage",
+  "🧾 Audit & Health History": "/logs",
+  "🗃 Backup Status Report": "/backup",
+  "🔒 Admin Security": "/security",
+  "📅 Channel–Match Schedule": "/broadcasts",
+  "🔗 Match–Channel Mapping": "/mapmatch",
+  "📺 All Channels": "/channels",
+  "🏠 Main Menu": "/start"
+};
+
 
 const reply = (body, status = 200) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -159,7 +241,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       " • " + text(line.health_status || "unknown", 22));
     return "📺 " + text(channel.name, 110) + "\nCategory: " + text(channel.category, 65) +
       "\nEPG: " + text(channel.epg_id || "Not linked", 80) +
-      "\nActive lines: " + lines.length + (statuses.length ? "\n" + statuses.join("\n") : "") +
+      "\nChannel ID: " + channel.id + "\nActive lines: " + lines.length + (statuses.length ? "\n" + statuses.join("\n") : "") +
       "\n\nManage protected playback details in the authenticated NCA Admin:\n" + ADMIN_SITE;
   }
 
@@ -505,7 +587,8 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     const from = callback?.from || update.message?.from;
     const chat = message?.chat;
     if (!chat || !from || !Number.isSafeInteger(chat.id) || !Number.isSafeInteger(from.id)) return reply({ ok: true });
-    const raw = String(callback ? callback.data || "" : message.text || "").trim();
+    const incomingText = String(callback ? callback.data || "" : message.text || "").trim();
+    const raw = mode === "admin" && !callback ? (ADMIN_BOTTOM_COMMANDS[incomingText] || incomingText) : incomingText;
     const cmd = raw.split(/\s+/)[0].split("@")[0].toLowerCase();
     // The pairing command returns only the requesting user's OWN ID.
     // All Admin data remains inaccessible until that ID is explicitly allowlisted.
@@ -629,6 +712,14 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
           [{text:"🏠 Menu",callback_data:"/start"}],
         ]};
       } else {
+        // A reply keyboard belongs to a separate Telegram message; keep existing inline navigation.
+        if (!callback) {
+          await telegram("sendMessage", token, {
+            chat_id: chat.id,
+            text: "⬇️ NCA Private Admin buttons are ready below. Tap any button to run its command.",
+            reply_markup: ADMIN_BOTTOM_KEYBOARD,
+          });
+        }
         responseText = "🛡️ NCA PRIVATE ADMIN\n"+
           "/channels /categories /search /filter /details\n"+
           "/matches /broadcasts /mapmatch /unmapmatch\n"+
