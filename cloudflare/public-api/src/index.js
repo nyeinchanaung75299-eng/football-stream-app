@@ -656,6 +656,9 @@ function sanitizeTvSchedule(raw, date, days) {
         title: text(row?.title),
         subtitle: text(row?.subtitle, 500),
         description: text(row?.description, 1000),
+        // Public EPG confidence flags, never credentials or video URLs.
+        stream_ambiguous: row?.stream_ambiguous === true,
+        stream_confirmed: row?.stream_confirmed === true,
       };
     })
     .filter(Boolean) : [];
@@ -676,6 +679,7 @@ function sanitizeTvSchedule(raw, date, days) {
         image_url: text(row?.image_url, 2000),
         category: text(row?.category, 100),
         matchedEPG: row?.matchedEPG === true,
+        guide_candidate: row?.guide_candidate === true,
         region: text(row?.region, 40),
         programmes: programmes(row?.programmes),
       }))
