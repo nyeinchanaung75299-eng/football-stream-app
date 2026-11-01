@@ -49,11 +49,32 @@ void main() {
         () => MockClient((request) async {
               if (request.url.host == Uri.parse(vercelBackupBase).host) {
                 expect(request.url.path, '/backend-health');
-                return http.Response(
-                    '{"ok":true,"service":"supabase-relay"}', 200);
+                expect(request.headers['apikey'], 'test-public-key');
+                return http.Response('{"name":"GoTrue","version":"v2.test"}', 200);
               }
               throw http.ClientException('Blocked fixture route');
             }));
+  });
+
+  test(
+      'A healthy Vercel Auth route takes priority even when direct Supabase is fast',
+      () async {
+    await http.runWithClient(() async {
+      final result = await resolveSupabaseUrl(
+          directUrl: 'https://database.example/',
+          publishableKey: 'test-public-key');
+      expect(result, vercelBackupBase);
+      expect(usesVercelBackend, isTrue);
+    }, () => MockClient((request) async {
+      if (request.url.host == Uri.parse(vercelBackupBase).host) {
+        expect(request.headers['apikey'], 'test-public-key');
+        return http.Response('{"name":"GoTrue"}', 200);
+      }
+      if (request.url.host == 'database.example') {
+        return http.Response('{"name":"GoTrue"}', 200);
+      }
+      throw http.ClientException('Blocked Cloudflare relay');
+    }));
   });
 
   test(
