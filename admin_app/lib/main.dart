@@ -94,9 +94,21 @@ Future<void> _initializeBackendOnce() async {
   const directUrl = 'https://woggzixprvyjnfjzsglz.supabase.co';
   const anonKey = 'sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O';
   try {
+    // Remember only a previously verified Auth route. Each startup still
+    // re-probes it; a stale VPN/network path cannot bypass the health check.
+    const routeKey = 'nca_admin_auth_route_v1';
+    SharedPreferences? preferences;
+    String? preferred;
+    try {
+      preferences = await SharedPreferences.getInstance();
+      preferred = preferences.getString(routeKey);
+    } catch (_) {
+      // Private storage might be unavailable; connection still proceeds.
+    }
     final url = await resolveSupabaseUrl(
       directUrl: directUrl,
       publishableKey: anonKey,
+      preferredBase: preferred,
     );
     await Supabase.initialize(
       url: url,
@@ -105,6 +117,13 @@ Future<void> _initializeBackendOnce() async {
         localStorage: _StableAdminSessionStorage(),
       ),
     );
+    if (preferences != null) {
+      try {
+        unawaited(preferences.setString(routeKey, url));
+      } catch (_) {
+        // A storage failure must not delay a verified Admin Auth route.
+      }
+    }
   } catch (_) {
     // Some SDK failures happen after the client is constructed (for example,
     // a stored session cannot be restored over the current network). Let the
