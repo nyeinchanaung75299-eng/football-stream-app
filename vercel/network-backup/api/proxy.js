@@ -135,8 +135,13 @@ async function proxy(request) {
       } finally { await reader.cancel().catch(() => {}); }
       const body = new Uint8Array(size); let offset = 0;
       for (const part of parts) { body.set(part, offset); offset += part.byteLength; }
-      let text = new TextDecoder().decode(body);
-      if (!backend && response.ok) text = text.replaceAll(publicOrigin + "/p/", incoming.origin + "/p/");
+      // Keep Worker-generated signed playback URLs canonical. Rewriting
+      // /p/ URLs to Vercel creates an unnecessary second media proxy hop:
+      // browser -> Vercel -> Worker -> authorized upstream CDN.
+      // New sessions instead stream: browser -> Worker -> upstream CDN.
+      // Legacy /p/ routes remain available on Vercel for older clients or
+      // networks that still need the backup relay.
+      const text = new TextDecoder().decode(body);
       return new Response(text, { status: response.status, headers: outputHeaders });
     }
     // A media response can remain open after its headers arrive. A header
