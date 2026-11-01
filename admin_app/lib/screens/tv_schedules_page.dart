@@ -23,11 +23,11 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
   late Future<_ScheduleData> _schedule = _load();
   String _view = 'upcoming';
 
-  void _refresh() => setState(() => _schedule = _load());
+  void _refresh() => setState(() => _schedule = _load(refreshGuide: true));
 
-  Future<_ScheduleData> _load() async {
+  Future<_ScheduleData> _load({bool refreshGuide = false}) async {
     final matchesFuture = _loadMatches();
-    final guideFuture = _loadGuide();
+    final guideFuture = _loadGuide(refresh: refreshGuide);
     final matches = await matchesFuture;
     final guideResult = await guideFuture;
     return _ScheduleData(
@@ -37,9 +37,10 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
     );
   }
 
-  Future<_GuideResult> _loadGuide() async {
+  Future<_GuideResult> _loadGuide({bool refresh = false}) async {
     try {
-      return _GuideResult(guide: await TvScheduleService().load());
+      return _GuideResult(
+          guide: await TvScheduleService().load(refresh: refresh));
     } catch (_) {
       return const _GuideResult(error: 'TV guide is temporarily unavailable.');
     }
