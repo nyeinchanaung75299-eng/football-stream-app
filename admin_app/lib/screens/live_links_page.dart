@@ -1123,9 +1123,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                   Text(
                       '${englishKnownFootballName(selected.first['home_team'].toString())} vs ${englishKnownFootballName(selected.first['away_team'].toString())}',
                       style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 10),
-                  _autoGuideCard(colors),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 18),
                   OutlinedButton.icon(
                     onPressed: loading ? null : chooseChannel,
                     icon: const Icon(Icons.tv),
@@ -1138,19 +1136,13 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                   _input('Origin', origin),
                   _input('keyID', keyId, enabled: !useWebView),
                   _input('keyData', keyData, enabled: !useWebView),
-                  _input('WebView', webViewUrl),
-                  SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Use WebView'),
-                      value: useWebView,
-                      onChanged: loading
-                          ? null
-                          : (value) => setState(() => useWebView = value)),
                   const SizedBox(height: 12),
                   FilledButton.icon(
                       onPressed: loading ? null : addLink,
                       icon: const Icon(Icons.add_link),
                       label: Text(loading ? 'SAVING...' : 'SAVE LINK')),
+                  const SizedBox(height: 22),
+                  _autoGuideCard(colors),
                   if (matchId != null) ...[
                     const SizedBox(height: 22),
                     Wrap(
