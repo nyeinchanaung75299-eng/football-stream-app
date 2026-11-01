@@ -622,17 +622,22 @@ async function handleTvSchedule(request, env, incoming) {
     const upstream = new URL("/api/schedule", TV_GUIDE_ORIGIN);
     upstream.searchParams.set("date", date);
     upstream.searchParams.set("days", String(days));
-    // Start all public EPG lookups together. The reference site exposes 26
-    // regional feeds through separate read-only routes; /api/schedule by
-    // itself includes only the UK/US/AU/MY base subset. The merged response
-    // never includes stream URLs, auth tokens, DRM material or credentials.
-    const extended = loadExtendedTvGuide(date, days);
+    // Read the primary guide BEFORE launching optional region fan-out.
+    // Cloudflare may limit concurrent connections to a single upstream host:
+    // starting 18 optional lookups first previously starved this required
+    // request and produced a 502 even though the primary guide was healthy.
     const { data } = await fetchJsonWithTimeout(upstream, {
       headers: { Accept: "application/json" },
     }, METADATA_TIMEOUT_MS);
-    const supplements = await extended;
-    const schedule = sanitizeTvSchedule(
-      mergeTvScheduleSources(data, supplements), date, days);
+    let schedule = sanitizeTvSchedule(data, date, days);
+    // Missing optional feeds must never make the baseline schedule unavailable.
+    try {
+      const supplements = await loadExtendedTvGuide(date, days);
+      schedule = sanitizeTvSchedule(
+        mergeTvScheduleSources(data, supplements), date, days);
+    } catch (_) {
+      // Preserve the verified baseline if an optional provider fails.
+    }
     return json(schedule, 200, {
       // Schedule data is public metadata and may be briefly cached by
       // clients. The upstream can still refresh it independently.

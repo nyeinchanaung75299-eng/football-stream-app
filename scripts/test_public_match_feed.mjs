@@ -141,8 +141,10 @@ test('TV schedule joins the public MX and UK extended feeds by existing channel 
   const kickoff = Date.parse('2026-11-01T13:00:00Z');
   const start = kickoff - 5 * 60 * 1000;
   const ids = { mx: 'canal-5', uk: 'premier-2' };
+  let firstFetch = null;
   globalThis.fetch = async url => {
     const request = new URL(url);
+    if (firstFetch == null) firstFetch = request.pathname;
     if (request.pathname === '/api/schedule') {
       return Response.json({
         sources: [{ name: 'uk', ok: true }],
@@ -185,6 +187,7 @@ test('TV schedule joins the public MX and UK extended feeds by existing channel 
       env, {},
     );
     assert.equal(response.status, 200);
+    assert.equal(firstFetch, '/api/schedule', 'baseline EPG must be fetched before optional feeds');
     const body = await response.json();
     assert.equal(body.channels.length, 2);
     assert.equal(body.matched_channels, 2);
