@@ -166,7 +166,7 @@ void main() {
     final client = MockClient((request) async {
       expect(request.url.path, '/tv-schedule');
       expect(request.url.queryParameters['date'], '2026-10-29');
-      expect(request.url.queryParameters['days'], '8');
+      expect(request.url.queryParameters['days'], '3');
       return http.Response(
         jsonEncode({
           'timezone': 'Asia/Yangon',
