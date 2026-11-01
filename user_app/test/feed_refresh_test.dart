@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:football_viewer/screens/home_page.dart';
+import 'package:football_viewer/network_endpoints.dart';
 import 'package:football_viewer/screens/source_browser_page.dart';
 
 const match = <String, dynamic>{
@@ -19,6 +20,7 @@ const match = <String, dynamic>{
 
 void main() {
   setUp(() {
+    rememberVerifiedPublicApiBase(vercelBackupBase);
     SharedPreferences.setMockInitialValues({});
     PackageInfo.setMockInitialValues(
       appName: 'NCA',
@@ -31,7 +33,7 @@ void main() {
 
   for (final sourceTab in [false, true]) {
     final label = sourceTab ? 'source tab' : 'Live';
-    testWidgets('$label tries Vercel first then falls back to Cloudflare', (
+    testWidgets('$label falls back to Cloudflare then reuses the verified route', (
       tester,
     ) async {
       final hosts = <String>[];
@@ -51,9 +53,9 @@ void main() {
           hosts.clear();
           await tester.pump(const Duration(seconds: 61));
           await tester.pumpAndSettle();
-          expect(hosts.first, 'nca-network-backup-test.vercel.app',
-              reason: 'Every refresh retries Vercel before Cloudflare fallback.');
-          expect(hosts, contains('football-api.nyeinchanaung.us.ci'));
+          expect(hosts.first, 'football-api.nyeinchanaung.us.ci',
+              reason: 'Refresh should reuse the last verified API route.');
+          expect(hosts, isNot(contains('nca-network-backup-test.vercel.app')));
           await tester.pumpWidget(const SizedBox());
         },
         () => MockClient((request) async {
