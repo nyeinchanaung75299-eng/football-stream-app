@@ -113,21 +113,63 @@ test('Channel routes forward to the protected Worker', async () => {
   });
 });
 
-test('Protected metadata stays on the reachable backup and binary range responses stay intact', async () => {
+test('Protected match metadata keeps the Worker playback origin; legacy Vercel range fallback remains intact', async () => {
   await withFetch(async (url, init) => {
     assert.equal(init.headers.has('Authorization'), false);
     assert.equal(init.headers.has('apikey'), false);
-    if (String(url).includes('/matches/')) return Response.json({ streams: [{ stream_url: worker + '/p/test-token/manifest.mpd' }] });
+    if (String(url).includes('/matches/')) return Response.json({
+      ok: true, streams: [{ stream_url: worker + '/p/test-token/manifest.mpd' }],
+    });
     assert.equal(init.headers.get('Range'), 'bytes=0-3');
     return new Response(Uint8Array.from([0, 255, 1, 128]), { status: 206, headers: { 'Content-Type': 'video/mp4', 'Content-Range': 'bytes 0-3/100', 'Accept-Ranges': 'bytes' } });
   }, async () => {
     const lines = await proxy(new Request(origin + '/matches/test/streams', { headers: { Authorization: 'Bearer private-fixture', apikey: 'private-fixture' } }));
-    assert.equal((await lines.json()).streams[0].stream_url, origin + '/p/test-token/manifest.mpd');
+    const streamUrl = (await lines.json()).streams[0].stream_url;
+    assert.equal(streamUrl, worker + '/p/test-token/manifest.mpd');
+    assert.ok(!streamUrl.startsWith(origin + '/p/'), 'Video must not loop through Vercel');
     const data = await proxy(new Request(origin + '/p/test-token/segment.mp4', { headers: { Range: 'bytes=0-3' } }));
     assert.equal(data.status, 206);
     assert.equal(data.headers.get('Content-Range'), 'bytes 0-3/100');
     assert.deepEqual(new Uint8Array(await data.arrayBuffer()), Uint8Array.from([0, 255, 1, 128]));
   });
+});
+
+test('Channel and source metadata preserve canonical protected Worker URLs', async () => {
+  const channel = '12345678-1234-1234-1234-123456789012';
+  await withFetch(async (url) => {
+    assert.equal(new URL(String(url)).origin, worker);
+    return Response.json({
+      ok: true, streams: [{ stream_url: worker + '/p/signed-session' }],
+    });
+  }, async () => {
+    for (const path of [
+      '/channels/' + channel + '/streams',
+      '/sources/soco/streams',
+    ]) {
+      const isSource = path.startsWith('/sources/');
+      const response = await proxy(new Request(origin + path, isSource
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+        : {}));
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).streams[0].stream_url, worker + '/p/signed-session');
+    }
+  });
+});
+
+test('Legacy HLS and DASH manifest responses do not rewrite segment URLs to Vercel', async () => {
+  const url = worker + '/p/session/segment-00001.m4s';
+  for (const [type, body] of [
+    ['application/dash+xml', '<MPD><BaseURL>' + url + '</BaseURL></MPD>'],
+    ['application/vnd.apple.mpegurl', '#EXTM3U\\n' + url + '\\n'],
+  ]) {
+    await withFetch(async () => new Response(body, { headers: { 'Content-Type': type } }), async () => {
+      const response = await proxy(new Request(origin + '/p/session/playlist'));
+      assert.equal(response.status, 200);
+      const content = await response.text();
+      assert.ok(content.includes(url));
+      assert.ok(!content.includes(origin + '/p/'));
+    });
+  }
 });
 
 test('Metadata HEAD works with a GET-only upstream and has no response body', async () => {
