@@ -201,7 +201,12 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   }
 
   Widget _autoGuideCard(ColorScheme colors) {
-    if (matchId == null) return const SizedBox.shrink();
+    // Do not render auto-EPG UI for an incomplete / non-database match ID.
+    // This also keeps legacy manual editor and its recovery UI unchanged.
+    if (matchId == null || !RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+      caseSensitive: false,
+    ).hasMatch(matchId!)) return const SizedBox.shrink();
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
