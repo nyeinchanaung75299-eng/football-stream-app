@@ -87,6 +87,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
   List<Map<String, dynamic>> sourceMatches = const [];
   final Map<String, String> _anchorStatuses = <String, String>{};
   final Map<String, int> _anchorLineCounts = <String, int>{};
+  // Status is advisory, not a prerequisite for tapping a stream source.
+  final Map<String, DateTime> _anchorStatusCheckedAt = <String, DateTime>{};
+  static const _statusTtl = Duration(minutes: 2);
+  // Check the first on-screen matches; leave the rest tappable as UNKNOWN
+  // instead of firing dozens of stream resolver requests on every open.
+  static const _initialStatusProbeLimit = 8;
   int _anchorStatusEpoch = 0;
   String? _extractingAnchorKey;
   Timer? _sourceRefreshTimer;
@@ -319,10 +325,21 @@ class _SocoImportPageState extends State<SocoImportPage> {
         ),
       );
       if (!current()) return;
+      // A one-minute background catalog refresh must not reset all streamer
+      // statuses and trigger an identical network probe storm.
+      if (silent && jsonEncode(sourceMatches) == jsonEncode(parsed)) return;
+      final currentKeys = <String>{
+        for (final match in parsed)
+          for (final anchor in List<Map<String, dynamic>>.from(
+              match['anchors'] ?? const []))
+            _anchorKey(match, anchor, provider: provider),
+      };
       setState(() {
         sourceMatches = parsed;
-        _anchorStatuses.clear();
-        _anchorLineCounts.clear();
+        _anchorStatuses.removeWhere((key, _) => !currentKeys.contains(key));
+        _anchorLineCounts.removeWhere((key, _) => !currentKeys.contains(key));
+        _anchorStatusCheckedAt.removeWhere(
+            (key, _) => !currentKeys.contains(key));
       });
       unawaited(
         Future<void>.delayed(Duration.zero, _probeVisibleAnchorStatuses),
@@ -400,6 +417,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final epoch = ++_anchorStatusEpoch;
     final matches = _visibleSourceMatches;
     final pending = <Map<String, dynamic>>[];
+    final now = DateTime.now();
 
     for (final match in matches) {
       final anchors = List<Map<String, dynamic>>.from(
@@ -407,13 +425,17 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
       for (final anchor in anchors) {
         final key = _anchorKey(match, anchor, provider: provider);
-        if (_anchorStatuses.containsKey(key)) continue;
-
         if (provider == 'cola' || provider == 'fawa') {
+          // These providers have useful schedule-level status already.
           _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'ready';
           continue;
         }
 
+        final checked = _anchorStatusCheckedAt[key];
+        if (checked != null && now.difference(checked) < _statusTtl) {
+          continue;
+        }
+        if (pending.length >= _initialStatusProbeLimit) continue;
         _anchorStatuses[key] = 'checking';
         pending.add({'match': match, 'anchor': anchor, 'key': key});
       }
@@ -467,6 +489,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
             }
           } catch (_) {
             _anchorStatuses[key] = 'unknown';
+          } finally {
+            // Avoid letting an older status request overwrite fresh data.
+            if (mounted && source == provider && epoch == _anchorStatusEpoch) {
+              _anchorStatusCheckedAt[key] = DateTime.now();
+            }
           }
         }),
       );
@@ -613,6 +640,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final provider = source;
     bool current() => mounted && source == provider;
     if (_extractingAnchorKey != null) return;
+    // A manual tap takes priority over background checking. Any queued
+    // probe results become stale and cannot block the quality picker.
+    ++_anchorStatusEpoch;
     setState(() => _extractingAnchorKey = extractingKey);
 
     try {
@@ -1893,8 +1923,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                       color: color.withValues(alpha: .55),
                                     ),
                                   ),
-                                  onPressed: status == 'checking' ||
-                                          _extractingAnchorKey != null
+                                  onPressed: _extractingAnchorKey != null
                                       ? null
                                       : () => _openAnchor(match, anchor),
                                   icon: extracting
