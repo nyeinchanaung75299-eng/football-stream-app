@@ -46,6 +46,36 @@ responses from 1,129 calls; this branch does not claim to fix provider errors.
    performance-guard checks added to CI; separate read-only PR test workflow
    added for Flutter analyze/test.
 
+## Deeper follow-up: measured phases and source failures
+
+The 7-day Web DASH startup median was ~4.15 seconds (P95 ~14.03
+seconds; 65 playback-start events). This measures **player startup after source
+selection**, not user WATCH tap to video. Engine-loading substage telemetry had
+only one example in that baseline; do not attribute the delay to engine
+downloading alone.
+
+Additional instrumentation now measures:
+
+- Home WATCH tap -> protected line list resolved (`stream sources loaded`,
+  `resolution_ms`) and line-selection duration (`stream selected.chooser_ms`).
+- Web playback started -> engine, attach, and manifest timings, with actual
+  video frame timing where supported.
+- Web playback failures -> `attempt_ms`, including slow startup timeouts that
+  successful-playback averages omit.
+- Initial Web navigation -> Flutter first frame (`viewer web startup.elapsed_ms`)
+  plus HTML request TTFB, instead of starting the clock after HTML parsing.
+
+Also bounded the **Fawa** fallback path to a shared 13.5-second budget
+and maximum five seconds per attempted Fawa origin: previously three sequential
+10-second origin timeouts could outlast the 16-second public API caller.
+The prior fallback order remains unchanged. The `soco-links` function now logs
+only a sanitized source/action/failure category and returns generic 502
+provider errors; it never logs private upstream stream URLs or keys. It does
+not automatically retry or mask failed providers.
+
+Provider error logs and the new metrics have not yet been measured in
+production. Some changes are instrumentation, not guaranteed speed gains.
+
 ## Existing optimizations intentionally retained
 
 - Player engine prewarm while the line chooser is open.
