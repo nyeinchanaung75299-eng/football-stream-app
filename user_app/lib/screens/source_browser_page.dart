@@ -367,7 +367,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final rows = raw
         .map((x) => Map<String, dynamic>.from(x as Map))
         .map((row) => englishSourceMatch(row, source))
-        .where((row) => !_stale(row))
+        .where((row) => source == 'soco' || !_stale(row))
         .toList();
     _sortRows(rows);
     return rows;
@@ -399,7 +399,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final rows = raw
         .map((x) => Map<String, dynamic>.from(x as Map))
         .map((row) => englishSourceMatch(row, source))
-        .where((row) => !_stale(row))
+        .where((row) => source == 'soco' || !_stale(row))
         .toList();
     _sortRows(rows);
     return rows;
@@ -431,7 +431,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final rows = raw
         .map((x) => Map<String, dynamic>.from(x as Map))
         .map((row) => englishSourceMatch(row, source))
-        .where((row) => !_stale(row))
+        .where((row) => source == 'soco' || !_stale(row))
         .toList();
     _sortRows(rows);
     return rows;
@@ -878,7 +878,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No ' + title + ' stream is available now.')),
+          SnackBar(content: Text(
+            title + ' lists streamer rooms, but none returned a playable '
+            'video line right now. Try again closer to kickoff.',
+          )),
         );
         return;
       }
@@ -1162,13 +1165,14 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                           canWatch: ready,
                           actionLabel: source == 'camel'
                               ? 'OPEN CAMEL1'
-                              : ready
-                              ? (anchors.length > 1
-                                    ? 'WATCH  •  ' +
-                                          anchors.length.toString() +
-                                          ' SOURCES'
-                                    : 'WATCH')
-                              : 'NOT READY',
+                              : !ready
+                                  ? 'NO STREAM ROOMS YET'
+                                  : (source == 'soco' || source == 'yyzb')
+                                      ? 'CHECK  •  ${anchors.length} ROOMS'
+                                      : 'WATCH',
+                          metaLabel: (source == 'soco' || source == 'yyzb') && ready
+                              ? 'Rooms are listed by the provider. Live video availability is checked when selected.'
+                              : null,
                           onWatch: () => _watch(m),
                         );
                       },
