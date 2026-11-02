@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { test } from 'node:test';
-import { englishFootballName, firstFootballName, sourceFootballNames, englishSourceDisplayName, englishStreamerName } from '../supabase/functions/_shared/football_names.mjs';
+import { englishFootballName, firstFootballName, sourceFootballNames, englishSourceDisplayName, englishStreamerName, priorityEuropeanAliases } from '../supabase/functions/_shared/football_names.mjs';
 import { sourceLogo } from '../supabase/functions/_shared/source_team_logos.mjs';
 import { sourceMatchRows } from '../supabase/functions/_shared/source_match_rows.mjs';
 
@@ -419,3 +419,39 @@ for (const adapter of adapters.filter(a => a.name !== 'football-fixtures')) {
     } finally { globalThis.fetch=saved; }
   });
 }
+
+test('2026/27 YYZB Top 5 leagues and UEFA club labels stay in English', () => {
+  const fixtures = [
+    ['英格兰足球超级联赛', '曼徹斯特聯', '纽卡斯尔', 'English Premier League', 'Manchester United', 'Newcastle United'],
+    ['西班牙甲级联赛', '皇马', '马竞', 'Spanish La Liga', 'Real Madrid', 'Atletico Madrid'],
+    ['德国甲级联赛', '拜仁', 'VfB斯图加特', 'Bundesliga', 'Bayern Munich', 'VfB Stuttgart'],
+    ['意大利甲级联赛', '國際米蘭', '卡利亚里', 'Italian Serie A', 'Inter Milan', 'Cagliari'],
+    ['法国甲级联赛', '巴黎FC', '欧塞尔', 'French Ligue 1', 'Paris FC', 'Auxerre'],
+    ['欧洲冠军联赛', '布拉格斯拉维亚', '顿涅茨克矿工', 'UEFA Champions League', 'Slavia Prague', 'Shakhtar Donetsk'],
+    ['欧罗巴联赛', '阿尔克马尔', '圣吉罗斯联合', 'UEFA Europa League', 'AZ Alkmaar', 'Union Saint-Gilloise'],
+  ];
+  for (let i = 0; i < fixtures.length; i++) {
+    const [league, home, away, expectedLeague, expectedHome, expectedAway] = fixtures[i];
+    const result = sourceFootballNames({ scheduleId: 'europe-2026-' + i,
+      subCateId: 100 + i, subCateName: league, hostName: home, guestName: away }, true);
+    assert.deepEqual([result.league, result.home_team, result.away_team],
+      [expectedLeague, expectedHome, expectedAway]);
+    assert.equal(result.original_home_team, home);
+  }
+  assert.equal(englishFootballName('布鲁日', 'team'), 'Club Brugge');
+  assert.equal(englishFootballName('博德闪耀', 'team'), 'Bodø/Glimt');
+  assert.equal(englishFootballName('采列', 'team'), 'NK Celje');
+  assert.equal(englishFootballName('欧洲冠军联赛资格赛', 'league'), 'UEFA Champions League Qualifying');
+  assert.equal(englishFootballName('欧联杯资格赛', 'league'), 'UEFA Europa League Qualifying');
+  assert.equal(englishFootballName('未知新俱乐部', 'team'), '未知新俱乐部', 'never invent unknown identities');
+});
+
+test('every curated European Chinese alias resolves without untranslated characters', () => {
+  assert.ok(priorityEuropeanAliases.length >= 150);
+  for (const [raw, expected] of priorityEuropeanAliases) {
+    const mapped = englishFootballName(raw);
+    assert.equal(mapped, expected, 'alias: ' + raw);
+    assert.equal(englishFootballName(mapped), expected, 'stable alias: ' + raw);
+    assert.equal(/\p{Script=Han}/u.test(mapped), false, 'Chinese characters remain in ' + raw);
+  }
+});
