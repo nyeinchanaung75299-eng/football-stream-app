@@ -227,6 +227,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return c.future;
   }
 
+  // Keep the established Soco/YYZB recent-match cutoff. All dates means
+  // all currently available dates, never an archive of completed fixtures.
   static const _staleAfter = Duration(hours: 4);
 
   DateTime? _kickoff(Map<String, dynamic> m) {
@@ -362,12 +364,16 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       throw Exception('Source API HTTP ' + response.statusCode.toString());
     }
     final decoded = jsonDecode(response.body);
+    if (source == 'soco' && decoded is Map && decoded['ok'] == false) {
+      // An unavailable provider is not an authoritative empty schedule.
+      throw const FormatException('Soco source temporarily unavailable.');
+    }
     final raw = decoded is Map ? decoded['matches'] : null;
     if (raw is! List) throw const FormatException('Invalid source matches.');
     final rows = raw
         .map((x) => Map<String, dynamic>.from(x as Map))
         .map((row) => englishSourceMatch(row, source))
-        .where((row) => source == 'soco' || !_stale(row))
+        .where((row) => !_stale(row))
         .toList();
     _sortRows(rows);
     return rows;
@@ -404,7 +410,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final rows = raw
         .map((x) => Map<String, dynamic>.from(x as Map))
         .map((row) => englishSourceMatch(row, source))
-        .where((row) => source == 'soco' || !_stale(row))
+        .where((row) => !_stale(row))
         .toList();
     _sortRows(rows);
     return rows;
@@ -430,13 +436,17 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       );
     }
     final decoded = jsonDecode(response.body);
+    if (source == 'soco' && decoded is Map && decoded['ok'] == false) {
+      // An unavailable provider is not an authoritative empty schedule.
+      throw const FormatException('Soco source temporarily unavailable.');
+    }
     final raw = decoded is Map ? decoded['matches'] : null;
     if (raw is! List)
       throw const FormatException('Invalid direct source list.');
     final rows = raw
         .map((x) => Map<String, dynamic>.from(x as Map))
         .map((row) => englishSourceMatch(row, source))
-        .where((row) => source == 'soco' || !_stale(row))
+        .where((row) => !_stale(row))
         .toList();
     _sortRows(rows);
     return rows;
@@ -1083,7 +1093,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             );
           }
 
-          final allMatches = _feed.data ?? const <Map<String, dynamic>>[];
+          // A failed refresh may retain the last visible feed. Do not show
+          // fixtures that became stale while the source was unreachable.
+          final allMatches = (_feed.data ?? const <Map<String, dynamic>>[])
+              .where((row) => source != 'soco' || !_stale(row))
+              .toList();
           if (allMatches.isEmpty) {
             return _StateView(
               title: 'No $title matches',

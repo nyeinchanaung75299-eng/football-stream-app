@@ -232,10 +232,9 @@ async function jsonpMatches(args: {
           .filter((anchor: any) => anchor.room_num),
       };
     })
-    // For Soco, All dates means the provider's complete supplied catalogue.
-    // A four-hour kickoff cutoff silently hid legitimate earlier fixtures.
-    // YYZB retains its historical recent/upcoming-only behavior.
-    .filter((row: any) => args.source === "soco" || !staleKickoff(row.match_time))
+    // Preserve the original Soco current-fixtures behavior: completed games
+    // must not linger in the catalogue. All dates is not match history.
+    .filter((row: any) => !staleKickoff(row.match_time))
     .sort(compareMatches);
 
   return json({
