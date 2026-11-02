@@ -155,11 +155,11 @@ Deno.serve(async (req) => {
       action: failureAction,
       kind,
     }));
+    // Viewer clients need a stable failure class, not raw upstream errors
+    // that could incidentally contain access tokens or private query strings.
     return json(
-      {
-        error: error instanceof Error ? error.message : String(error),
-      },
-      500,
+      { error: "Source provider temporarily unavailable.", code: kind },
+      502,
     );
   }
 });
