@@ -548,7 +548,8 @@ String _englishCandidate(
       originalName ??= translated.isNotEmpty ? translated : null;
     }
   }
-  return originalName ?? fallback;
+  // Streamer nicknames are deliberately masked, unlike football club names.
+  return translateFootball ? (originalName ?? fallback) : fallback;
 }
 
 String _identityToken(Object? value) {
