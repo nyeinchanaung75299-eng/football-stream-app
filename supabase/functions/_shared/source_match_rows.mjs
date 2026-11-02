@@ -17,7 +17,12 @@ function collectRows(value, output, depth = 0, featured = false) {
   const looksLikeMatch = value.hostName != null ||
     value.guestName != null || value.homeName != null ||
     value.awayName != null || value.home_team != null ||
-    value.away_team != null;
+    value.away_team != null || value.homeTeamName != null ||
+    value.awayTeamName != null || value.hostTeamName != null ||
+    value.guestTeamName != null ||
+    (value.homeTeam != null && value.awayTeam != null) ||
+    (value.hostTeam != null && value.guestTeam != null) ||
+    (value.teams?.home != null && value.teams?.away != null);
   if (looksLikeMatch) {
     output.push({ ...value, hot: featured || featuredRow(value) });
   }
