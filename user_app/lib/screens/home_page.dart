@@ -1043,6 +1043,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _openPlayer(Map<String, dynamic> match) async {
     final matchId = match['id']?.toString() ?? '';
+    final watchToSourcesClock = Stopwatch()..start();
     unawaited(
       AnalyticsService.capture(
         'watch tapped',
@@ -1056,7 +1057,22 @@ class _HomePageState extends State<HomePage> {
     );
 
     final links = await loadPlayerSources(context, () => _resolveLinks(match));
+    watchToSourcesClock.stop();
     if (links == null || !mounted) return;
+    // Playback startup_ms starts only after the player opens. This separate
+    // phase shows the time users spend waiting for protected line metadata.
+    // Emit only counts and durations; never a stream URL, key, or token.
+    unawaited(
+      AnalyticsService.capture(
+        'stream sources loaded',
+        properties: {
+          'source': 'featured',
+          'match_id': matchId,
+          'resolution_ms': watchToSourcesClock.elapsedMilliseconds,
+          'count': links.length,
+        },
+      ),
+    );
 
     // Keep the visible count synchronized after link resolution. The protected
     // API path now replaces stale mirror rows, so this can correct both added
@@ -1138,6 +1154,7 @@ class _HomePageState extends State<HomePage> {
     }
 
     var selectedIndex = 0;
+    var chooserDurationMs = 0;
 
     // Web downloads its player engine while the user is choosing a line,
     // removing that network wait from the first-frame startup measurement.
@@ -1146,6 +1163,7 @@ class _HomePageState extends State<HomePage> {
     NativePlayer.prewarm(sources: nativeSources);
 
     {
+      final chooserClock = Stopwatch()..start();
       final picked = await showModalBottomSheet<int>(
         context: context,
         useSafeArea: true,
@@ -1414,8 +1432,12 @@ class _HomePageState extends State<HomePage> {
         },
       );
 
+      chooserClock.stop();
       if (picked == null) return;
       selectedIndex = picked;
+      // Included in the stream-selected event below; user choice time must
+      // not be mistaken for network or video buffering latency.
+      chooserDurationMs = chooserClock.elapsedMilliseconds;
     }
 
     final selectedSource = nativeSources[selectedIndex];
@@ -1426,6 +1448,7 @@ class _HomePageState extends State<HomePage> {
           'match_id': matchId,
           'line_count': nativeSources.length,
           'selected_index': selectedIndex,
+          'chooser_ms': chooserDurationMs,
           'stream_type': (selectedSource['streamType'] ?? 'auto').toString(),
           'resolution': (selectedSource['resolution'] ?? '').toString(),
           'health_status': (selectedSource['healthStatus'] ?? 'unknown')
