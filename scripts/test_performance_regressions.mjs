@@ -55,7 +55,7 @@ assert.match(maintenance, /\.limit\(12\)/, 'cap routine probe batches');
 assert.match(maintenance, /hideStaleMatches\(client, now\)/);
 assert.match(maintenance, /disableExpiredStreams\(client, now\)/);
 
-const bootScript = web.match(/<script id="nca-app-startup">\\s*([\\s\\S]*?)<\\/script>/)?.[1];
+const bootScript = web.match(/<script id="nca-app-startup">\s*([\s\S]*?)<\/script>/)?.[1];
 assert.ok(bootScript, 'startup performance instrumentation must be present');
 const events = [];
 const callbacks = new Map();
