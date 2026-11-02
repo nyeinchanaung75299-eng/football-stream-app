@@ -281,15 +281,30 @@ export function englishSourceDisplayName(value, kind, fallback) {
 
 export function sourceFootballNames(row, strictEnglish = false) {
   const leagueId = displayIdentity(row?.subCateId ?? row?.leagueId ?? row?.competitionId ?? row?.subCateName ?? '');
-  const originalHome = firstFootballName(row?.hostName, row?.homeName, row?.home_team, row?.homeTeam?.name);
-  const originalAway = firstFootballName(row?.guestName, row?.awayName, row?.away_team, row?.awayTeam?.name);
-  const originalLeague = firstFootballName(row?.subCateName, row?.leagueName, row?.categoryName, row?.competition?.name);
+  const originalHome = firstFootballName(row?.hostName, row?.homeName, row?.home_team,
+    row?.homeTeamName, row?.hostTeamName, row?.team1Name,
+    row?.hostTeam, row?.homeTeam, row?.host, row?.home, row?.teams?.home, row?.team1);
+  const originalAway = firstFootballName(row?.guestName, row?.awayName, row?.away_team,
+    row?.awayTeamName, row?.guestTeamName, row?.team2Name,
+    row?.guestTeam, row?.awayTeam, row?.guest, row?.away, row?.teams?.away, row?.team2);
+  const originalLeague = firstFootballName(row?.subCateName, row?.leagueName,
+    row?.competitionName, row?.categoryName, row?.competition, row?.league);
   const sourceId = displayIdentity(row?.scheduleId ?? row?.schedule_id ?? row?.fixtureId ?? row?.id ??
     [originalHome, originalAway, originalLeague].join('|'));
   const home = [row?.hostNameEn, row?.hostNameEN, row?.hostName_en,
-    row?.homeNameEn, row?.homeTeamNameEn, row?.home_name_en, providerEnglishName(row?.homeTeam), originalHome];
+    row?.homeNameEn, row?.homeTeamNameEn, row?.hostTeamNameEn,
+    row?.home_name_en, row?.team1NameEn,
+    providerEnglishName(row?.hostTeam), providerEnglishName(row?.homeTeam),
+    providerEnglishName(row?.host), providerEnglishName(row?.home),
+    providerEnglishName(row?.teams?.home), providerEnglishName(row?.team1),
+    originalHome];
   const away = [row?.guestNameEn, row?.guestNameEN, row?.guestName_en,
-    row?.awayNameEn, row?.awayTeamNameEn, row?.away_name_en, providerEnglishName(row?.awayTeam), originalAway];
+    row?.awayNameEn, row?.awayTeamNameEn, row?.guestTeamNameEn,
+    row?.away_name_en, row?.team2NameEn,
+    providerEnglishName(row?.guestTeam), providerEnglishName(row?.awayTeam),
+    providerEnglishName(row?.guest), providerEnglishName(row?.away),
+    providerEnglishName(row?.teams?.away), providerEnglishName(row?.team2),
+    originalAway];
   const league = [row?.subCateNameEn, row?.subCateNameEN, row?.leagueNameEn, row?.leagueNameEN,
     row?.competitionNameEn, providerEnglishName(row?.competition), providerEnglishName(row?.league), originalLeague];
   const format = (values, kind, fallback) => {
