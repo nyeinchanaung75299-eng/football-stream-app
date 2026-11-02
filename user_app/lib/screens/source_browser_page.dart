@@ -1165,13 +1165,17 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                           canWatch: ready,
                           actionLabel: source == 'camel'
                               ? 'OPEN CAMEL1'
-                              : !ready
-                                  ? 'NO STREAM ROOMS YET'
-                                  : (source == 'soco' || source == 'yyzb')
+                              : source == 'soco'
+                                  ? (ready
                                       ? 'CHECK  •  ${anchors.length} ROOMS'
-                                      : 'WATCH',
-                          metaLabel: (source == 'soco' || source == 'yyzb') && ready
-                              ? 'Rooms are listed by the provider. Live video availability is checked when selected.'
+                                      : 'NO STREAM ROOMS YET')
+                                  : ready
+                                      ? (anchors.length > 1
+                                          ? 'WATCH  •  ${anchors.length} SOURCES'
+                                          : 'WATCH')
+                                      : 'NOT READY',
+                          metaLabel: source == 'soco' && ready
+                              ? 'Streamer rooms are listed, but video availability is checked when opened.'
                               : null,
                           onWatch: () => _watch(m),
                         );
