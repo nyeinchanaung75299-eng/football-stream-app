@@ -14,10 +14,20 @@ function collectRows(value, output, depth = 0, featured = false) {
   }
   if (typeof value !== "object") return;
 
-  const looksLikeMatch = value.hostName != null ||
-    value.guestName != null || value.homeName != null ||
-    value.awayName != null || value.home_team != null ||
-    value.away_team != null;
+  const hasHome = value.hostName != null || value.homeName != null ||
+    value.home_team != null || value.homeTeam != null ||
+    value.hostTeam != null || value.teams?.home != null ||
+    value.host != null || value.home != null || value.team1 != null;
+  const hasAway = value.guestName != null || value.awayName != null ||
+    value.away_team != null || value.awayTeam != null ||
+    value.guestTeam != null || value.teams?.away != null ||
+    value.guest != null || value.away != null || value.team2 != null;
+  // YYZB sometimes sends only nested homeTeam/awayTeam objects, without
+  // the older flat hostName/guestName aliases. Requiring a schedule ID
+  // prevents nested team nodes from being mistaken for fixtures.
+  const id = value.scheduleId ?? value.schedule_id ?? value.fixtureId ??
+    value.matchId ?? value.match_id ?? value.gameId ?? value.eventId ?? value.id;
+  const looksLikeMatch = id != null && hasHome && hasAway;
   if (looksLikeMatch) {
     output.push({ ...value, hot: featured || featuredRow(value) });
   }
