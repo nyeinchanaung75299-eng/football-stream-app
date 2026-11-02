@@ -45,6 +45,11 @@ const leagueAliases = new Map([
   ['Cúp liên đoàn UAE', 'UAE League Cup'],
   ['Cúp Chile', 'Chile Cup'],
   ['Giao hữu Quốc tế', 'International Friendly'],
+  // Common football feed competition codes.
+  ['ITA D1', 'Italian Serie A'], ['ITA D2', 'Italian Serie B'],
+  ['ENG PR', 'English Premier League'], ['ENG LCH', 'Championship'],
+  ['SPA D1', 'Spanish La Liga'], ['GER D1', 'Bundesliga'],
+  ['FRA D1', 'French Ligue 1'], ['ACL Elite', 'AFC Champions League Elite'],
   ['Giải vô địch bóng đá các quốc gia châu Âu', 'UEFA Nations League'],
 ].map(([from, to]) => [key(from), to]));
 
@@ -282,6 +287,9 @@ const chineseAliases = [
   ['中乙', 'China League Two'], ['中女超', "Chinese Women's Super League"],
   ['中U21', 'Chinese U21 League'], ['日职丙', 'Japanese J3 League'],
   ['韩K2联', 'Korean K League 2'], ['韩K3联', 'Korean K3 League'],
+  // Confirmed Allsvenskan club names that previously showed placeholders.
+  ['哥德堡盖斯', 'GAIS Gothenburg'], ['索尔纳', 'AIK Solna'],
+  ['米亚尔比', 'Mjallby AIF'], ['卡尔马', 'Kalmar FF'],
   ['帕德博恩', 'SC Paderborn 07'], ['斯图加特', 'VfB Stuttgart'],
   ['柏林联合', '1. FC Union Berlin'], ['埃弗斯堡', 'SV 07 Elversberg'],
   ['奥格斯堡', 'FC Augsburg'], ['霍芬海姆', 'TSG Hoffenheim'],
@@ -488,7 +496,10 @@ export function sourceFootballNames(row, strictEnglish = false) {
       const display = englishSourceDisplayName(value, kind, '');
       if (display) return display;
     }
-    return fallback;
+    // Keep a real provider name when a lower-league alias is missing.
+    // This prevents thousands of fixtures becoming "Home team (schedule-id)".
+    const original = firstFootballName(values[values.length - 1]);
+    return original ? (englishFootballName(original, kind) || original) : fallback;
   };
   const result = {
     home_team: format(home, 'team', 'Home team (' + sourceId + ')'),
