@@ -1227,6 +1227,18 @@ async function handleProtectedPlayback(request, sessionToken, childPath, env) {
     if (liveManifestRequest) fetchOptions.cache = "no-store";
     const response = await fetch(upstream, fetchOptions);
     clearTimeout(timer);
+    // Aggregate only safe failure categories. Never log the URL, encrypted
+    // session token, headers, manifests, key IDs, or media bytes.
+    if (!response.ok) {
+      console.warn("nca_protected_media_failure", JSON.stringify({
+        phase: childPath ? "segment" : "manifest",
+        status: response.status,
+        stream_type: ["dash","mpd","hls","m3u8","flv","mp4"]
+          .includes(String(session.t || "").toLowerCase())
+            ? String(session.t).toLowerCase() : "other",
+        kind: "upstream_http",
+      }));
+    }
     const contentType = (response.headers.get("Content-Type") || "").toLowerCase();
     const finalUrl = response.url || upstream.toString();
     const path = new URL(finalUrl).pathname.toLowerCase();
@@ -1301,6 +1313,13 @@ async function handleProtectedPlayback(request, sessionToken, childPath, env) {
       headers: outHeaders,
     });
   } catch (_) {
+    console.warn("nca_protected_media_failure", JSON.stringify({
+      phase: childPath ? "segment" : "manifest",
+      stream_type: ["dash","mpd","hls","m3u8","flv","mp4"]
+        .includes(String(session.t || "").toLowerCase())
+          ? String(session.t).toLowerCase() : "other",
+      kind: signal.aborted ? "timeout_or_cancelled" : "upstream_or_manifest_error",
+    }));
     return json({ error: signal.aborted
       ? "Playback upstream timed out or was cancelled."
       : "Playback upstream unavailable." }, signal.aborted ? 504 : 502, {

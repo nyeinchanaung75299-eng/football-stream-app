@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/function_gateway.dart';
+import '../services/channel_reachability.dart';
 
 /// Admin-only TV channel diagnostics. Loads reachability metadata without
 /// touching private URLs, playback tokens, referers, or DRM credentials.
@@ -58,29 +59,13 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
     Map<String, dynamic> channel,
     List<Map<String, dynamic>> lines,
   ) {
-    final active = lines.where((line) => line['is_active'] == true).toList();
-    final statuses = active.map((line) => (line['health_status'] ?? 'unknown').toString()).toList();
-    final status = statuses.isEmpty ? 'unknown'
-        : statuses.contains('failed') ? 'failed'
-        : statuses.contains('slow') ? 'slow'
-        : statuses.every((value) => value == 'healthy') ? 'healthy'
-        : 'unknown';
-    final latencies = active
-        .map((line) => line['health_latency_ms'])
-        .whereType<num>()
-        .map((value) => value.toInt())
-        .where((value) => value > 0)
-        .toList();
-    final checked = active
-        .map((line) => DateTime.tryParse(line['last_checked_at']?.toString() ?? ''))
-        .whereType<DateTime>()
-        .toList()..sort((a, b) => b.compareTo(a));
+    final result = assessChannelReachability(lines);
     return {
       ...channel,
-      'status': status,
-      'line_count': active.length,
-      'latency_ms': latencies.isEmpty ? null : latencies.reduce((a, b) => a > b ? a : b),
-      'checked_at': checked.isNotEmpty ? checked.first : null,
+      'status': result.status,
+      'line_count': result.activeLines,
+      'latency_ms': result.maxLatencyMs,
+      'checked_at': result.checkedAt,
     };
   }
 
@@ -151,7 +136,8 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
   }
 
   Color _statusColor(BuildContext context, String status) => switch (status) {
-    'healthy' => Colors.green,
+    'reachable' => Colors.green,
+    'stale' => Colors.blueGrey,
     'slow' => Colors.orange,
     'failed' => Theme.of(context).colorScheme.error,
     _ => Theme.of(context).colorScheme.onSurfaceVariant,
@@ -192,13 +178,13 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
             child: Text(
-              '${data.length} CHANNELS  •  ${counts['healthy'] ?? 0} HEALTHY  •  ${counts['slow'] ?? 0} SLOW  •  ${counts['failed'] ?? 0} FAILED  •  ${counts['unknown'] ?? 0} UNKNOWN',
+              '${data.length} CHANNELS  •  ${counts['stale'] ?? 0} STALE  •  ${counts['reachable'] ?? 0} REACHABLE  •  ${counts['slow'] ?? 0} SLOW  •  ${counts['failed'] ?? 0} FAILED  •  ${counts['unknown'] ?? 0} UNKNOWN',
               style: Theme.of(context).textTheme.labelMedium,
             ),
           ),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-            child: Text('All runs a bounded check of every active TV channel. Healthy means the first stream bytes were reachable, not confirmed playback.'),
+            child: Text('All runs a bounded check of every active TV channel. REACHABLE means initial bytes responded, not confirmed video/DRM playback. STALE means the check is older than two hours or missing.'),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 5, 14, 4),
@@ -243,7 +229,8 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                 value: selectedStatus,
                 items: const [
                   DropdownMenuItem(value: 'all', child: Text('All')),
-                  DropdownMenuItem(value: 'healthy', child: Text('Healthy')),
+                  DropdownMenuItem(value: 'reachable', child: Text('Reachable')),
+                DropdownMenuItem(value: 'stale', child: Text('Stale')),
                   DropdownMenuItem(value: 'slow', child: Text('Slow')),
                   DropdownMenuItem(value: 'failed', child: Text('Failed')),
                   DropdownMenuItem(value: 'unknown', child: Text('Unknown')),

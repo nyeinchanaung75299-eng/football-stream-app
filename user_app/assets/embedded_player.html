@@ -664,9 +664,10 @@
         return;
       }
 
-      showMessage((message||'No working line')+(isIOS() && sourceType(failed)==='dash'
-        ? ' • No working backup. A compatible HLS line is needed for this match.'
-        : ' • Tap Line to choose again.'));
+      // A timeout can also be a proxy/origin or manifest problem. Do not
+      // diagnose the failure as 'HLS required' from the source format alone.
+      showMessage((message||'No working line')+
+        ' • No other working line is available. Check the source or try again later.');
     }
 
     function closePlayerMenu(){
