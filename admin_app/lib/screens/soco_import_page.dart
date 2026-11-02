@@ -1875,6 +1875,25 @@ class _SocoImportPageState extends State<SocoImportPage> {
                               fontWeight: FontWeight.w900,
                             ),
                           ),
+                          // Display provider team crests in the Admin too.
+                          // Missing/blocked remote images degrade to a shield.
+                          if (source == 'yyzb' && match['kind'] != 'channel')
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 5),
+                              child: Row(
+                                children: [
+                                  _SourceTeamBadge(url: match['home_logo']?.toString()),
+                                  const SizedBox(width: 8),
+                                  Text('VS', style: TextStyle(
+                                    color: colors.onSurfaceVariant,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w900,
+                                  )),
+                                  const SizedBox(width: 8),
+                                  _SourceTeamBadge(url: match['away_logo']?.toString()),
+                                ],
+                              ),
+                            ),
                           const SizedBox(height: 4),
                           Text(
                             match['kind'] == 'channel'
@@ -1967,6 +1986,32 @@ class _SocoImportPageState extends State<SocoImportPage> {
               ],
             ),
           ),
+    );
+  }
+}
+
+class _SourceTeamBadge extends StatelessWidget {
+  const _SourceTeamBadge({required this.url});
+  final String? url;
+
+  @override
+  Widget build(BuildContext context) {
+    final src = url?.trim() ?? '';
+    final colors = Theme.of(context).colorScheme;
+    final fallback = Icon(Icons.shield_outlined,
+      size: 21, color: colors.onSurfaceVariant);
+    return Container(
+      width: 38,
+      height: 38,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: src.startsWith('https://') || src.startsWith('http://')
+          ? Image.network(src, fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => fallback)
+          : fallback,
     );
   }
 }
