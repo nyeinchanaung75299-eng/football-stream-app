@@ -1196,9 +1196,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                                           ? 'WATCH  •  ${anchors.length} SOURCES'
                                           : 'WATCH')
                                       : 'NOT READY',
-                          metaLabel: source == 'soco' && ready
-                              ? 'Streamer rooms are listed, but video availability is checked when opened.'
-                              : null,
                           onWatch: () => _watch(m),
                         );
                       },
