@@ -54,4 +54,41 @@ assert.match(maintenance, /15 \* 60 \* 1000/, 'avoid repeat probes within 15 min
 assert.match(maintenance, /\.limit\(12\)/, 'cap routine probe batches');
 assert.match(maintenance, /hideStaleMatches\(client, now\)/);
 assert.match(maintenance, /disableExpiredStreams\(client, now\)/);
+
+const bootScript = web.match(/<script id="nca-app-startup">\\s*([\\s\\S]*?)<\\/script>/)?.[1];
+assert.ok(bootScript, 'startup performance instrumentation must be present');
+const events = [];
+const callbacks = new Map();
+const shell = { isConnected: true, remove() { this.isConnected = false; } };
+const retry = { addEventListener() {} };
+const label = { textContent: '' };
+const perf = {
+  now: () => 1200,
+  getEntriesByType: () => [{ requestStart: 20, responseStart: 300 }],
+};
+const win = {
+  performance: perf,
+  posthog: { capture(name, properties) { events.push({ name, properties }); } },
+  addEventListener(event, handler) { callbacks.set(event, handler); },
+};
+vm.runInNewContext(bootScript, {
+  window: win, performance: perf,
+  document: {
+    getElementById(id) {
+      return id === 'nca-app-loading' ? shell
+        : id === 'nca-loading-retry' ? retry : label;
+    },
+  },
+  setTimeout: () => 1,
+  clearTimeout() {},
+  location: { href: 'https://viewer.example/' },
+  URL,
+});
+callbacks.get('flutter-first-frame')();
+assert.equal(events[0].name, 'viewer web startup');
+assert.equal(events[0].properties.stage, 'first_frame');
+assert.equal(events[0].properties.elapsed_ms, 1200,
+  'navigation duration must include HTML load, not begin when the script runs');
+assert.equal(events[0].properties.html_ttfb_ms, 280);
+
 console.log('NCA performance regression guards passed.');
