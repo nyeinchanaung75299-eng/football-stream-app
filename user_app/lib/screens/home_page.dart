@@ -385,7 +385,9 @@ class _HomePageState extends State<HomePage> {
     // Viewer on one hostname, even when mirror fallbacks are disabled.
     return _hedged(
       _apiJobs(_loadPublicApiFrom),
-      delay: const Duration(milliseconds: 400),
+      // Give the first known-good route a short head start before starting
+      // backup requests; keep hedging for blocked networks.
+      delay: const Duration(milliseconds: 600),
     );
   }
 
@@ -569,13 +571,18 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _warmStreamLinks(List<Map<String, dynamic>> matches) async {
+    // Avoid competing with first-screen rendering and the first user tap:
+    // the previous six speculative stream lookups could run at once.
+    // This prefetch is only an optimization; WATCH always fetches fresh data.
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (!mounted || _openingPlayer) return;
     final candidates = matches
         .where(
           (match) =>
               ((match['stream_count'] as num?)?.toInt() ?? 0) > 0 &&
               (match['id']?.toString().trim().isNotEmpty ?? false),
         )
-        .take(6)
+        .take(2)
         .toList();
 
     if (candidates.isEmpty) return;
