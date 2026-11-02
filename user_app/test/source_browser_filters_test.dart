@@ -51,11 +51,11 @@ List<Map<String, dynamic>> _fixtures() {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('Soco All dates keeps past fixtures and counts streamer rooms accurately', (tester) async {
+  testWidgets('Soco All dates excludes old completed fixtures and labels rooms', (tester) async {
     final now = DateTime.now();
     final feed = [
       {
-        'source_id': 'soco-earlier',
+        'source_id': 'finished-long-ago',
         'league': 'MGL D1',
         'home_team': 'Central Stallions',
         'away_team': 'Deren FC',
@@ -66,23 +66,25 @@ void main() {
         ],
       },
       {
-        'source_id': 'soco-future',
+        'source_id': 'current',
         'league': 'ACL Elite',
         'home_team': 'Pakhtakor',
         'away_team': 'Al Nassr',
-        'match_time': now.add(const Duration(hours: 8)).toUtc().toIso8601String(),
-        'anchors': [],
+        'match_time': now.add(const Duration(hours: 2)).toUtc().toIso8601String(),
+        'anchors': [
+          {'room_num': 'room-c'},
+          {'room_num': 'room-d'},
+        ],
       },
     ];
     await http.runWithClient(() async {
       await tester.pumpWidget(const MaterialApp(home: SourceBrowserPage(source: 'soco')));
       await tester.pumpAndSettle();
-      expect(find.text('2 matches'), findsOneWidget);
-      expect(find.text('Central Stallions'), findsOneWidget);
+      expect(find.text('1 match'), findsOneWidget);
+      expect(find.text('Central Stallions'), findsNothing);
       expect(find.text('Pakhtakor'), findsOneWidget);
       expect(find.textContaining('2 ROOMS'), findsOneWidget);
       expect(find.textContaining('2 SOURCES'), findsNothing);
-      expect(find.text('NO STREAM ROOMS YET'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
     }, () => MockClient((request) async =>
       request.url.path.endsWith('/matches')
@@ -90,6 +92,32 @@ void main() {
         : http.Response('{}', 404)));
   });
 
+  testWidgets('Soco removes a provider-deleted match after a successful refresh', (tester) async {
+    final now = DateTime.now().toUtc();
+    final fixture = {
+      'source_id': 'provider-deletes-this',
+      'league': 'ACL Elite',
+      'home_team': 'Pakhtakor',
+      'away_team': 'Al Nassr',
+      'match_time': now.add(const Duration(hours: 2)).toIso8601String(),
+      'anchors': <Map<String,dynamic>>[],
+    };
+    var current = <Map<String,dynamic>>[fixture];
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home: SourceBrowserPage(source: 'soco')));
+      await tester.pumpAndSettle();
+      expect(find.text('Pakhtakor'), findsOneWidget);
+      current = [];
+      await tester.tap(find.byTooltip('Refresh matches'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pakhtakor'), findsNothing);
+      expect(find.text('No Soco matches'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, () => MockClient((request) async =>
+        request.url.path.endsWith('/matches')
+          ? http.Response(jsonEncode({'ok':true,'matches':current}),200)
+          : http.Response('{}',404)));
+  });
 
   testWidgets('source categories are shown in one bottom nav only, never as top duplicate buttons',
       (tester) async {
