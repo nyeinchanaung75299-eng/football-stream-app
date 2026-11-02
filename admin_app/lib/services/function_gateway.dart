@@ -25,10 +25,10 @@ class FunctionGateway {
     'PUBLIC_API_BASE',
     defaultValue: 'https://football-api.nyeinchanaung.us.ci',
   );
-  // Public/Admin proxy calls prefer the reachable Vercel route regardless
-  // of which separate Supabase Auth relay was chosen.
+  // Public/Admin calls use the direct route first and retain Vercel fallback,
+  // independently of which separate Supabase Auth relay was selected.
   static List<String> get _gatewayBases =>
-      publicApiBases(primary: _publicApiBase, preferVercel: true);
+      publicApiBases(primary: _publicApiBase, preferVercel: false);
 
   static List<String> _basesFor(String functionName, Object? body) {
     final known = _gatewayBases;

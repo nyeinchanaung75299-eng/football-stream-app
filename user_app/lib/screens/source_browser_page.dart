@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../analytics_service.dart';
 import '../network_endpoints.dart';
+import '../playback_routes.dart';
 import '../native_player.dart';
 import 'channels_page.dart';
 import '../live_feed_controller.dart';
@@ -97,10 +98,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   List<String> get bases {
     final routes = publicApiBases(
       primary: _primary,
-      // Prefer Vercel for public sources even when Auth chose another relay.
-      preferVercel: true,
+      // Public source routing is independent of the selected Auth relay.
+      preferVercel: false,
     );
-    // Always start with Vercel, even if a previous request used fallback.
     return routes;
   }
 
@@ -770,23 +770,26 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     compare: _compareLines,
   );
 
-  List<Map<String, dynamic>> _playerSources(SourceLines rows) => rows
-      .map(
-        (x) => <String, dynamic>{
-          'id': x['id']?.toString(),
-          'label': (x['label'] ?? x['resolution'] ?? 'Server').toString(),
-          'streamType': (x['stream_type'] ?? 'auto').toString(),
-          'url': (x['stream_url'] ?? '').toString(),
-          'referer': (x['referer'] ?? '').toString(),
-          'origin': (x['origin'] ?? '').toString(),
-          'keyId': (x['key_id'] ?? '').toString(),
-          'keyData': (x['key_data'] ?? '').toString(),
-          'resolution': (x['resolution'] ?? '').toString(),
-          'healthStatus': (x['health_status'] ?? 'unknown').toString(),
-          'priority': (x['priority'] as num?)?.toInt() ?? 100,
-        },
-      )
-      .toList();
+  List<Map<String, dynamic>> _playerSources(SourceLines rows) =>
+      addVpnFreePlaybackFallbacks(
+        rows
+            .map(
+              (x) => <String, dynamic>{
+                'id': x['id']?.toString(),
+                'label': (x['label'] ?? x['resolution'] ?? 'Server').toString(),
+                'streamType': (x['stream_type'] ?? 'auto').toString(),
+                'url': (x['stream_url'] ?? '').toString(),
+                'referer': (x['referer'] ?? '').toString(),
+                'origin': (x['origin'] ?? '').toString(),
+                'keyId': (x['key_id'] ?? '').toString(),
+                'keyData': (x['key_data'] ?? '').toString(),
+                'resolution': (x['resolution'] ?? '').toString(),
+                'healthStatus': (x['health_status'] ?? 'unknown').toString(),
+                'priority': (x['priority'] as num?)?.toInt() ?? 100,
+              },
+            )
+            .toList(),
+      );
 
   Future<void> _watch(Map<String, dynamic> m) async {
     if (_openingPlayer || !mounted) return;

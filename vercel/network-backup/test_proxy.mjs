@@ -156,7 +156,7 @@ test('Channel and source metadata preserve canonical protected Worker URLs', asy
   });
 });
 
-test('Legacy HLS and DASH manifest responses do not rewrite segment URLs to Vercel', async () => {
+test('Explicit Vercel HLS and DASH fallbacks keep segment URLs on Vercel', async () => {
   const url = worker + '/p/session/segment-00001.m4s';
   for (const [type, body] of [
     ['application/dash+xml', '<MPD><BaseURL>' + url + '</BaseURL></MPD>'],
@@ -166,8 +166,8 @@ test('Legacy HLS and DASH manifest responses do not rewrite segment URLs to Verc
       const response = await proxy(new Request(origin + '/p/session/playlist'));
       assert.equal(response.status, 200);
       const content = await response.text();
-      assert.ok(content.includes(url));
-      assert.ok(!content.includes(origin + '/p/'));
+      assert.ok(!content.includes(url));
+      assert.ok(content.includes(origin + '/p/session/segment-00001.m4s'));
     });
   }
 });
