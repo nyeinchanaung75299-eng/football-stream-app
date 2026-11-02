@@ -51,6 +51,46 @@ List<Map<String, dynamic>> _fixtures() {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  testWidgets('Soco All dates keeps past fixtures and counts streamer rooms accurately', (tester) async {
+    final now = DateTime.now();
+    final feed = [
+      {
+        'source_id': 'soco-earlier',
+        'league': 'MGL D1',
+        'home_team': 'Central Stallions',
+        'away_team': 'Deren FC',
+        'match_time': now.subtract(const Duration(hours: 8)).toUtc().toIso8601String(),
+        'anchors': [
+          {'room_num': 'room-a'},
+          {'room_num': 'room-b'},
+        ],
+      },
+      {
+        'source_id': 'soco-future',
+        'league': 'ACL Elite',
+        'home_team': 'Pakhtakor',
+        'away_team': 'Al Nassr',
+        'match_time': now.add(const Duration(hours: 8)).toUtc().toIso8601String(),
+        'anchors': [],
+      },
+    ];
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home: SourceBrowserPage(source: 'soco')));
+      await tester.pumpAndSettle();
+      expect(find.text('2 matches'), findsOneWidget);
+      expect(find.text('Central Stallions'), findsOneWidget);
+      expect(find.text('Pakhtakor'), findsOneWidget);
+      expect(find.textContaining('2 ROOMS'), findsOneWidget);
+      expect(find.textContaining('2 SOURCES'), findsNothing);
+      expect(find.text('NO STREAM ROOMS YET'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, () => MockClient((request) async =>
+      request.url.path.endsWith('/matches')
+        ? http.Response(jsonEncode({'matches': feed}), 200)
+        : http.Response('{}', 404)));
+  });
+
+
   testWidgets('source categories are shown in one bottom nav only, never as top duplicate buttons',
       (tester) async {
     await http.runWithClient(() async {

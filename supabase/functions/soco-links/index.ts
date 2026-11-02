@@ -183,7 +183,8 @@ async function jsonpMatches(args: {
   const matches = sourceMatchRows(payload?.data ?? payload, isFootballRow)
     .map((row: any) => {
       const scheduleId =
-        row.scheduleId ?? row.schedule_id ?? row.fixtureId ?? row.id;
+        row.scheduleId ?? row.schedule_id ?? row.fixtureId ??
+        row.matchId ?? row.match_id ?? row.gameId ?? row.eventId ?? row.id;
       const rawAnchors = Array.isArray(row.anchors)
         ? row.anchors
         : Array.isArray(row.anchorList)
@@ -231,7 +232,10 @@ async function jsonpMatches(args: {
           .filter((anchor: any) => anchor.room_num),
       };
     })
-    .filter((row: any) => !staleKickoff(row.match_time))
+    // For Soco, All dates means the provider's complete supplied catalogue.
+    // A four-hour kickoff cutoff silently hid legitimate earlier fixtures.
+    // YYZB retains its historical recent/upcoming-only behavior.
+    .filter((row: any) => args.source === "soco" || !staleKickoff(row.match_time))
     .sort(compareMatches);
 
   return json({

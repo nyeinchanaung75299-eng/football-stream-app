@@ -109,7 +109,8 @@ async function jsonpMatches(args: {
   const matches = sourceMatchRows(payload?.data ?? payload, isFootballRow)
     .map((row: any) => {
       const scheduleId =
-        row.scheduleId ?? row.schedule_id ?? row.fixtureId ?? row.id;
+        row.scheduleId ?? row.schedule_id ?? row.fixtureId ??
+        row.matchId ?? row.match_id ?? row.gameId ?? row.eventId ?? row.id;
       const anchors = Array.isArray(row.anchors)
         ? row.anchors
         : Array.isArray(row.anchorList)
@@ -149,7 +150,9 @@ async function jsonpMatches(args: {
           .filter((anchor: any) => anchor.room_num),
       };
     })
-    .filter((row: any) => !staleKickoff(row.match_time))
+    // Soco's All dates shows the full current provider catalogue; avoid
+    // hiding older fixtures merely because their kickoff passed four hours ago.
+    .filter((row: any) => args.source === "soco" || !staleKickoff(row.match_time))
     .sort(compareMatches);
 
   return json({
