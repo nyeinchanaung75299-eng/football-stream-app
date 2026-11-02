@@ -65,6 +65,7 @@ class _HomePageState extends State<HomePage> {
   RealtimeChannel? _channel;
   Timer? _debounce;
   Timer? _feedRefresh;
+  Timer? _streamWarmup;
   DateTime? _lastBackgroundPoll;
   bool _openingPlayer = false;
   late Future<String> _versionLabel;
@@ -385,9 +386,7 @@ class _HomePageState extends State<HomePage> {
     // Viewer on one hostname, even when mirror fallbacks are disabled.
     return _hedged(
       _apiJobs(_loadPublicApiFrom),
-      // Give the first known-good route a short head start before starting
-      // backup requests; keep hedging for blocked networks.
-      delay: const Duration(milliseconds: 600),
+      delay: const Duration(milliseconds: 400),
     );
   }
 
@@ -570,11 +569,18 @@ class _HomePageState extends State<HomePage> {
     return request;
   }
 
+  void _scheduleWarmStreamLinks(List<Map<String, dynamic>> matches) {
+    // Cancel on refresh / dispose so no delayed work survives a closed page.
+    _streamWarmup?.cancel();
+    _streamWarmup = Timer(const Duration(milliseconds: 900), () {
+      _streamWarmup = null;
+      if (mounted && !_openingPlayer) {
+        unawaited(_warmStreamLinks(matches));
+      }
+    });
+  }
+
   Future<void> _warmStreamLinks(List<Map<String, dynamic>> matches) async {
-    // Avoid competing with first-screen rendering and the first user tap:
-    // the previous six speculative stream lookups could run at once.
-    // This prefetch is only an optimization; WATCH always fetches fresh data.
-    await Future<void>.delayed(const Duration(milliseconds: 900));
     if (!mounted || _openingPlayer) return;
     final candidates = matches
         .where(
@@ -812,7 +818,7 @@ class _HomePageState extends State<HomePage> {
           },
         ),
       );
-      unawaited(_warmStreamLinks(rows));
+      _scheduleWarmStreamLinks(rows);
       return rows;
     }
 
@@ -899,7 +905,7 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    unawaited(_warmStreamLinks(result.rows));
+    _scheduleWarmStreamLinks(result.rows);
     return result.rows;
   }
 
@@ -1570,6 +1576,7 @@ class _HomePageState extends State<HomePage> {
     _feed.dispose();
     _debounce?.cancel();
     _feedRefresh?.cancel();
+    _streamWarmup?.cancel();
     final c = _channel;
     final supabase = _supabaseClientOrNull();
     if (c != null && supabase != null) supabase.removeChannel(c);
