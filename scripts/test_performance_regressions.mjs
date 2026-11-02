@@ -39,11 +39,10 @@ assert.equal(embedded, generated, 'native shared Web player must remain in sync'
 
 assert.match(home, /\.take\(2\)/, 'do not increase speculative stream lookups');
 assert.match(home, /_openingPlayer\) return;/, 'do not prefetch while opening player');
-assert.match(sources, /_publicListTtl = Duration\(seconds: 8\)/);
-assert.match(sources, /if \(!silent\) _forceNextListFetch = true;/,
-  'manual refresh must bypass metadata cache');
-assert.match(sources, /_sourceListRequests\[key\]/,
-  'concurrent public metadata fetches must be shared');
+assert.doesNotMatch(sources, /_recentSourceLists/,
+  'source matches must remain authoritative after successful empty refresh');
+assert.match(home, /_streamWarmup\?\.cancel\(\)/,
+  'cancel delayed metadata prefetch on dispose');
 assert.match(web, /requestVideoFrameCallback/, 'measure actual first decoded frame');
 assert.match(web, /playback first frame/, 'emit first-frame timing');
 assert.match(web, /viewer web startup/, 'measure first-page render');
