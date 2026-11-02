@@ -170,12 +170,20 @@
   (() => {
     const shell=document.getElementById('nca-app-loading');
     const retry=document.getElementById('nca-loading-retry');
-    const navStartedAt=(window.performance&&typeof performance.now==='function')?performance.now():0;
     function reportBoot(stage){
       try{
+        // performance.now() is relative to navigation start. Measuring from
+        // this script's execution would miss HTML download and parsing.
+        const p=window.performance;
+        const nav=p?.getEntriesByType?.('navigation')?.[0];
+        const pageMs=typeof p?.now==='function'?Math.max(0,Math.round(p.now())):0;
+        const ttfbMs=nav && Number.isFinite(nav.responseStart) &&
+          Number.isFinite(nav.requestStart)
+          ? Math.max(0,Math.round(nav.responseStart-nav.requestStart)) : null;
         window.posthog?.capture?.('viewer web startup',{
           app:'nca_viewer',platform:'web',stage,
-          elapsed_ms:Math.max(0,Math.round(performance.now()-navStartedAt))
+          elapsed_ms:pageMs,
+          ...(ttfbMs===null?{}:{html_ttfb_ms:ttfbMs})
         });
       }catch(_){}
     }
