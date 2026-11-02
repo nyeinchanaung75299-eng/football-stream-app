@@ -45,6 +45,9 @@ assert.match(home, /_streamWarmup\?\.cancel\(\)/,
   'cancel delayed metadata prefetch on dispose');
 assert.match(web, /requestVideoFrameCallback/, 'measure actual first decoded frame');
 assert.match(web, /playback first frame/, 'emit first-frame timing');
+assert.match(web, /attempt_ms:/, 'record time spent before a fallback');
+assert.match(home, /watchToSourcesClock/, 'separate link resolution from video startup');
+assert.match(home, /chooser_ms/, 'separate time selecting a line from buffering');
 assert.match(web, /viewer web startup/, 'measure first-page render');
 assert.match(web, /shakaInitialized/, 'cache Shaka capability setup');
 assert.match(maintenance, /15 \* 60 \* 1000/, 'avoid repeat probes within 15 minutes');
