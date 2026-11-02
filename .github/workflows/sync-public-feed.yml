@@ -98,7 +98,7 @@ jobs:
                       )
                       if kickoff.tzinfo is None:
                           kickoff = kickoff.replace(tzinfo=timezone.utc)
-                      if (now - kickoff.astimezone(timezone.utc)).total_seconds() > 4 * 3600:
+                      if source != 'soco' and (now - kickoff.astimezone(timezone.utc)).total_seconds() > 4 * 3600:
                           continue
                   except (TypeError, ValueError):
                       pass
@@ -127,6 +127,7 @@ jobs:
 
             if [ "$fetched" != true ]; then
               echo "Warning: $source snapshot fetch failed; keeping previous mirror."
+              touch "/tmp/source-feeds/$source.unavailable"
               rm -f "/tmp/source-feeds/$source.json.tmp" "/tmp/source-feeds/$source.json"
             fi
           done
@@ -185,7 +186,9 @@ jobs:
                   valid = False
 
           if not valid:
-              data = {"ok": True, "source": source, "matches": []}
+              # Never invent a successful empty match list during an outage.
+              data = {"ok": False, "source": source,
+                      "matches": [], "error": "snapshot_unavailable"}
               path.write_text(
                   json.dumps(
                       data,
@@ -196,8 +199,18 @@ jobs:
               )
               print(f"{source}: repaired invalid/missing mirror with an empty valid list")
           else:
-              # Even when the fresh fetch failed and we keep the previous
-              # mirror, prune timestamped matches older than four hours.
+              # Keep the full Soco calendar in backup snapshots, even if the
+              # upstream schedule server is temporarily unavailable.
+              if (source == "soco" and
+                  not data.get("matches") and
+                  Path("/tmp/source-feeds/soco.unavailable").exists()):
+                  data["ok"] = False
+                  data["error"] = "snapshot_unavailable"
+                  path.write_text(
+                      json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+                      encoding="utf-8",
+                  )
+              # Only other short-horizon providers remove past fixtures.
               now = datetime.now(timezone.utc)
               rows = data["matches"]
               fresh_rows = []
@@ -212,7 +225,7 @@ jobs:
                           )
                           if kickoff.tzinfo is None:
                               kickoff = kickoff.replace(tzinfo=timezone.utc)
-                          if (now - kickoff.astimezone(timezone.utc)).total_seconds() > 4 * 3600:
+                          if source != 'soco' and (now - kickoff.astimezone(timezone.utc)).total_seconds() > 4 * 3600:
                               continue
                       except (TypeError, ValueError):
                           pass
