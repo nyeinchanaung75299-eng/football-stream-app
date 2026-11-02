@@ -147,7 +147,7 @@ Deno.serve(async (req) => {
     // authorization headers or raw provider exceptions.
     const message = error instanceof Error ? error.message : String(error);
     const kind = /abort|timeout/i.test(message) ? "timeout"
-      : /HTTP\\s+\\d{3}/i.test(message) ? "upstream_http"
+      : /HTTP\s+\d{3}/i.test(message) ? "upstream_http"
       : /invalid JSON|JSONP|payload/i.test(message) ? "invalid_payload"
       : "provider_failure";
     console.error("soco-links provider failure", JSON.stringify({
