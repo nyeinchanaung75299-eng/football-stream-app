@@ -170,9 +170,19 @@
   (() => {
     const shell=document.getElementById('nca-app-loading');
     const retry=document.getElementById('nca-loading-retry');
+    const navStartedAt=(window.performance&&typeof performance.now==='function')?performance.now():0;
+    function reportBoot(stage){
+      try{
+        window.posthog?.capture?.('viewer web startup',{
+          app:'nca_viewer',platform:'web',stage,
+          elapsed_ms:Math.max(0,Math.round(performance.now()-navStartedAt))
+        });
+      }catch(_){}
+    }
     window.ncaAppBoot={
       fail(){
         if(!shell.isConnected)return;
+        reportBoot('failed');
         document.getElementById('nca-loading-text').textContent='Could not finish loading. Check your connection and retry.';
         retry.hidden=false;
       }
@@ -189,6 +199,7 @@
     });
     window.addEventListener('flutter-first-frame',()=>{
       clearTimeout(slow);shell.remove();
+      reportBoot('first_frame');
     },{once:true});
   })();
   </script>
