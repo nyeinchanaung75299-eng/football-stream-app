@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { test } from 'node:test';
-import { englishFootballName, firstFootballName, sourceFootballNames, englishSourceDisplayName, englishStreamerName } from '../supabase/functions/_shared/football_names.mjs';
+import { englishFootballName, firstFootballName, sourceFootballNames, englishSourceDisplayName, englishStreamerName, priorityEuropeanAliases } from '../supabase/functions/_shared/football_names.mjs';
 import { sourceLogo } from '../supabase/functions/_shared/source_team_logos.mjs';
 import { sourceMatchRows } from '../supabase/functions/_shared/source_match_rows.mjs';
 
@@ -444,4 +444,14 @@ test('2026/27 YYZB Top 5 leagues and UEFA club labels stay in English', () => {
   assert.equal(englishFootballName('欧洲冠军联赛资格赛', 'league'), 'UEFA Champions League Qualifying');
   assert.equal(englishFootballName('欧联杯资格赛', 'league'), 'UEFA Europa League Qualifying');
   assert.equal(englishFootballName('未知新俱乐部', 'team'), '未知新俱乐部', 'never invent unknown identities');
+});
+
+test('every curated European Chinese alias resolves without untranslated characters', () => {
+  assert.ok(priorityEuropeanAliases.length >= 150);
+  for (const [raw, expected] of priorityEuropeanAliases) {
+    const mapped = englishFootballName(raw);
+    assert.equal(mapped, expected, 'alias: ' + raw);
+    assert.equal(englishFootballName(mapped), expected, 'stable alias: ' + raw);
+    assert.equal(/[\\p{Script=Han}]/u.test(mapped), false, 'Chinese characters remain in ' + raw);
+  }
 });
