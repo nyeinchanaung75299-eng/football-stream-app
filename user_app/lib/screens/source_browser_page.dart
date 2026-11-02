@@ -49,16 +49,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       ).trim() ==
       '1';
 
-  // Tiny process-local cache for public *match metadata* only. Never cache
-  // stream URLs, protected playback responses, or auth sessions here.
-  static const _publicListTtl = Duration(seconds: 8);
-  static final Map<String,
-      ({DateTime fetchedAt, List<Map<String, dynamic>> rows})>
-      _recentSourceLists = {};
-  static final Map<String, Future<List<Map<String, dynamic>>>>
-      _sourceListRequests = {};
-
-  bool _forceNextListFetch = false;
   late final LiveFeedController<List<Map<String, dynamic>>> _feed;
   Timer? _sourceRefreshTimer;
   DateTime? _lastSourcePoll;
@@ -304,10 +294,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
 
     start();
-    // Primary source provider can take over 1 second. Do not start all three
-    // upstream requests every 300ms when the first one is merely slow.
-    // Keep the fast 300ms hedge for the emergency mirror fallback above.
-    timer = Timer.periodic(const Duration(milliseconds: 650), (t) {
+    timer = Timer.periodic(const Duration(milliseconds: 300), (t) {
       if (c.isCompleted) {
         t.cancel();
         return;
@@ -491,39 +478,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadMatches() async {
-    final key = source;
-    final force = _forceNextListFetch;
-    _forceNextListFetch = false;
-    final cached = _recentSourceLists[key];
-    if (!force && cached != null &&
-        DateTime.now().difference(cached.fetchedAt) < _publicListTtl) {
-      // Copy rows so sorting/filtering one page cannot modify another.
-      return cached.rows.map((row) => Map<String, dynamic>.from(row)).toList();
-    }
-    // Opening another tab while the first fetch is still pending should not
-    // fan out duplicate upstream requests for identical public metadata.
-    final pending = _sourceListRequests[key];
-    if (pending != null) {
-      final rows = await pending;
-      return rows.map((row) => Map<String, dynamic>.from(row)).toList();
-    }
-    final request = _fetchSourceMatches();
-    _sourceListRequests[key] = request;
-    try {
-      final rows = await request;
-      _recentSourceLists[key] = (
-        fetchedAt: DateTime.now(),
-        rows: rows.map((row) => Map<String, dynamic>.from(row)).toList(),
-      );
-      return rows;
-    } finally {
-      if (identical(_sourceListRequests[key], request)) {
-        _sourceListRequests.remove(key);
-      }
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> _fetchSourceMatches() async {
     if (!_enableNoVpnFallback) {
       if (bases.isEmpty) {
         throw StateError('No live source API is configured.');
@@ -573,8 +527,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
   Future<void> _refresh({bool silent = false}) async {
     if (!mounted) return;
-    // User-initiated refresh bypasses the brief navigation cache.
-    if (!silent) _forceNextListFetch = true;
     await _feed.refresh();
     if (!silent && mounted && _feed.hasData && _feed.error != null) {
       ScaffoldMessenger.of(context).showSnackBar(
