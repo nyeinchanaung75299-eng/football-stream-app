@@ -213,6 +213,78 @@ const tests = [];
 function test(name, run) { tests.push({ name, run }); }
 const failures = h => h.events.filter(event => event.name === 'playback line failed');
 
+test('18:9 web video layout fits available space without distorting stream pixels', async () => {
+  const h = createHarness({ ios:false });
+  const wrap = h.elements.get('football-player-video-wrap');
+  const frame = h.elements.get('football-player-video-frame');
+  wrap.clientWidth = 960;
+  wrap.clientHeight = 420;
+  await h.open([source('hls')]);
+
+  assert.equal(frame.style.width, '840px');
+  assert.equal(frame.style.height, '420px');
+  assert.match(html, /#football-player-video\{width:100%;height:100%;object-fit:cover/);
+  assert.match(html, /#football-player-video\.fill\{object-fit:contain\}/);
+
+  wrap.clientWidth = 720;
+  wrap.clientHeight = 600;
+  h.window.emit('resize');
+  assert.equal(frame.style.width, '720px');
+  assert.equal(frame.style.height, '360px');
+  h.elements.get('football-player-fit').click();
+  assert.equal(h.video.classList.contains('fill'), true, 'Fit exposes the whole source without stretching');
+  assert.equal(h.elements.get('football-player-fit').textContent, '18:9');
+  h.elements.get('football-player-fit').click();
+  assert.equal(h.video.classList.contains('fill'), false);
+});
+
+test('fullscreen line rail floats over the picture and auto-hides after five seconds', async () => {
+  const railCss = html.match(/#football-player-line-rail\{([^}]+)\}/)?.[1] || '';
+  assert.match(railCss, /position:absolute/);
+  assert.doesNotMatch(railCss, /flex:0 0 auto/);
+  assert.match(html, /#football-player-line-rail\.controls-hidden\{opacity:0;transform:translateY\(100%\);pointer-events:none\}/);
+
+  const h = createHarness({ ios:false });
+  const rail = h.elements.get('football-player-line-rail');
+  const topbar = h.elements.get('football-player-topbar');
+  await h.open([source('hls'), source('hls','Backup')]);
+  h.elements.get('football-player-fullscreen').click();
+  await flush();
+  assert.equal(h.document.fullscreenElement, h.overlay);
+  assert.equal(rail.classList.contains('controls-hidden'), false);
+  await h.tick(4999);
+  assert.equal(rail.classList.contains('controls-hidden'), false);
+  await h.tick(1);
+  assert.equal(rail.classList.contains('controls-hidden'), true);
+  assert.equal(topbar.classList.contains('controls-hidden'), true);
+
+  h.overlay.emit('pointerup', { target:h.video });
+  assert.equal(rail.classList.contains('controls-hidden'), false, 'tap shows line controls');
+  assert.equal(topbar.classList.contains('controls-hidden'), false);
+  await h.tick(5000);
+  assert.equal(rail.classList.contains('controls-hidden'), true);
+  h.overlay.emit('pointermove');
+  assert.equal(rail.classList.contains('controls-hidden'), false, 'mouse motion can show controls');
+  await h.close();
+  assert.equal(h.overlay.classList.contains('open'), false);
+});
+
+test('server chooser remains interactive while open, then restarts five-second hide timer', async () => {
+  const h = createHarness({ ios:false });
+  await h.open([source('hls'), source('hls','Backup')]);
+  const rail = h.elements.get('football-player-line-rail');
+  const server = h.elements.get('football-player-server');
+  server.click();
+  await h.tick(6000);
+  assert.equal(h.elements.get('football-player-menu').classList.contains('hidden'), false);
+  assert.equal(rail.classList.contains('controls-hidden'), false);
+  server.click();
+  await h.tick(4999);
+  assert.equal(rail.classList.contains('controls-hidden'), false);
+  await h.tick(1);
+  assert.equal(rail.classList.contains('controls-hidden'), true);
+});
+
 test('single channel starts upright without a line chooser and rotates only on tap', async () => {
   const h = createHarness({ios:false});
   await h.open([{...source('hls'),portraitStart:true}]);
