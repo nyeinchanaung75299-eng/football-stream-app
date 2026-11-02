@@ -93,15 +93,34 @@ test('strict source display prefers actual provider English, skips bad fields, a
   const skipped = sourceFootballNames({ ...row, hostNameEn: '未知英文标签', hostName: '切尔西' }, true);
   assert.equal(skipped.home_team, 'Chelsea');
   const unknown = sourceFootballNames({ scheduleId: 'stable-1', subCateId: 999, hostName: '未知甲', guestName: '未知乙', subCateName: '未知联赛' }, true);
-  assert.equal(unknown.home_team, 'Home team (stable-1)');
-  assert.equal(unknown.away_team, 'Away team (stable-1)');
-  assert.equal(unknown.league, 'Football league (999)');
-  assert.equal(unknown.original_away_team, '未知乙');
+  assert.equal(unknown.home_team, '未知甲');
+  assert.equal(unknown.away_team, '未知乙');
+  assert.equal(unknown.league, '未知联赛');
+  assert.equal(unknown.original_away_team, undefined);
   const another = sourceFootballNames({ scheduleId: 'stable-2', hostName: '未知甲', guestName: '未知乙' }, true);
-  assert.notEqual(unknown.home_team, another.home_team);
+  assert.equal(unknown.home_team, another.home_team, 'club names cannot depend on a match ID');
   assert.notEqual(sourceFootballNames({ hostName: '未知甲' }, true).home_team, sourceFootballNames({ hostName: '未知乙' }, true).home_team);
   for (const name of ['ရန်ကုန်', 'Αθήνα', 'תל אביב']) assert.equal(englishSourceDisplayName(name, 'team', 'Home team (source)'), 'Home team (source)');
   assert.equal(englishFootballName('未知甲'), '未知甲', 'the general identity normalizer must retain unknown Unicode');
+});
+
+test('all football leagues remain represented and unmapped YYZB names retain their identity', () => {
+  const fixtures = [
+    { scheduleId: 1471724, subCateName: '瑞典超', hostName: '哥德堡盖斯', guestName: '索尔纳' },
+    { scheduleId: 1471725, subCateName: '瑞典超', hostName: '米亚尔比', guestName: '卡尔马' },
+    { scheduleId: 1479000, subCateName: '未知地方杯赛', hostName: '全新未知队甲', guestName: '全新未知队乙' },
+  ];
+  const values = fixtures.map(row => sourceFootballNames(row, true));
+  assert.deepEqual([values[0].home_team, values[0].away_team, values[0].league],
+    ['GAIS Gothenburg', 'AIK Solna', 'Swedish Allsvenskan']);
+  assert.deepEqual([values[1].home_team, values[1].away_team], ['Mjallby AIF','Kalmar FF']);
+  assert.deepEqual([values[2].home_team, values[2].away_team, values[2].league],
+    ['全新未知队甲', '全新未知队乙', '未知地方杯赛']);
+  assert.equal(englishFootballName('ITA D1','league'), 'Italian Serie A');
+  assert.equal(englishFootballName('ACL Elite','league'), 'AFC Champions League Elite');
+  const missing = sourceFootballNames({scheduleId:'no-names'}, true);
+  assert.equal(missing.home_team, 'Home team (no-names)');
+  assert.equal(missing.away_team, 'Away team (no-names)');
 });
 
 test('YYZB streamer names remain English while raw import identity and explicit audio-language tags survive', () => {
@@ -297,7 +316,11 @@ for (const adapter of adapters.filter(a => a.name !== 'football-fixtures')) {
         { ...base, scheduleId: 'missing', hot: 2 },
         { ...base, scheduleId: 'explicit', hot: true },
       ],
-      hot: [{ ...base, scheduleId: 'basketball', categoryId: 2, categoryName: '篮球' }],
+      hot: [
+        { ...base, scheduleId: 'basketball', categoryId: 2, categoryName: '篮球' },
+        { ...base, scheduleId: 'basketball-sport', categoryId: undefined, sportId: 2, categoryName: '篮球' },
+        { ...base, scheduleId: 'basketball-conflict', categoryId: 2, categoryName: '足球' },
+      ],
     } });
     try {
       const payload = await (await adapter.jsonpMatches({ source: 'soco', url: 'https://source.example/matches' })).json();
