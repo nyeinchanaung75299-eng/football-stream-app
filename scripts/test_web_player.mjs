@@ -851,13 +851,14 @@ test('Android browsers still attempt the explicitly chosen DASH source', async (
   assert.deepEqual(h.plays, [dash.url]);
 });
 
-test('failed engine mirrors can be retried and DASH-only failures explain the HLS alternative', async () => {
+test('failed engine mirrors can be retried without guessing an HLS-only root cause', async () => {
   const dash = source('dash');
   // The harness has no page location, so the runtime tries the two external
   // mirrors. Make both fail once, then let the first mirror succeed on retry.
   const h = createHarness({ engineLoads: ['fail', 'fail', 'success'] });
   await h.open([dash]);
-  assert.match(h.message.textContent, /compatible HLS line/);
+  assert.match(h.message.textContent, /No other working line is available/);
+  assert.doesNotMatch(h.message.textContent, /HLS line is needed/);
   assert.equal(h.scripts.length, 2);
   await h.choose(0);
   assert.equal(h.scripts.length, 3, 'Retry must download again after all mirrors failed');
