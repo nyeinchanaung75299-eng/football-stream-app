@@ -64,8 +64,9 @@ void main() {
           expect(result, vercelBackupBase);
           expect(usesVercelBackend, isTrue);
           expect(
-            publicApiBases(preferVercel: usesVercelBackend).first,
-            vercelBackupBase,
+            publicApiBases().first,
+            'https://football-api.nyeinchanaung.us.ci',
+            reason: 'Public playback routing stays independent of Auth.',
           );
         },
         () => MockClient((request) async {
