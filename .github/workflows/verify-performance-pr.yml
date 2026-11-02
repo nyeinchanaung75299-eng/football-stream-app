@@ -13,6 +13,7 @@ on:
       - "supabase/functions/_shared/source_match_rows.mjs"
       - "supabase/functions/source-match-list/index.ts"
       - "scripts/test_performance_regressions.mjs"
+      - "scripts/test_backend_startup.mjs"
       - ".github/workflows/verify-performance-pr.yml"
 
 concurrency:
@@ -39,6 +40,9 @@ jobs:
       - name: Compare Soco upstream and API fixture counts (nonblocking diagnostic)
         run: node scripts/diagnose_soco_feed.mjs
           node --test scripts/test_soco_match_catalog.mjs
+
+      - name: Verify backend startup import graph
+        run: node --test scripts/test_backend_startup.mjs
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
