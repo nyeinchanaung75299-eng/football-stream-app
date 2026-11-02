@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../services/tv_schedule_service.dart';
 import '../services/channel_group_order_service.dart';
+import '../services/saved_epg_links_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'channels_page.dart';
 import '../widgets/football_match_guide_card.dart';
@@ -25,11 +26,35 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
   late Future<TvScheduleGuide> _guide = _load();
   String selectedGroup = 'All';
   Map<String, int> groupPositions = const {};
+  Set<String>? _savedEpgIds;
+  bool _savedEpgUnavailable = false;
+  int _savedEpgGeneration = 0;
 
   @override
   void initState() {
     super.initState();
     _loadGroupPositions();
+    _loadSavedEpgIds();
+  }
+
+  Future<void> _loadSavedEpgIds() async {
+    final generation = ++_savedEpgGeneration;
+    try {
+      final ids = await SavedEpgLinksService(Supabase.instance.client).load();
+      if (!mounted || generation != _savedEpgGeneration) return;
+      setState(() {
+        _savedEpgIds = ids;
+        _savedEpgUnavailable = false;
+      });
+    } catch (_) {
+      // A guide page remains useful even if the authenticated inventory is
+      // unavailable; never silently replace the saved count with live data.
+      if (!mounted || generation != _savedEpgGeneration) return;
+      setState(() {
+        _savedEpgIds = null;
+        _savedEpgUnavailable = true;
+      });
+    }
   }
 
   Future<void> _loadGroupPositions() async {
@@ -45,8 +70,13 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
       TvScheduleService().load(refresh: refresh);
 
   void _refresh() {
-    setState(() => _guide = _load(refresh: true));
+    setState(() {
+      _guide = _load(refresh: true);
+      _savedEpgIds = null;
+      _savedEpgUnavailable = false;
+    });
     _loadGroupPositions();
+    _loadSavedEpgIds();
   }
 
   Future<void> _openManager() async {
@@ -103,6 +133,9 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
 
         // This tab is CHANNEL-first. TV Schedule remains match-first.
         final epgChannels = guide.channels.where((c) => c.hasGuide).length;
+        final savedLinked = _savedEpgIds == null
+            ? null
+            : guide.channels.where((c) => _savedEpgIds!.contains(c.id)).length;
         final footballChannels = guide.channels.where((c) =>
             guide.liveAndUpcomingMatchListingsForChannel(c).isNotEmpty).length;
 
@@ -177,20 +210,27 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
                   _GuideStat(label: 'Your TV Channels',
                       value: '${guide.channels.length}',
                       color: FootballGuideColors.mint),
-                  _GuideStat(label: 'Channels with TV Guide',
-                      value: '$epgChannels / ${guide.channels.length}',
+                  _GuideStat(label: 'Saved EPG Links',
+                      value: savedLinked == null
+                          ? (_savedEpgUnavailable ? 'Unavailable' : 'Loading…')
+                          : '$savedLinked / ${guide.channels.length}',
+                      color: const Color(0xFF93BAFF)),
+                  _GuideStat(label: 'Channels with EPG Data Now',
+                      value: '$epgChannels',
                       color: const Color(0xFF93BAFF)),
                   _GuideStat(label: 'Live / Next Football EPG',
                       value: '$footballChannels',
                       color: const Color(0xFFE2D8FF)),
-                  _GuideStat(label: 'TV Guide Feeds Online',
+                  _GuideStat(label: 'Reported Feeds Online',
                       value: '${guide.onlineSources}/${guide.totalSources}',
                       color: const Color(0xFFF5DB91)),
                 ],
               ),
               const SizedBox(height: 8),
               Text(
-                'EPG coverage is live guide data, not a fixed 92-channel count. '
+                'Saved links are stored in the channel catalog. Live EPG data '
+                'depends on guide feed availability and matching programmes. '
+                'The online feed count covers reported feeds only. '
                 'Other sports, replays and highlights are excluded.',
                 style: const TextStyle(color: FootballGuideColors.muted,
                     fontSize: 11, height: 1.5),
@@ -242,6 +282,9 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
                             child: _ChannelScheduleCard(
                               channel: item.channel,
                               listings: item.listings,
+                              savedEpgLinked: _savedEpgIds == null
+                                  ? null
+                                  : _savedEpgIds!.contains(item.channel.id),
                             ),
                           ),
                         ],
@@ -350,9 +393,14 @@ class _GuideHeader extends StatelessWidget {
 }
 
 class _ChannelScheduleCard extends StatelessWidget {
-  const _ChannelScheduleCard({required this.channel, required this.listings});
+  const _ChannelScheduleCard({
+    required this.channel,
+    required this.listings,
+    required this.savedEpgLinked,
+  });
   final TvScheduleChannel channel;
   final List<TvScheduleListing> listings;
+  final bool? savedEpgLinked;
 
   void _allListings(BuildContext context) {
     showModalBottomSheet<void>(
@@ -412,9 +460,15 @@ class _ChannelScheduleCard extends StatelessWidget {
             ],
           )),
           const SizedBox(width: 8),
-          Text(channel.hasGuide ? '● EPG' : 'NO EPG',
+          Text(channel.hasGuide
+              ? '● EPG DATA'
+              : savedEpgLinked == true
+                  ? '● LINKED'
+                  : savedEpgLinked == null
+                      ? 'CHECKING…'
+                      : 'NO EPG',
             style: TextStyle(
-              color: channel.hasGuide
+              color: channel.hasGuide || savedEpgLinked == true
                   ? FootballGuideColors.mint : FootballGuideColors.muted,
               fontSize: 11, fontWeight: FontWeight.w900)),
         ]),
@@ -429,8 +483,12 @@ class _ChannelScheduleCard extends StatelessWidget {
             ),
             child: Text(
               channel.hasGuide
-                  ? 'EPG connected • no live/next football match confirmed.'
-                  : 'No TV guide matched to this channel yet.',
+                  ? 'EPG data available • no live/next football match confirmed.'
+                  : savedEpgLinked == true
+                      ? 'EPG link saved • current guide programmes unavailable.'
+                      : savedEpgLinked == null
+                          ? 'Checking saved EPG mapping…'
+                          : 'No saved EPG mapping for this channel.',
               style: const TextStyle(
                 color: FootballGuideColors.muted, fontSize: 12)),
           )
