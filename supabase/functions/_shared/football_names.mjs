@@ -73,7 +73,7 @@ const teamAliases = new Map([
 // league-phase clubs. Exact aliases only: no guessed club identities.
 // Longest-label-first matching below prevents shorter names such as 巴黎 from
 // taking precedence over 巴黎FC or 巴黎圣日耳曼.
-const priorityEuropeanAliases = [
+export const priorityEuropeanAliases = [
   // Major competition label variants
   ["欧洲冠军联赛","UEFA Champions League"],
   ["欧洲冠军杯","UEFA Champions League"],
