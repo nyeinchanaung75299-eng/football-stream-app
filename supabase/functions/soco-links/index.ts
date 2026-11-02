@@ -23,6 +23,8 @@ const COLA_HOME = "https://colatv66.live/";
 const COLA_API = "https://api.cltvlv.com/api/matches";
 
 Deno.serve(async (req) => {
+  let failureSource = "unknown";
+  let failureAction = "unknown";
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -45,6 +47,8 @@ Deno.serve(async (req) => {
       return json({ error: "Unsupported source." }, 400);
     }
     const action = body.action === "streams" ? "streams" : "matches";
+    failureSource = source;
+    failureAction = action;
     // Admin continues to require a verified admin session. The Viewer may use
     // this function only in explicit read-only source-browser mode; this
     // function fetches public provider match/stream metadata and never writes
@@ -139,6 +143,18 @@ Deno.serve(async (req) => {
       viewerPublic,
     });
   } catch (error) {
+    // The log must not contain upstream URLs, stream keys, query params,
+    // authorization headers or raw provider exceptions.
+    const message = error instanceof Error ? error.message : String(error);
+    const kind = /abort|timeout/i.test(message) ? "timeout"
+      : /HTTP\\s+\\d{3}/i.test(message) ? "upstream_http"
+      : /invalid JSON|JSONP|payload/i.test(message) ? "invalid_payload"
+      : "provider_failure";
+    console.error("soco-links provider failure", JSON.stringify({
+      source: failureSource,
+      action: failureAction,
+      kind,
+    }));
     return json(
       {
         error: error instanceof Error ? error.message : String(error),
@@ -1160,6 +1176,10 @@ function decodeHtml(value: string) {
 
 async function fetchFawaText(url: string) {
   const candidates = [url];
+  const started = Date.now();
+  // The public Cloudflare source request has a 16-second deadline. Do not
+  // spend three sequential ten-second attempts after its caller has given up.
+  const totalBudgetMs = 13500;
 
   try {
     const parsed = new URL(url);
@@ -1182,8 +1202,10 @@ async function fetchFawaText(url: string) {
 
   let lastError: unknown = null;
   for (const candidate of [...new Set(candidates)]) {
+    const remainingMs = totalBudgetMs - (Date.now() - started);
+    if (remainingMs < 500) break;
     try {
-      return await fetchText(candidate);
+      return await fetchText(candidate, Math.min(5000, remainingMs));
     } catch (error) {
       lastError = error;
     }
@@ -1194,9 +1216,9 @@ async function fetchFawaText(url: string) {
     : new Error("Fawa source is unreachable.");
 }
 
-async function fetchText(url: string) {
+async function fetchText(url: string, timeoutMs = 10000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(url, {
