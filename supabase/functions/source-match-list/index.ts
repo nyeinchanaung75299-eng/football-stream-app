@@ -464,8 +464,11 @@ function colaMediaUrl(value: unknown) {
 }
 
 function isFootballRow(row: any) {
-  const categoryId = Number(row?.categoryId ?? row?.category_id);
-  if (Number.isFinite(categoryId) && categoryId === 1) return true;
+  const sportId = Number(row?.sportId ?? row?.sport_id);
+  if (Number.isFinite(sportId) && sportId > 0 && sportId !== 1) return false;
+  const rawCategoryId = row?.categoryId ?? row?.category_id;
+  const categoryId = rawCategoryId == null || rawCategoryId === ''
+    ? NaN : Number(rawCategoryId);
 
   const category = [
     row?.categoryName,
@@ -474,13 +477,17 @@ function isFootballRow(row: any) {
     row?.sportName,
   ].map((value) => String(value ?? "").toLowerCase()).join(" ");
 
+  if (/basketball|篮球|籃球|volleyball|排球|tennis|网球|網球|esport|电竞|電競/i.test(category)) return false;
+  if (Number.isFinite(categoryId) && categoryId > 0) return categoryId === 1;
   if (/football|soccer|足球/.test(category)) return true;
 
   // Some source revisions omit categoryId entirely but still expose the same
   // football schedule shape.
   return !Number.isFinite(categoryId) &&
-    (row?.hostName != null || row?.homeName != null) &&
-    (row?.guestName != null || row?.awayName != null);
+    (row?.hostName != null || row?.homeName != null ||
+      row?.homeTeam != null || row?.teams?.home != null) &&
+    (row?.guestName != null || row?.awayName != null ||
+      row?.awayTeam != null || row?.teams?.away != null);
 }
 
 function staleKickoff(value: unknown) {

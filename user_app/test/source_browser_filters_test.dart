@@ -140,7 +140,7 @@ void main() {
   });
 
 
-  testWidgets('legacy Chinese YYZB rows display and search in English', (
+  testWidgets('legacy YYZB rows show translated known teams and preserve unknown names', (
     tester,
   ) async {
     final now = DateTime.now();
@@ -173,10 +173,10 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('SC Paderborn 07'), findsOneWidget);
         expect(find.text('VfB Stuttgart'), findsOneWidget);
-        expect(find.text('Home team (fixture-43)'), findsOneWidget);
-        expect(find.text('Away team (fixture-43)'), findsOneWidget);
+        expect(find.text('未知球队'), findsOneWidget);
+        expect(find.text('球队测试'), findsOneWidget);
         expect(find.text('帕德博恩'), findsNothing);
-        expect(find.text('未知联赛'), findsNothing);
+        expect(find.text('未知联赛'), findsOneWidget);
         expect(tester.takeException(), isNull);
         await tester.enterText(
           find.byKey(const ValueKey('source-match-search')),
@@ -185,7 +185,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('1 match'), findsOneWidget);
         expect(find.text('SC Paderborn 07'), findsOneWidget);
-        expect(find.text('Home team (fixture-43)'), findsNothing);
+        expect(find.text('未知球队'), findsNothing);
         await tester.pumpWidget(const SizedBox());
       },
       () => MockClient((request) async => request.url.path.endsWith('/matches')

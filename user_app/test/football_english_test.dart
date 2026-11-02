@@ -39,7 +39,7 @@ void main() {
   );
 
   test(
-    'unknown YYZB names use stable references without changing source identity',
+    'unknown YYZB names retain real source identities without placeholder labels',
     () {
       final original = <String, dynamic>{
         'source_id': 'fixture-42',
@@ -56,9 +56,9 @@ void main() {
         ],
       };
       final translated = englishSourceMatch(original, 'yyzb');
-      expect(translated['home_team'], 'Home team (fixture-42)');
-      expect(translated['away_team'], 'Away team (fixture-42)');
-      expect(translated['league'], 'Football league (league-9)');
+      expect(translated['home_team'], '未知球队');
+      expect(translated['away_team'], 'ทีมทดสอบ');
+      expect(translated['league'], 'မသိလိဂ်');
       expect(translated['original_home_team'], '未知球队');
       expect(translated['source_id'], original['source_id']);
       expect(translated['schedule_id'], original['schedule_id']);
