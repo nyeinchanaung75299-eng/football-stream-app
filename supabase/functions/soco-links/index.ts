@@ -749,7 +749,7 @@ function isFootballRow(row: any) {
   ].map((value) => String(value ?? "").toLowerCase()).join(" ");
 
   if (/basketball|篮球|籃球|volleyball|排球|tennis|网球|網球|esport|电竞|電競/i.test(category)) return false;
-  if (Number.isFinite(categoryId)) return categoryId === 1;
+  if (Number.isFinite(categoryId) && categoryId > 0) return categoryId === 1;
   if (/football|soccer|足球/.test(category)) return true;
 
   return !Number.isFinite(categoryId) &&
