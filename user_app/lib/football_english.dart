@@ -1,6 +1,11 @@
 // Canonical Chinese aliases mirror the verified football_names.mjs source names.
 // Display text never changes source IDs, room URLs, match time or import identity.
 const _footballAliases = <String, String>{
+  // Known Allsvenskan clubs from the YYZB source catalogue.
+  "哥德堡盖斯": "GAIS Gothenburg",
+  "索尔纳": "AIK Solna",
+  "米亚尔比": "Mjallby AIF",
+  "卡尔马": "Kalmar FF",
   // Curated European aliases shared with backend, for old mirror records.
   "欧洲冠军联赛": "UEFA Champions League",
   "欧洲冠军杯": "UEFA Champions League",
