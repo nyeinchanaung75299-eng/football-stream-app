@@ -625,6 +625,9 @@
         line_count:sources.length,
         stream_type:sourceType(failed),
         reason,
+        // Failed attempts were previously absent from startup duration
+        // distributions; capture their cost without any source URL.
+        attempt_ms:Math.max(0,Math.round(playbackClock()-playbackAttemptStartedAt)),
         ...details
       });
 
