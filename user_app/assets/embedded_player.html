@@ -180,6 +180,7 @@
     const iosRecoveryAttempts=new Map();
     const startupTimeoutMs=20000, stallTimeoutMs=15000, engineTimeoutMs=5000;
     const scriptLoads=new Map();
+    let shakaInitialized=false;
 
     function playbackClock(){
       return window.performance&&typeof window.performance.now==='function'
@@ -624,6 +625,9 @@
         line_count:sources.length,
         stream_type:sourceType(failed),
         reason,
+        // Failed attempts were previously absent from startup duration
+        // distributions; capture their cost without any source URL.
+        attempt_ms:Math.max(0,Math.round(playbackClock()-playbackAttemptStartedAt)),
         ...details
       });
 
@@ -885,7 +889,7 @@
       index=Math.max(0,Math.min(Number(index)||0,sources.length-1));
       const source=sources[index], url=String(source.url||'').trim(), type=sourceType(source);
       const support=sourceSupport(source);
-      let engineReadyMs=0;
+      let engineReadyMs=0,attachReadyMs=0,manifestReadyMs=0;
 
       currentSourceIndex=index;
       updateServerButton(index);
@@ -911,11 +915,27 @@
           stream_type:type,
           startup_ms:Math.max(0,Math.round(playbackClock()-playbackAttemptStartedAt)),
           engine_ready_ms:engineReadyMs,
+          attach_ready_ms:attachReadyMs,
+          manifest_ready_ms:manifestReadyMs,
           resolution:/^(\d{3,4}p|auto|hd|sd|fhd|uhd|4k)$/i.test(String(source.resolution||''))
             ? String(source.resolution).toLowerCase() : 'unknown',
           health_status:['healthy','unknown','slow','failed'].includes(source.healthStatus||source.health_status)
             ? (source.healthStatus||source.health_status) : 'unknown'
         });
+        // 'playing' can precede the first decoded frame. Record a separate
+        // measured first-frame milestone where the browser supports it.
+        if(typeof video.requestVideoFrameCallback==='function'){
+          video.requestVideoFrameCallback(()=>{
+            if(isCurrentPlayback(token) && playbackStartedToken===token){
+              capturePlayerEvent('playback first frame',{
+                first_frame_ms:Math.max(0,Math.round(playbackClock()-playbackAttemptStartedAt)),
+                engine_ready_ms:engineReadyMs,
+                manifest_ready_ms:manifestReadyMs,
+                attach_ready_ms:attachReadyMs
+              });
+            }
+          });
+        }
       };
       activePlayingHandler=onPlaying;
       video.addEventListener('playing',onPlaying);
@@ -979,11 +999,17 @@
         }
         if(type==='hls'||type==='dash'||url.includes('.m3u8')||url.includes('.mpd')){
           if(!window.shaka)throw new Error('Web streaming engine did not load.');
-          shaka.polyfill.installAll();
-          if(!shaka.Player.isBrowserSupported())throw new Error('This browser does not support DASH/HLS through the web player.');
+          // Browser capability and polyfills do not change across lines.
+          if(!shakaInitialized){
+            shaka.polyfill.installAll();
+            if(!shaka.Player.isBrowserSupported())throw new Error('This browser does not support DASH/HLS through the web player.');
+            shakaInitialized=true;
+          }
           const player=new shaka.Player();
           shakaPlayer=player;
+          const attachStartedAt=playbackClock();
           await player.attach(video);
+          attachReadyMs=Math.max(0,Math.round(playbackClock()-attachStartedAt));
           if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
           const iosDash=isIOS() && type==='dash';
           const shakaConfig={
@@ -1096,7 +1122,9 @@
             playbackFailure(detail,index,token);
           });
           const manifestMime=type==='dash'?'application/dash+xml':'application/vnd.apple.mpegurl';
+          const manifestStartedAt=playbackClock();
           await player.load(url,undefined,manifestMime);
+          manifestReadyMs=Math.max(0,Math.round(playbackClock()-manifestStartedAt));
           if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
           currentTracks=player.getVariantTracks(); fillQualityOptions();
           await requestVideoPlay(index,token);return;

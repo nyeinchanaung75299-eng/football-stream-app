@@ -727,6 +727,8 @@ test('startup stalls fall back to HLS and ignore a late old load completion', as
   assert.equal(h.loads.length, 1);
   await h.tick(32000);
   assert.equal(failures(h)[0].properties.reason, 'startup_timeout');
+  assert.ok(failures(h)[0].properties.attempt_ms >= 20000,
+    'Include the wait time for failed attempts, not only successful playback');
   assert.deepEqual(h.plays, [hls.url]);
   gate.resolve(); await opening;
   assert.deepEqual(h.plays, [hls.url], 'Stale load must not play the old source');

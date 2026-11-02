@@ -51,8 +51,12 @@ Deno.serve(async (req) => {
     const client = createClient(supabaseUrl, serviceRole);
     const now = new Date();
 
-    const staleCleanup = await hideStaleMatches(client, now);
-    const expiredStreamCleanup = await disableExpiredStreams(client, now);
+    // These use different tables and can run concurrently. Wait for expired
+    // links to be disabled before probing active streams.
+    const [staleCleanup, expiredStreamCleanup] = await Promise.all([
+      hideStaleMatches(client, now),
+      disableExpiredStreams(client, now),
+    ]);
     const healthSummary = await syncStreamHealth(client, now, force);
 
     return json({
@@ -158,7 +162,9 @@ async function syncStreamHealth(
     return { checked: 0, healthy: 0, slow: 0, failed: 0, unknown: 0 };
   }
 
-  const minAgeMs = 10 * 60 * 1000;
+  // Reduce repeat external stream probes on routine cron invocations.
+  // Admin "force" still bypasses the age guard for manual diagnostics.
+  const minAgeMs = 15 * 60 * 1000;
   const dueBefore = new Date(now.getTime() - minAgeMs).toISOString();
 
   let linkQuery = client
@@ -169,7 +175,7 @@ async function syncStreamHealth(
     .eq("is_active", true)
     .in("match_id", matchIds)
     .order("last_checked_at", { ascending: true, nullsFirst: true })
-    .limit(16);
+    .limit(12);
 
   if (!force) {
     linkQuery = linkQuery.or(

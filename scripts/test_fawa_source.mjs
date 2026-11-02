@@ -100,3 +100,68 @@ test('Viewer and Admin Fawa extraction use the same assembled URLs and probe sem
     }
   } finally { globalThis.fetch = originalFetch; }
 });
+
+
+test('Fawa alternate origin is tried after a failed primary without waiting for 30 seconds', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    const candidate = String(url);
+    calls.push(candidate);
+    if (candidate === page) return new Response('upstream unavailable', { status: 503 });
+    return new Response('<video src="/live.m3u8"></video>');
+  };
+  try {
+    const response = await handler(new Request('https://backend.example/soco-links', {
+      method: 'POST',
+      body: JSON.stringify({
+        viewer_public: true, source: 'fawa', action: 'streams',
+        page_url: page, skip_probe: true,
+      }),
+    }));
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0], page);
+    assert.ok(calls[1].startsWith('https://www.fawanews.sc/'));
+    assert.equal(body.lines.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Fawa request budget bounds retries and returns sanitized errors and logs', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  const originalError = console.error;
+  const logs = [];
+  let fakeNow = 500000;
+  let calls = 0;
+  Date.now = () => fakeNow;
+  console.error = (...args) => logs.push(args.map(String).join(' '));
+  globalThis.fetch = async () => {
+    calls++;
+    fakeNow += 14000; // Simulate a slow failure consuming the entire budget.
+    throw new Error('Timeout secret-stream-url=https://private.invalid/token=SECRET');
+  };
+  try {
+    const response = await handler(new Request('https://backend.example/soco-links', {
+      method: 'POST',
+      body: JSON.stringify({
+        viewer_public: true, source: 'fawa', action: 'streams',
+        page_url: page, skip_probe: true,
+      }),
+    }));
+    const body = await response.json();
+    assert.equal(response.status, 502);
+    assert.equal(body.code, 'timeout');
+    assert.equal(calls, 1, 'No further fallback starts after the shared budget');
+    assert.ok(logs.some(line => line.includes('"source":"fawa"') && line.includes('"kind":"timeout"')));
+    assert.ok(!JSON.stringify({ body, logs }).includes('SECRET'), 'Never expose upstream credentials');
+    assert.ok(!JSON.stringify({ body, logs }).includes('private.invalid'));
+  } finally {
+    Date.now = originalNow;
+    console.error = originalError;
+    globalThis.fetch = originalFetch;
+  }
+});
