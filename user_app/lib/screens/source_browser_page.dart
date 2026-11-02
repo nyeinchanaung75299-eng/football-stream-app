@@ -392,6 +392,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       );
     }
     final decoded = jsonDecode(response.body);
+    if (decoded is Map && decoded['ok'] == false) {
+      // A failed Soco mirror sync must not masquerade as a successful empty
+      // provider schedule. Allow other live routes and local last-good data.
+      throw const FormatException('Source snapshot is unavailable.');
+    }
     final raw = decoded is Map ? decoded['matches'] : null;
     if (raw is! List) {
       throw const FormatException('Invalid GitHub source mirror.');
