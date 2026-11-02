@@ -11,6 +11,9 @@ on:
       - ".github/workflows/sync-public-feed.yml"
       - "scripts/test_soco_match_catalog.mjs"
       - "supabase/functions/_shared/source_match_rows.mjs"
+      - "supabase/functions/_shared/source_team_logos.mjs"
+      - "supabase/functions/_shared/football_names.mjs"
+      - "scripts/test_football_names.mjs"
       - "supabase/functions/source-match-list/index.ts"
       - "scripts/test_performance_regressions.mjs"
       - "scripts/test_backend_startup.mjs"
@@ -43,6 +46,9 @@ jobs:
 
       - name: Verify backend startup import graph
         run: node --test scripts/test_backend_startup.mjs
+
+      - name: Verify YYZB fixture names and badge extraction
+        run: node --test scripts/test_football_names.mjs
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
