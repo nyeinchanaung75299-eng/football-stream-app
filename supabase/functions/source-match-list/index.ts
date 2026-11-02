@@ -150,9 +150,9 @@ async function jsonpMatches(args: {
           .filter((anchor: any) => anchor.room_num),
       };
     })
-    // Soco's All dates shows the full current provider catalogue; avoid
-    // hiding older fixtures merely because their kickoff passed four hours ago.
-    .filter((row: any) => args.source === "soco" || !staleKickoff(row.match_time))
+    // Match-list parity with the source: finished games are not a history
+    // archive, and upstream removal is authoritative on a successful fetch.
+    .filter((row: any) => !staleKickoff(row.match_time))
     .sort(compareMatches);
 
   return json({
