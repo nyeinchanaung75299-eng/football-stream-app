@@ -43,52 +43,22 @@ assert.doesNotMatch(sources, /_recentSourceLists/,
   'source matches must remain authoritative after successful empty refresh');
 assert.match(home, /_streamWarmup\?\.cancel\(\)/,
   'cancel delayed metadata prefetch on dispose');
-assert.match(web, /requestVideoFrameCallback/, 'measure actual first decoded frame');
-assert.match(web, /playback first frame/, 'emit first-frame timing');
-assert.match(web, /attempt_ms:/, 'record time spent before a fallback');
-assert.match(home, /watchToSourcesClock/, 'separate link resolution from video startup');
-assert.match(home, /chooser_ms/, 'separate time selecting a line from buffering');
-assert.match(web, /viewer web startup/, 'measure first-page render');
-assert.match(web, /shakaInitialized/, 'cache Shaka capability setup');
+// During the playback rollback trial use the last pre-#106 streaming script.
+// Keep source/security and fallback assertions even while milestone telemetry
+// from #106 is intentionally not included in this version.
+assert.match(web, /function sourceSupport\(source\)/,
+  'platform-specific source selection must remain guarded');
+assert.match(web, /playback line failed/,
+  'failed lines must still reach the fallback system');
+assert.match(web, /shaka\.Player\.isBrowserSupported\(\)/,
+  'browser capability checks must remain present');
+assert.match(home, /watchToSourcesClock/,
+  'retain source discovery instrumentation outside the rolled-back player');
+assert.match(home, /chooser_ms/,
+  'retain human line-selection timing');
 assert.match(maintenance, /15 \* 60 \* 1000/, 'avoid repeat probes within 15 minutes');
 assert.match(maintenance, /\.limit\(12\)/, 'cap routine probe batches');
 assert.match(maintenance, /hideStaleMatches\(client, now\)/);
 assert.match(maintenance, /disableExpiredStreams\(client, now\)/);
-
-const bootScript = web.match(/<script id="nca-app-startup">\s*([\s\S]*?)<\/script>/)?.[1];
-assert.ok(bootScript, 'startup performance instrumentation must be present');
-const events = [];
-const callbacks = new Map();
-const shell = { isConnected: true, remove() { this.isConnected = false; } };
-const retry = { addEventListener() {} };
-const label = { textContent: '' };
-const perf = {
-  now: () => 1200,
-  getEntriesByType: () => [{ requestStart: 20, responseStart: 300 }],
-};
-const win = {
-  performance: perf,
-  posthog: { capture(name, properties) { events.push({ name, properties }); } },
-  addEventListener(event, handler) { callbacks.set(event, handler); },
-};
-vm.runInNewContext(bootScript, {
-  window: win, performance: perf,
-  document: {
-    getElementById(id) {
-      return id === 'nca-app-loading' ? shell
-        : id === 'nca-loading-retry' ? retry : label;
-    },
-  },
-  setTimeout: () => 1,
-  clearTimeout() {},
-  location: { href: 'https://viewer.example/' },
-  URL,
-});
-callbacks.get('flutter-first-frame')();
-assert.equal(events[0].name, 'viewer web startup');
-assert.equal(events[0].properties.stage, 'first_frame');
-assert.equal(events[0].properties.elapsed_ms, 1200,
-  'navigation duration must include HTML load, not begin when the script runs');
-assert.equal(events[0].properties.html_ttfb_ms, 280);
 
 console.log('NCA performance regression guards passed.');
