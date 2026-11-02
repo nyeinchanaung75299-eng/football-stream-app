@@ -452,6 +452,6 @@ test('every curated European Chinese alias resolves without untranslated charact
     const mapped = englishFootballName(raw);
     assert.equal(mapped, expected, 'alias: ' + raw);
     assert.equal(englishFootballName(mapped), expected, 'stable alias: ' + raw);
-    assert.equal(/[\\p{Script=Han}]/u.test(mapped), false, 'Chinese characters remain in ' + raw);
+    assert.equal(/\p{Script=Han}/u.test(mapped), false, 'Chinese characters remain in ' + raw);
   }
 });
