@@ -227,7 +227,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return c.future;
   }
 
-  // Keep the established Soco/YYZB recent-match cutoff. All dates means\n  // all currently available dates, never an archive of completed fixtures.\n  static const _staleAfter = Duration(hours: 4);
+  // Keep the established Soco/YYZB recent-match cutoff. All dates means
+  // all currently available dates, never an archive of completed fixtures.
+  static const _staleAfter = Duration(hours: 4);
 
   DateTime? _kickoff(Map<String, dynamic> m) {
     final parsed = DateTime.tryParse(m['match_time']?.toString() ?? '');
