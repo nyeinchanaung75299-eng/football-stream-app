@@ -20,7 +20,7 @@ const match = <String, dynamic>{
 
 void main() {
   setUp(() {
-    rememberVerifiedPublicApiBase(vercelBackupBase);
+    rememberVerifiedPublicApiBase('https://football-api.nyeinchanaung.us.ci');
     SharedPreferences.setMockInitialValues({});
     PackageInfo.setMockInitialValues(
       appName: 'NCA',
@@ -33,7 +33,7 @@ void main() {
 
   for (final sourceTab in [false, true]) {
     final label = sourceTab ? 'source tab' : 'Live';
-    testWidgets('$label falls back to Cloudflare then reuses the verified route', (
+    testWidgets('$label falls back to Vercel then reuses the verified route', (
       tester,
     ) async {
       final hosts = <String>[];
@@ -48,21 +48,21 @@ void main() {
           );
           await tester.pumpAndSettle();
           expect(find.text('Team Alpha'), findsOneWidget);
-          expect(hosts.first, 'nca-network-backup-test.vercel.app');
-          expect(hosts, contains('football-api.nyeinchanaung.us.ci'));
+          expect(hosts.first, 'football-api.nyeinchanaung.us.ci');
+          expect(hosts, contains('nca-network-backup-test.vercel.app'));
           hosts.clear();
           await tester.pump(const Duration(seconds: 61));
           await tester.pumpAndSettle();
-          expect(hosts.first, 'football-api.nyeinchanaung.us.ci',
+          expect(hosts.first, 'nca-network-backup-test.vercel.app',
               reason: 'Refresh should reuse the last verified API route.');
-          expect(hosts, isNot(contains('nca-network-backup-test.vercel.app')));
+          expect(hosts, isNot(contains('football-api.nyeinchanaung.us.ci')));
           await tester.pumpWidget(const SizedBox());
         },
         () => MockClient((request) async {
           if (!request.url.path.endsWith('/matches'))
             return http.Response('{}', 404);
           hosts.add(request.url.host);
-          if (request.url.host == 'nca-network-backup-test.vercel.app') {
+          if (request.url.host == 'football-api.nyeinchanaung.us.ci') {
             return http.Response('{}', 503);
           }
           return http.Response(

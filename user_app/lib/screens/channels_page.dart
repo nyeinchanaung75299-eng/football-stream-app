@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../native_player.dart';
 import '../network_endpoints.dart';
+import '../playback_routes.dart';
 import '../public_guide_cache.dart';
 import '../widgets/premium_bottom_nav.dart';
 import 'home_page.dart';
@@ -215,29 +216,31 @@ class _ChannelsPageState extends State<ChannelsPage> {
       final data = await request('/channels/$id/streams');
       if (data['streams'] is! List)
         throw const FormatException('Invalid channel lines');
-      final lines = (data['streams'] as List)
-          .whereType<Map>()
-          .map((raw) {
-            final row = Map<String, dynamic>.from(raw);
-            final url = row['stream_url']?.toString() ?? '';
-            final uri = Uri.tryParse(url);
-            if (uri == null ||
-                uri.scheme != 'https' ||
-                uri.host.isEmpty ||
-                row['protected_proxy'] != true)
-              return null;
-            return <String, dynamic>{
-              'id': row['id']?.toString(),
-              'label': row['label']?.toString() ?? 'Server',
-              'url': url,
-              'streamType': row['stream_type']?.toString() ?? 'auto',
-              'keyId': row['key_id']?.toString() ?? '',
-              'keyData': row['key_data']?.toString() ?? '',
-              'portraitStart': true,
-            };
-          })
-          .whereType<Map<String, dynamic>>()
-          .toList();
+      final lines = addVpnFreePlaybackFallbacks(
+        (data['streams'] as List)
+            .whereType<Map>()
+            .map((raw) {
+              final row = Map<String, dynamic>.from(raw);
+              final url = row['stream_url']?.toString() ?? '';
+              final uri = Uri.tryParse(url);
+              if (uri == null ||
+                  uri.scheme != 'https' ||
+                  uri.host.isEmpty ||
+                  row['protected_proxy'] != true)
+                return null;
+              return <String, dynamic>{
+                'id': row['id']?.toString(),
+                'label': row['label']?.toString() ?? 'Server',
+                'url': url,
+                'streamType': row['stream_type']?.toString() ?? 'auto',
+                'keyId': row['key_id']?.toString() ?? '',
+                'keyData': row['key_data']?.toString() ?? '',
+                'portraitStart': true,
+              };
+            })
+            .whereType<Map<String, dynamic>>()
+            .toList(),
+      );
       if (!mounted) return;
       if (lines.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(

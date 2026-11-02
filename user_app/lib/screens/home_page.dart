@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../analytics_service.dart';
 import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
+import '../playback_routes.dart';
 import '../native_player.dart';
 import 'source_browser_page.dart';
 import 'channels_page.dart';
@@ -82,9 +83,8 @@ class _HomePageState extends State<HomePage> {
     final bases = publicApiBases(
       primary: _publicApiBase,
       // Public API routing is independent of which Supabase Auth relay won.
-      preferVercel: true,
+      preferVercel: false,
     );
-    // Keep Vercel first on every request; don't promote a previous Cloudflare fallback.
     return bases;
   }
 
@@ -1109,31 +1109,33 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    final nativeSources = links
-        .where((x) => x['use_webview'] != true)
-        .toList()
-        .asMap()
-        .entries
-        .map((entry) {
-          final x = entry.value;
-          return <String, dynamic>{
-            'id': x['id']?.toString(),
-            'label': _streamDisplayLabel(x, entry.key),
-            'streamType': (x['stream_type'] ?? 'auto').toString(),
-            'url': (x['stream_url'] ?? '').toString(),
-            'referer': _normalizedWebReferer(x, match),
-            'origin': (x['origin'] ?? '').toString(),
-            'keyId': (x['key_id'] ?? '').toString(),
-            'keyData': (x['key_data'] ?? '').toString(),
-            'resolution': (x['resolution'] ?? '').toString(),
-            'healthStatus': (x['health_status'] ?? 'unknown').toString(),
-            'priority': (x['priority'] as num?)?.toInt() ?? 100,
-            'blockedReason': (x['blocked_reason'] ?? '').toString(),
-            'viewerMessage': (x['viewer_message'] ?? '').toString(),
-          };
-        })
-        .where((x) => (x['url'] as String).trim().isNotEmpty)
-        .toList();
+    final nativeSources = addVpnFreePlaybackFallbacks(
+      links
+          .where((x) => x['use_webview'] != true)
+          .toList()
+          .asMap()
+          .entries
+          .map((entry) {
+            final x = entry.value;
+            return <String, dynamic>{
+              'id': x['id']?.toString(),
+              'label': _streamDisplayLabel(x, entry.key),
+              'streamType': (x['stream_type'] ?? 'auto').toString(),
+              'url': (x['stream_url'] ?? '').toString(),
+              'referer': _normalizedWebReferer(x, match),
+              'origin': (x['origin'] ?? '').toString(),
+              'keyId': (x['key_id'] ?? '').toString(),
+              'keyData': (x['key_data'] ?? '').toString(),
+              'resolution': (x['resolution'] ?? '').toString(),
+              'healthStatus': (x['health_status'] ?? 'unknown').toString(),
+              'priority': (x['priority'] as num?)?.toInt() ?? 100,
+              'blockedReason': (x['blocked_reason'] ?? '').toString(),
+              'viewerMessage': (x['viewer_message'] ?? '').toString(),
+            };
+          })
+          .where((x) => (x['url'] as String).trim().isNotEmpty)
+          .toList(),
+    );
 
     if (nativeSources.isEmpty) {
       await AnalyticsService.capture(

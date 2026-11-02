@@ -1,7 +1,7 @@
 const vercelBackupBase = 'https://nca-network-backup-test.vercel.app';
 
-// Viewer/Admin public APIs prefer the reachable Vercel relay. Cloudflare stays as fallback.
-List<String> publicApiBases({String? primary, bool preferVercel = true}) {
+// Use the direct Cloudflare route first. Vercel remains the VPN-free fallback.
+List<String> publicApiBases({String? primary, bool preferVercel = false}) {
   final first = (primary ?? 'https://football-api.nyeinchanaung.us.ci')
       .trim()
       .replaceAll(RegExp(r'/+$'), '');

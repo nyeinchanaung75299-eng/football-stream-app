@@ -5,20 +5,22 @@ import 'package:football_viewer/backend_endpoint.dart';
 import 'package:football_viewer/network_endpoints.dart';
 
 void main() {
-  setUp(() => rememberVerifiedPublicApiBase(vercelBackupBase));
+  setUp(() => rememberVerifiedPublicApiBase(
+        'https://football-api.nyeinchanaung.us.ci',
+      ));
 
-  test('Vercel first for public data, Cloudflare retained as fallback', () {
+  test('Cloudflare first for public data, Vercel retained as fallback', () {
     final bases = publicApiBases(primary: 'https://football-api.example/');
-    expect(bases.first, vercelBackupBase);
-    expect(bases[1], 'https://football-api.example');
+    expect(bases.first, 'https://football-api.example');
+    expect(bases[1], vercelBackupBase);
     expect(bases.toSet().length, bases.length);
   });
 
   test('Only a configured, recently healthy public API can lead the route list', () {
     final original = publicApiBases();
-    expect(original.first, vercelBackupBase);
+    expect(original.first, 'https://football-api.nyeinchanaung.us.ci');
     rememberVerifiedPublicApiBase('https://untrusted.invalid');
-    expect(publicApiBases().first, vercelBackupBase);
+    expect(publicApiBases().first, 'https://football-api.nyeinchanaung.us.ci');
     rememberVerifiedPublicApiBase('https://football-api.nyeinchanaung.us.ci');
     expect(publicApiBases().first, 'https://football-api.nyeinchanaung.us.ci');
     expect(publicApiBases().contains(vercelBackupBase), isTrue);
