@@ -304,7 +304,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
 
     start();
-    timer = Timer.periodic(const Duration(milliseconds: 300), (t) {
+    // Primary source provider can take over 1 second. Do not start all three
+    // upstream requests every 300ms when the first one is merely slow.
+    // Keep the fast 300ms hedge for the emergency mirror fallback above.
+    timer = Timer.periodic(const Duration(milliseconds: 650), (t) {
       if (c.isCompleted) {
         t.cancel();
         return;
