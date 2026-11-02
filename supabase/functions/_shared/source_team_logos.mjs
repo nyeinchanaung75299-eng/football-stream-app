@@ -1,11 +1,7 @@
 // Shared provider team-logo extraction for Admin and Viewer. Preserve
 // team metadata; never mistake streamer avatar icons for football badges.
 
-export function sourceLogo(
-  row: any,
-  side: "home" | "away",
-  source: "soco" | "yyzb",
-) {
+export function sourceLogo(row, side, source) {
   const home = side === "home";
   const directCandidates = home
     ? [
@@ -68,7 +64,7 @@ export function sourceLogo(
   return null;
 }
 
-function normalizeLogoUrl(value: unknown, source: "soco" | "yyzb") {
+function normalizeLogoUrl(value, source) {
   if (value == null) return null;
   const raw = String(value).trim();
   if (!raw || raw === "null" || raw === "undefined") return null;
@@ -82,13 +78,11 @@ function normalizeLogoUrl(value: unknown, source: "soco" | "yyzb") {
     }
   } catch (_) {}
 
-  // YYZB team assets are often hosted separately from its JSON feed.
-  // Keep both absolute paths and relative file/imgs paths, not merely URLs
-  // with an explicit HTTP scheme.
-  if (/^(\\/)?file\\/(?:imgs?|images?)\\//i.test(raw) && source === "yyzb") {
-    return new URL(raw.replace(/^\\//, ""), "https://sta.ncctrials.com/").toString();
+  // YYZB team assets may use an asset host separate from the JSON feed.
+  if (/^\/?file\/(?:imgs?|images?)\//i.test(raw) && source === "yyzb") {
+    return new URL(raw.replace(/^\//, ""), "https://sta.ncctrials.com/").toString();
   }
-  if (raw.startsWith("/") || /^[\\w.-]+\\/(?:[\\w.-]+\\/)*[\\w.-]+$/.test(raw)) {
+  if (raw.startsWith("/") || /^[\w.-]+\/(?:[\w.-]+\/)*[\w.-]+$/.test(raw)) {
     const base = source === "yyzb"
       ? "https://json.ncctrials.com/"
       : "https://json.vnres.co/";
