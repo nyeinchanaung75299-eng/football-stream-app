@@ -362,6 +362,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       throw Exception('Source API HTTP ' + response.statusCode.toString());
     }
     final decoded = jsonDecode(response.body);
+    if (source == 'soco' && decoded is Map && decoded['ok'] == false) {
+      // An unavailable provider is not an authoritative empty schedule.
+      throw const FormatException('Soco source temporarily unavailable.');
+    }
     final raw = decoded is Map ? decoded['matches'] : null;
     if (raw is! List) throw const FormatException('Invalid source matches.');
     final rows = raw
@@ -430,6 +434,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       );
     }
     final decoded = jsonDecode(response.body);
+    if (source == 'soco' && decoded is Map && decoded['ok'] == false) {
+      // An unavailable provider is not an authoritative empty schedule.
+      throw const FormatException('Soco source temporarily unavailable.');
+    }
     final raw = decoded is Map ? decoded['matches'] : null;
     if (raw is! List)
       throw const FormatException('Invalid direct source list.');
@@ -1083,7 +1091,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             );
           }
 
-          final allMatches = _feed.data ?? const <Map<String, dynamic>>[];
+          // A failed refresh may retain the last visible feed. Do not show
+          // fixtures that became stale while the source was unreachable.
+          final allMatches = (_feed.data ?? const <Map<String, dynamic>>[])
+              .where((row) => source != 'soco' || !_stale(row))
+              .toList();
           if (allMatches.isEmpty) {
             return _StateView(
               title: 'No $title matches',
