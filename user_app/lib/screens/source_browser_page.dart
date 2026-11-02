@@ -60,6 +60,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   String _query = '';
   String? _league;
   bool _todayOnly = false;
+  // YYZB is a broad sports schedule; many entries have no streamer room.
+  // Show actual listed football rooms by default, while retaining All football.
+  bool _streamsOnly = false;
 
   String get source => widget.source.toLowerCase();
   String get title => switch (source) {
@@ -108,6 +111,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   void initState() {
     super.initState();
     _todayOnly = source == 'yyzb';
+    _streamsOnly = source == 'yyzb';
     _feed = LiveFeedController(_loadMatches);
     unawaited(_feed.refresh());
     _sourceRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -138,6 +142,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       _searchController.clear();
       _league = null;
       _todayOnly = source == 'yyzb';
+      _streamsOnly = source == 'yyzb';
       unawaited(_feed.refresh());
     }
   }
@@ -341,6 +346,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     _searchController.clear();
     _league = null;
     _todayOnly = false;
+    _streamsOnly = false;
   });
 
   String _matchName(Map<String, dynamic> m) => m['kind'] == 'channel'
@@ -1109,8 +1115,16 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             );
           }
 
+          // The provider's match_all.json includes many score-only fixtures.
+          // Hide entries without an actual room number by default, without
+          // deleting them from the All football view or backend feed.
+          final availableMatches = source == 'yyzb' && _streamsOnly
+              ? allMatches
+                  .where((row) => sourceMatchAnchors(row, source).isNotEmpty)
+                  .toList()
+              : allMatches;
           final matches = filterSourceMatches(
-            allMatches,
+            availableMatches,
             todayOnly: _todayOnly,
             query: _query,
             league: _league,
@@ -1133,9 +1147,15 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                     controller: _searchController,
                     todayOnly: _todayOnly,
                     league: _league,
-                    leagues: sourceMatchLeagues(allMatches),
+                    leagues: sourceMatchLeagues(availableMatches),
                     visibleCount: matches.length,
-                     onRefresh: _refresh,
+                    showStreamRoomFilter: source == 'yyzb',
+                    streamsOnly: _streamsOnly,
+                    onStreamsOnlyChanged: (only) => setState(() {
+                      _streamsOnly = only;
+                      _league = null;
+                    }),
+                    onRefresh: _refresh,
                     onQueryChanged: (value) => setState(() => _query = value),
                     onTodayChanged: (value) =>
                         setState(() => _todayOnly = value),

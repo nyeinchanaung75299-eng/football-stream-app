@@ -173,6 +173,11 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('SC Paderborn 07'), findsOneWidget);
         expect(find.text('VfB Stuttgart'), findsOneWidget);
+        // A team without a stream room appears in All football, not the
+        // default watchable-room catalogue.
+        expect(find.text('未知球队'), findsNothing);
+        await tester.tap(find.byKey(const ValueKey('yyzb-all-football')));
+        await tester.pumpAndSettle();
         expect(find.text('未知球队'), findsOneWidget);
         expect(find.text('球队测试'), findsOneWidget);
         expect(find.text('帕德博恩'), findsNothing);
@@ -278,18 +283,26 @@ void main() {
           const MaterialApp(home: SourceBrowserPage(source: 'yyzb')),
         );
         await tester.pumpAndSettle();
-        expect(find.text('2 matches'), findsOneWidget);
+        expect(find.text('1 match'), findsOneWidget);
         expect(find.text('Arsenal'), findsOneWidget);
-        expect(find.text('Dortmund'), findsOneWidget);
+        expect(find.text('Dortmund'), findsNothing);
+        expect(find.text('NOT READY'), findsNothing);
+        expect(find.byKey(const ValueKey('yyzb-streams-only')), findsOneWidget);
         expect(find.text('Chelsea'), findsNothing);
-        expect(find.text('NOT READY'), findsOneWidget);
-        await tester.tap(find.text('NOT READY'));
+        // The full football catalogue is still accessible when requested.
+        await tester.tap(find.byKey(const ValueKey('yyzb-all-football')));
         await tester.pumpAndSettle();
+        expect(find.text('2 matches'), findsOneWidget);
+        expect(find.text('Dortmund'), findsOneWidget);
+        expect(find.text('NOT READY'), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('yyzb-streams-only')));
+        await tester.pumpAndSettle();
+        expect(find.text('1 match'), findsOneWidget);
         expect(requests.every((uri) => uri.path.endsWith('/matches')), isTrue);
 
         await tester.tap(find.text('All dates'));
         await tester.pumpAndSettle();
-        expect(find.text('3 matches'), findsOneWidget);
+        expect(find.text('2 matches'), findsOneWidget);
         await tester.enterText(
           find.byKey(const ValueKey('source-match-search')),
           'CHELSEA premier',
@@ -305,7 +318,7 @@ void main() {
         expect(find.text('Chelsea'), findsNothing);
         await tester.tap(find.byTooltip('Clear search'));
         await tester.pumpAndSettle();
-        expect(find.text('2 matches'), findsOneWidget);
+        expect(find.text('1 match'), findsOneWidget);
         await tester.pumpWidget(const SizedBox());
       },
       () => MockClient((request) async {

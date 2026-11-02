@@ -69,7 +69,7 @@ void main() {
     }
   });
 
-  test('real live fixtures sort before featured upcoming fixtures', () {
+  test('kickoff order wins over live and featured flags', () {
     final matches = <SourceMatch>[
       {'source_id': 'ordinary', 'match_time': '2026-10-10T10:00:00Z'},
       {
@@ -87,13 +87,25 @@ void main() {
           compareSourceMatches(a, b, isLive: (match) => match['live'] == true),
     );
     expect(matches.map((match) => match['source_id']), [
+      'ordinary',
       'live',
       'featured',
-      'ordinary',
     ]);
     expect({
       for (final match in matches) match['source_id']: match['match_time'],
     }, originalTimes);
+  });
+
+  test('00:30 is always before 02:30, even when 02:30 is featured', () {
+    final schedule = <SourceMatch>[
+      {'source_id':'0230-hot', 'hot':true, 'match_time':'2026-11-02T20:00:00Z'},
+      {'source_id':'0030', 'match_time':'2026-11-02T18:00:00Z'},
+      {'source_id':'0200', 'match_time':'2026-11-02T19:30:00Z'},
+      {'source_id':'0230-other', 'match_time':'2026-11-02T20:00:00Z'},
+    ];
+    schedule.sort((a,b) => compareSourceMatches(a,b,isLive:(_)=>false));
+    expect(schedule.map((x)=>x['source_id']),
+      ['0030','0200','0230-hot','0230-other']);
   });
 
   test('simultaneous kickoffs have stable ordering across feed refreshes', () {

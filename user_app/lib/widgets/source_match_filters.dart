@@ -8,6 +8,9 @@ class SourceMatchFilters extends StatelessWidget {
     required this.leagues,
     required this.league,
     required this.visibleCount,
+    this.showStreamRoomFilter = false,
+    this.streamsOnly = false,
+    this.onStreamsOnlyChanged,
     this.onRefresh,
     required this.onQueryChanged,
     required this.onTodayChanged,
@@ -19,6 +22,9 @@ class SourceMatchFilters extends StatelessWidget {
   final List<String> leagues;
   final String? league;
   final int visibleCount;
+  final bool showStreamRoomFilter;
+  final bool streamsOnly;
+  final ValueChanged<bool>? onStreamsOnlyChanged;
   final VoidCallback? onRefresh;
   final ValueChanged<String> onQueryChanged;
   final ValueChanged<bool> onTodayChanged;
@@ -135,6 +141,33 @@ class SourceMatchFilters extends StatelessWidget {
           )),
           const SizedBox(height: 4),
           _filterChoices(context),
+          if (showStreamRoomFilter)
+            Padding(
+              padding: const EdgeInsets.only(top: 5, bottom: 3),
+              child: Row(
+                children: [
+                  ChoiceChip(
+                    key: const ValueKey('yyzb-streams-only'),
+                    label: const Text('Streams only',
+                        style: TextStyle(fontSize: 12)),
+                    selected: streamsOnly,
+                    onSelected: (_) => onStreamsOnlyChanged?.call(true),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  const SizedBox(width: 7),
+                  ChoiceChip(
+                    key: const ValueKey('yyzb-all-football'),
+                    label: const Text('All football',
+                        style: TextStyle(fontSize: 12)),
+                    selected: !streamsOnly,
+                    onSelected: (_) => onStreamsOnlyChanged?.call(false),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ],
+              ),
+            ),
           Row(
             children: [
               Expanded(child: Text(

@@ -34,10 +34,8 @@ int compareSourceMatches(
   SourceMatch b, {
   required bool Function(SourceMatch) isLive,
 }) {
-  final aLive = isLive(a), bLive = isLive(b);
-  if (aLive != bLive) return aLive ? -1 : 1;
-  final aHot = a['hot'] == true, bHot = b['hot'] == true;
-  if (aHot != bHot) return aHot ? -1 : 1;
+  // Always use kickoff time first. Hot/live flags do not belong ahead of
+  // earlier matches; otherwise a 02:30 hot fixture jumps above 00:30 fixtures.
   final at = sourceMatchKickoff(a), bt = sourceMatchKickoff(b);
   if (at != null && bt != null) {
     final time = at.compareTo(bt);
@@ -47,6 +45,11 @@ int compareSourceMatches(
   } else if (bt != null) {
     return 1;
   }
+  // Only break a same-time tie with genuine live status and featured flags.
+  final aLive = isLive(a), bLive = isLive(b);
+  if (aLive != bLive) return aLive ? -1 : 1;
+  final aHot = a['hot'] == true, bHot = b['hot'] == true;
+  if (aHot != bHot) return aHot ? -1 : 1;
   // Stable tie-breaking keeps simultaneous kickoffs from moving on refresh.
   return (a['source_id'] ?? a['schedule_id'] ?? a['home_team'] ?? '')
       .toString()
@@ -58,6 +61,8 @@ int compareSourceMatches(
 List<SourceMatch> filterSourceMatches(
   List<SourceMatch> matches, {
   required bool todayOnly,
+  bool streamsOnly = false,
+  String source = 'yyzb',
   String query = '',
   String? league,
   DateTime? now,
@@ -70,6 +75,10 @@ List<SourceMatch> filterSourceMatches(
       .where((word) => word.isNotEmpty)
       .toList();
   return matches.where((match) {
+    // A provider's full score/schedule DB is not a watchable-room list. YYZB
+    // defaults to fixtures with actual listed rooms, but can show all football
+    // events through the explicit "All football" control.
+    if (streamsOnly && sourceMatchAnchors(match, source).isEmpty) return false;
     if (todayOnly) {
       final kickoff = sourceMatchKickoff(match)?.toLocal();
       if (kickoff == null ||
