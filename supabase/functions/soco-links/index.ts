@@ -3,6 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
 import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
+import { sourceLogo } from "../_shared/source_team_logos.mjs";
 import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
 
 const corsHeaders = {
@@ -196,8 +197,8 @@ async function jsonpMatches(args: {
         source_id: String(scheduleId ?? ""),
         schedule_id: scheduleId,
         ...sourceFootballNames(row, args.source === "yyzb"),
-        home_logo: row.hostIcon ?? row.homeIcon ?? row.home_logo ?? null,
-        away_logo: row.guestIcon ?? row.awayIcon ?? row.away_logo ?? null,
+        home_logo: sourceLogo(row, "home", args.source),
+        away_logo: sourceLogo(row, "away", args.source),
         match_time: normalizeMatchTime(
           row.matchTime ?? row.match_time ?? row.startTime ?? row.kickoff,
         ),

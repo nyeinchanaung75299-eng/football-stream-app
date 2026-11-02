@@ -3,6 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
 import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
+import { sourceLogo } from "../_shared/source_team_logos.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -480,99 +481,6 @@ function isFootballRow(row: any) {
   return !Number.isFinite(categoryId) &&
     (row?.hostName != null || row?.homeName != null) &&
     (row?.guestName != null || row?.awayName != null);
-}
-
-function sourceLogo(
-  row: any,
-  side: "home" | "away",
-  source: "soco" | "yyzb",
-) {
-  const home = side === "home";
-  const directCandidates = home
-    ? [
-        row?.hostLogo, row?.hostLogoUrl, row?.host_logo, row?.host_logo_url,
-        row?.hostIcon, row?.hostIconUrl, row?.hostPic, row?.hostImage,
-        row?.homeLogo, row?.homeLogoUrl, row?.home_logo, row?.home_logo_url,
-        row?.homeIcon, row?.homeIconUrl, row?.homePic, row?.homeImage,
-        row?.homeCrest, row?.homeCrestUrl, row?.homeTeamLogo, row?.home_team_logo,
-        row?.team1Logo, row?.team1_logo,
-      ]
-    : [
-        row?.guestLogo, row?.guestLogoUrl, row?.guest_logo, row?.guest_logo_url,
-        row?.guestIcon, row?.guestIconUrl, row?.guestPic, row?.guestImage,
-        row?.awayLogo, row?.awayLogoUrl, row?.away_logo, row?.away_logo_url,
-        row?.awayIcon, row?.awayIconUrl, row?.awayPic, row?.awayImage,
-        row?.awayCrest, row?.awayCrestUrl, row?.awayTeamLogo, row?.away_team_logo,
-        row?.team2Logo, row?.team2_logo,
-      ];
-
-  const nested = home
-    ? [
-        row?.host, row?.home, row?.homeTeam, row?.teams?.home, row?.team1,
-      ]
-    : [
-        row?.guest, row?.away, row?.awayTeam, row?.teams?.away, row?.team2,
-      ];
-
-  for (const value of directCandidates) {
-    const normalized = normalizeLogoUrl(value, source);
-    if (normalized) return normalized;
-  }
-
-  for (const obj of nested) {
-    if (!obj || typeof obj !== "object") continue;
-    for (const key of [
-      "logo", "logoUrl", "logo_url", "crest", "crestUrl", "crest_url",
-      "icon", "iconUrl", "icon_url", "image", "imageUrl", "image_url",
-      "avatar", "avatarUrl", "avatar_url", "pic", "photo",
-    ]) {
-      const normalized = normalizeLogoUrl(obj?.[key], source);
-      if (normalized) return normalized;
-    }
-  }
-
-  // Last-resort schema-tolerant scan. Some source revisions rename team
-  // image fields without notice, so accept side-specific image-ish keys.
-  const sideWords = home
-    ? ["home", "host", "team1", "team_1"]
-    : ["away", "guest", "team2", "team_2"];
-  const imageWords = ["logo", "crest", "icon", "image", "avatar", "pic", "photo"];
-
-  for (const [key, value] of Object.entries(row ?? {})) {
-    const lower = key.toLowerCase();
-    if (!sideWords.some((word) => lower.includes(word.toLowerCase()))) continue;
-    if (!imageWords.some((word) => lower.includes(word))) continue;
-    const normalized = normalizeLogoUrl(value, source);
-    if (normalized) return normalized;
-  }
-
-  return null;
-}
-
-function normalizeLogoUrl(value: unknown, source: "soco" | "yyzb") {
-  if (value == null) return null;
-  const raw = String(value).trim();
-  if (!raw || raw === "null" || raw === "undefined") return null;
-
-  if (raw.startsWith("//")) return "https:" + raw;
-
-  try {
-    const url = new URL(raw);
-    if (url.protocol === "http:" || url.protocol === "https:") {
-      return url.toString();
-    }
-  } catch (_) {}
-
-  if (raw.startsWith("/")) {
-    const base = source === "yyzb"
-      ? "https://json.ncctrials.com/"
-      : "https://json.vnres.co/";
-    try {
-      return new URL(raw, base).toString();
-    } catch (_) {}
-  }
-
-  return null;
 }
 
 function staleKickoff(value: unknown) {

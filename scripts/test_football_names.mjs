@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { test } from 'node:test';
 import { englishFootballName, firstFootballName, sourceFootballNames, englishSourceDisplayName, englishStreamerName } from '../supabase/functions/_shared/football_names.mjs';
+import { sourceLogo } from '../supabase/functions/_shared/source_team_logos.mjs';
+import { sourceMatchRows } from '../supabase/functions/_shared/source_match_rows.mjs';
 
 const originalDeno = globalThis.Deno;
 const adapters = [];
@@ -15,6 +17,7 @@ try {
       .replace('"../_shared/website_sources.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/website_sources.mjs', import.meta.url).href))
       .replace('"../_shared/football_names.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/football_names.mjs', import.meta.url).href))
       .replace('"../_shared/source_match_rows.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/source_match_rows.mjs', import.meta.url).href))
+      .replace('"../_shared/source_team_logos.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/source_team_logos.mjs', import.meta.url).href))
       .replace('"../_shared/stream_probe.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/stream_probe.mjs', import.meta.url).href));
     source += name === 'football-fixtures'
       ? '\nexport { loadSourceFallbackFixtures, sourceFixtureId };'
@@ -364,3 +367,55 @@ test('fallback deduplication retains original identities and distinguishes mixed
     assert.equal(new Set(result.fixtures.map(row => row.fixture_id)).size, 2);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test('YYZB names and team-logo variants are preserved from provider fields', () => {
+  const row = {
+    scheduleId: 'fixture-1',
+    homeTeam: {name_en: 'Chelsea', logo:'/file/imgs/team/football/home.png'},
+    awayTeam: {name_en: 'Arsenal', logo:'file/imgs/team/football/away.png'},
+  };
+  const result = sourceFootballNames(row, true);
+  assert.equal(result.home_team,'Chelsea');
+  assert.equal(result.away_team,'Arsenal');
+  assert.equal(sourceLogo(row,'home','yyzb'),'https://sta.ncctrials.com/file/imgs/team/football/home.png');
+  assert.equal(sourceLogo(row,'away','yyzb'),'https://sta.ncctrials.com/file/imgs/team/football/away.png');
+  assert.equal(sourceLogo({hostIcon:'javascript:alert(1)'},'home','yyzb'),null);
+});
+
+test('YYZB duplicate featured rows retain missing badge and English name fields', () => {
+ const payload = {
+   normal:[{scheduleId:'abc',categoryId:1,homeName:'Chelsea',guestName:'Arsenal',anchors:[]}],
+   hot:[{scheduleId:'abc',categoryId:1,homeName:'Chelsea',guestName:'Arsenal',
+      hostNameEn:'Chelsea FC',hostIcon:'/file/imgs/team/football/a.png',
+      guestIcon:'/file/imgs/team/football/b.png',anchors:[]}],
+ };
+ const rows = sourceMatchRows(payload, () => true);
+ assert.equal(rows.length,1);
+ assert.equal(sourceFootballNames(rows[0],true).home_team,'Chelsea FC');
+ assert.equal(sourceLogo(rows[0],'home','yyzb'),'https://sta.ncctrials.com/file/imgs/team/football/a.png');
+});
+
+for (const adapter of adapters.filter(a => a.name !== 'football-fixtures')) {
+  test(adapter.name + ' preserves YYZB team names/logos in Admin and Viewer JSON',async () => {
+    const saved = globalThis.fetch;
+    const row = {
+      scheduleId: 441,categoryId:1,subCateName:'德甲',
+      homeTeam:{name_en:'Chelsea'},awayTeam:{name_en:'Arsenal'},
+      hostLogo:'/file/imgs/team/football/chelsea.png',
+      guestLogo:'/file/imgs/team/football/arsenal.png',
+      matchTime:'2030-10-10T14:00:00Z',
+    };
+    globalThis.fetch = async () => Response.json({data:[row]});
+    try {
+      for (const viewerPublic of adapter.name === 'soco-links' ? [false,true] : [false]) {
+        const payload = await (await adapter.jsonpMatches({source:'yyzb',url:'https://example.com/list',viewerPublic})).json();
+        const item = payload.matches[0];
+        assert.equal(item.home_team,'Chelsea');
+        assert.equal(item.away_team,'Arsenal');
+        assert.equal(item.home_logo,'https://sta.ncctrials.com/file/imgs/team/football/chelsea.png');
+        assert.equal(item.away_logo,'https://sta.ncctrials.com/file/imgs/team/football/arsenal.png');
+        assert.equal(item.source_id,'441');
+      }
+    } finally { globalThis.fetch=saved; }
+  });
+}
