@@ -21,16 +21,17 @@ responses from 1,129 calls; this branch does not claim to fix provider errors.
 ## Implemented
 
 1. **Home list:** speculative protected-line metadata lookups reduced from six
-   to two. They start after a short delay and do not launch while the player
-   is opening. A WATCH tap still performs the authoritative live lookup.
-2. **Backup requests:** slightly longer metadata source hedges (600 ms for
-   featured matches; 650 ms for source-browser authoritative requests).
-   Failover remains enabled; emergency mirror hedging retains 300 ms.
-3. **Short metadata cache:** eight-second process-local cache and in-flight
-   sharing by source for public source-match metadata only. A manual refresh
-   bypasses it. Do not use it for playback URLs, auth sessions, DRM keys or
-   stream selection. Server-side match/stream responses retain their original
-   freshness and no-store rules.
+   to two. A cancelable 900ms timer defers them until after first render,
+   cancels on page disposal/refresh and skips while the player is opening.
+   WATCH always performs the authoritative live lookup.
+2. **Backup requests:** retain the original 400ms featured-match and 300ms
+   source-browser hedges. Tests showed delaying them can change fallback
+   behavior under restricted networks, so duplicate-request reduction should
+   rely on the Worker’s existing in-flight coalescing instead.
+3. **Metadata freshness:** trial 8-second source cache was removed after
+   Flutter tests proved that it can incorrectly keep matches after a
+   successful empty update. Preserve the authoritative empty response and
+   existing public EPG cache; do not cache stream URLs, auth sessions or keys.
 4. **Web player:** initialize Shaka polyfills / capability checks only once,
    not on every line switch. Preserve all existing buffer, DRM and recovery
    settings. Record per-attempt engine/attach/manifest timings, plus actual
@@ -66,10 +67,11 @@ responses from 1,129 calls; this branch does not claim to fix provider errors.
    count and source quality are not worse than baseline.
 3. Manually edit/remove a published stream and ensure the Viewer never
    resurrects a removed link.
-4. Check source-browser hard refresh bypasses short cache.
+4. Verify a successful empty source response clears the previous match list
+   immediately (the abandoned short-cache experiment failed this test).
 5. Inspect `soco-links` 500s with provider traces separately. These are
    not removed by reducing frontend duplicate requests.
-6. If rollout slows blocked networks, revert the hedge delay changes first,
-   then prefetch-count change.
+6. If rollout slows blocked networks, revert the speculative prefetch
+   change first; all original source-hedge delays are preserved.
 
 **No performance gain is guaranteed until real-world comparative tests.**
