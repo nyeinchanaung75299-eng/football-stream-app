@@ -7,6 +7,8 @@ on:
       - "supabase/functions/football-score-sync/**"
       - "supabase/functions/soco-links/**"
       - "scripts/test_fawa_source.mjs"
+      - "scripts/diagnose_soco_feed.mjs"
+      - ".github/workflows/sync-public-feed.yml"
       - "scripts/test_soco_match_catalog.mjs"
       - "supabase/functions/_shared/source_match_rows.mjs"
       - "supabase/functions/source-match-list/index.ts"
@@ -33,6 +35,9 @@ jobs:
           python3 scripts/generate_embedded_player.py --check
           node scripts/test_web_player.mjs
           node --test scripts/test_fawa_source.mjs
+
+      - name: Compare Soco upstream and API fixture counts (nonblocking diagnostic)
+        run: node scripts/diagnose_soco_feed.mjs
           node --test scripts/test_soco_match_catalog.mjs
 
       - name: Set up Flutter
