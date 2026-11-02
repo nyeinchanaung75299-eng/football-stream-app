@@ -59,12 +59,44 @@ export function sourceMatchRows(payload, acceptRow) {
       );
       if (!existing.matchTime && row.matchTime) existing.matchTime = row.matchTime;
       if (!existing.match_time && row.match_time) existing.match_time = row.match_time;
+      // YYZB featured and ordinary lists may contain the same match ID
+      // with different completeness: one has room data, the other team names
+      // and logos. Preserve non-empty identity metadata from both records.
+      for (const key of teamMetadataFields) {
+        const value = existing[key];
+        const replacement = row[key];
+        const missing = value == null ||
+          (typeof value === "string" && !value.trim()) ||
+          (typeof value === "object" && !Array.isArray(value) &&
+           Object.keys(value).length === 0);
+        if (missing && replacement != null &&
+            (typeof replacement !== "string" || replacement.trim())) {
+          existing[key] = replacement;
+        }
+      }
     } else {
       matches.set(id, { ...row });
     }
   }
   return [...matches.values()];
 }
+
+// Only presentation metadata is filled in here: never overwrite stable
+// schedule IDs, stream room IDs, signed playback URLs or match status.
+const teamMetadataFields = [
+  "hostName", "guestName", "homeName", "awayName", "hostNameEn",
+  "guestNameEn", "homeNameEn", "awayNameEn", "hostTeamName",
+  "guestTeamName", "hostTeamNameEn", "guestTeamNameEn",
+  "homeTeamName", "awayTeamName", "homeTeamNameEn", "awayTeamNameEn",
+  "home_team", "away_team", "homeTeam", "awayTeam", "hostTeam",
+  "guestTeam", "host", "guest", "home", "away", "teams",
+  "team1Name", "team2Name", "team1", "team2",
+  "hostIcon", "guestIcon", "hostLogo", "guestLogo", "hostPic",
+  "guestPic", "homeIcon", "awayIcon", "homeLogo", "awayLogo",
+  "homeTeamLogo", "awayTeamLogo", "team1Logo", "team2Logo",
+  "subCateName", "subCateNameEn", "leagueName", "leagueNameEn",
+  "competitionName", "competitionNameEn", "categoryName",
+];
 
 function roomIdentity(room) {
   if (!room || typeof room !== "object") return "";
