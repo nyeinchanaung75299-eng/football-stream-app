@@ -299,7 +299,7 @@ class NativePlayerActivity : Activity() {
         }
 
         val back = overlayButton("←").apply {
-            textSize = 28f
+            textSize = 22f
             contentDescription = "Back"
             setOnClickListener {
                 emitPlaybackEvent("playback closed")
@@ -315,20 +315,20 @@ class NativePlayerActivity : Activity() {
         val titleText = TextView(this).apply {
             text = safeTitle
             setTextColor(Color.WHITE)
-            textSize = 15f
-            setSingleLine(true)
+            textSize = 12f
+            maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), 0, dp(8), 0)
             contentDescription = "Match: $safeTitle"
         }
 
-        serverButton = overlayButton("Lines").apply {
-            textSize = 13f
-            maxWidth = dp(150)
+        serverButton = overlayButton("≡").apply {
+            textSize = 19f
+            maxWidth = dp(38)
             setSingleLine(true)
             ellipsize = TextUtils.TruncateAt.END
-            setPadding(dp(10), 0, dp(10), 0)
+            setPadding(dp(4), 0, dp(4), 0)
             contentDescription = "Show all lines"
             setOnClickListener { showServerMenu() }
         }
@@ -356,7 +356,7 @@ class NativePlayerActivity : Activity() {
             }
         }
         if (visibleServerIndices().size == 1) serverButton.visibility = View.GONE
-        topBar.addView(back, LinearLayout.LayoutParams(dp(48), dp(42)))
+        topBar.addView(back, LinearLayout.LayoutParams(dp(40), dp(42)))
         topBar.addView(
             titleText,
             LinearLayout.LayoutParams(0, dp(42), 1f)
@@ -376,7 +376,7 @@ class NativePlayerActivity : Activity() {
             )
         )
 
-        topBar.addView(rotateButton, LinearLayout.LayoutParams(dp(48), dp(42)))
+        topBar.addView(rotateButton, LinearLayout.LayoutParams(dp(40), dp(42)))
 
         root.addView(
             topBar,
@@ -867,7 +867,8 @@ class NativePlayerActivity : Activity() {
             Regex("(?i)\\b(?:referer|origin|authorization|token|key|kid)\\s*[:=]")
                 .containsMatchIn(raw) ||
             Regex("(?i)\\b[0-9a-f]{24,}\\b").containsMatchIn(raw)
-        return if (raw.isEmpty() || unsafe) "Line ${index + 1}" else raw
+        return if (raw.isEmpty() || unsafe) "Line ${index + 1}"
+            else raw.replaceFirst(Regex("""(?i)^\s*([^·•|]+?)\s*[·•|]\s*\1(?=\s*[·•|]|$)"""), "$1").trim()
     }
 
     private fun renderServerRail() {
@@ -890,13 +891,13 @@ class NativePlayerActivity : Activity() {
                         else -> Color.WHITE
                     }
                 )
-                textSize = 13f
+                textSize = 11f
                 gravity = Gravity.CENTER
                 setSingleLine(true)
                 ellipsize = TextUtils.TruncateAt.END
-                maxWidth = dp(210)
-                minWidth = dp(84)
-                setPadding(dp(14), 0, dp(14), 0)
+                maxWidth = dp(165)
+                minWidth = dp(70)
+                setPadding(dp(10), 0, dp(10), 0)
                 isSelected = selected
                 contentDescription = if (selected) {
                     "${serverLabel(i)}, selected line"

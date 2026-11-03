@@ -659,9 +659,6 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final source = widget.sources.isEmpty
-        ? const <String, dynamic>{}
-        : widget.sources[_selectedIndex];
     final visibleLines = visiblePlaybackIndices(widget.sources);
 
     return Scaffold(
@@ -672,29 +669,16 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
         foregroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         titleSpacing: 0,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            if (!_portraitChannel || visibleLines.length > 1)
-              Text(
-                _lineLabel(source, _selectedIndex) +
-                    ' • ' +
-                    _sourceType(source).toUpperCase(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white60, fontSize: 10.5),
-              ),
-          ],
+        title: Text(
+          widget.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            height: 1.2,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         actions: [
           if (_portraitChannel)
@@ -716,13 +700,10 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
               },
             ),
           if (visibleLines.length > 1)
-            TextButton.icon(
+            IconButton(
+              tooltip: 'Choose line',
               onPressed: _pickLine,
-              icon: const Icon(Icons.dns_rounded, size: 18),
-              label: Text(
-                '${visibleLines.length} Lines',
-              ),
-              style: TextButton.styleFrom(foregroundColor: colors.primary),
+              icon: Icon(Icons.dns_rounded, size: 18, color: colors.primary),
             ),
           const SizedBox(width: 4),
         ],
