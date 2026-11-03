@@ -33,14 +33,7 @@ int compareSourceMatches(
   SourceMatch a,
   SourceMatch b, {
   required bool Function(SourceMatch) isLive,
-  bool majorCompetitionFirst = false,
 }) {
-  if (majorCompetitionFirst) {
-    final competition = _majorCompetitionRank(a).compareTo(
-      _majorCompetitionRank(b),
-    );
-    if (competition != 0) return competition;
-  }
   // Always use kickoff time first. Hot/live flags do not belong ahead of
   // earlier matches; otherwise a 02:30 hot fixture jumps above 00:30 fixtures.
   final at = sourceMatchKickoff(a), bt = sourceMatchKickoff(b);
@@ -63,24 +56,6 @@ int compareSourceMatches(
       .compareTo(
         (b['source_id'] ?? b['schedule_id'] ?? b['home_team'] ?? '').toString(),
       );
-}
-
-int _majorCompetitionRank(SourceMatch match) {
-  final league = (match['league'] ?? '').toString().toLowerCase();
-  if (RegExp(r'champions league|uefa champions|欧冠|歐冠').hasMatch(league)) {
-    return 0;
-  }
-  if (RegExp(r'europa league|uefa europa|欧罗巴|歐羅巴|欧联|歐聯')
-      .hasMatch(league)) {
-    return 1;
-  }
-  if (RegExp(r'conference league|欧协联|歐協聯').hasMatch(league)) return 2;
-  if (RegExp(
-    r'premier league|english premier|bundesliga|la liga|serie a|ligue 1|英超|德甲|西甲|意甲|法甲',
-  ).hasMatch(league)) {
-    return 3;
-  }
-  return 4;
 }
 
 List<SourceMatch> filterSourceMatches(
