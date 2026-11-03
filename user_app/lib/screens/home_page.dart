@@ -82,8 +82,9 @@ class _HomePageState extends State<HomePage> {
   List<String> get _publicApiBases {
     final bases = publicApiBases(
       primary: _publicApiBase,
-      // Public API routing is independent of which Supabase Auth relay won.
-      preferVercel: false,
+      // Vercel is reachable without VPN on the tested operator. Cloudflare
+      // remains in the route list for automatic fallback/VPN use.
+      preferVercel: true,
     );
     return bases;
   }
