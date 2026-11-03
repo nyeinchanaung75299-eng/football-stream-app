@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="my">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>NCA Operator Check · GitHub</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#07130e;color:#e6f3e9;font:16px/1.5 system-ui,sans-serif}
+    main{max-width:680px;margin:auto;padding:18px}h1{font-size:23px;margin-bottom:8px}p{color:#b9cbbb}
+    button{border:0;border-radius:10px;padding:12px 16px;background:#a3d8ac;color:#12321b;font:inherit;font-weight:700;margin:0 6px 8px 0}
+    button:disabled{opacity:.5}.row{border:1px solid #455548;border-radius:12px;padding:12px;margin:10px 0;background:#15231a}
+    .title{font-weight:700}.url,.detail{font-size:13px;color:#c1d0c4;overflow-wrap:anywhere}.ok{border-color:#60c587}.warn{border-color:#d6b56d}.bad{border-color:#d87e7e}
+    pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.4 monospace;background:#14221a;padding:12px;border-radius:8px}
+  </style>
+</head>
+<body><main>
+  <h1>NCA Operator HTTP Check · GitHub</h1>
+  <p>VPN ပိတ်ပြီး ဒီစာမျက်နှာကို ဖွင့်ပါ။ ဒီ GitHub copy က သင့်ဖုန်းနှင့် Operator ကနေ target တစ်ခုချင်းကို တိုက်ရိုက်စစ်ပါတယ်။</p>
+  <button id="run">ပြန်စစ်မယ်</button><button id="full">Flutter ဖိုင်အပြည့် စစ်မယ်</button><button id="copy" disabled>ရလဒ် Copy</button>
+  <p id="state" role="status" aria-live="polite">စစ်နေပါတယ်…</p>
+  <div id="rows"></div><pre id="report" hidden></pre>
+  <p>“ရောက်နိုင်၊ HTTP code ဖတ်မရ” ဆိုတာ host ကိုရောက်ပေမဲ့ CORS ကြောင့် code ကို browser က ဖတ်မရတာပါ။</p>
+</main><script>
+(()=>{
+  const targets=[
+    {id:'github_web',name:'GitHub Pages · Football Web',url:'https://nyeinchanaung75299-eng.github.io/football-stream-app/'},
+    {id:'github_flutter',name:'GitHub Pages · Flutter app file',url:'https://nyeinchanaung75299-eng.github.io/football-stream-app/main.dart.js'},
+    {id:'cloudflare_web',name:'Cloudflare mirror · Football Web',url:'https://nca.nyeinchanaung.us.ci/'},
+    {id:'cloudflare_api',name:'Cloudflare · Football API',url:'https://football-api.nyeinchanaung.us.ci/health'},
+    {id:'vercel_backup',name:'Vercel · Network backup',url:'https://nca-network-backup-test.vercel.app/health'},
+    {id:'vercel_checker',name:'Vercel · Original checker',url:'https://operator-http-check.vercel.app/'}
+  ];
+  const rows=document.getElementById('rows'),state=document.getElementById('state'),report=document.getElementById('report');
+  const run=document.getElementById('run'),full=document.getElementById('full'),copy=document.getElementById('copy');let last='';
+  async function timedFetch(url,mode='cors',limit=10000){
+    const controller=new AbortController(),started=performance.now(),timer=setTimeout(()=>controller.abort(),limit);let reader;
+    try{
+      const response=await fetch(url+(url.includes('?')?'&':'?')+'_nca_check='+Date.now(),{cache:'no-store',credentials:'omit',mode,signal:controller.signal});
+      reader=response.body?.getReader();await reader?.read();
+      return {reachable:true,http:response.type==='opaque'?null:response.status,ms:Math.round(performance.now()-started),mode};
+    }catch(error){return {reachable:false,error:error.name==='AbortError'?`Timeout (${limit/1000}s)`:'Network / DNS / CORS',ms:Math.round(performance.now()-started),mode};}
+    finally{clearTimeout(timer);try{await reader?.cancel();}catch(_){}controller.abort();}
+  }
+  async function phone(url){
+    const cors=await timedFetch(url);
+    if(cors.reachable)return cors;
+    const opaque=await timedFetch(url,'no-cors');
+    return opaque.reachable?{...opaque,error:'Reachable; HTTP code hidden by CORS'}:cors;
+  }
+  function label(r){if(r.http!==null&&r.http!==undefined)return `HTTP ${r.http} • ${r.ms} ms`;if(r.reachable)return `ရောက်နိုင်၊ HTTP code ဖတ်မရ • ${r.ms} ms`;return `${r.error} • ${r.ms} ms`;}
+  async function check(target){
+    const row=document.createElement('section');row.className='row';
+    const title=document.createElement('div');title.className='title';title.textContent=target.name;
+    const url=document.createElement('div');url.className='url';url.textContent=target.url;
+    const detail=document.createElement('div');detail.className='detail';detail.textContent='စစ်နေပါတယ်…';row.append(title,url,detail);rows.append(row);
+    const result=await phone(target.url);detail.textContent='ဖုန်း: '+label(result);
+    row.classList.add(result.http>=200&&result.http<400?'ok':result.reachable?'warn':'bad');return {id:target.id,name:target.name,url:target.url,phone:result};
+  }
+  async function start(){
+    run.disabled=true;copy.disabled=true;rows.replaceChildren();report.hidden=true;state.textContent='စစ်နေပါတယ်…';
+    const results=await Promise.all(targets.map(check));last=JSON.stringify({time:new Date().toISOString(),checker_origin:location.origin,hosting:'github-pages',results},null,2);
+    report.textContent=last;report.hidden=false;state.textContent='စစ်ပြီးပါပြီ။ Copy လုပ်ပြီး ရလဒ်ပို့ပါ။';run.disabled=false;copy.disabled=false;
+  }
+  run.addEventListener('click',start);
+  full.addEventListener('click',async()=>{
+    full.disabled=true;state.textContent='Flutter main.dart.js ကို အပြည့်ဆွဲနေပါတယ်…';
+    const target=targets.find(x=>x.id==='github_flutter'),controller=new AbortController(),started=performance.now(),timer=setTimeout(()=>controller.abort(),30000);let reader,bytes=0,result;
+    try{const response=await fetch(target.url+'?_nca_full='+Date.now(),{cache:'no-store',credentials:'omit',signal:controller.signal});reader=response.body?.getReader();for(;;){const part=await reader.read();if(part.done)break;bytes+=part.value.byteLength;}result={http:response.status,bytes,ms:Math.round(performance.now()-started)};state.textContent=`Flutter ဖိုင်အပြည့်: HTTP ${result.http} • ${bytes} bytes • ${result.ms} ms`;}
+    catch(error){result={error:error.name==='AbortError'?'Timeout (30s)':'Network / DNS / CORS',bytes,ms:Math.round(performance.now()-started)};state.textContent=`Flutter ဖိုင်အပြည့်: ${result.error} • ${bytes} bytes • ${result.ms} ms`;}
+    finally{clearTimeout(timer);try{await reader?.cancel();}catch(_){}controller.abort();full.disabled=false;}
+    try{const data=JSON.parse(last);data.full_flutter_download=result;last=JSON.stringify(data,null,2);report.textContent=last;}catch(_){}
+  });
+  copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(last);state.textContent='Copy လုပ်ပြီးပါပြီ';}catch(_){const s=getSelection(),r=document.createRange();r.selectNodeContents(report);s.removeAllRanges();s.addRange(r);state.textContent='ရလဒ်ကို ရွေးထားပါတယ်။ Copy လုပ်ပါ';}});
+  start();
+})();
+</script></body></html>
