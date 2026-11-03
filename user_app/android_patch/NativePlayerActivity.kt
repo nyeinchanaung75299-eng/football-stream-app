@@ -130,6 +130,7 @@ class NativePlayerActivity : Activity() {
     private lateinit var serverRailScroll: HorizontalScrollView
     private lateinit var statusText: TextView
     private lateinit var displayModeButton: TextView
+    private var displayMode = 0
 
     private var sources = JSONArray()
     private var selectedServerIndex = 0
@@ -269,9 +270,9 @@ class NativePlayerActivity : Activity() {
 
         playerView = PlayerView(this).apply {
             setBackgroundColor(Color.BLACK)
-            // Preserve the original aspect ratio by default. The display-mode
-            // control also offers edge-to-edge ZOOM and stretched FILL.
-            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            // Start in NCA's fixed 18.5:9 viewport. The display-mode control
+            // also offers source FIT, stretched FULL, and cropped ZOOM.
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             useController = true
             // Keep the video clean. Controls appear only after the user taps.
             controllerAutoShow = false
@@ -284,6 +285,9 @@ class NativePlayerActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
         )
+        root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (displayMode == 0) applyDisplayMode()
+        }
 
         val topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -336,8 +340,8 @@ class NativePlayerActivity : Activity() {
             setOnClickListener { showQualityMenu() }
         }
 
-        displayModeButton = overlayButton("Fit").apply {
-            contentDescription = "Original aspect ratio; tap to zoom full screen"
+        displayModeButton = overlayButton("18.5:9").apply {
+            contentDescription = "18.5 by 9 viewport; tap for Fit"
             textSize = 13f
             setPadding(dp(10), 0, dp(10), 0)
             setOnClickListener { toggleDisplayMode() }
@@ -974,25 +978,50 @@ class NativePlayerActivity : Activity() {
 
     private fun toggleDisplayMode() {
         if (!::playerView.isInitialized || !::displayModeButton.isInitialized) return
+        displayMode = (displayMode + 1) % 4
+        applyDisplayMode()
+    }
 
-        // FIT -> ZOOM -> FILL -> FIT
-        // ZOOM fills the screen without stretching, cropping edges if required.
-        // FILL stretches to all screen bounds without cropping.
-        when (playerView.resizeMode) {
-            AspectRatioFrameLayout.RESIZE_MODE_FIT -> {
-                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                displayModeButton.text = "Zoom"
-                displayModeButton.contentDescription = "Zoomed video; tap for stretched fill"
+    private fun applyDisplayMode() {
+        if (!::playerView.isInitialized) return
+        val parent = playerView.parent as? View ?: return
+        val layout = (playerView.layoutParams as? FrameLayout.LayoutParams)
+            ?: FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+
+        if (displayMode == 0 && parent.width > 0 && parent.height > 0) {
+            val viewportRatio = 18.5f / 9f
+            val viewportWidth = minOf(parent.width, (parent.height * viewportRatio).toInt())
+            layout.width = viewportWidth
+            layout.height = (viewportWidth / viewportRatio).toInt()
+            layout.gravity = Gravity.CENTER
+            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        } else {
+            layout.width = ViewGroup.LayoutParams.MATCH_PARENT
+            layout.height = ViewGroup.LayoutParams.MATCH_PARENT
+            layout.gravity = Gravity.CENTER
+            playerView.resizeMode = when (displayMode) {
+                1 -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             }
-            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> {
-                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
-                displayModeButton.text = "Fill"
-                displayModeButton.contentDescription = "Stretched video; tap for original aspect ratio"
+        }
+        playerView.layoutParams = layout
+
+        if (::displayModeButton.isInitialized) {
+            displayModeButton.text = when (displayMode) {
+                0 -> "18.5:9"
+                1 -> "Fit"
+                2 -> "Full"
+                else -> "Zoom"
             }
-            else -> {
-                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                displayModeButton.text = "Fit"
-                displayModeButton.contentDescription = "Original aspect ratio; tap to zoom full screen"
+            displayModeButton.contentDescription = when (displayMode) {
+                0 -> "18.5 by 9 viewport; tap for Fit"
+                1 -> "Original aspect ratio; tap for Full"
+                2 -> "Stretched full screen; tap for Zoom"
+                else -> "Cropped zoom; tap for 18.5 by 9"
             }
         }
     }
