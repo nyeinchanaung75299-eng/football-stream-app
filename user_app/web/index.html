@@ -495,7 +495,7 @@
         return;
       }
       // Source aspect ratio is preserved in Fit; the portrait VIDEO BOX is
-      // sized by CSS, not by a fixed 18.5:9 crop.
+      // sized by CSS, never by a wide cropped aspect-ratio preset.
       videoFrame.style.width='100%';
       videoFrame.style.height='100%';
     }
@@ -1164,7 +1164,7 @@
       currentTracks.forEach(track=>{
         const h=track.height||0, bw=track.bandwidth||0;
         if(h>0){
-          const key=String(h), old=unique.get(key);
+          const key=String(track.width||0)+'x'+h+'@'+bw, old=unique.get(key);
           if(!old||bw>(old.bandwidth||0)) unique.set(key,track);
         }
       });
