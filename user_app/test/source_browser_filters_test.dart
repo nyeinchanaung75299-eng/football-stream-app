@@ -173,15 +173,12 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('SC Paderborn 07'), findsOneWidget);
         expect(find.text('VfB Stuttgart'), findsOneWidget);
-        // A team without a stream room appears in All football, not the
-        // default watchable-room catalogue.
+        // A team without a stream room never appears in the watchable-room
+        // catalogue.
         expect(find.text('未知球队'), findsNothing);
-        await tester.tap(find.byKey(const ValueKey('yyzb-all-football')));
-        await tester.pumpAndSettle();
-        expect(find.text('未知球队'), findsOneWidget);
-        expect(find.text('球队测试'), findsOneWidget);
+        expect(find.text('球队测试'), findsNothing);
         expect(find.text('帕德博恩'), findsNothing);
-        expect(find.text('未知联赛'), findsOneWidget);
+        expect(find.text('未知联赛'), findsNothing);
         expect(tester.takeException(), isNull);
         await tester.enterText(
           find.byKey(const ValueKey('source-match-search')),
