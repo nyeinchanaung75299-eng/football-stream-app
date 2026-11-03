@@ -440,7 +440,7 @@ jobs:
       # must never publish to the in-app updater. Only main + explicit opt-in
       # + successful stable signing may replace the public release manifest.
       - name: Publish in-app updater release
-        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true && env.NCA_SIGNING_READY == 'true' }}
+        if: ${{ env.NCA_SIGNING_READY == 'true' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-update]'))) }}
         run: |
           set -e
           git config user.name "github-actions[bot]"
