@@ -254,7 +254,7 @@ class NativePlayerActivity : Activity() {
         val portraitStart = sources.optJSONObject(selectedServerIndex)?.optBoolean("portraitStart", false) == true
         // Start with the compact top-aligned portrait player; Rotate enters
         // full landscape playback. Preserve a manual turn across recreation.
-        requestedOrientation = if (intent.getBooleanExtra("nca_landscape", false) && !portraitStart)
+        requestedOrientation = if (intent.getBooleanExtra("nca_landscape", false))
             ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         // Put a content view on screen first. Some Android 12 / OEM builds can
@@ -940,7 +940,7 @@ class NativePlayerActivity : Activity() {
     }
 
     private fun rebuildQualityOptions(tracks: Tracks) {
-        val best = linkedMapOf<Int, QualityOption>()
+        val best = linkedMapOf<String, QualityOption>()
         for (group in tracks.groups) {
             if (group.type != C.TRACK_TYPE_VIDEO) continue
             for (trackIndex in 0 until group.length) {
@@ -949,12 +949,17 @@ class NativePlayerActivity : Activity() {
                 val height = format.height
                 if (height <= 0) continue
                 val bitrate = format.bitrate
-                val option = QualityOption("${height}p", group, trackIndex, height, bitrate)
-                val old = best[height]
-                if (old == null || bitrate > old.bitrate) best[height] = option
+                val width = format.width.coerceAtLeast(0)
+                val label = if (bitrate > 0)
+                    "${width} × ${height} • ${String.format(Locale.US, "%.2f", bitrate / 1000000.0)} Mbps"
+                    else "${height}p"
+                val option = QualityOption(label, group, trackIndex, height, bitrate)
+                best["${width}x${height}@${bitrate}"] = option
             }
         }
-        qualityOptions = best.values.sortedByDescending { it.height }.toMutableList()
+        qualityOptions = best.values.sortedWith(
+            compareByDescending<QualityOption> { it.height }.thenByDescending { it.bitrate }
+        ).toMutableList()
         runOnUiThread {
             qualityButton.text = forcedQualityLabel ?: "Auto"
             qualityButton.visibility = View.VISIBLE
