@@ -143,16 +143,16 @@ jobs:
           # Signing may not be configured yet. Publish a release only when both
           # files exist, rather than leaving empty files from failed redirects.
           if git cat-file -e origin/feed:public/releases/latest.json 2>/dev/null && \
-             git cat-file -e origin/feed:public/releases/NCA-latest.apk 2>/dev/null; then
+             git cat-file -e origin/feed:public/releases/NCA-arm64-v8a-latest.apk 2>/dev/null; then
             mkdir -p build/web/releases
             git show origin/feed:public/releases/latest.json > build/web/releases/latest.json
-            git show origin/feed:public/releases/NCA-latest.apk > build/web/releases/NCA-latest.apk
+            git show origin/feed:public/releases/NCA-arm64-v8a-latest.apk > build/web/releases/NCA-arm64-v8a-latest.apk
             python3 - <<'PY'
           import hashlib, json
           from pathlib import Path
           release = Path('build/web/releases')
           manifest = json.loads((release / 'latest.json').read_text(encoding='utf-8'))
-          apk = (release / 'NCA-latest.apk').read_bytes()
+          apk = (release / 'NCA-arm64-v8a-latest.apk').read_bytes()
           if not apk or len(apk) != manifest['size_bytes']:
               raise SystemExit('Release APK size does not match the updater manifest.')
           if hashlib.sha256(apk).hexdigest() != manifest['sha256']:
