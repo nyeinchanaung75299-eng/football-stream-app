@@ -1,7 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:football_viewer/playback_routes.dart';
+import 'package:football_viewer/widgets/player_server_rail.dart';
 
 void main() {
+  test('line chip drops duplicate provider name without losing the original line', () {
+    expect(playerServerLabel({'label': 'ColaTV · ColaTV · Main'}, 0), 'ColaTV · Main');
+    expect(playerServerLabel({'label': 'ColaTV · Line 2'}, 1), 'ColaTV · Line 2');
+    expect(playerServerLabel({'label': 'https://example.com/private'}, 2), 'Line 3');
+  });
+
+
   test('places the VPN-free relay immediately after a protected direct URL', () {
     final result = addVpnFreePlaybackFallbacks([
       {
