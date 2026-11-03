@@ -338,14 +338,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return false;
   }
 
-  void _sortRows(List<Map<String, dynamic>> rows) => rows.sort(
-    (a, b) => compareSourceMatches(
-      a,
-      b,
-      isLive: _live,
-      majorCompetitionFirst: source == 'yyzb',
-    ),
-  );
+  void _sortRows(List<Map<String, dynamic>> rows) =>
+      rows.sort((a, b) => compareSourceMatches(a, b, isLive: _live));
 
   void _clearFilters() => setState(() {
     _query = '';
