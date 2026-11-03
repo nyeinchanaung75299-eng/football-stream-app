@@ -13,7 +13,7 @@ void rememberVerifiedPublicApiBase(String base) {
   }
 }
 
-List<String> _knownPublicApiBases({String? primary, bool preferVercel = false}) {
+List<String> _knownPublicApiBases({String? primary, bool preferVercel = true}) {
   final first = (primary ?? 'https://football-api.nyeinchanaung.us.ci')
       .trim()
       .replaceAll(RegExp(r'/+$'), '');
@@ -27,7 +27,7 @@ List<String> _knownPublicApiBases({String? primary, bool preferVercel = false}) 
 
 /// Prefer the last verified public metadata route for five minutes. Keep
 /// fallback hosts; never accept an arbitrary or upstream-returned URL.
-List<String> publicApiBases({String? primary, bool preferVercel = false}) {
+List<String> publicApiBases({String? primary, bool preferVercel = true}) {
   final known = _knownPublicApiBases(
       primary: primary, preferVercel: preferVercel);
   final last = _lastVerifiedPublicBase;
