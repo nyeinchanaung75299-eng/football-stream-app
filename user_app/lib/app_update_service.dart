@@ -16,14 +16,14 @@ String vpnFreeUpdateUrl(String value) {
   final trimmed = value.trim();
   final uri = Uri.tryParse(trimmed);
   if (uri == null ||
-      uri.host != 'nyeinchanaung75299-eng.github.io' ||
-      !uri.path.startsWith('/football-stream-app/')) {
+      uri.host != Uri.parse(_vpnFreeViewerOrigin).host ||
+      !uri.path.startsWith('/football-stream-app/releases/')) {
     return trimmed;
   }
   return uri
       .replace(
         scheme: 'https',
-        host: Uri.parse(_vpnFreeViewerOrigin).host,
+        host: 'nyeinchanaung75299-eng.github.io',
         port: null,
       )
       .toString();
@@ -36,12 +36,12 @@ class AppUpdateService {
   static bool _downloading = false;
 
   static const _manifestUrls = <String>[
-    '$_vpnFreeViewerOrigin/football-stream-app/releases/latest.json',
     'https://nyeinchanaung75299-eng.github.io/'
         'football-stream-app/releases/latest.json',
     'https://raw.githubusercontent.com/'
         'nyeinchanaung75299-eng/football-stream-app/'
         'feed/public/releases/latest.json',
+    '$_vpnFreeViewerOrigin/football-stream-app/releases/latest.json',
   ];
 
   static Future<String> versionSummary() async {
