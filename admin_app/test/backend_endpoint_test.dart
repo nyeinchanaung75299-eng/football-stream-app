@@ -7,10 +7,10 @@ import 'package:football_admin/backend_endpoint.dart';
 import 'package:football_admin/network_endpoints.dart';
 
 void main() {
-  test('Cloudflare first for public data, Vercel retained as fallback', () {
+  test('Vercel first for public data, Cloudflare retained as fallback', () {
     final bases = publicApiBases(primary: 'https://football-api.example/');
-    expect(bases.first, 'https://football-api.example');
-    expect(bases[1], vercelBackupBase);
+    expect(bases.first, vercelBackupBase);
+    expect(bases[1], 'https://football-api.example');
     expect(bases.toSet().length, bases.length);
   });
 
