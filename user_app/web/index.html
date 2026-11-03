@@ -29,7 +29,9 @@
     #football-player-video-wrap{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#000}
     #football-player-video-frame{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
     #football-player-video{width:100%;height:100%;object-fit:cover;background:#000;transform-origin:center center}
-    #football-player-video.fill{object-fit:contain}
+    #football-player-video.mode-fit{object-fit:contain}
+    #football-player-video.mode-full{object-fit:fill}
+    #football-player-video.mode-zoom{object-fit:cover}
     #football-player-ios-fullscreen{display:none}
     #football-player-line-rail{position:absolute;left:0;right:0;bottom:0;z-index:4;min-height:54px;box-sizing:border-box;padding:7px 10px calc(7px + env(safe-area-inset-bottom));border-top:1px solid rgba(255,255,255,.12);background:#080b0a;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;transition:opacity .18s ease,transform .18s ease}
     #football-player-line-rail.hidden{display:none}
@@ -152,7 +154,7 @@
       display:block!important;min-width:0;flex:1 1 auto;
       font-size:12px;font-weight:750
     }
-    /* Browser player fills a 2:1 (18:9) viewport without stretching; Fit shows the whole source. */
+    /* Browser player starts in a fixed 18.5:9 viewport. */
     #football-player-video{object-fit:cover}
     #football-player-overlay.ios-native-mode #football-player-video{object-fit:contain}
     #football-player-video-wrap{background:#000}
@@ -202,7 +204,7 @@
       <div id="football-player-title">Football Live</div>
       <button id="football-player-server" class="football-control" type="button" aria-label="Choose line">Line</button>
       <button id="football-player-quality" class="football-control" type="button" aria-label="Choose quality">Auto</button>
-      <button id="football-player-fit" class="football-control" type="button">Fit</button>
+      <button id="football-player-fit" class="football-control" type="button">18.5:9</button>
       <button id="football-player-rotate" class="football-control" type="button" aria-label="Rotate video">↻ Rotate</button>
       <button id="football-player-fullscreen" class="football-control" type="button">Fullscreen</button>
     </div>
@@ -247,6 +249,7 @@
     let currentSourceIndex=0;
     let currentMatchId='', currentSessionId='';
     let controlsTimer=null;
+    let displayMode='ratio';
     let autoFallbackTried=new Set();
     let playbackToken=0;
     let playbackStartedToken=-1;
@@ -421,13 +424,19 @@
         layoutIOSVideoFrame();
         return;
       }
-      // An 18:9 viewport fits inside any orientation. The stream is cropped
+      // A fixed 18.5:9 viewport fits inside any orientation. The stream is cropped
       // slightly (object-fit:cover), never stretched or re-encoded.
       const width=videoWrap.clientWidth,height=videoWrap.clientHeight;
       if(width>0&&height>0){
-        const pictureWidth=Math.min(width,height*2);
+        if(displayMode!=='ratio'){
+          videoFrame.style.width='100%';
+          videoFrame.style.height='100%';
+          return;
+        }
+        const viewportRatio=18.5/9;
+        const pictureWidth=Math.min(width,height*viewportRatio);
         videoFrame.style.width=pictureWidth+'px';
-        videoFrame.style.height=(pictureWidth/2)+'px';
+        videoFrame.style.height=(pictureWidth/viewportRatio)+'px';
       }
     }
 
@@ -1256,9 +1265,20 @@
         revealControls();
       }
     });
+    function applyDisplayMode(mode){
+      displayMode=mode;
+      video.classList.remove('mode-fit','mode-full','mode-zoom');
+      if(mode!=='ratio')video.classList.add('mode-'+mode);
+      fitButton.textContent=mode==='ratio'?'18.5:9':
+        mode==='fit'?'Fit':mode==='full'?'Full':'Zoom';
+      layoutVideoFrame();
+    }
     fitButton.addEventListener('click',()=>{
-      const fill=video.classList.toggle('fill');
-      fitButton.textContent=fill?'18:9':'Fit';
+      applyDisplayMode(
+        displayMode==='ratio'?'fit':
+        displayMode==='fit'?'full':
+        displayMode==='full'?'zoom':'ratio'
+      );
     });
     function clearManualRotation(){
       manualRotation=0;
@@ -1546,8 +1566,7 @@
       }
       currentSourceIndex=startIndex;
       updateServerButton(startIndex);
-      video.classList.remove('fill');
-      fitButton.textContent='Fit';
+      applyDisplayMode('ratio');
       clearManualRotation();
       syncIOSSystemRotationControls();
       overlay.classList.toggle('channel-player',sources[startIndex]?.portraitStart===true);
