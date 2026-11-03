@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:user_app/app_update_service.dart';
+import 'package:football_viewer/app_update_service.dart';
 
 void main() {
   test('GitHub Pages APK downloads use the VPN-free viewer mirror', () {
