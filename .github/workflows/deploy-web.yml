@@ -7,6 +7,7 @@ on:
     paths:
       - "user_app/**"
       - "admin_app/**"
+      - "tools/operator-check/**"
       - "scripts/test_web_player.mjs"
       - "scripts/stamp_flutter_web_cache.py"
       - "scripts/test_stamp_flutter_web_cache.py"
@@ -123,6 +124,12 @@ jobs:
           rm -rf user_app/build/web/admin
           mkdir -p user_app/build/web/admin
           cp -R admin_app/build/web/. user_app/build/web/admin/
+
+      - name: Add GitHub-hosted operator checker
+        run: |
+          rm -rf user_app/build/web/operator-check
+          mkdir -p user_app/build/web/operator-check
+          cp -R tools/operator-check/. user_app/build/web/operator-check/
 
       - name: Add same-origin VPN-off metadata backup
         working-directory: user_app
