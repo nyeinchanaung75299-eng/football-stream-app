@@ -233,6 +233,23 @@ test('top aligned portrait player uses Fit by default and cycles Fit Full Zoom o
   assert.match(html,/height:min\(56\.25vw,calc\(100dvh - 120px\)\)/);
 });
 
+test('compact player toolbar and bottom controls show de-duplicated provider lines', async () => {
+  const css=html.match(/<style id="nca-reference-player-style">([\s\S]*?)<\/style>/)?.[1]||'';
+  assert.match(html,/id="football-player-close"[^>]*aria-label="Back"[^>]*>←<\/button>/);
+  assert.match(html,/id="football-player-rotate"[^>]*>↻<\/button>/);
+  assert.match(css,/#football-player-title\{[^}]*-webkit-line-clamp:2/);
+  assert.match(css,/#football-player-server\{display:none!important\}/);
+  assert.match(css,/\.nca-transport\{[^}]*margin-top:auto;/);
+  assert.match(css,/\.nca-transport button\{[^}]*width:40px/);
+  assert.match(css,/#nca-play-pause\{[^}]*width:42px/);
+  const h=createHarness({ios:false});
+  await h.open([source('hls','ColaTV · ColaTV · Main')]);
+  const chip=h.elements.get('football-player-line-items').children[0];
+  assert.match(chip.innerHTML,/ColaTV · Main/);
+  assert.doesNotMatch(chip.innerHTML,/ColaTV · ColaTV/);
+  assert.equal(h.elements.get('football-player-title').textContent,'Test match');
+});
+
 test('four original ColaTV lines remain four visible entries while protected relays stay internal',async()=>{
   const h=createHarness({ios:false});
   const all=[];
