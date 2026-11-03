@@ -12,7 +12,7 @@ on:
       - "scripts/stamp_flutter_web_cache.py"
       - "scripts/test_stamp_flutter_web_cache.py"
       - "scripts/generate_embedded_player.py"
-      - ".github/workflows/deploy-web.yml"
+      - ".github/workflows/deploy-web.yml"\n      - ".github/workflows/build-apks.yml"
 
 permissions:
   contents: write
