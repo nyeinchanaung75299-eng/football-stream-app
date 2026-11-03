@@ -6,10 +6,10 @@ void main() {
     expect(
       vpnFreeUpdateUrl(
         'https://nyeinchanaung75299-eng.github.io/'
-        'football-stream-app/releases/NCA-latest.apk?build=12689',
+        'football-stream-app/releases/NCA-arm64-v8a-latest.apk?build=30695',
       ),
       'https://nca.nyeinchanaung.us.ci/'
-      'football-stream-app/releases/NCA-latest.apk?build=12689',
+      'football-stream-app/releases/NCA-arm64-v8a-latest.apk?build=30695',
     );
   });
 
