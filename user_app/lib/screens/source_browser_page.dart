@@ -60,9 +60,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   String _query = '';
   String? _league;
   bool _todayOnly = false;
-  // YYZB is a broad sports schedule; many entries have no streamer room.
-  // Show actual listed football rooms by default, while retaining All football.
-  bool _streamsOnly = false;
+  // YYZB is presented as its watchable football room catalogue, not as its
+  // full score database. The state remains for the shared filter component,
+  // but Viewer never exposes an all-schedule toggle for YYZB.
 
   String get source => widget.source.toLowerCase();
   String get title => switch (source) {
@@ -110,8 +110,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   @override
   void initState() {
     super.initState();
-    _todayOnly = source == 'yyzb';
-    _streamsOnly = source == 'yyzb';
+    // YYZB evening rooms can cross local midnight. Its website lists those
+    // rooms together, so a local-calendar Today filter must not hide them.
+    _todayOnly = false;
     _feed = LiveFeedController(_loadMatches);
     unawaited(_feed.refresh());
     _sourceRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -141,8 +142,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       _query = '';
       _searchController.clear();
       _league = null;
-      _todayOnly = source == 'yyzb';
-      _streamsOnly = source == 'yyzb';
+      _todayOnly = false;
       unawaited(_feed.refresh());
     }
   }
@@ -346,7 +346,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     _searchController.clear();
     _league = null;
     _todayOnly = false;
-    _streamsOnly = false;
   });
 
   String _matchName(Map<String, dynamic> m) => m['kind'] == 'channel'
@@ -1115,10 +1114,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             );
           }
 
-          // The provider's match_all.json includes many score-only fixtures.
-          // Hide entries without an actual room number by default, without
-          // deleting them from the All football view or backend feed.
-          final availableMatches = source == 'yyzb' && _streamsOnly
+          // YYZB's match_all.json is a score database with thousands of rows.
+          // Its Viewer tab mirrors the website's watchable football catalogue:
+          // an actual streamer room is mandatory and there is no score-only
+          // fallback view.
+          final availableMatches = source == 'yyzb'
               ? allMatches
                   .where((row) => sourceMatchAnchors(row, source).isNotEmpty)
                   .toList()
@@ -1149,12 +1149,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                     league: _league,
                     leagues: sourceMatchLeagues(availableMatches),
                     visibleCount: matches.length,
-                    showStreamRoomFilter: source == 'yyzb',
-                    streamsOnly: _streamsOnly,
-                    onStreamsOnlyChanged: (only) => setState(() {
-                      _streamsOnly = only;
-                      _league = null;
-                    }),
+                    showDateChoices: source != 'yyzb',
                     onRefresh: _refresh,
                     onQueryChanged: (value) => setState(() => _query = value),
                     onTodayChanged: (value) =>

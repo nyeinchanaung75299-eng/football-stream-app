@@ -8,6 +8,7 @@ class SourceMatchFilters extends StatelessWidget {
     required this.leagues,
     required this.league,
     required this.visibleCount,
+    this.showDateChoices = true,
     this.showStreamRoomFilter = false,
     this.streamsOnly = false,
     this.onStreamsOnlyChanged,
@@ -22,6 +23,7 @@ class SourceMatchFilters extends StatelessWidget {
   final List<String> leagues;
   final String? league;
   final int visibleCount;
+  final bool showDateChoices;
   final bool showStreamRoomFilter;
   final bool streamsOnly;
   final ValueChanged<bool>? onStreamsOnlyChanged;
@@ -140,7 +142,21 @@ class SourceMatchFilters extends StatelessWidget {
             ),
           )),
           const SizedBox(height: 4),
-          _filterChoices(context),
+          if (showDateChoices)
+            _filterChoices(context)
+          else
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _pickLeague(context),
+                icon: const Icon(Icons.filter_list_rounded, size: 16),
+                label: Text(
+                  league ?? 'All leagues',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
           if (showStreamRoomFilter)
             Padding(
               padding: const EdgeInsets.only(top: 5, bottom: 3),
