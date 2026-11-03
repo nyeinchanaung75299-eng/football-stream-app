@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../playback_routes.dart';
+
 String playerServerLabel(Map<String, dynamic> source, int index) {
   final fallback = 'Line ${index + 1}';
   final label = (source['label'] ?? source['resolution'] ?? '')
@@ -39,8 +41,21 @@ class PlayerServerRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (sources.isEmpty) return const SizedBox.shrink();
+    final visible = visiblePlaybackIndices(sources);
+    if (visible.isEmpty) return const SizedBox.shrink();
 
+    var selectedPrimary = selectedIndex;
+    if (selectedIndex >= 0 && selectedIndex < sources.length &&
+        !isVisiblePlaybackLine(sources[selectedIndex])) {
+      final fallbackId = (sources[selectedIndex]['id'] ?? '')
+          .toString().replaceFirst(RegExp(r'-vpn-free$'), '');
+      for (final original in visible) {
+        if ((sources[original]['id'] ?? '').toString() == fallbackId) {
+          selectedPrimary = original;
+          break;
+        }
+      }
+    }
     final colors = Theme.of(context).colorScheme;
     return ColoredBox(
       color: Colors.black,
@@ -50,13 +65,14 @@ class PlayerServerRail extends StatelessWidget {
           key: const ValueKey('player-server-rail'),
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          itemCount: sources.length,
+          itemCount: visible.length,
           separatorBuilder: (_, __) => const SizedBox(width: 8),
-          itemBuilder: (context, index) {
-            final selected = index == selectedIndex;
+          itemBuilder: (context, position) {
+            final index = visible[position];
+            final selected = index == selectedPrimary;
             final failed = failedIndices.contains(index);
             final loading = loadingIndex == index;
-            final label = playerServerLabel(sources[index], index);
+            final label = playerServerLabel(sources[index], position);
 
             return Semantics(
               button: true,
