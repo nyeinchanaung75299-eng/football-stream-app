@@ -7,12 +7,13 @@ import re
 
 def generate(source: str) -> str:
     style = re.search(r"<style>.*?</style>", source, re.S)
+    player_style = re.search(r'<style id="nca-reference-player-style">.*?</style>', source, re.S)
     body = re.search(
         r'<body>\s*(.*?)\s*<script src="flutter_bootstrap.js"[^>]*></script>',
         source,
         re.S,
     )
-    if style is None or body is None:
+    if style is None or player_style is None or body is None:
         raise ValueError("Expected shared player style/body/bootstrap markers.")
     player_body = re.sub(
         r"<!-- Web shell start -->.*?<!-- Web shell end -->",
@@ -27,6 +28,7 @@ def generate(source: str) -> str:
         '<meta name="referrer" content="no-referrer">\n'
         '<title>NCA Player</title>\n'
         + style.group(0)
+        + '\n' + player_style.group(0)
         + '\n</head>\n<body>\n'
         + player_body
         + '\n</body>\n</html>\n'
