@@ -16,9 +16,15 @@ String playerServerLabel(Map<String, dynamic> source, int index) {
       RegExp(r'\b[0-9a-f]{24,}\b', caseSensitive: false).hasMatch(label)) {
     return fallback;
   }
-  return label.replaceFirst(
-    RegExp(r'^\s*([^·•|]+?)\s*[·•|]\s*\1(?=\s*[·•|]|$)', caseSensitive: false),
-    r'$1',
+  final repeated = RegExp(
+    r'^\s*([^·•|]+?)\s*[·•|]\s*\1(?=\s*[·•|]|$)',
+    caseSensitive: false,
+  ).firstMatch(label);
+  if (repeated == null) return label;
+  return label.replaceRange(
+    repeated.start,
+    repeated.end,
+    repeated.group(1)!,
   ).trim();
 }
 
