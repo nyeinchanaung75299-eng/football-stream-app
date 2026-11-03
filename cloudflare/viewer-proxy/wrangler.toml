@@ -1,0 +1,7 @@
+name = "nca-viewer-proxy"
+main = "src/index.js"
+compatibility_date = "2026-11-03"
+
+routes = [
+  { pattern = "nca.nyeinchanaung.us.ci", custom_domain = true }
+]
