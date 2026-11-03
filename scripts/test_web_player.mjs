@@ -70,7 +70,7 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
     click() { this.emit('click'); }
   }
 
-  const ids = [...html.matchAll(/id="(football-[^"]+)"/g)].map(match => match[1]);
+  const ids = [...html.matchAll(/id="((?:football|nca)-[^"]+)"/g)].map(match => match[1]);
   for (const id of ids) elements.set(id, new Element(id));
   const video = elements.get('football-player-video');
   const overlay = elements.get('football-player-overlay');
