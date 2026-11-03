@@ -9,6 +9,26 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'analytics_service.dart';
 import 'app_update_installer.dart';
 
+const _vpnFreeViewerOrigin = 'https://nca.nyeinchanaung.us.ci';
+
+@visibleForTesting
+String vpnFreeUpdateUrl(String value) {
+  final trimmed = value.trim();
+  final uri = Uri.tryParse(trimmed);
+  if (uri == null ||
+      uri.host != 'nyeinchanaung75299-eng.github.io' ||
+      !uri.path.startsWith('/football-stream-app/')) {
+    return trimmed;
+  }
+  return uri
+      .replace(
+        scheme: 'https',
+        host: Uri.parse(_vpnFreeViewerOrigin).host,
+        port: null,
+      )
+      .toString();
+}
+
 class AppUpdateService {
   AppUpdateService._();
 
@@ -16,6 +36,7 @@ class AppUpdateService {
   static bool _downloading = false;
 
   static const _manifestUrls = <String>[
+    '$_vpnFreeViewerOrigin/football-stream-app/releases/latest.json',
     'https://nyeinchanaung75299-eng.github.io/'
         'football-stream-app/releases/latest.json',
     'https://raw.githubusercontent.com/'
@@ -161,7 +182,9 @@ class AppUpdateService {
       final version = data['version_name']?.toString().trim().isNotEmpty == true
           ? data['version_name'].toString()
           : 'new version';
-      final apkUrl = data['apk_url']?.toString().trim() ?? '';
+      final apkUrl = vpnFreeUpdateUrl(
+        data['apk_url']?.toString().trim() ?? '',
+      );
       final apkSha256 = data['sha256']?.toString().trim().toLowerCase() ?? '';
       final notes = data['notes']?.toString().trim() ?? '';
       final mandatory = data['mandatory'] == true;
