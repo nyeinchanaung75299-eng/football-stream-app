@@ -213,7 +213,7 @@ const tests = [];
 function test(name, run) { tests.push({ name, run }); }
 const failures = h => h.events.filter(event => event.name === 'playback line failed');
 
-test('18:9 web video layout fits available space without distorting stream pixels', async () => {
+test('18.5:9 web video layout and Fit Full Zoom modes stay available', async () => {
   const h = createHarness({ ios:false });
   const wrap = h.elements.get('football-player-video-wrap');
   const frame = h.elements.get('football-player-video-frame');
@@ -221,21 +221,31 @@ test('18:9 web video layout fits available space without distorting stream pixel
   wrap.clientHeight = 420;
   await h.open([source('hls')]);
 
-  assert.equal(frame.style.width, '840px');
+  assert.equal(frame.style.width, '863.3333333333333px');
   assert.equal(frame.style.height, '420px');
   assert.match(html, /#football-player-video\{width:100%;height:100%;object-fit:cover/);
-  assert.match(html, /#football-player-video\.fill\{object-fit:contain\}/);
+  assert.match(html, /#football-player-video\.mode-fit\{object-fit:contain\}/);
+  assert.match(html, /#football-player-video\.mode-full\{object-fit:fill\}/);
+  assert.match(html, /#football-player-video\.mode-zoom\{object-fit:cover\}/);
 
   wrap.clientWidth = 720;
   wrap.clientHeight = 600;
   h.window.emit('resize');
   assert.equal(frame.style.width, '720px');
-  assert.equal(frame.style.height, '360px');
+  assert.equal(frame.style.height, '350.2702702702703px');
   h.elements.get('football-player-fit').click();
-  assert.equal(h.video.classList.contains('fill'), true, 'Fit exposes the whole source without stretching');
-  assert.equal(h.elements.get('football-player-fit').textContent, '18:9');
+  assert.equal(h.video.classList.contains('mode-fit'), true);
+  assert.equal(h.elements.get('football-player-fit').textContent, 'Fit');
+  assert.equal(frame.style.width, '100%');
   h.elements.get('football-player-fit').click();
-  assert.equal(h.video.classList.contains('fill'), false);
+  assert.equal(h.video.classList.contains('mode-full'), true);
+  assert.equal(h.elements.get('football-player-fit').textContent, 'Full');
+  h.elements.get('football-player-fit').click();
+  assert.equal(h.video.classList.contains('mode-zoom'), true);
+  assert.equal(h.elements.get('football-player-fit').textContent, 'Zoom');
+  h.elements.get('football-player-fit').click();
+  assert.equal(h.elements.get('football-player-fit').textContent, '18.5:9');
+  assert.equal(frame.style.width, '720px');
 });
 
 test('fullscreen line rail floats over the picture and auto-hides after five seconds', async () => {
