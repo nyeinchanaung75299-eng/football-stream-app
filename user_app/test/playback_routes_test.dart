@@ -61,4 +61,23 @@ void main() {
 
     expect(result, hasLength(2));
   });
+
+
+
+  test('line picker shows original routes only while retaining relays for auto-fallback', () {
+    const directUrl = 'https://football-public-api.nyeinchanaung75299-eng.workers.dev/p/abc';
+    final routes = addVpnFreePlaybackFallbacks([
+      {'id':'cola-main','label':'ColaTV Main','url':directUrl},
+      {'id':'cola-hls','label':'ColaTV HLS','url':'${directUrl}2'},
+      {'id':'cola-flv','label':'ColaTV FLV','url':'${directUrl}3'},
+      {'id':'cola-backup','label':'ColaTV Backup','url':'${directUrl}4'},
+    ]);
+    expect(routes.length, 8, reason:'Relays stay available for recovery');
+    final visible = visiblePlaybackIndices(routes);
+    expect(visible.length, 4, reason:'Do not display relay backups as selectable lines');
+    expect(visible.map((index) => routes[index]['label']),
+      ['ColaTV Main','ColaTV HLS','ColaTV FLV','ColaTV Backup']);
+    expect(routes[1]['transport'], 'vercel-fallback');
+  });
+
 }
