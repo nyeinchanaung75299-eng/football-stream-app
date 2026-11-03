@@ -1052,8 +1052,11 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         child: TextField(
           controller: controller,
           enabled: enabled,
-          keyboardType:
-              label == 'Resolution' ? TextInputType.text : TextInputType.url,
+          // Some Android/ColorOS builds replace Gboard with their secure
+          // keyboard for URL-classified fields. Links are not passwords, so
+          // keep the normal text IME while retaining URL validation on save.
+          keyboardType: TextInputType.text,
+          textInputAction: TextInputAction.next,
           autocorrect: false,
           enableSuggestions: false,
           onChanged: controller == link
