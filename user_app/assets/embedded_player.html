@@ -135,7 +135,7 @@
       <div id="football-player-title">Football Live</div>
       <button id="football-player-server" class="football-control" type="button" aria-label="Choose line">Line</button>
       <button id="football-player-quality" class="football-control" type="button" aria-label="Choose quality">Auto</button>
-      <button id="football-player-fit" class="football-control" type="button">18.5:9</button>
+      <button id="football-player-fit" class="football-control" type="button">Fit</button>
       <button id="football-player-rotate" class="football-control" type="button" aria-label="Rotate video">↻ Rotate</button>
       <button id="football-player-fullscreen" class="football-control" type="button">Fullscreen</button>
     </div>
@@ -146,6 +146,20 @@
     <div id="football-player-video-wrap">
       <div id="football-player-video-frame">
         <video id="football-player-video" class="nca-custom-fullscreen" controls controlslist="nodownload nofullscreen noremoteplayback" disablepictureinpicture playsinline webkit-playsinline preload="auto"></video>
+        <div id="football-player-custom-controls" class="controls-hidden" aria-label="Playback controls">
+          <div class="nca-transport">
+            <button id="nca-previous-line" type="button" aria-label="Previous original line">|◀</button>
+            <button id="nca-skip-back" type="button" aria-label="Back 10 seconds">↶10</button>
+            <button id="nca-play-pause" type="button" aria-label="Play or pause">Ⅱ</button>
+            <button id="nca-skip-next" type="button" aria-label="Forward 10 seconds">10↷</button>
+            <button id="nca-next-line" type="button" aria-label="Next original line">▶|</button>
+          </div>
+          <div class="nca-playback-footer">
+            <span id="nca-player-time">LIVE</span>
+            <input id="nca-player-progress" type="range" min="0" max="1000" value="0" aria-label="Seek video" />
+            <button id="nca-player-settings" type="button" aria-label="Quality audio and speed">⚙</button>
+          </div>
+        </div>
         <button id="football-player-ios-fullscreen" type="button" aria-label="Enter fullscreen" title="Fullscreen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></svg>
         </button>
@@ -176,11 +190,16 @@
     const videoFrame=document.getElementById('football-player-video-frame');
     const lineRail=document.getElementById('football-player-line-rail');
     const lineItems=document.getElementById('football-player-line-items');
+    const customControls=document.getElementById('football-player-custom-controls');
+    const playPauseButton=document.getElementById('nca-play-pause');
+    const progressInput=document.getElementById('nca-player-progress');
+    const timeLabel=document.getElementById('nca-player-time');
+    const settingsButton=document.getElementById('nca-player-settings');
     let sources=[], shakaPlayer=null, mpegtsPlayer=null, currentTracks=[];
     let currentSourceIndex=0;
     let currentMatchId='', currentSessionId='';
     let controlsTimer=null;
-    let displayMode='ratio';
+    let displayMode='fit';
     let autoFallbackTried=new Set();
     let playbackToken=0;
     let playbackStartedToken=-1;
@@ -327,12 +346,14 @@
       if(!menuPanel.classList.contains('hidden'))return;
       document.getElementById('football-player-topbar').classList.add('controls-hidden');
       lineRail.classList.add('controls-hidden');
+      customControls.classList.add('controls-hidden');
     }
 
     function revealControls(){
       const bar=document.getElementById('football-player-topbar');
       bar.classList.remove('controls-hidden');
       lineRail.classList.remove('controls-hidden');
+      customControls.classList.remove('controls-hidden');
       if(controlsTimer)clearTimeout(controlsTimer);
       controlsTimer=setTimeout(hideControls,5000);
     }
@@ -355,20 +376,10 @@
         layoutIOSVideoFrame();
         return;
       }
-      // A fixed 18.5:9 viewport fits inside any orientation. The stream is cropped
-      // slightly (object-fit:cover), never stretched or re-encoded.
-      const width=videoWrap.clientWidth,height=videoWrap.clientHeight;
-      if(width>0&&height>0){
-        if(displayMode!=='ratio'){
-          videoFrame.style.width='100%';
-          videoFrame.style.height='100%';
-          return;
-        }
-        const viewportRatio=18.5/9;
-        const pictureWidth=Math.min(width,height*viewportRatio);
-        videoFrame.style.width=pictureWidth+'px';
-        videoFrame.style.height=(pictureWidth/viewportRatio)+'px';
-      }
+      // Source aspect ratio is preserved in Fit; the portrait VIDEO BOX is
+      // sized by CSS, not by a fixed 18.5:9 crop.
+      videoFrame.style.width='100%';
+      videoFrame.style.height='100%';
     }
 
     function syncIOSSystemRotationControls(){
@@ -733,14 +744,26 @@
       return /^(?:\d{3,4}p|auto|sd|hd|fhd|uhd|4k)$/i.test(raw)?raw:'';
     }
 
+    function visibleLineEntries(){
+      return sources.flatMap((source,index)=>
+        source.transport==='vercel-fallback'?[]:[{source,index}]);
+    }
+    function displayLineIndex(){
+      const current=sources[currentSourceIndex]||{};
+      if(current.transport!=='vercel-fallback')return currentSourceIndex;
+      const originalId=String(current.id||'').replace(/-vpn-free$/,'');
+      const primary=sources.findIndex(v=>v.transport!=='vercel-fallback'&&String(v.id||'')===originalId);
+      return primary>=0?primary:currentSourceIndex;
+    }
     function renderLineRail(){
       lineItems.innerHTML='';
-      const singleChannel=sources.length===1&&sources[0]?.portraitStart===true;
-      lineRail.classList.toggle('hidden',sources.length===0||singleChannel);
+      const visible=visibleLineEntries();
+      const singleChannel=visible.length===1&&visible[0].source?.portraitStart===true;
+      lineRail.classList.toggle('hidden',visible.length===0||singleChannel);
       serverButton.style.display=singleChannel?'none':'';
-      sources.forEach((source,index)=>{
+      visible.forEach(({source,index})=>{
         const item=document.createElement('button');
-        const selected=index===currentSourceIndex;
+        const selected=index===displayLineIndex();
         const label=safeLineLabel(source,index);
         const resolution=safeLineResolution(source);
         const type=sourceType(source).toUpperCase();
@@ -773,13 +796,13 @@
       revealControls();
       menuTitle.textContent='Choose line';
       menuItems.innerHTML='';
-      sources.forEach((source,index)=>{
+      visibleLineEntries().forEach(({source,index})=>{
         const type=sourceType(source).toUpperCase();
         const support=sourceSupport(source);
         const item=document.createElement('button');
         item.type='button';
         item.className='football-menu-item'+
-          (index===currentSourceIndex?' current':'');
+          (index===displayLineIndex()?' current':'');
         item.disabled=false;
         const label=safeLineLabel(source,index);
         item.innerHTML=
@@ -789,7 +812,7 @@
             support.reason || (type==='AUTO'?'Auto / Direct':type)
           )+'</span>'+
           '</span>'+
-          (index===currentSourceIndex?'<span class="football-menu-item-badge">PLAYING</span>':'');
+          (index===displayLineIndex()?'<span class="football-menu-item-badge">PLAYING</span>':'');
         item.addEventListener('click',()=>{
           closePlayerMenu();
           capturePlayerEvent('playback line selected',{
@@ -852,6 +875,120 @@
       menuPanel.classList.remove('hidden');
     }
 
+
+    function formatPlaybackTime(seconds){
+      const n=Math.max(0,Math.floor(Number(seconds)||0));
+      return n>=3600?Math.floor(n/3600)+':'+String(Math.floor(n/60)%60).padStart(2,'0')+':'+String(n%60).padStart(2,'0'):
+        Math.floor(n/60)+':'+String(n%60).padStart(2,'0');
+    }
+    function updatePlaybackControls(){
+      const d=Number(video.duration),at=Number(video.currentTime)||0,finite=Number.isFinite(d)&&d>0;
+      timeLabel.textContent=finite?formatPlaybackTime(at)+' / '+formatPlaybackTime(d):'● LIVE';
+      progressInput.disabled=!finite;
+      progressInput.value=finite?String(Math.min(1000,Math.round(at/d*1000))):'0';
+      playPauseButton.textContent=video.paused?'▶':'Ⅱ';
+      playPauseButton.setAttribute('aria-label',video.paused?'Play':'Pause');
+    }
+    function stepVisibleLine(delta){
+      const options=visibleLineEntries().map(x=>x.index);
+      const at=options.indexOf(displayLineIndex()),next=options[at+delta];
+      if(next===undefined)return;
+      revealControls();loadSource(next,true);
+    }
+    document.getElementById('nca-previous-line').addEventListener('click',()=>stepVisibleLine(-1));
+    document.getElementById('nca-next-line').addEventListener('click',()=>stepVisibleLine(1));
+    document.getElementById('nca-skip-back').addEventListener('click',()=>{
+      try{video.currentTime=Math.max(0,(Number(video.currentTime)||0)-10)}catch(_){}
+      updatePlaybackControls();revealControls();
+    });
+    document.getElementById('nca-skip-next').addEventListener('click',()=>{
+      const at=Number(video.currentTime)||0,d=Number(video.duration);
+      try{video.currentTime=Number.isFinite(d)&&d>0?Math.min(d,at+10):at+10}catch(_){}
+      updatePlaybackControls();revealControls();
+    });
+    playPauseButton.addEventListener('click',()=>{
+      if(video.paused)Promise.resolve(video.play()).catch(()=>{});else video.pause();
+      updatePlaybackControls();revealControls();
+    });
+    progressInput.addEventListener('change',()=>{
+      const d=Number(video.duration);
+      if(Number.isFinite(d)&&d>0)try{video.currentTime=d*Number(progressInput.value)/1000}catch(_){}
+      updatePlaybackControls();revealControls();
+    });
+    ['timeupdate','durationchange','loadedmetadata','playing','play','pause']
+      .forEach(type=>video.addEventListener(type,updatePlaybackControls));
+
+    function openSettingsMenu(section='video'){
+      revealControls();
+      menuTitle.textContent='Player settings';menuItems.innerHTML='';
+      const tabs=document.createElement('div');tabs.className='nca-settings-tabs';
+      for(const [key,label] of [['video','VIDEO'],['audio','AUDIO'],['speed','SPEED']]){
+        const tab=document.createElement('button');
+        tab.type='button';tab.className='football-control'+(key===section?' selected':'');
+        tab.textContent=label;tab.addEventListener('click',()=>openSettingsMenu(key));tabs.appendChild(tab);
+      }
+      menuItems.appendChild(tabs);
+      const choice=(label,description,selected,apply)=>{
+        const button=document.createElement('button');button.type='button';
+        button.className='football-menu-item'+(selected?' current':'');
+        button.innerHTML='<span class="football-menu-item-main"><span class="football-menu-item-label">'+
+          escapeHtml(label)+'</span><span class="football-menu-item-sub">'+escapeHtml(description)+
+          '</span></span>'+(selected?'<span class="football-menu-item-badge">✓</span>':'');
+        button.addEventListener('click',()=>{apply();closePlayerMenu();updatePlaybackControls()});
+        menuItems.appendChild(button);
+      };
+      if(section==='video'){
+        choice('Auto','Adaptive quality',qualityButton.dataset.mode!=='manual',()=>{
+          if(shakaPlayer)shakaPlayer.configure({abr:{enabled:true}});
+          qualityButton.textContent='Auto';qualityButton.dataset.mode='auto';qualityButton.dataset.trackId='';
+          capturePlayerEvent('playback quality selected',{quality:'auto'});
+        });
+        for(const track of currentTracks){
+          const bitrate=Number(track.bandwidth)||0;
+          const label=(track.width&&track.height?track.width+' × '+track.height:
+            (track.height||'?')+'p')+(bitrate?' · '+(bitrate/1000000).toFixed(2)+' Mbps':'');
+          choice(label,'Video track',qualityButton.dataset.trackId===String(track.id),()=>{
+            if(shakaPlayer){shakaPlayer.configure({abr:{enabled:false}});shakaPlayer.selectVariantTrack(track,true)}
+            qualityButton.textContent=String(track.height||'Auto')+'p';
+            qualityButton.dataset.mode='manual';qualityButton.dataset.trackId=String(track.id);
+            capturePlayerEvent('playback quality selected',{quality:label});
+          });
+        }
+        if(!currentTracks.length)choice('Auto only','No manual video track exposed by stream.',false,()=>{});
+      }else if(section==='audio'){
+        const native=video.audioTracks;
+        const languages=[...new Set(currentTracks.map(t=>t.language).filter(Boolean))];
+        choice('Auto','Default audio',!video.dataset?.audioLanguage,()=>{
+          if(video.dataset)video.dataset.audioLanguage='';
+          if(native)for(let i=0;i<native.length;i++)native[i].enabled=i===0;
+        });
+        if(native&&native.length)for(let i=0;i<native.length;i++){
+          const id=i,track=native[i],label=track.label||track.language||'Audio '+(i+1);
+          choice(label,'Audio track',!!track.enabled,()=>{
+            for(let j=0;j<native.length;j++)native[j].enabled=j===id;
+            if(video.dataset)video.dataset.audioLanguage=track.language||label;
+          });
+        }else for(const lang of languages){
+          choice(lang,'Audio language',video.dataset?.audioLanguage===lang,()=>{
+            if(typeof shakaPlayer?.selectAudioLanguage==='function')shakaPlayer.selectAudioLanguage(lang);
+            else if(shakaPlayer){const t=currentTracks.find(v=>v.language===lang);if(t)shakaPlayer.selectVariantTrack(t,true)}
+            if(video.dataset)video.dataset.audioLanguage=lang;
+          });
+        }
+      }else{
+        for(const rate of [0.5,0.75,1,1.25,1.5,2]){
+          choice(rate===1?'Normal · 1×':rate+'×','Playback speed',
+            Math.abs((Number(video.playbackRate)||1)-rate)<.01,()=>{try{video.playbackRate=rate}catch(_){}});
+        }
+      }
+      menuPanel.classList.remove('hidden');
+    }
+    settingsButton.addEventListener('click',event=>{
+      event.stopPropagation();
+      if(menuPanel.classList.contains('hidden'))openSettingsMenu('video');
+      else closePlayerMenu();
+    });
+
     function escapeHtml(value){
       return String(value)
         .replaceAll('&','&amp;')
@@ -899,8 +1036,8 @@
     }
 
     function updateServerButton(index){
-      const source=sources[index]||{};
-      serverButton.textContent=safeLineLabel(source,index);
+      const primaryIndex=displayLineIndex(),source=sources[primaryIndex]||sources[index]||{};
+      serverButton.textContent=safeLineLabel(source,primaryIndex);
       renderLineRail();
     }
 
@@ -1197,19 +1334,14 @@
       }
     });
     function applyDisplayMode(mode){
-      displayMode=mode;
+      displayMode=['fit','full','zoom'].includes(mode)?mode:'fit';
       video.classList.remove('mode-fit','mode-full','mode-zoom');
-      if(mode!=='ratio')video.classList.add('mode-'+mode);
-      fitButton.textContent=mode==='ratio'?'18.5:9':
-        mode==='fit'?'Fit':mode==='full'?'Full':'Zoom';
+      video.classList.add('mode-'+displayMode);
+      fitButton.textContent=displayMode==='fit'?'Fit':displayMode==='full'?'Full':'Zoom';
       layoutVideoFrame();
     }
     fitButton.addEventListener('click',()=>{
-      applyDisplayMode(
-        displayMode==='ratio'?'fit':
-        displayMode==='fit'?'full':
-        displayMode==='full'?'zoom':'ratio'
-      );
+      applyDisplayMode(displayMode==='fit'?'full':displayMode==='full'?'zoom':'fit');
     });
     function clearManualRotation(){
       manualRotation=0;
@@ -1496,8 +1628,10 @@
         }
       }
       currentSourceIndex=startIndex;
+      video.controls=isIOS();
+      updatePlaybackControls();
       updateServerButton(startIndex);
-      applyDisplayMode('ratio');
+      applyDisplayMode('fit');
       clearManualRotation();
       syncIOSSystemRotationControls();
       overlay.classList.toggle('channel-player',sources[startIndex]?.portraitStart===true);
