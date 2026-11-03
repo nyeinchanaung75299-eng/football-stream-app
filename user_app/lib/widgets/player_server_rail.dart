@@ -16,7 +16,10 @@ String playerServerLabel(Map<String, dynamic> source, int index) {
       RegExp(r'\b[0-9a-f]{24,}\b', caseSensitive: false).hasMatch(label)) {
     return fallback;
   }
-  return label;
+  return label.replaceFirst(
+    RegExp(r'^\s*([^·•|]+?)\s*[·•|]\s*\1(?=\s*[·•|]|$)', caseSensitive: false),
+    r'$1',
+  ).trim();
 }
 
 /// A compact, horizontally scrollable line selector for an active player.
@@ -98,11 +101,11 @@ class PlayerServerRail extends StatelessWidget {
                   onTap: selected ? null : () => onSelected(index),
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(
-                      minWidth: 82,
-                      maxWidth: 190,
+                      minWidth: 72,
+                      maxWidth: 165,
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 13),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -129,7 +132,7 @@ class PlayerServerRail extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: selected ? colors.primary : Colors.white,
-                                fontSize: 13,
+                                fontSize: 11,
                                 fontWeight: selected
                                     ? FontWeight.w900
                                     : FontWeight.w700,
