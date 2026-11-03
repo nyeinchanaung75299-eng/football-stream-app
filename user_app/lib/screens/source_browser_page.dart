@@ -101,8 +101,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   List<String> get bases {
     final routes = publicApiBases(
       primary: _primary,
-      // Public source routing is independent of the selected Auth relay.
-      preferVercel: false,
+      // Keep the same VPN-free-first ordering as the Live feed.
+      preferVercel: true,
     );
     return routes;
   }
