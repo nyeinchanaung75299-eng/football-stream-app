@@ -491,7 +491,7 @@ jobs:
           exit 1
 
       - name: Refresh GitHub Pages release files
-        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true && env.NCA_SIGNING_READY == 'true' }}
+        if: ${{ env.NCA_SIGNING_READY == 'true' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-update]'))) }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy-web.yml --ref "${GITHUB_REF_NAME}"
