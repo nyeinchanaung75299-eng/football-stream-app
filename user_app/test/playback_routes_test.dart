@@ -70,6 +70,20 @@ void main() {
     expect(result, hasLength(2));
   });
 
+  test('expanding an already expanded line list is idempotent', () {
+    final first = addVpnFreePlaybackFallbacks([
+      {
+        'id': 'line-1',
+        'label': 'Server 1',
+        'url': 'https://football-api.nyeinchanaung.us.ci/p/token/live.mpd',
+      },
+    ]);
+    final second = addVpnFreePlaybackFallbacks(first);
+
+    expect(second, hasLength(2));
+    expect(visiblePlaybackIndices(second), [0]);
+  });
+
 
 
   test('line picker shows original routes only while retaining relays for auto-fallback', () {
