@@ -8,6 +8,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../analytics_service.dart';
 import '../native_playback_progress.dart';
+import '../playback_routes.dart';
 import '../widgets/player_server_rail.dart';
 
 /// Native iOS playback powered by libmpv/FFmpeg through package:media_kit.
@@ -582,7 +583,8 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
   }
 
   Future<void> _pickLine() async {
-    if (!mounted || widget.sources.isEmpty) return;
+    final visible = visiblePlaybackIndices(widget.sources);
+    if (!mounted || visible.isEmpty) return;
     final colors = Theme.of(context).colorScheme;
     final picked = await showModalBottomSheet<int>(
       context: context,
@@ -593,9 +595,10 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
         return ListView.separated(
           shrinkWrap: true,
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
-          itemCount: widget.sources.length,
+          itemCount: visible.length,
           separatorBuilder: (_, __) => const SizedBox(height: 5),
-          itemBuilder: (_, index) {
+          itemBuilder: (_, position) {
+            final index = visible[position];
             final source = widget.sources[index];
             final selected = index == _selectedIndex;
             final type = _sourceType(source).toUpperCase();
@@ -659,6 +662,7 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
     final source = widget.sources.isEmpty
         ? const <String, dynamic>{}
         : widget.sources[_selectedIndex];
+    final visibleLines = visiblePlaybackIndices(widget.sources);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -681,7 +685,7 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
                 fontWeight: FontWeight.w800,
               ),
             ),
-            if (!_portraitChannel || widget.sources.length > 1)
+            if (!_portraitChannel || visibleLines.length > 1)
               Text(
                 _lineLabel(source, _selectedIndex) +
                     ' • ' +
@@ -711,14 +715,12 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
                 );
               },
             ),
-          if (widget.sources.length > 1)
+          if (visibleLines.length > 1)
             TextButton.icon(
               onPressed: _pickLine,
               icon: const Icon(Icons.dns_rounded, size: 18),
               label: Text(
-                widget.sources.length > 1
-                    ? '${widget.sources.length} Lines'
-                    : 'Line',
+                '${visibleLines.length} Lines',
               ),
               style: TextButton.styleFrom(foregroundColor: colors.primary),
             ),
@@ -730,8 +732,14 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
         child: Column(
           children: [
             Expanded(
-              child: Stack(
-                fit: StackFit.expand,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: AspectRatio(
+                  aspectRatio: MediaQuery.orientationOf(context) == Orientation.portrait
+                      ? 16 / 9
+                      : MediaQuery.sizeOf(context).aspectRatio,
+                  child: Stack(
+                    fit: StackFit.expand,
                 children: [
                   if (widget.sources.isNotEmpty)
                     Video(
@@ -824,6 +832,8 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
                       ),
                     ),
                 ],
+                  ),
+                ),
               ),
             ),
             PlayerServerRail(

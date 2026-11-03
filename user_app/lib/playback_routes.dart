@@ -50,3 +50,13 @@ List<Map<String, dynamic>> addVpnFreePlaybackFallbacks(
 
 String _sourceUrl(Map<String, dynamic> source) =>
     (source['url'] ?? source['stream_url'] ?? '').toString().trim();
+
+/// Only primary sources belong in visible line pickers. Network relay copies
+/// remain in the player session for automatic failover if direct playback fails.
+bool isVisiblePlaybackLine(Map<String, dynamic> source) =>
+    source['transport']?.toString() != 'vercel-fallback';
+
+List<int> visiblePlaybackIndices(List<Map<String, dynamic>> sources) => [
+  for (var index = 0; index < sources.length; index++)
+    if (isVisiblePlaybackLine(sources[index])) index,
+];

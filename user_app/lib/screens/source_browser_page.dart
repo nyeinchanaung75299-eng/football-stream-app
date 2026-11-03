@@ -919,7 +919,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         builder: (sheet) => AnimatedBuilder(
           animation: operation,
           builder: (_, __) {
-            final sources = _playerSources(operation.rows);
+            final allSources = _playerSources(operation.rows);
+            final visibleIndices = visiblePlaybackIndices(allSources);
+            final sources = [
+              for (final index in visibleIndices) allSources[index],
+            ];
             return DraggableScrollableSheet(
               expand: false,
               initialChildSize: sources.length <= 4 ? .52 : .72,
@@ -1014,7 +1018,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                                 ? Colors.redAccent
                                 : null,
                           ),
-                          onTap: () => Navigator.pop(sheet, i),
+                          onTap: () => Navigator.pop(sheet, visibleIndices[i]),
                         );
                       },
                     ),

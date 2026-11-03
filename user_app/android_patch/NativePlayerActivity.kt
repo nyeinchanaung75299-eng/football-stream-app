@@ -125,12 +125,13 @@ class NativePlayerActivity : Activity() {
     private var trackSelector: DefaultTrackSelector? = null
     private lateinit var playerView: PlayerView
     private lateinit var qualityButton: TextView
+    private lateinit var settingsButton: TextView
     private lateinit var serverButton: TextView
     private lateinit var serverRail: LinearLayout
     private lateinit var serverRailScroll: HorizontalScrollView
     private lateinit var statusText: TextView
     private lateinit var displayModeButton: TextView
-    private var displayMode = 0
+    private var displayMode = 0 // 0=Fit, 1=Full, 2=Zoom
 
     private var sources = JSONArray()
     private var selectedServerIndex = 0
@@ -251,7 +252,10 @@ class NativePlayerActivity : Activity() {
             .coerceIn(0, sources.length() - 1)
 
         val portraitStart = sources.optJSONObject(selectedServerIndex)?.optBoolean("portraitStart", false) == true
-        requestedOrientation = if (portraitStart) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        // Start with the compact top-aligned portrait player; Rotate enters
+        // full landscape playback. Preserve a manual turn across recreation.
+        requestedOrientation = if (intent.getBooleanExtra("nca_landscape", false))
+            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         // Put a content view on screen first. Some Android 12 / OEM builds can
         // be fragile if immersive-window calls happen before a decor view exists.
@@ -270,24 +274,19 @@ class NativePlayerActivity : Activity() {
 
         playerView = PlayerView(this).apply {
             setBackgroundColor(Color.BLACK)
-            // Start in NCA's fixed 18.5:9 viewport. The display-mode control
-            // also offers source FIT, stretched FULL, and cropped ZOOM.
-            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             useController = true
-            // Keep the video clean. Controls appear only after the user taps.
             controllerAutoShow = false
-            controllerShowTimeoutMs = 3000
+            controllerShowTimeoutMs = 5000
         }
-        root.addView(
-            playerView,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        )
-        root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            if (displayMode == 0) applyDisplayMode()
-        }
+        // The player controls and progress/time belong to the VIDEO box, not
+        // the bottom of an otherwise empty portrait phone screen.
+        val videoHost = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        videoHost.addView(playerView,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(videoHost, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+            Gravity.TOP or Gravity.CENTER_HORIZONTAL))
 
         val topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -340,8 +339,8 @@ class NativePlayerActivity : Activity() {
             setOnClickListener { showQualityMenu() }
         }
 
-        displayModeButton = overlayButton("18.5:9").apply {
-            contentDescription = "18.5 by 9 viewport; tap for Fit"
+        displayModeButton = overlayButton("Fit").apply {
+            contentDescription = "Original aspect ratio; tap for Full"
             textSize = 13f
             setPadding(dp(10), 0, dp(10), 0)
             setOnClickListener { toggleDisplayMode() }
@@ -350,11 +349,13 @@ class NativePlayerActivity : Activity() {
         val rotateButton = overlayButton("↻").apply {
             contentDescription = "Rotate video"
             setOnClickListener {
-                requestedOrientation = if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
-                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                val landscape = resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE
+                intent.putExtra("nca_landscape", landscape)
+                requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
         }
-        if (sources.length() == 1) serverButton.visibility = View.GONE
+        if (visibleServerIndices().size == 1) serverButton.visibility = View.GONE
         topBar.addView(back, LinearLayout.LayoutParams(dp(48), dp(42)))
         topBar.addView(
             titleText,
@@ -362,13 +363,6 @@ class NativePlayerActivity : Activity() {
         )
         topBar.addView(
             serverButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                dp(42)
-            )
-        )
-        topBar.addView(
-            qualityButton,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 dp(42)
@@ -412,15 +406,35 @@ class NativePlayerActivity : Activity() {
         }
         root.addView(
             serverRailScroll,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(50),
-                Gravity.BOTTOM
-            ).apply {
-                // Keep the line rail above Media3's seek/playback controls.
-                bottomMargin = dp(62)
-            }
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50), Gravity.TOP)
         )
+        settingsButton = overlayButton("⚙").apply {
+            textSize = 24f
+            contentDescription = "Playback settings: video quality, audio and speed"
+            visibility = View.GONE
+            setOnClickListener { showPlaybackSettings() }
+        }
+        videoHost.addView(settingsButton, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.END)
+            .apply { bottomMargin = dp(8); marginEnd = dp(8) })
+        fun layoutPlayer() {
+            if (root.width <= 0 || root.height <= 0) return
+            val landscape = root.width > root.height
+            val portraitHeight = (root.width * 9f / 16f).toInt()
+                .coerceAtMost((root.height - dp(68)).coerceAtLeast(dp(120)))
+            videoHost.layoutParams = (videoHost.layoutParams as FrameLayout.LayoutParams).apply {
+                width = ViewGroup.LayoutParams.MATCH_PARENT
+                height = if (landscape) ViewGroup.LayoutParams.MATCH_PARENT else portraitHeight
+                gravity = Gravity.TOP
+                topMargin = if (landscape) 0 else dp(54)
+            }
+            serverRailScroll.layoutParams =
+                (serverRailScroll.layoutParams as FrameLayout.LayoutParams).apply {
+                    gravity = Gravity.TOP
+                    topMargin = if (landscape) dp(52) else dp(54) + portraitHeight + dp(6)
+                }
+        }
+        root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> layoutPlayer() }
+        root.post { layoutPlayer(); applyDisplayMode() }
         renderServerRail()
 
         // Keep Server / Quality / Back completely hidden until the USER taps.
@@ -439,9 +453,11 @@ class NativePlayerActivity : Activity() {
             PlayerView.ControllerVisibilityListener { visibility ->
                 if (visibility == View.VISIBLE && userRequestedControls) {
                     topBar.visibility = View.VISIBLE
-                    serverRailScroll.visibility = if (portraitStart && sources.length() == 1) View.GONE else View.VISIBLE
+                    settingsButton.visibility = View.VISIBLE
+                    serverRailScroll.visibility = if (visibleServerIndices().size == 1) View.GONE else View.VISIBLE
                 } else {
-                    topBar.visibility = View.GONE
+                    topBar.visibility = if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) View.VISIBLE else View.GONE
+                    settingsButton.visibility = View.GONE
                     serverRailScroll.visibility = View.GONE
                 }
 
@@ -454,7 +470,8 @@ class NativePlayerActivity : Activity() {
         // Force a clean video surface on entry. Controls appear on the first tap.
         playerView.post {
             playerView.hideController()
-            topBar.visibility = View.GONE
+            topBar.visibility = if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) View.VISIBLE else View.GONE
+            settingsButton.visibility = View.GONE
             serverRailScroll.visibility = View.GONE
         }
 
@@ -804,9 +821,14 @@ class NativePlayerActivity : Activity() {
         renderServerRail()
     }
 
+    private fun visibleServerIndices(): List<Int> =
+        (0 until sources.length()).filter { index ->
+            sources.optJSONObject(index)?.optString("transport") != "vercel-fallback"
+        }
+
     private fun showServerMenu() {
         val popup = PopupMenu(this, serverButton)
-        for (i in 0 until sources.length()) {
+        for (i in visibleServerIndices()) {
             popup.menu.add(0, 12000 + i, i, serverLabel(i)).apply {
                 isChecked = i == selectedServerIndex
             }
@@ -852,7 +874,7 @@ class NativePlayerActivity : Activity() {
         if (!::serverRail.isInitialized || !::serverRailScroll.isInitialized) return
         serverRail.removeAllViews()
         var selectedChip: View? = null
-        for (i in 0 until sources.length()) {
+        for (i in visibleServerIndices()) {
             val selected = i == selectedServerIndex
             val failed = autoFallbackTried.contains(i)
             val chip = TextView(this).apply {
@@ -918,7 +940,7 @@ class NativePlayerActivity : Activity() {
     }
 
     private fun rebuildQualityOptions(tracks: Tracks) {
-        val best = linkedMapOf<Int, QualityOption>()
+        val best = linkedMapOf<String, QualityOption>()
         for (group in tracks.groups) {
             if (group.type != C.TRACK_TYPE_VIDEO) continue
             for (trackIndex in 0 until group.length) {
@@ -927,22 +949,95 @@ class NativePlayerActivity : Activity() {
                 val height = format.height
                 if (height <= 0) continue
                 val bitrate = format.bitrate
-                val option = QualityOption("${height}p", group, trackIndex, height, bitrate)
-                val old = best[height]
-                if (old == null || bitrate > old.bitrate) best[height] = option
+                val width = format.width.coerceAtLeast(0)
+                val label = if (bitrate > 0)
+                    "${width} × ${height} • ${String.format(Locale.US, "%.2f", bitrate / 1000000.0)} Mbps"
+                    else "${height}p"
+                val option = QualityOption(label, group, trackIndex, height, bitrate)
+                best["${width}x${height}@${bitrate}"] = option
             }
         }
-        qualityOptions = best.values.sortedByDescending { it.height }.toMutableList()
+        qualityOptions = best.values.sortedWith(
+            compareByDescending<QualityOption> { it.height }.thenByDescending { it.bitrate }
+        ).toMutableList()
         runOnUiThread {
             qualityButton.text = forcedQualityLabel ?: "Auto"
             qualityButton.visibility = View.VISIBLE
         }
     }
 
+    private fun showPlaybackSettings() {
+        val popup = PopupMenu(this, settingsButton)
+        popup.menu.add(0, 7000, 0, "Video quality • ${forcedQualityLabel ?: "Auto"}")
+        popup.menu.add(0, 7001, 1, "Audio tracks")
+        popup.menu.add(0, 7002, 2, "Playback speed")
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                7000 -> { showQualityMenu(); true }
+                7001 -> { showAudioMenu(); true }
+                7002 -> { showSpeedMenu(); true }
+                else -> false
+            }
+        }
+        popup.show()
+    }
+
+    private fun showAudioMenu() {
+        val selector = trackSelector ?: return
+        val popup = PopupMenu(this, settingsButton)
+        val choices = mutableListOf<Pair<Tracks.Group, Int>>()
+        popup.menu.add(0, 7600, 0, "Audio • Auto")
+        player?.currentTracks?.groups?.forEach { group ->
+            if (group.type != C.TRACK_TYPE_AUDIO) return@forEach
+            for (i in 0 until group.length) {
+                if (!group.isTrackSupported(i)) continue
+                val format = group.getTrackFormat(i)
+                val language = format.language?.takeIf { it.isNotBlank() } ?: "Track"
+                val label = listOfNotNull(format.label?.takeIf { it.isNotBlank() }, language)
+                    .distinct().joinToString(" • ")
+                choices.add(group to i)
+                popup.menu.add(0, 7601 + choices.size, choices.size, label)
+            }
+        }
+        popup.setOnMenuItemClickListener { item ->
+            if (item.itemId == 7600) {
+                selector.parameters = selector.buildUponParameters()
+                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO).build()
+                true
+            } else {
+                val choice = choices.getOrNull(item.itemId - 7602) ?: return@setOnMenuItemClickListener false
+                val override = TrackSelectionOverride(choice.first.mediaTrackGroup, choice.second)
+                selector.parameters = selector.buildUponParameters()
+                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                    .setOverrideForType(override).build()
+                true
+            }
+        }
+        popup.show()
+    }
+
+    private fun showSpeedMenu() {
+        val exo = player ?: return
+        val popup = PopupMenu(this, settingsButton)
+        val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
+        speeds.forEachIndexed { i, speed ->
+            popup.menu.add(0, 7800 + i, i,
+                if (speed == 1f) "Normal • 1×" else "${speed}×")
+        }
+        popup.setOnMenuItemClickListener { item ->
+            val speed = speeds.getOrNull(item.itemId - 7800)
+                ?: return@setOnMenuItemClickListener false
+            // Live speed support depends on stream/container capabilities.
+            exo.setPlaybackSpeed(speed)
+            true
+        }
+        popup.show()
+    }
+
     private fun showQualityMenu() {
         val selector = trackSelector ?: return
         val generation = playbackGeneration
-        val popup = PopupMenu(this, qualityButton)
+        val popup = PopupMenu(this, settingsButton)
         popup.menu.add(0, 9000, 0, "Auto").apply { isChecked = forcedQualityLabel == null }
         qualityOptions.forEachIndexed { index, option ->
             popup.menu.add(0, 9100 + index, index + 1, option.label).apply { isChecked = forcedQualityLabel == option.label }
@@ -978,50 +1073,29 @@ class NativePlayerActivity : Activity() {
 
     private fun toggleDisplayMode() {
         if (!::playerView.isInitialized || !::displayModeButton.isInitialized) return
-        displayMode = (displayMode + 1) % 4
+        displayMode = (displayMode + 1) % 3
         applyDisplayMode()
     }
 
     private fun applyDisplayMode() {
         if (!::playerView.isInitialized) return
-        val parent = playerView.parent as? View ?: return
-        val layout = (playerView.layoutParams as? FrameLayout.LayoutParams)
-            ?: FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-
-        if (displayMode == 0 && parent.width > 0 && parent.height > 0) {
-            val viewportRatio = 18.5f / 9f
-            val viewportWidth = minOf(parent.width, (parent.height * viewportRatio).toInt())
-            layout.width = viewportWidth
-            layout.height = (viewportWidth / viewportRatio).toInt()
-            layout.gravity = Gravity.CENTER
-            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-        } else {
-            layout.width = ViewGroup.LayoutParams.MATCH_PARENT
-            layout.height = ViewGroup.LayoutParams.MATCH_PARENT
-            layout.gravity = Gravity.CENTER
-            playerView.resizeMode = when (displayMode) {
-                1 -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-            }
+        // Do not crop the score overlay by default; the video host remains a
+        // 16:9 frame in portrait, and fullscreen in landscape.
+        playerView.resizeMode = when (displayMode) {
+            0 -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+            1 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
         }
-        playerView.layoutParams = layout
-
         if (::displayModeButton.isInitialized) {
             displayModeButton.text = when (displayMode) {
-                0 -> "18.5:9"
-                1 -> "Fit"
-                2 -> "Full"
+                0 -> "Fit"
+                1 -> "Full"
                 else -> "Zoom"
             }
             displayModeButton.contentDescription = when (displayMode) {
-                0 -> "18.5 by 9 viewport; tap for Fit"
-                1 -> "Original aspect ratio; tap for Full"
-                2 -> "Stretched full screen; tap for Zoom"
-                else -> "Cropped zoom; tap for 18.5 by 9"
+                0 -> "Fit video; tap for Full"
+                1 -> "Stretch to fill; tap for Zoom"
+                else -> "Crop to fill; tap for Fit"
             }
         }
     }

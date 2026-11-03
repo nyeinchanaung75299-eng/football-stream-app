@@ -70,7 +70,7 @@ function createHarness({ ios = true, streaming = true, webCrypto = true, nativeH
     click() { this.emit('click'); }
   }
 
-  const ids = [...html.matchAll(/id="(football-[^"]+)"/g)].map(match => match[1]);
+  const ids = [...html.matchAll(/id="((?:football|nca)-[^"]+)"/g)].map(match => match[1]);
   for (const id of ids) elements.set(id, new Element(id));
   const video = elements.get('football-player-video');
   const overlay = elements.get('football-player-overlay');
@@ -213,39 +213,56 @@ const tests = [];
 function test(name, run) { tests.push({ name, run }); }
 const failures = h => h.events.filter(event => event.name === 'playback line failed');
 
-test('18.5:9 web video layout and Fit Full Zoom modes stay available', async () => {
+test('top aligned portrait player uses Fit by default and cycles Fit Full Zoom only', async () => {
   const h = createHarness({ ios:false });
-  const wrap = h.elements.get('football-player-video-wrap');
-  const frame = h.elements.get('football-player-video-frame');
-  wrap.clientWidth = 960;
-  wrap.clientHeight = 420;
+  const wrap=h.elements.get('football-player-video-wrap');
+  const frame=h.elements.get('football-player-video-frame');
+  wrap.clientWidth=720;wrap.clientHeight=600;
   await h.open([source('hls')]);
+  assert.equal(frame.style.width,'100%');
+  assert.equal(frame.style.height,'100%');
+  assert.equal(h.video.classList.contains('mode-fit'),true);
+  assert.equal(h.elements.get('football-player-fit').textContent,'Fit');
+  h.elements.get('football-player-fit').click();
+  assert.equal(h.video.classList.contains('mode-full'),true);
+  h.elements.get('football-player-fit').click();
+  assert.equal(h.video.classList.contains('mode-zoom'),true);
+  h.elements.get('football-player-fit').click();
+  assert.equal(h.video.classList.contains('mode-fit'),true);
+  assert.equal(html.includes('18.5:9'),false);
+  assert.match(html,/height:min\(56\.25vw,calc\(100dvh - 120px\)\)/);
+});
 
-  assert.equal(frame.style.width, '863.3333333333333px');
-  assert.equal(frame.style.height, '420px');
-  assert.match(html, /#football-player-video\{width:100%;height:100%;object-fit:cover/);
-  assert.match(html, /#football-player-video\.mode-fit\{object-fit:contain\}/);
-  assert.match(html, /#football-player-video\.mode-full\{object-fit:fill\}/);
-  assert.match(html, /#football-player-video\.mode-zoom\{object-fit:cover\}/);
+test('four original ColaTV lines remain four visible entries while protected relays stay internal',async()=>{
+  const h=createHarness({ios:false});
+  const all=[];
+  for(let i=0;i<4;i++){
+    all.push({...source('hls','ColaTV '+i),id:'cola-'+i});
+    all.push({...source('hls','ColaTV '+i+' • VPN-free backup'),id:'cola-'+i+'-vpn-free',transport:'vercel-fallback'});
+  }
+  await h.open(all);
+  const rail=h.elements.get('football-player-line-items');
+  assert.equal(rail.children.length,4);
+  h.elements.get('football-player-server').click();
+  assert.equal(h.elements.get('football-player-menu-items').children.length,4);
+  assert.equal(h.video.controls,false,'Custom controls own non-iOS playback');
+});
 
-  wrap.clientWidth = 720;
-  wrap.clientHeight = 600;
-  h.window.emit('resize');
-  assert.equal(frame.style.width, '720px');
-  assert.equal(frame.style.height, '350.2702702702703px');
-  h.elements.get('football-player-fit').click();
-  assert.equal(h.video.classList.contains('mode-fit'), true);
-  assert.equal(h.elements.get('football-player-fit').textContent, 'Fit');
-  assert.equal(frame.style.width, '100%');
-  h.elements.get('football-player-fit').click();
-  assert.equal(h.video.classList.contains('mode-full'), true);
-  assert.equal(h.elements.get('football-player-fit').textContent, 'Full');
-  h.elements.get('football-player-fit').click();
-  assert.equal(h.video.classList.contains('mode-zoom'), true);
-  assert.equal(h.elements.get('football-player-fit').textContent, 'Zoom');
-  h.elements.get('football-player-fit').click();
-  assert.equal(h.elements.get('football-player-fit').textContent, '18.5:9');
-  assert.equal(frame.style.width, '720px');
+test('in-player controls show progress/time and Settings video audio speed tabs',async()=>{
+  const h=createHarness({ios:false});
+  await h.open([source('hls')]);
+  h.video.duration=3600;h.video.currentTime=120;
+  h.video.emit('timeupdate');
+  assert.equal(h.elements.get('nca-player-time').textContent,'2:00 / 1:00:00');
+  h.elements.get('nca-player-settings').click();
+  const tabs=h.elements.get('football-player-menu-items').children[0];
+  assert.equal(tabs.children.length,3);
+  tabs.children[1].click();
+  assert.equal(h.elements.get('football-player-menu-title').textContent,'Player settings');
+  tabs.children[2].click();
+  assert.equal(h.elements.get('football-player-menu-items').children.length,7);
+  h.elements.get('football-player-menu-items').children[4].click();
+  assert.equal(h.elements.get('football-player-menu').classList.contains('hidden'),true);
 });
 
 test('fullscreen line rail floats over the picture and auto-hides after five seconds', async () => {
