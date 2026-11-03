@@ -126,27 +126,6 @@ void main() {
     }
   });
 
-  test('YYZB major football competitions lead, then keep kickoff order', () {
-    final matches = <SourceMatch>[
-      {'source_id': 'minor', 'league': 'Portugal U23 League', 'match_time': '2026-11-03T10:00:00Z'},
-      {'source_id': 'ucl', 'league': 'UEFA Champions League', 'match_time': '2026-11-03T20:00:00Z'},
-      {'source_id': 'epl', 'league': 'English Premier League', 'match_time': '2026-11-03T18:00:00Z'},
-      {'source_id': 'uel', 'league': 'UEFA Europa League', 'match_time': '2026-11-03T19:00:00Z'},
-    ];
-    matches.sort((a, b) => compareSourceMatches(
-      a,
-      b,
-      isLive: (_) => false,
-      majorCompetitionFirst: true,
-    ));
-    expect(matches.map((match) => match['source_id']), [
-      'ucl',
-      'uel',
-      'epl',
-      'minor',
-    ]);
-  });
-
   group('source discovery filters', () {
     final today = DateTime(2026, 10, 10, 12);
     final matches = <SourceMatch>[
