@@ -273,7 +273,7 @@ void main() {
     );
   });
 
-  testWidgets('YYZB Today and All dates make upcoming fixtures discoverable', (
+  testWidgets('YYZB shows only watchable rooms across local midnight', (
     tester,
   ) async {
     final requests = <Uri>[];
@@ -283,26 +283,17 @@ void main() {
           const MaterialApp(home: SourceBrowserPage(source: 'yyzb')),
         );
         await tester.pumpAndSettle();
-        expect(find.text('1 match'), findsOneWidget);
+        expect(find.text('2 matches'), findsOneWidget);
         expect(find.text('Arsenal'), findsOneWidget);
         expect(find.text('Dortmund'), findsNothing);
         expect(find.text('NOT READY'), findsNothing);
-        expect(find.byKey(const ValueKey('yyzb-streams-only')), findsOneWidget);
-        expect(find.text('Chelsea'), findsNothing);
-        // The full football catalogue is still accessible when requested.
-        await tester.tap(find.byKey(const ValueKey('yyzb-all-football')));
-        await tester.pumpAndSettle();
-        expect(find.text('2 matches'), findsOneWidget);
-        expect(find.text('Dortmund'), findsOneWidget);
-        expect(find.text('NOT READY'), findsOneWidget);
-        await tester.tap(find.byKey(const ValueKey('yyzb-streams-only')));
-        await tester.pumpAndSettle();
-        expect(find.text('1 match'), findsOneWidget);
+        expect(find.text('Chelsea'), findsOneWidget);
+        expect(find.text('Today'), findsNothing);
+        expect(find.text('All dates'), findsNothing);
+        expect(find.byKey(const ValueKey('yyzb-streams-only')), findsNothing);
+        expect(find.byKey(const ValueKey('yyzb-all-football')), findsNothing);
         expect(requests.every((uri) => uri.path.endsWith('/matches')), isTrue);
 
-        await tester.tap(find.text('All dates'));
-        await tester.pumpAndSettle();
-        expect(find.text('2 matches'), findsOneWidget);
         await tester.enterText(
           find.byKey(const ValueKey('source-match-search')),
           'CHELSEA premier',
@@ -312,13 +303,9 @@ void main() {
         expect(find.text('Chelsea'), findsOneWidget);
         expect(find.text('Arsenal'), findsNothing);
 
-        await tester.tap(find.text('Today'));
-        await tester.pumpAndSettle();
-        expect(find.text('0 matches'), findsOneWidget);
-        expect(find.text('Chelsea'), findsNothing);
         await tester.tap(find.byTooltip('Clear search'));
         await tester.pumpAndSettle();
-        expect(find.text('1 match'), findsOneWidget);
+        expect(find.text('2 matches'), findsOneWidget);
         await tester.pumpWidget(const SizedBox());
       },
       () => MockClient((request) async {
@@ -330,7 +317,7 @@ void main() {
     );
   });
 
-  testWidgets('searchable league picker filters Today and All dates together', (
+  testWidgets('YYZB searchable league picker filters watchable rooms', (
     tester,
   ) async {
     await http.runWithClient(
@@ -351,13 +338,9 @@ void main() {
           find.widgetWithText(ListTile, 'English Premier League'),
         );
         await tester.pumpAndSettle();
-        expect(find.text('1 match'), findsOneWidget);
+        expect(find.text('2 matches'), findsOneWidget);
         expect(find.text('Arsenal'), findsOneWidget);
         expect(find.text('Dortmund'), findsNothing);
-
-        await tester.tap(find.text('All dates'));
-        await tester.pumpAndSettle();
-        expect(find.text('2 matches'), findsOneWidget);
         expect(find.text('Chelsea'), findsOneWidget);
         await tester.pumpWidget(const SizedBox());
       },
