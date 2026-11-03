@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../native_player.dart';
 import '../network_endpoints.dart';
+import '../playback_routes.dart';
 import '../public_guide_cache.dart';
 import '../widgets/premium_bottom_nav.dart';
 import 'home_page.dart';
@@ -215,10 +216,6 @@ class _ChannelsPageState extends State<ChannelsPage> {
       final data = await request('/channels/$id/streams');
       if (data['streams'] is! List)
         throw const FormatException('Invalid channel lines');
-      // Channel DASH/MPD lines already use the protected playback route.
-      // Keep the provider's one-to-one line list: duplicating a ClearKey DASH
-      // session under a second relay origin can leave iOS WebKit buffering
-      // forever even though the manifest and media segments are healthy.
       final lines = (data['streams'] as List)
           .whereType<Map>()
           .map((raw) {
@@ -251,10 +248,16 @@ class _ChannelsPageState extends State<ChannelsPage> {
         );
         return;
       }
-      NativePlayer.prewarm(sources: lines);
+      // Keep one selectable entry per Admin line while retaining a hidden
+      // Vercel copy immediately after protected Cloudflare routes. The player
+      // tries that copy only after the primary route fails, which lets Channels
+      // open on networks where Cloudflare is unreachable without showing every
+      // configured line twice in the server picker.
+      final playerLines = addVpnFreePlaybackFallbacks(lines);
+      NativePlayer.prewarm(sources: playerLines);
       await NativePlayer.open(
         context: context,
-        sources: lines,
+        sources: playerLines,
         selectedIndex: 0,
         title: channel['name']?.toString() ?? 'Channel',
         matchId: id,
