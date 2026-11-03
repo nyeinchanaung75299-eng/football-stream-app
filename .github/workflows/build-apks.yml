@@ -417,16 +417,15 @@ jobs:
       - name: Build Viewer release APKs
         working-directory: user_app
         run: |
-          BUILD_NUMBER=$((10000 + GITHUB_RUN_NUMBER))
+          # Keep updater version codes above older ad-hoc/CI builds such as
+          # 12688, while retaining a monotonically increasing run component.
+          BUILD_NUMBER=$((30000 + GITHUB_RUN_NUMBER))
           flutter build apk --release --split-per-abi \
             --build-name 9.8.0 \
             --build-number "$BUILD_NUMBER"
-          flutter build apk --release \
-            --build-name 9.8.0 \
-            --build-number "$BUILD_NUMBER"
-          cp build/app/outputs/flutter-apk/app-release.apk /tmp/NCA-latest.apk
-          APK_SHA256="$(sha256sum /tmp/NCA-latest.apk | awk '{print $1}')"
-          APK_SIZE="$(stat -c%s /tmp/NCA-latest.apk)"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk /tmp/NCA-arm64-v8a-latest.apk
+          APK_SHA256="$(sha256sum /tmp/NCA-arm64-v8a-latest.apk | awk '{print $1}')"
+          APK_SIZE="$(stat -c%s /tmp/NCA-arm64-v8a-latest.apk)"
           echo "NCA_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "NCA_APK_SHA256=$APK_SHA256" >> "$GITHUB_ENV"
           echo "NCA_APK_SIZE=$APK_SIZE" >> "$GITHUB_ENV"
@@ -454,14 +453,15 @@ jobs:
           git switch -C feed origin/feed
 
           mkdir -p public/releases
-          cp /tmp/NCA-latest.apk public/releases/NCA-latest.apk
+          cp /tmp/NCA-arm64-v8a-latest.apk public/releases/NCA-arm64-v8a-latest.apk
 
           python3 - <<'PY'
           import json, os
           data = {
               "version_name": "9.8.0",
               "build_number": int(os.environ["NCA_BUILD_NUMBER"]),
-              "apk_url": "https://nyeinchanaung75299-eng.github.io/football-stream-app/releases/NCA-latest.apk",
+              "apk_url": "https://nyeinchanaung75299-eng.github.io/football-stream-app/releases/NCA-arm64-v8a-latest.apk",
+              "abi": "arm64-v8a",
               "sha256": os.environ["NCA_APK_SHA256"],
               "size_bytes": int(os.environ["NCA_APK_SIZE"]),
               "mandatory": False,
@@ -471,7 +471,7 @@ jobs:
               json.dump(data, f, separators=(",", ":"))
           PY
 
-          git add public/releases/NCA-latest.apk public/releases/latest.json
+          git add public/releases/NCA-arm64-v8a-latest.apk public/releases/latest.json
           if git diff --cached --quiet; then
             echo "Release feed already up to date."
             exit 0
