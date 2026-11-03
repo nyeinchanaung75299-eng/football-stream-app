@@ -1,7 +1,9 @@
 const vercelBackupBase = 'https://nca-network-backup-test.vercel.app';
 
-// Use the direct Cloudflare route first. Vercel remains the VPN-free fallback.
-List<String> publicApiBases({String? primary, bool preferVercel = false}) {
+// Myanmar operator routes can time out on Cloudflare even when GitHub and
+// Vercel are reachable. Use Vercel for metadata/Admin traffic by default and
+// keep every existing Cloudflare host as an automatic VPN-capable fallback.
+List<String> publicApiBases({String? primary, bool preferVercel = true}) {
   final first = (primary ?? 'https://football-api.nyeinchanaung.us.ci')
       .trim()
       .replaceAll(RegExp(r'/+$'), '');

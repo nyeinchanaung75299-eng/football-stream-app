@@ -57,6 +57,26 @@ bool sourceStatusIsFresh(DateTime? checkedAt, DateTime now,
       now.difference(checkedAt) < ttl;
 }
 
+@visibleForTesting
+Future<void> runBoundedStatusChecks<T>(
+  List<T> items,
+  int concurrency,
+  Future<void> Function(T item) check,
+) async {
+  if (items.isEmpty) return;
+  var next = 0;
+  final workerCount = concurrency.clamp(1, items.length).toInt();
+
+  Future<void> worker() async {
+    while (next < items.length) {
+      final item = items[next++];
+      await check(item);
+    }
+  }
+
+  await Future.wait(List.generate(workerCount, (_) => worker()));
+}
+
 class SocoImportPage extends StatefulWidget {
   const SocoImportPage({
     super.key,
@@ -98,9 +118,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
   // Status is advisory, not a prerequisite for tapping a stream source.
   final Map<String, DateTime> _anchorStatusCheckedAt = <String, DateTime>{};
   static const _statusTtl = Duration(minutes: 2);
-  // Check the first on-screen matches; leave the rest tappable as UNKNOWN
-  // instead of firing dozens of stream resolver requests on every open.
-  static const _initialStatusProbeLimit = 8;
+  // Check every visible room, but cap simultaneous resolver work so one slow
+  // upstream cannot serialize the whole page or overload the gateway.
+  static const _statusProbeConcurrency = 12;
   int _anchorStatusEpoch = 0;
   String? _extractingAnchorKey;
   Timer? _sourceRefreshTimer;
@@ -440,9 +460,18 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
       for (final anchor in anchors) {
         final key = _anchorKey(match, anchor, provider: provider);
-        if (provider == 'cola' || provider == 'fawa') {
-          // These providers have useful schedule-level status already.
+        if (_matchLooksLive(match)) {
+          // Paint known-live schedule rows immediately; no network round trip
+          // is needed before the operator can see the red LIVE badge.
+          _anchorStatuses[key] = 'live';
+          _anchorStatusCheckedAt[key] = now;
+          continue;
+        }
+        if (provider == 'fawa') {
+          // Fawa has useful schedule-level readiness metadata. Soco, YYZB
+          // and Cola are resolved below because their room state can change.
           _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'ready';
+          _anchorStatusCheckedAt[key] = now;
           continue;
         }
 
@@ -450,7 +479,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
         if (sourceStatusIsFresh(checked, now, ttl: _statusTtl)) {
           continue;
         }
-        if (pending.length >= _initialStatusProbeLimit) continue;
         _anchorStatuses[key] = 'checking';
         pending.add({'match': match, 'anchor': anchor, 'key': key});
       }
@@ -458,65 +486,66 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     if (mounted && source == provider) setState(() {});
 
-    for (var offset = 0; offset < pending.length; offset += 4) {
-      if (!mounted || source != provider || epoch != _anchorStatusEpoch) return;
+    await runBoundedStatusChecks(
+      pending,
+      _statusProbeConcurrency,
+      (item) async {
+        if (!mounted ||
+            source != provider ||
+            epoch != _anchorStatusEpoch) return;
+        final match = Map<String, dynamic>.from(item['match'] as Map);
+        final anchor = Map<String, dynamic>.from(item['anchor'] as Map);
+        final key = item['key'].toString();
 
-      final batch = pending.skip(offset).take(4).toList();
-      await Future.wait(
-        batch.map((item) async {
-          final match = Map<String, dynamic>.from(item['match'] as Map);
-          final anchor = Map<String, dynamic>.from(item['anchor'] as Map);
-          final key = item['key'].toString();
-
-          try {
-            final room = anchor['room_num']?.toString().trim() ?? '';
-            if (room.isEmpty) {
-              _anchorStatuses[key] = 'offline';
-              return;
-            }
-
-            final data = await FunctionGateway.invoke(
-              'soco-links',
-              body: {
-                'action': 'streams',
-                'source': provider,
-                'room_num': room,
-                'schedule_id': match['schedule_id'],
-                'page_url': anchor['page_url'] ?? match['page_url'],
-                'status_only': true,
-              },
-            );
-
-            if (data is! Map) {
-              _anchorStatuses[key] = 'unknown';
-              return;
-            }
-
-            final lineCount = (data['line_count'] as num?)?.toInt() ?? 0;
-            _anchorLineCounts[key] = lineCount;
-
-            if (_isLiveStatus(data['live_status'])) {
-              _anchorStatuses[key] = 'live';
-            } else if (data['ready'] == true || lineCount > 0) {
-              _anchorStatuses[key] = 'ready';
-            } else {
-              _anchorStatuses[key] = 'offline';
-            }
-          } catch (_) {
-            _anchorStatuses[key] = 'unknown';
-          } finally {
-            // Avoid letting an older status request overwrite fresh data.
-            if (mounted && source == provider && epoch == _anchorStatusEpoch) {
-              _anchorStatusCheckedAt[key] = DateTime.now();
-            }
+        try {
+          final room = anchor['room_num']?.toString().trim() ?? '';
+          if (room.isEmpty) {
+            _anchorStatuses[key] = 'offline';
+            return;
           }
-        }),
-      );
 
-      if (mounted && source == provider && epoch == _anchorStatusEpoch) {
-        setState(() {});
-      }
-    }
+          final data = await FunctionGateway.invoke(
+            'soco-links',
+            body: {
+              'action': 'streams',
+              'source': provider,
+              'room_num': room,
+              'schedule_id': match['schedule_id'],
+              'page_url': anchor['page_url'] ?? match['page_url'],
+              'status_only': true,
+            },
+          );
+
+          if (data is! Map) {
+            _anchorStatuses[key] = 'unknown';
+            return;
+          }
+
+          final lineCount = (data['line_count'] as num?)?.toInt() ?? 0;
+          _anchorLineCounts[key] = lineCount;
+
+          if (_isLiveStatus(data['live_status'])) {
+            _anchorStatuses[key] = 'live';
+          } else if (data['ready'] == true || lineCount > 0) {
+            _anchorStatuses[key] = 'ready';
+          } else {
+            _anchorStatuses[key] = 'offline';
+          }
+        } catch (_) {
+          _anchorStatuses[key] = 'unknown';
+        } finally {
+          // Avoid letting an older status request overwrite fresh data.
+          if (mounted && source == provider && epoch == _anchorStatusEpoch) {
+            _anchorStatusCheckedAt[key] = DateTime.now();
+          }
+          // Repaint this room as soon as its own request finishes. A slow
+          // neighbour no longer holds the whole four-item batch at UNKNOWN.
+          if (mounted && source == provider && epoch == _anchorStatusEpoch) {
+            setState(() {});
+          }
+        }
+      },
+    );
   }
 
   int _anchorStatusRank(String? status) {

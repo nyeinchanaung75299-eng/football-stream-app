@@ -20,7 +20,7 @@ const match = <String, dynamic>{
 
 void main() {
   setUp(() {
-    rememberVerifiedPublicApiBase('https://football-api.nyeinchanaung.us.ci');
+    rememberVerifiedPublicApiBase('https://nca-network-backup-test.vercel.app');
     SharedPreferences.setMockInitialValues({});
     PackageInfo.setMockInitialValues(
       appName: 'NCA',
@@ -33,7 +33,7 @@ void main() {
 
   for (final sourceTab in [false, true]) {
     final label = sourceTab ? 'source tab' : 'Live';
-    testWidgets('$label falls back to Vercel then reuses the verified route', (
+    testWidgets('$label uses Vercel first and reuses the verified route', (
       tester,
     ) async {
       final hosts = <String>[];
@@ -48,7 +48,7 @@ void main() {
           );
           await tester.pumpAndSettle();
           expect(find.text('Team Alpha'), findsOneWidget);
-          expect(hosts.first, 'football-api.nyeinchanaung.us.ci');
+          expect(hosts.first, 'nca-network-backup-test.vercel.app');
           expect(hosts, contains('nca-network-backup-test.vercel.app'));
           hosts.clear();
           await tester.pump(const Duration(seconds: 61));
