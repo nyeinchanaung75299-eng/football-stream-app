@@ -66,7 +66,11 @@ Deno.serve(async (req) => {
       return json({ error: "Unsupported source." }, 400);
     }
 
-    if (source === "xoilac" || source === "camel") {
+    if (source === "sofascore") {
+      return json(await sofascoreMatches(body.date));
+    }
+
+    if (source === "xoilac" || source === "camel" || source === "arena" || source === "sofascore") {
       const payload = { ok: true, source, matches: await websiteMatches(source), generated_at: new Date().toISOString() };
       return json(payload);
     }
@@ -92,13 +96,55 @@ Deno.serve(async (req) => {
   }
 });
 
-function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "xoilac" | "camel" | null {
+function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "xoilac" | "camel" | "arena" | "sofascore" | null {
   const source = String(value ?? "").trim().toLowerCase();
   if (!source) return "soco";
-  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "xoilac" || source === "camel") {
+  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "xoilac" || source === "camel" || source === "arena") {
     return source;
   }
   return null;
+}
+
+async function sofascoreMatches(rawDate: unknown) {
+  const value = String(rawDate ?? "").trim();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value
+    : new Date().toISOString().slice(0, 10);
+  const raw = await fetchText(
+    "https://www.sofascore.com/api/v1/sport/football/scheduled-events/" +
+      encodeURIComponent(date),
+  );
+  const payload = JSON.parse(raw);
+  const events = Array.isArray(payload?.events) ? payload.events : [];
+  const matches = events.slice(0, 1000).map((event: any) => {
+    const id = Number(event?.id);
+    const home = event?.homeTeam ?? {};
+    const away = event?.awayTeam ?? {};
+    const timestamp = Number(event?.startTimestamp);
+    if (!Number.isFinite(id) || !home?.name || !away?.name) return null;
+    const status = String(event?.status?.type ?? event?.status?.description ?? "").toLowerCase();
+    const live = status === "inprogress" || status === "live";
+    return {
+      source: "sofascore",
+      source_id: String(id),
+      fixture_id: 9000000000 + id,
+      provider: "sofascore",
+      league: event?.tournament?.name ?? event?.uniqueTournament?.name ?? "Football",
+      home_team: String(home.name),
+      away_team: String(away.name),
+      home_logo: home?.id ? "https://img.sofascore.com/api/v1/team/" + home.id + "/image" : null,
+      away_logo: away?.id ? "https://img.sofascore.com/api/v1/team/" + away.id + "/image" : null,
+      poster_url: "https://img.sofascore.com/api/v1/event/" + id + "/share-image/16x9",
+      match_time: Number.isFinite(timestamp)
+        ? new Date(timestamp * 1000).toISOString()
+        : null,
+      hot: live,
+      status: live ? "LIVE" : "NS",
+      match_status: live ? "LIVE" : "NS",
+      anchors: [],
+    };
+  }).filter((row: any) => row != null).sort(compareMatches);
+  return { ok: true, source: "sofascore", matches, results: matches.length, date, generated_at: new Date().toISOString() };
 }
 
 async function jsonpMatches(args: {
