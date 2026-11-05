@@ -67,7 +67,16 @@ Deno.serve(async (req) => {
     }
 
     if (source === "sofascore") {
-      return json(await sofascoreMatches(body.date));
+      try {
+        return json(await sofascoreMatches(body.date));
+      } catch (_) {
+        return json(await fallbackFootballMatches({
+          supabaseUrl,
+          anonKey,
+          authHeader,
+          rawDate: body.date,
+        }));
+      }
     }
 
     if (source === "arena") {
@@ -109,6 +118,49 @@ function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "x
   return null;
 }
 
+
+async function fallbackFootballMatches(args: { supabaseUrl: string; anonKey: string; authHeader: string; rawDate: unknown }) {
+  const value = String(args.rawDate ?? "").trim();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : new Date().toISOString().slice(0, 10);
+  const response = await fetch(args.supabaseUrl + "/functions/v1/football-fixtures", {
+    method: "POST",
+    headers: {
+      Authorization: args.authHeader,
+      apikey: args.anonKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ mode: "all", date }),
+  });
+  if (!response.ok) throw new Error("Football fixture fallback returned HTTP " + response.status + ".");
+  const payload = await response.json();
+  const fixtures = Array.isArray(payload?.fixtures) ? payload.fixtures : [];
+  const matches = fixtures.map((row: any) => {
+    const id = String(row?.fixture_id ?? row?.id ?? "").trim();
+    const home = String(row?.home_name ?? row?.home_team ?? "").trim();
+    const away = String(row?.away_name ?? row?.away_team ?? "").trim();
+    if (!id || !home || !away) return null;
+    const status = String(row?.status_short ?? row?.status ?? "NS").toUpperCase();
+    const live = row?.is_live === true || status === "LIVE" || status === "1H" || status === "2H";
+    return {
+      source: "sofascore",
+      source_id: id,
+      fixture_id: Number(row?.fixture_id ?? row?.id),
+      provider: "fixture-fallback",
+      league: String(row?.league_name ?? row?.league ?? "Football"),
+      home_team: home,
+      away_team: away,
+      home_logo: row?.home_logo ?? null,
+      away_logo: row?.away_logo ?? null,
+      poster_url: row?.poster_url ?? null,
+      match_time: normalizeMatchTime(row?.kickoff_at ?? row?.match_time),
+      hot: live,
+      status: live ? "LIVE" : status,
+      match_status: live ? "LIVE" : status,
+      anchors: [],
+    };
+  }).filter((row: any) => row != null).sort(compareMatches);
+  return { ok: true, source: "sofascore", served_by: "football-fixtures", matches, results: matches.length, date, generated_at: new Date().toISOString() };
+}
 
 async function arenaMatches(rawDate: unknown) {
   const value = String(rawDate ?? "").trim();
