@@ -31,6 +31,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       '1';
   DateTime selectedDate = DateTime.now();
   String mode = 'date';
+  String fixtureSource = 'cola';
   bool loading = false;
   bool importing = false;
   String? errorText;
@@ -63,7 +64,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     await loadFixtures();
   }
 
-  int _stableColaFixtureId(String value) {
+  int _stableSourceFixtureId(String value) {
     // Stable 32-bit FNV-1a, moved into a separate bigint range so ColaTV
     // fixture ids cannot collide with normal football API fixture ids.
     var hash = 0x811C9DC5;
@@ -113,27 +114,28 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     throw Exception(lastError ?? 'ColaTV mirror is unavailable.');
   }
 
-  Future<List<Map<String, dynamic>>> _loadColaFixtures(
-      String requestedMode, DateTime requestedDate) async {
+  Future<List<Map<String, dynamic>>> _loadSourceFixtures(
+      String provider, String requestedMode, DateTime requestedDate) async {
     dynamic data;
     if (!_enableNoVpnFallback) {
       data = await FunctionGateway.invoke(
         'source-match-list',
-        body: const {'source': 'cola'},
+        body: {'source': provider, 'date': DateFormat('yyyy-MM-dd').format(requestedDate)},
       );
     } else {
       try {
         data = await FunctionGateway.invoke(
           'source-match-list',
-          body: const {'source': 'cola'},
+          body: {'source': provider, 'date': DateFormat('yyyy-MM-dd').format(requestedDate)},
         );
       } catch (_) {
+        if (provider != 'cola') rethrow;
         data = await _loadColaMirror();
       }
     }
     final raw = data is Map ? data['matches'] : null;
     if (raw is! List) {
-      throw const FormatException('ColaTV match list is invalid.');
+      throw FormatException('${_providerLabel(provider)} match list is invalid.');
     }
 
     final wantedDate = DateTime(
@@ -174,9 +176,11 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           .toString();
 
       rows.add({
-        'fixture_id': _stableColaFixtureId(sourceKey),
-        'provider': 'cola',
-        'league_name': (row['league'] ?? 'Football').toString(),
+        'fixture_id': row['fixture_id'] is num
+            ? (row['fixture_id'] as num).toInt()
+            : _stableSourceFixtureId('$provider::$sourceKey'),
+        'provider': provider,
+        'league_name': (row['league'] ?? row['league_name'] ?? 'Football').toString(),
         'home_name': home,
         'away_name': away,
         'home_logo': row['home_logo'],
@@ -187,6 +191,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         'status_short': isLive ? 'LIVE' : 'NS',
         'is_live': isLive,
         'source_page_url': row['page_url'],
+        'poster_url': row['poster_url'],
       });
     }
 
@@ -236,20 +241,18 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       selectedIds.clear();
     });
 
-    String provider = 'cola';
+    String provider = fixtureSource;
     try {
       List<Map<String, dynamic>> rows = const [];
 
       try {
-        rows = await _loadColaFixtures(requestedMode, requestedDate);
+        rows = await _loadSourceFixtures(provider, requestedMode, requestedDate);
       } catch (_) {
         rows = const [];
       }
 
-      // ColaTV is the primary and exclusive source whenever it returns a
-      // usable list. Only fall back to the existing fixture provider when
-      // ColaTV is unreachable or has no matches for the selected date/mode.
-      if (rows.isEmpty) {
+      // API fallback is retained only for ColaTV. SofaScore stays explicit.
+      if (rows.isEmpty && provider == 'cola') {
         provider = 'fallback';
         rows = await _loadFallbackFixtures(requestedMode, requestedDate);
       }
@@ -259,7 +262,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         properties: {
           'mode': requestedMode,
           'fixture_count': rows.length,
-          'primary_source': 'cola',
+          'primary_source': fixtureSource,
           'served_by': provider,
         },
       ));
@@ -273,7 +276,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         'fixture list failed',
         properties: {
           'mode': requestedMode,
-          'primary_source': 'cola',
+          'primary_source': fixtureSource,
         },
       ));
       if (!current()) return;
@@ -494,6 +497,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     switch (value?.toString()) {
       case 'cola':
         return 'ColaTV';
+      case 'sofascore':
+        return 'SofaScore';
       case 'football_data_org':
         return 'football-data.org';
       case 'source_fallback':
@@ -582,6 +587,26 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
             ),
           ),
           const SizedBox(height: 14),
+          DropdownButtonFormField<String>(
+            value: fixtureSource,
+            decoration: const InputDecoration(
+              labelText: 'Big Match source',
+              prefixIcon: Icon(Icons.photo_library_outlined),
+              border: OutlineInputBorder(),
+            ),
+            items: const [
+              DropdownMenuItem(value: 'cola', child: Text('ColaTV')),
+              DropdownMenuItem(value: 'sofascore', child: Text('SofaScore')),
+            ],
+            onChanged: importing || loading
+                ? null
+                : (value) async {
+                    if (value == null || value == fixtureSource) return;
+                    setState(() => fixtureSource = value);
+                    await loadFixtures();
+                  },
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               modeButton(
