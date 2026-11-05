@@ -119,6 +119,24 @@ function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "x
 }
 
 
+function arenaEnglishName(value: string, kind: "team" | "league" = "team") {
+  const raw = value.trim();
+  const known: Record<string, string> = {
+    "ميلان": "AC Milan",
+    "فيرينتسفاروشي": "Ferencvaros",
+    "ألكمار": "AZ Alkmaar",
+    "يوفنتوس": "Juventus",
+    "الدوري الأوروبي": "UEFA Europa League",
+    "دوري أبطال أوروبا": "UEFA Champions League",
+    "الدوري الإنجليزي الممتاز": "Premier League",
+    "الدوري الإسباني": "La Liga",
+    "الدوري الإيطالي": "Serie A",
+    "الدوري الألماني": "Bundesliga",
+    "الدوري الفرنسي": "Ligue 1",
+  };
+  return known[raw] ?? englishFootballName(raw, kind);
+}
+
 async function fallbackFootballMatches(args: { supabaseUrl: string; anonKey: string; authHeader: string; rawDate: unknown }) {
   const value = String(args.rawDate ?? "").trim();
   const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : new Date().toISOString().slice(0, 10);
@@ -178,8 +196,8 @@ async function arenaMatches(rawDate: unknown) {
     const homeRaw = String(row?.home_team?.name_en ?? row?.home_team?.name ?? "").trim();
     const awayRaw = String(row?.away_team?.name_en ?? row?.away_team?.name ?? "").trim();
     if (!id || !homeRaw || !awayRaw) return null;
-    const home = englishFootballName(homeRaw);
-    const away = englishFootballName(awayRaw);
+    const home = arenaEnglishName(homeRaw);
+    const away = arenaEnglishName(awayRaw);
     const state = String(row?.state ?? "").toLowerCase();
     const live = state === "live" || state === "inprogress";
     const servers = Array.isArray(row?.servers) ? row.servers : [];
@@ -188,7 +206,7 @@ async function arenaMatches(rawDate: unknown) {
       source_id: id,
       schedule_id: id,
       provider: "arena",
-      league: englishFootballName(
+      league: arenaEnglishName(
         String(row?.tournament?.name_en ?? row?.tournament?.name ?? "Football"),
         "league",
       ),
