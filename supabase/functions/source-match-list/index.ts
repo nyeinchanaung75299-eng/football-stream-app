@@ -110,10 +110,24 @@ async function sofascoreMatches(rawDate: unknown) {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
     ? value
     : new Date().toISOString().slice(0, 10);
-  const raw = await fetchText(
-    "https://www.sofascore.com/api/v1/sport/football/scheduled-events/" +
-      encodeURIComponent(date),
-  );
+  let raw = "";
+  let lastError: unknown = null;
+  for (const base of [
+    "https://api.sofascore.com/api/v1/sport/football/scheduled-events/",
+    "https://www.sofascore.com/api/v1/sport/football/scheduled-events/",
+  ]) {
+    try {
+      raw = await fetchText(base + encodeURIComponent(date));
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!raw) {
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("SofaScore schedule is unavailable.");
+  }
   const payload = JSON.parse(raw);
   const events = Array.isArray(payload?.events) ? payload.events : [];
   const matches = events.slice(0, 1000).map((event: any) => {
