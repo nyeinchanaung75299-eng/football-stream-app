@@ -1,0 +1,25 @@
+name: NCA Telegram Bot Regression
+
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/_shared/nca_private_admin_bot.mjs"
+      - "supabase/functions/_shared/nca_private_admin_bot.test.mjs"
+      - "supabase/functions/_shared/stream_probe.mjs"
+      - ".github/workflows/telegram-bot-regression.yml"
+  workflow_dispatch:
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check syntax
+        run: node --check supabase/functions/_shared/nca_private_admin_bot.mjs
+      - name: Run Telegram bot tests
+        run: node --test supabase/functions/_shared/nca_private_admin_bot.test.mjs
