@@ -670,7 +670,19 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
         return reply({ ok: true });
       }
       const allowed = new Set((env.TG_ADMIN_USER_IDS || "").split(",").map(s => s.trim()).filter(Boolean));
-      if (!allowed.has(String(from.id))) return reply({ ok: true });
+      if (!allowed.has(String(from.id))) {
+        // Clearing the old persistent keyboard is safe even for an unpaired
+        // private chat; never reveal private Admin data or inline controls.
+        if (cmd === "/start" || cmd === "/menu" || cmd === "/help") {
+          await telegram("sendMessage", token, {
+            chat_id:chat.id,
+            text:"⌨️ Old permanent keyboard hidden. This chat is not linked to NCA Private Admin.\n"+
+              "Use /whoami and add your Telegram ID to TG_ADMIN_USER_IDS in Supabase Edge Function Secrets.",
+            reply_markup:{remove_keyboard:true},
+          });
+        }
+        return reply({ ok: true });
+      }
     }
     if (callback && callback.id) await telegram("answerCallbackQuery", token, { callback_query_id: callback.id });
     let responseText, keyboard;
