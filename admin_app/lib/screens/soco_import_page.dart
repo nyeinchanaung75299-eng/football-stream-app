@@ -108,7 +108,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       '1';
   String? targetMatchId;
   bool loading = false;
-  bool availableOnly = true;
+  bool availableOnly = false;
   String source = 'soco';
   String dayFilter = 'today';
   String? errorText;
