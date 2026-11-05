@@ -175,9 +175,11 @@ async function arenaMatches(rawDate: unknown) {
   const rows = Array.isArray(payload?.matches) ? payload.matches : [];
   const matches = rows.map((row: any) => {
     const id = String(row?.id ?? "").trim();
-    const home = String(row?.home_team?.name ?? "").trim();
-    const away = String(row?.away_team?.name ?? "").trim();
-    if (!id || !home || !away) return null;
+    const homeRaw = String(row?.home_team?.name_en ?? row?.home_team?.name ?? "").trim();
+    const awayRaw = String(row?.away_team?.name_en ?? row?.away_team?.name ?? "").trim();
+    if (!id || !homeRaw || !awayRaw) return null;
+    const home = englishFootballName(homeRaw);
+    const away = englishFootballName(awayRaw);
     const state = String(row?.state ?? "").toLowerCase();
     const live = state === "live" || state === "inprogress";
     const servers = Array.isArray(row?.servers) ? row.servers : [];
@@ -186,7 +188,10 @@ async function arenaMatches(rawDate: unknown) {
       source_id: id,
       schedule_id: id,
       provider: "arena",
-      league: String(row?.tournament?.name ?? "Football"),
+      league: englishFootballName(
+        String(row?.tournament?.name_en ?? row?.tournament?.name ?? "Football"),
+        "league",
+      ),
       home_team: home,
       away_team: away,
       home_logo: row?.home_team?.logo ?? null,
