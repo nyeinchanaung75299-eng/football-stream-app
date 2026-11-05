@@ -70,7 +70,11 @@ Deno.serve(async (req) => {
       return json(await sofascoreMatches(body.date));
     }
 
-    if (source === "xoilac" || source === "camel" || source === "arena") {
+    if (source === "arena") {
+      return json(await arenaMatches(body.date));
+    }
+
+    if (source === "xoilac" || source === "camel") {
       const payload = { ok: true, source, matches: await websiteMatches(source), generated_at: new Date().toISOString() };
       return json(payload);
     }
@@ -103,6 +107,51 @@ function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "x
     return source;
   }
   return null;
+}
+
+
+async function arenaMatches(rawDate: unknown) {
+  const value = String(rawDate ?? "").trim();
+  const date = /^\\d{4}-\\d{2}-\\d{2}$/.test(value)
+    ? value
+    : new Date().toISOString().slice(0, 10);
+  const url = new URL("https://arenaaliive22.site/api/v1/matches");
+  url.searchParams.set("date", date);
+  url.searchParams.set("scope", "all");
+  url.searchParams.set("lang", "en");
+  const payload = JSON.parse(await fetchText(url.toString()));
+  const rows = Array.isArray(payload?.matches) ? payload.matches : [];
+  const matches = rows.map((row: any) => {
+    const id = String(row?.id ?? "").trim();
+    const home = String(row?.home_team?.name ?? "").trim();
+    const away = String(row?.away_team?.name ?? "").trim();
+    if (!id || !home || !away) return null;
+    const state = String(row?.state ?? "").toLowerCase();
+    const live = state === "live" || state === "inprogress";
+    const servers = Array.isArray(row?.servers) ? row.servers : [];
+    return {
+      source: "arena",
+      source_id: id,
+      schedule_id: id,
+      provider: "arena",
+      league: String(row?.tournament?.name ?? "Football"),
+      home_team: home,
+      away_team: away,
+      home_logo: row?.home_team?.logo ?? null,
+      away_logo: row?.away_team?.logo ?? null,
+      match_time: normalizeMatchTime(row?.start_at ?? row?.timestamp),
+      hot: live,
+      status: live ? "LIVE" : state === "finished" ? "FT" : "NS",
+      match_status: live ? "LIVE" : state === "finished" ? "FT" : "SCHEDULED",
+      page_url: "https://www.arena-koora.online/?match=" + encodeURIComponent(id) + "&date=" + encodeURIComponent(date),
+      anchors: servers.map((server: any, index: number) => ({
+        uid: String(server?.id ?? index),
+        nick_name: String(server?.name ?? server?.label ?? "Arena Koora " + (index + 1)),
+        room_num: String(server?.id ?? index),
+      })),
+    };
+  }).filter((row: any) => row != null).sort(compareMatches);
+  return { ok: true, source: "arena", matches, results: matches.length, date, generated_at: new Date().toISOString() };
 }
 
 async function sofascoreMatches(rawDate: unknown) {
