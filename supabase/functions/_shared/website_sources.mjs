@@ -63,18 +63,39 @@ export function parseCamel(html,now=Date.now()){
 }
 export function parseArena(html,now=Date.now()){
  const out=[],seen=new Set();const source=String(html);
+ const add=(url,home,away,homeLogo=null,awayLogo=null,timeText='')=>{
+  if(!url||seen.has(url.href)||!home||!away||home===away)return;
+  const parsed=timeText?Date.parse(timeText):NaN;const matchTime=Number.isFinite(parsed)?new Date(parsed).toISOString():null;
+  if(matchTime&&now-Date.parse(matchTime)>4*3600000)return;
+  seen.add(url.href);const id=url.pathname.replace(/\/+$/,'').split('/').pop()||String(out.length+1);
+  out.push({source:'arena',source_id:id,schedule_id:id,league:'Football',home_team:home,away_team:away,home_logo:homeLogo,away_logo:awayLogo,match_time:matchTime,hot:false,status:null,page_url:url.href,anchors:[{room_num:id,nick_name:'Arena Koora',page_url:url.href}]});
+ };
  const anchor=/<a\b([^>]*\bhref=(?:"[^"]+"|'[^']+')[^>]*)>([\s\S]{0,3000}?)<\/a>/gi;
  let hit;while((hit=anchor.exec(source))&&out.length<500){
-  const href=attribute(hit[1],'href');const url=publicPage('arena',href);if(!url||seen.has(url.href))continue;
+  const url=publicPage('arena',attribute(hit[1],'href'));if(!url||seen.has(url.href))continue;
   const visible=plain(hit[2]);const title=plain(attribute(hit[1],'title')||visible);
   const names=title.match(/(.{2,80}?)\s+(?:vs\.?|v)\s+(.{2,80})/i);if(!names)continue;
   const home=plain(names[1]).slice(-80);const away=plain(names[2]).split(/\s{2,}|\||\u2022/)[0].slice(0,80);
-  if(!home||!away)continue;seen.add(url.href);
-  const timeText=(hit[2].match(/\b(?:20\d{2}[-\/]\d{1,2}[-\/]\d{1,2}[ T])?\d{1,2}:\d{2}(?:\s*[AP]M)?\b/i)||[])[0];
-  const parsed=timeText?Date.parse(timeText):NaN;const matchTime=Number.isFinite(parsed)?new Date(parsed).toISOString():null;
-  if(matchTime&&now-Date.parse(matchTime)>4*3600000)continue;
-  const id=url.pathname.replace(/\/+$/,'').split('/').pop()||String(out.length+1);
-  out.push({source:'arena',source_id:id,schedule_id:id,league:'Football',home_team:home,away_team:away,home_logo:null,away_logo:null,match_time:matchTime,hot:false,status:null,page_url:url.href,anchors:[{room_num:id,nick_name:'Arena Koora',page_url:url.href}]});
+  const timeText=(hit[2].match(/\b(?:20\d{2}[-\/]\d{1,2}[-\/]\d{1,2}[ T])?\d{1,2}:\d{2}(?:\s*[AP]M)?\b/i)||[])[0]||'';
+  add(url,home,away,null,null,timeText);
+ }
+ // Arena's current layout has separate team columns and a Match details link,
+ // so the anchor text itself does not contain "vs". Pair the last two labelled
+ // team images immediately before each details link.
+ const details=/<a\b([^>]*\bhref=(?:"[^"]+"|'[^']+')[^>]*)>([\s\S]{0,1200}?)<\/a>/gi;
+ while((hit=details.exec(source))&&out.length<500){
+  const label=plain(hit[2]);if(!/(match\s*details|تفاصيل\s*(?:المباراة|مباراة))/iu.test(label))continue;
+  const url=publicPage('arena',attribute(hit[1],'href'));if(!url||seen.has(url.href))continue;
+  const before=source.slice(Math.max(0,hit.index-9000),hit.index);const images=[];
+  for(const image of before.matchAll(/<img\b[^>]*>/gi)){
+   const alt=plain(attribute(image[0],'alt'));const src=attribute(image[0],'src');
+   if(alt.length<2||alt.length>80||/(logo|icon|banner|advert|download|telegram|arena)/i.test(alt))continue;
+   let absolute=null;try{absolute=new URL(src,ROOTS.arena).href;}catch{}
+   images.push({name:alt,logo:absolute});
+  }
+  const teams=images.slice(-2);if(teams.length<2)continue;
+  const nearby=before.slice(-2500);const timeText=(nearby.match(/\b\d{1,2}:\d{2}(?:\s*[AP]M)?\b/i)||[])[0]||'';
+  add(url,teams[0].name,teams[1].name,teams[0].logo,teams[1].logo,timeText);
  }
  return out;
 }
