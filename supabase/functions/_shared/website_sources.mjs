@@ -87,8 +87,10 @@ async function boundedFetch(url,fetcher,redirects=0){
    const current=new URL(String(url));
    const sameRoute=next.pathname.replace(/\/$/,'')===current.pathname.replace(/\/$/,'');
    const camelHome=current.hostname==='www.camel1.tv'&&['/','/en','/en/'].includes(next.pathname);
+   const arenaHosts=['arena-koora.online','www.arena-koora.online'];
+   const arenaCanonical=arenaHosts.includes(current.hostname)&&arenaHosts.includes(next.hostname)&&next.protocol==='https:'&&(sameRoute||current.pathname==='/'||next.pathname==='/');
    void response.body?.cancel().catch(()=>{});
-   if(!response.headers.get('Location')||redirects>=2||next.origin!==current.origin||next.username||next.password||next.search||(!sameRoute&&!camelHome))throw new Error('Unsupported source redirect.');
+   if(!response.headers.get('Location')||redirects>=2||(next.origin!==current.origin&&!arenaCanonical)||next.username||next.password||next.search||(!sameRoute&&!camelHome&&!arenaCanonical))throw new Error('Unsupported source redirect.');
    return await boundedFetch(next,fetcher,redirects+1);
   }
   if(!response.ok){void response.body?.cancel().catch(()=>{});throw new Error('Source returned HTTP '+response.status+'.');}
