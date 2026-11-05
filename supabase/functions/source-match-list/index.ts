@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
       return json(await sofascoreMatches(body.date));
     }
 
-    if (source === "xoilac" || source === "camel" || source === "arena" || source === "sofascore") {
+    if (source === "xoilac" || source === "camel" || source === "arena") {
       const payload = { ok: true, source, matches: await websiteMatches(source), generated_at: new Date().toISOString() };
       return json(payload);
     }
@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
 function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "xoilac" | "camel" | "arena" | "sofascore" | null {
   const source = String(value ?? "").trim().toLowerCase();
   if (!source) return "soco";
-  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "xoilac" || source === "camel" || source === "arena") {
+  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "xoilac" || source === "camel" || source === "arena" || source === "sofascore") {
     return source;
   }
   return null;
