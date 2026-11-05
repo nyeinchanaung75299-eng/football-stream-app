@@ -134,7 +134,39 @@ function arenaEnglishName(value: string, kind: "team" | "league" = "team") {
     "الدوري الألماني": "Bundesliga",
     "الدوري الفرنسي": "Ligue 1",
   };
-  return known[raw] ?? englishFootballName(raw, kind);
+  const normalized = known[raw] ?? englishFootballName(raw, kind);
+  return /[\u0600-\u06ff]/.test(normalized)
+    ? arabicToLatin(normalized)
+    : normalized;
+}
+
+function arabicToLatin(value: string) {
+  const digraphs: Record<string, string> = {
+    "لا": "la", "ال": "al ",
+  };
+  let text = value;
+  for (const [arabic, latin] of Object.entries(digraphs)) {
+    text = text.split(arabic).join(latin);
+  }
+  const letters: Record<string, string> = {
+    "ا": "a", "أ": "a", "إ": "i", "آ": "aa", "ب": "b", "ت": "t",
+    "ث": "th", "ج": "j", "ح": "h", "خ": "kh", "د": "d", "ذ": "dh",
+    "ر": "r", "ز": "z", "س": "s", "ش": "sh", "ص": "s", "ض": "d",
+    "ط": "t", "ظ": "z", "ع": "a", "غ": "gh", "ف": "f", "ق": "q",
+    "ك": "k", "ل": "l", "م": "m", "ن": "n", "ه": "h", "ة": "a",
+    "و": "w", "ؤ": "u", "ي": "y", "ى": "a", "ئ": "y", "ء": "",
+    "پ": "p", "چ": "ch", "ژ": "zh", "گ": "g",
+  };
+  const result = [...text.normalize("NFKD")]
+    .filter((char) => !/[\u064b-\u065f\u0670]/.test(char))
+    .map((char) => letters[char] ?? char)
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+  return result
+    .split(" ")
+    .map((part) => part ? part[0].toUpperCase() + part.slice(1) : part)
+    .join(" ");
 }
 
 async function fallbackFootballMatches(args: { supabaseUrl: string; anonKey: string; authHeader: string; rawDate: unknown }) {
