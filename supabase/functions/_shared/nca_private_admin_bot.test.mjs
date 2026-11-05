@@ -91,11 +91,19 @@ test("/testbot checks Telegram getMe and webhook status before replying",async()
   assert.match(telegramCalls(mock.calls,"sendMessage")[0].body.text,/Token verified: Yes/);
 });
 
-test("private admin refuses IDs that were not explicitly allowlisted",async()=>{
+test("unpaired chat can remove old keyboard without accessing private Admin controls",async()=>{
   const mock=createMock();
   const handler=createTelegramHandler({mode:"admin",env:botEnv("222"),fetcher:mock.fetcher});
   assert.equal((await handler(request("/start"))).status,200);
-  assert.equal(telegramCalls(mock.calls,"sendMessage").length,0);
+  const replies=telegramCalls(mock.calls,"sendMessage");
+  assert.equal(replies.length,1);
+  assert.deepEqual(replies[0].body.reply_markup,{remove_keyboard:true});
+  assert.match(replies[0].body.text,/not linked/);
+  assert.doesNotMatch(replies[0].body.text,/PRIVATE ADMIN|stream_url/);
+  const other=createMock();
+  const otherHandler=createTelegramHandler({mode:"admin",env:botEnv("222"),fetcher:other.fetcher});
+  assert.equal((await otherHandler(request("/health"))).status,200);
+  assert.equal(telegramCalls(other.calls,"sendMessage").length,0);
 });
 
 test("cron keeps monitoring even if all stored subscribers are unauthorized",async()=>{
