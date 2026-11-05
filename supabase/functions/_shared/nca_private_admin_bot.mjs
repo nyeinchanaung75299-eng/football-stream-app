@@ -75,6 +75,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     if (!response.ok) throw new Error("Telegram API unavailable");
     const data = await response.json();
     if (data.ok !== true) throw new Error("Telegram rejected message");
+    return data;
   }
   async function database(path, env) {
     const url = (env.SUPABASE_URL || "").replace(/\/+$/, "") + "/rest/v1/" + path;
