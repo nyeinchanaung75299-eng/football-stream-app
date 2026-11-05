@@ -251,8 +251,10 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         rows = const [];
       }
 
-      // API fallback is retained only for ColaTV. SofaScore stays explicit.
-      if (rows.isEmpty && provider == 'cola') {
+      // SofaScore currently challenges server-side API requests. Keep the
+      // picker useful by falling back to the configured football fixture feed.
+      // Existing team logos remain available; poster_url is used when supplied.
+      if (rows.isEmpty && (provider == 'cola' || provider == 'sofascore')) {
         provider = 'fallback';
         rows = await _loadFallbackFixtures(requestedMode, requestedDate);
       }
