@@ -155,12 +155,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
       'yyzb',
       'fawa',
       'cola',
+      'arena',
       'playz',
     }.contains(requested)
         ? requested
         : 'soco';
     if (_isManualSource) _libraryFuture = _streamLibrary.list();
-    dayFilter = (source == 'fawa' || source == 'cola' || _isManualSource)
+    dayFilter = (source == 'fawa' || source == 'cola' || source == 'arena' || _isManualSource)
         ? 'all'
         : 'today';
     _loadSoco();
@@ -1738,6 +1739,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
         return 'Fawa';
       case 'cola':
         return 'ColaTV';
+      case 'arena':
+        return 'Arena Koora';
       default:
         return 'Soco';
     }
