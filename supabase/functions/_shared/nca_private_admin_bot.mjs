@@ -3,70 +3,24 @@ import { probeStreamFirstChunk } from "./stream_probe.mjs";
 // NO stream URLs, key IDs, key data, DRM, service keys or session tokens in replies.
 export const VIEWER_SITE = "https://nyeinchanaung75299-eng.github.io/football-stream-app/";
 export const ADMIN_SITE = VIEWER_SITE + "admin/";
-// Persistent Telegram ReplyKeyboardMarkup for allowlisted NCA Private Admin users only.
-const ADMIN_BOTTOM_KEYBOARD = {
-  "keyboard": [
-    [
-      {
-        "text": "📡 Auto Stream Monitoring"
-      },
-      {
-        "text": "🚨 Channel Error Alerts"
-      }
-    ],
-    [
-      {
-        "text": "📺 Channel Details"
-      },
-      {
-        "text": "🔎 Advanced Search"
-      }
-    ],
-    [
-      {
-        "text": "📊 Database Statistics"
-      },
-      {
-        "text": "⚽ Fixtures & Alerts"
-      }
-    ],
-    [
-      {
-        "text": "🛠 Channel Enable/Disable"
-      },
-      {
-        "text": "🧾 Audit & Health History"
-      }
-    ],
-    [
-      {
-        "text": "🗃 Backup Status Report"
-      },
-      {
-        "text": "🔒 Admin Security"
-      }
-    ],
-    [
-      {
-        "text": "📅 Channel–Match Schedule"
-      },
-      {
-        "text": "🔗 Match–Channel Mapping"
-      }
-    ],
-    [
-      {
-        "text": "📺 All Channels"
-      },
-      {
-        "text": "🏠 Main Menu"
-      }
-    ]
+// Telegram inline keyboards stay on bot messages rather than occupying typing space.
+// The legacy text labels remain recognized below for previously displayed buttons.
+export const ADMIN_INLINE_MENU = {
+  inline_keyboard: [
+    [{text:"📺 Channels",callback_data:"/channels"},{text:"⚽ Fixtures",callback_data:"/matches"}],
+    [{text:"📡 Monitoring",callback_data:"/monitor"},{text:"🔔 Alerts",callback_data:"/alerts"}],
+    [{text:"🩺 Diagnostics",callback_data:"/diagnostics"},{text:"🧰 More tools",callback_data:"/tools"}],
   ],
-  "resize_keyboard": true,
-  "is_persistent": true,
-  "one_time_keyboard": false,
-  "input_field_placeholder": "NCA Admin commands"
+};
+export const ADMIN_TOOLS_MENU = {
+  inline_keyboard: [
+    [{text:"🛠️ Manage",callback_data:"/manage"},{text:"📅 Broadcasts",callback_data:"/broadcasts"}],
+    [{text:"🔎 Search",callback_data:"/search"},{text:"🟢 Health",callback_data:"/health"}],
+    [{text:"⚽ Match readiness",callback_data:"/readiness"},{text:"🧪 Test bot",callback_data:"/testbot"}],
+    [{text:"📊 Stats",callback_data:"/stats"},{text:"🧾 Logs",callback_data:"/logs"}],
+    [{text:"🔒 Security",callback_data:"/security"},{text:"🛠 Builds",callback_data:"/build"}],
+    [{text:"🏠 Main menu",callback_data:"/start"}],
+  ],
 };
 const ADMIN_BOTTOM_COMMANDS = {
   "📡 Auto Stream Monitoring": "/monitor",
@@ -330,6 +284,31 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       (broadcast.length?broadcast.map(n=>"📺 "+text(n,80)).join("\n"):"Not assigned / not verified")+
       "\n\nMatch ID: "+m.id+"\nTo add an explicit mapping: /mapmatch MATCH_ID CHANNEL_ID";
   }
+  async function matchReadiness(){
+    const [ms, channelRows, assignments, lines] = await Promise.all([
+      fixtures(), allChannels(), mappings(), lineStatuses(),
+    ]);
+    const now=clock().getTime();
+    const upcoming=ms.filter(m=>!m.is_finished &&
+      Date.parse(m.kickoff_at)>=now-30*60000 &&
+      Date.parse(m.kickoff_at)<=now+3*3600000).slice(0,12);
+    if(!upcoming.length)return "⚽ No published matches in the next three hours.";
+    const healthyLine = new Set(lines.filter(l=>l.is_active &&
+      (l.health_status==="healthy"||l.health_status==="slow") &&
+      Date.parse(l.last_checked_at)>=now-30*60000).map(l=>l.channel_id));
+    const activeChannels=new Set(channelRows.filter(c=>c.is_active).map(c=>c.id));
+    return "⚽ UPCOMING MATCH READINESS (probe metadata only)\n"+
+      upcoming.map(m=>{
+        const channels=[...(assignments.get(m.id)||[])].filter(id=>activeChannels.has(id));
+        const ready=channels.filter(id=>healthyLine.has(id)).length;
+        const condition=!channels.length?"⚠️ No mapped channel":
+          ready===0?"🔴 No recently reachable mapped line":
+          ready<channels.length?"🟡 Partial reachability":"🟢 Reachable mapping";
+        return displayMatch(m)+"\n"+matchTime(m)+"\n"+
+          condition+" • "+ready+"/"+channels.length+" mapped channel(s) recently reachable";
+      }).join("\n\n")+
+      "\n\nFirst-chunk reachability is not proof of video playback.";
+  }
   async function broadcastList(){
     const [matches,channels,mapping]=await Promise.all([fixtures(),allChannels(),mappings()]);
     const now=clock().getTime();
@@ -466,9 +445,12 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     return digest.length===expected.length && digest.split("").reduce((d,c,i)=>d|(c.charCodeAt(0)^expected.charCodeAt(i)),0)===0;
   }
   async function pulse(){
-    const prefs=(await database("nca_bot_preferences?select=chat_id,alert_enabled,monitor_enabled,football_enabled&alert_enabled=eq.true&limit=50",env))
-      .filter(x=>(env.TG_ADMIN_USER_IDS||"").split(",").map(s=>s.trim()).includes(String(x.chat_id)));
-    if(!prefs.length)return {ok:true,subscribers:0,checked:0};
+    const stored=await database("nca_bot_preferences?select=chat_id,alert_enabled,monitor_enabled,football_enabled&alert_enabled=eq.true&limit=50",env);
+    const allowlist=new Set((env.TG_ADMIN_USER_IDS||"").split(",").map(s=>s.trim()).filter(Boolean));
+    const prefs=stored.filter(x=>allowlist.has(String(x.chat_id)));
+    // Continue checking channel health when no one can receive a notification.
+    // Never bypass the private-admin allowlist just to make subscriber count nonzero.
+    const skippedSubscribers=stored.length-prefs.length;
     const notify=async(chatId,kind,key,message)=>{
       const existing=await database("nca_bot_alert_state?select=event_key&chat_id=eq."+chatId+
         "&event_key=eq."+encodeURIComponent(key)+"&limit=1",env);
@@ -476,12 +458,22 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       const result=await writeDb("nca_bot_alert_state?on_conflict=chat_id,event_key","POST",
         {chat_id:chatId,event_key:key},{ignoreDuplicates:true,expectRows:true});
       if(!result.length)return;
-      await telegram("sendMessage",env.TG_ADMIN_BOT_TOKEN,{chat_id:chatId,
-        text:message.slice(0,3500),disable_web_page_preview:true});
+      try {
+        await telegram("sendMessage",env.TG_ADMIN_BOT_TOKEN,{chat_id:chatId,
+          text:message.slice(0,3500),disable_web_page_preview:true});
+      } catch (error) {
+        // Release the dedupe claim if delivery failed, so the next pulse retries.
+        // Telegram timeouts can be ambiguous; notifications are at-least-once.
+        try {
+          await writeDb("nca_bot_alert_state?chat_id=eq."+chatId+
+            "&event_key=eq."+encodeURIComponent(key),"DELETE");
+        } catch (_) { /* Keep the original delivery error. */ }
+        throw error;
+      }
     };
     // Check a bounded, rotating subset; never return or send source URLs / DRM fields.
     let checked=0;
-    if(prefs.some(p=>p.monitor_enabled)){
+    { // Perform monitoring independently of alert subscriptions.
       const lines=await database("channel_lines?select=id,channel_id,stream_url,referer,origin,health_status,last_checked_at"+
         "&is_active=eq.true&order=last_checked_at.asc.nullsfirst&limit=8",env);
       const channelRows=await allChannels();
@@ -501,13 +493,21 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
               health_status:probe.status,health_latency_ms:probe.latencyMs,
               last_checked_at:new Date().toISOString(),
             });
-            if(probe.status==="failed" && line.health_status!=="failed" && line.last_checked_at){
-              const key="health:"+line.id+":"+new Date().toISOString().slice(0,10);
+            const failedNow=probe.status==="failed" && line.health_status!=="failed";
+            const restored= line.health_status==="failed" &&
+              (probe.status==="healthy"||probe.status==="slow");
+            if((failedNow || restored) && line.last_checked_at){
+              const key="health:"+line.id+":"+(failedNow?"failed":"recovered")+":"+
+                new Date().toISOString().slice(0,10);
               for(const admin of prefs.filter(x=>x.monitor_enabled)){
-                await notify(admin.chat_id,"health",key,
-                  "⚠️ NCA CHANNEL REACHABILITY ALERT\n📺 "+text(names.get(line.channel_id),85)+
-                  "\nStatus: Failed (probe only)\nLast check: "+new Date().toISOString()+
-                  "\n/health and /logs for details. Playback not verified.");
+                try {
+                  await notify(admin.chat_id,"health",key,
+                    (failedNow?"⚠️ NCA CHANNEL REACHABILITY ALERT":"✅ NCA CHANNEL RECOVERED")+
+                    "\n📺 "+text(names.get(line.channel_id),85)+
+                    "\nStatus: "+probe.status+" (first-chunk probe only)"+
+                    "\nLast check: "+new Date().toISOString()+
+                    "\n/health and /logs for details. Playback not verified.");
+                } catch (_) { /* Keep monitoring other lines even if Telegram fails. */ }
               }
             }
           }catch{ /* Isolate failures per channel, never expose URL or private headers. */ }
@@ -539,7 +539,8 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
         }
       }
     }
-    return {ok:true,subscribers:prefs.length,checked};
+    return {ok:true,subscribers:prefs.length,configured_subscribers:stored.length,
+      skipped_subscribers:skippedSubscribers,checked};
   }
 
   async function health(env) {
@@ -569,6 +570,35 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     if (!recent.length) return "No recent tracked Web/APK runs.";
     return "🛠️ NCA BUILDS\n" + recent.map(r => text(r.name, 55) + ": " +
       text(r.conclusion || r.status, 25) + "\n" + text(r.html_url, 190)).join("\n\n");
+  }
+  async function diagnostics(chatId){
+    const [prefs,lines,stored]=await Promise.all([
+      getPrefs(chatId),lineStatuses(),
+      database("nca_bot_preferences?select=chat_id,alert_enabled&alert_enabled=eq.true&limit=50",env),
+    ]);
+    const allowlist=new Set((env.TG_ADMIN_USER_IDS||"").split(",").map(s=>s.trim()).filter(Boolean));
+    const eligible=stored.filter(x=>allowlist.has(String(x.chat_id)));
+    const recent=lines.filter(l=>l.is_active && Date.parse(l.last_checked_at)>clock().getTime()-30*60000).length;
+    return "🩺 NCA BOT DIAGNOSTICS\n"+
+      "Alert subscriptions: "+stored.length+" configured, "+eligible.length+" authorized\n"+
+      "Your alerts: "+(prefs?.alert_enabled?"ON":"OFF")+"\n"+
+      "Recently checked lines (30m): "+recent+"/"+lines.filter(l=>l.is_active).length+"\n"+
+      (stored.length && !eligible.length?
+        "⚠️ Subscription / TG_ADMIN_USER_IDS allowlist mismatch. Check the server secret; do not share IDs or tokens in chat.\n":"")+
+      "Use /testbot to verify the Telegram API and webhook.\n"+
+      "A successful cron response alone does not prove alerts were delivered.";
+  }
+  async function testBot(){
+    const [me,webhook]=await Promise.all([
+      telegram("getMe",env.TG_ADMIN_BOT_TOKEN),
+      telegram("getWebhookInfo",env.TG_ADMIN_BOT_TOKEN),
+    ]);
+    return "🧪 TELEGRAM CONNECTION TEST\n"+
+      "Token verified: "+(me?.result?.is_bot===true?"Yes":"No")+"\n"+
+      "Webhook registered: "+(webhook?.result?.url?"Yes":"No")+"\n"+
+      "Pending updates: "+Number(webhook?.result?.pending_update_count||0)+"\n"+
+      "Latest webhook error: "+text(webhook?.result?.last_error_message||"None reported",180)+
+      "\n\nThis reply also confirms the bot could send a message.";
   }
   async function handle(req) {
     if (req.method !== "POST") return reply({ error: "Method not allowed" }, 405);
@@ -627,6 +657,26 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
             [{ text: "Open Viewer", url: VIEWER_SITE }],
           ] };
         }
+      } else if (cmd === "/start" || cmd === "/menu" || cmd === "/help") {
+        // A Telegram message can remove the old reply keyboard OR show inline
+        // buttons, not both. Send a one-time cleanup message on typed /menu.
+        if (!callback) {
+          await telegram("sendMessage",token,{chat_id:chat.id,
+            text:"⌨️ Old permanent keyboard removed. Open this menu with /menu.",
+            reply_markup:{remove_keyboard:true}});
+        }
+        responseText="🛡️ NCA PRIVATE ADMIN\nChoose a tool below. This menu stays in chat, not under the typing area.\n"+
+          "Use /menu any time to open it again.";
+        keyboard=ADMIN_INLINE_MENU;
+      } else if (cmd === "/tools") {
+        responseText="🧰 NCA ADMIN TOOLS\nChoose a function. /menu returns to the main menu.";
+        keyboard=ADMIN_TOOLS_MENU;
+      } else if (cmd === "/testbot") {
+        responseText=await testBot();
+      } else if (cmd === "/diagnostics" || cmd === "/diag") {
+        responseText=await diagnostics(chat.id);
+      } else if (cmd === "/readiness") {
+        responseText=await matchReadiness();
       } else if (cmd === "/health" || cmd === "/status") {
         responseText = await health(env);
       } else if (cmd === "/build") {
@@ -716,34 +766,20 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
           [{text:"🏠 Menu",callback_data:"/start"}],
         ]};
       } else {
-        // A reply keyboard belongs to a separate Telegram message; keep existing inline navigation.
-        if (!callback) {
-          await telegram("sendMessage", token, {
-            chat_id: chat.id,
-            text: "⬇️ NCA Private Admin buttons are ready below. Tap any button to run its command.",
-            reply_markup: ADMIN_BOTTOM_KEYBOARD,
-          });
-        }
-        responseText = "🛡️ NCA PRIVATE ADMIN\n"+
-          "/channels /categories /search /filter /details\n"+
-          "/matches /broadcasts /mapmatch /unmapmatch\n"+
-          "/stats /health /monitor /alerts /football\n"+
-          "/manage /logs /backup /security /build\n"+
-          "/subscribe /unsubscribe /whoami\n\n"+
-          "Match-channel mapping is verified database data only. "+
-          "Protected stream secrets stay out of Telegram.";
-        keyboard={inline_keyboard:[
-          [{text:"📺 All Channels",callback_data:"/channels"},{text:"📁 Categories",callback_data:"/categories"}],
-          [{text:"⚽ Matches",callback_data:"/matches"},{text:"📡 TV Broadcasts",callback_data:"/broadcasts"}],
-          [{text:"📊 Stats",callback_data:"/stats"},{text:"🟢 Health",callback_data:"/health"}],
-          [{text:"🛠️ Manage",callback_data:"/manage"},{text:"🔔 Alerts",callback_data:"/alerts"}],
-          [{text:"🧾 Logs",callback_data:"/logs"},{text:"🔒 Security",callback_data:"/security"}],
-          [{text:"🗃️ Backup Report",callback_data:"/backup"},{text:"🛠️ Builds",callback_data:"/build"}],
-          [{text:"Open Admin",url:ADMIN_SITE}],
-        ]};
+        responseText="Unknown command. Send /menu for compact NCA Admin controls.";
       }
     } catch {
       responseText = "NCA data is temporarily unavailable. Try again later.";
+    }
+    if(callback && chat.id && message?.message_id) {
+      try {
+        await telegram("editMessageText",token,{
+          chat_id:chat.id,message_id:message.message_id,
+          text:responseText.slice(0,3900),disable_web_page_preview:true,
+          reply_markup:keyboard||{inline_keyboard:[[{text:"🏠 Menu",callback_data:"/start"}]]},
+        });
+        return reply({ok:true});
+      } catch (_) { /* Old or unavailable messages use a normal reply. */ }
     }
     await telegram("sendMessage", token, {
       chat_id: chat.id, text: responseText.slice(0, 3900),
