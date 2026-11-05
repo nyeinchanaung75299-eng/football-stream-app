@@ -583,14 +583,18 @@ async function colaStreams(body: any) {
     }
   }
 
-  const checked = await probeLines([...found.values()], skipProbeRequested(body));
-  // Cola frequently leaves expired URLs in its payload. Import only lines
-  // whose manifest/first bytes were actually reachable during this request.
+  const skipProbe = skipProbeRequested(body);
+  const checked = await probeLines([...found.values()], skipProbe);
+  // Admin imports only lines whose manifest/first bytes were reachable now.
+  // Viewer metadata deliberately skips active probes, so preserve its
+  // non-dead unknown lines instead of hiding every Cola source.
   const lines = checked
-    .filter((line: any) => ["healthy", "slow"].includes(String(line.health_status)))
+    .filter((line: any) => skipProbe
+      ? String(line.health_status) !== "dead"
+      : ["healthy", "slow"].includes(String(line.health_status)))
     .sort((a: any, b: any) =>
-      (a.health_status === "healthy" ? 0 : 1) -
-      (b.health_status === "healthy" ? 0 : 1)
+      (a.health_status === "healthy" ? 0 : a.health_status === "slow" ? 1 : 2) -
+      (b.health_status === "healthy" ? 0 : b.health_status === "slow" ? 1 : 2)
     );
   const row = colaMatchRow(slug, match);
 
