@@ -93,7 +93,7 @@ export default {
     }
 
     const sourceStreamsRoute = url.pathname.match(
-      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel)\/streams$/,
+      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena)\/streams$/,
     );
     if (sourceStreamsRoute && request.method === "POST") {
       return handleSourceBrowserStreams(
@@ -135,7 +135,7 @@ export default {
     }
 
     const sourceMatchesRoute = url.pathname.match(
-      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel)\/matches$/,
+      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena)\/matches$/,
     );
     if (sourceMatchesRoute && request.method === "GET") {
       return handleSourceBrowserMatches(

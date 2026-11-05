@@ -1,6 +1,6 @@
 // Public source adapters: literal page metadata only; no script execution,
 // credentials, login bypass or arbitrary caller-supplied fetch destinations.
-const ROOTS = {xoilac:'https://xoilaczcb.tv/', camel:'https://www.camel1.tv/'};
+const ROOTS = {xoilac:'https://xoilaczcb.tv/', camel:'https://www.camel1.tv/', arena:'https://www.arena-koora.online/'};
 const decode = value => String(value || '').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&nbsp;/g,' ');
 const plain = value => decode(value).replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
 function attribute(html,name){return decode(html.match(new RegExp('\\b'+name+'=(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))','i'))?.slice(1).find(v=>v!==undefined)||'');}
@@ -20,6 +20,7 @@ function publicPage(source,value){
   if(u.protocol!=='https:'||u.username||u.password||u.port)return null;
   if(source==='xoilac'&&u.hostname==='xoilaczcb.tv'&&/^\/truc-tiep\/[a-z0-9-]+\/(?:link\/\d+\/?)?$/.test(u.pathname))return u;
   if(source==='camel'&&u.hostname==='www.camel1.tv'&&/^\/football\/match-[a-z0-9-]+\/(?:live\/)?[a-z0-9]+\/?$/.test(u.pathname))return u;
+  if(source==='arena'&&['arena-koora.online','www.arena-koora.online'].includes(u.hostname)&&u.pathname.length<512)return u;
  }catch{}return null;
 }
 export function parseXoilac(html,now=Date.now()){
@@ -60,6 +61,23 @@ export function parseCamel(html,now=Date.now()){
  }
  return out.slice(0,500);
 }
+export function parseArena(html,now=Date.now()){
+ const out=[],seen=new Set();const source=String(html);
+ const anchor=/<a\b([^>]*\bhref=(?:"[^"]+"|'[^']+')[^>]*)>([\s\S]{0,3000}?)<\/a>/gi;
+ let hit;while((hit=anchor.exec(source))&&out.length<500){
+  const href=attribute(hit[1],'href');const url=publicPage('arena',href);if(!url||seen.has(url.href))continue;
+  const visible=plain(hit[2]);const title=plain(attribute(hit[1],'title')||visible);
+  const names=title.match(/(.{2,80}?)\s+(?:vs\.?|v)\s+(.{2,80})/i);if(!names)continue;
+  const home=plain(names[1]).slice(-80);const away=plain(names[2]).split(/\s{2,}|\||\u2022/)[0].slice(0,80);
+  if(!home||!away)continue;seen.add(url.href);
+  const timeText=(hit[2].match(/\b(?:20\d{2}[-\/]\d{1,2}[-\/]\d{1,2}[ T])?\d{1,2}:\d{2}(?:\s*[AP]M)?\b/i)||[])[0];
+  const parsed=timeText?Date.parse(timeText):NaN;const matchTime=Number.isFinite(parsed)?new Date(parsed).toISOString():null;
+  if(matchTime&&now-Date.parse(matchTime)>4*3600000)continue;
+  const id=url.pathname.replace(/\/+$/,'').split('/').pop()||String(out.length+1);
+  out.push({source:'arena',source_id:id,schedule_id:id,league:'Football',home_team:home,away_team:away,home_logo:null,away_logo:null,match_time:matchTime,hot:false,status:null,page_url:url.href,anchors:[{room_num:id,nick_name:'Arena Koora',page_url:url.href}]});
+ }
+ return out;
+}
 async function boundedFetch(url,fetcher,redirects=0){
  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),6500);
  try{
@@ -83,9 +101,20 @@ async function boundedFetch(url,fetcher,redirects=0){
 export async function websiteMatches(source,{fetcher=fetch,now=Date.now()}={}){
  if(!ROOTS[source])throw new Error('Unsupported source.');
  const html=await boundedFetch(ROOTS[source],fetcher);
- return source==='xoilac'?parseXoilac(html,now):parseCamel(html,now);
+ if(source==='xoilac')return parseXoilac(html,now);
+ if(source==='arena')return parseArena(html,now);
+ return parseCamel(html,now);
 }
 export async function websiteStreams(source,body,{fetcher=fetch}={}){
+ if(source==='arena'){
+  const page=publicPage('arena',body.page_url);if(!page)throw new Error('Invalid Arena Koora match page.');
+  const html=await boundedFetch(page,fetcher);const decoded=decode(String(html).replace(/\\\//g,'/'));
+  const urls=new Set();for(const hit of decoded.matchAll(/https?:\/\/[^\s"'<>\\]+/gi)){
+   try{const u=new URL(hit[0]);const ext=u.pathname.match(/\.(m3u8|mpd|flv|mp4)$/i)?.[1]?.toLowerCase();if(!ext||u.username||u.password)continue;urls.add(u.href);}catch{}
+  }
+  const types={m3u8:'hls',mpd:'dash',flv:'flv',mp4:'mp4'};const lines=[...urls].slice(0,12).map((url,index)=>{const ext=new URL(url).pathname.match(/\.(m3u8|mpd|flv|mp4)$/i)[1].toLowerCase();return{id:'arena:'+index,label:'Arena Koora '+(index+1),url,stream_type:types[ext],referer:page.href,origin:page.origin,health_status:'unknown'};});
+  return {ok:true,source,lines,live_status:lines.length>0};
+ }
  if(source==='camel')return {ok:false,source,requires_login:true,error:'Camel1 requires sign-in on its own website. Open Camel1 to watch.',lines:[]};
  const page=publicPage('xoilac',body.page_url);if(!page)throw new Error('Invalid Xoilac match page.');
  const html=await boundedFetch(page,fetcher);const found=html.match(/\b(?:var|let|const)\s+list_stream\s*=\s*(\[)/);
