@@ -583,7 +583,15 @@ async function colaStreams(body: any) {
     }
   }
 
-  const lines = await probeLines([...found.values()], skipProbeRequested(body));
+  const checked = await probeLines([...found.values()], skipProbeRequested(body));
+  // Cola frequently leaves expired URLs in its payload. Import only lines
+  // whose manifest/first bytes were actually reachable during this request.
+  const lines = checked
+    .filter((line: any) => ["healthy", "slow"].includes(String(line.health_status)))
+    .sort((a: any, b: any) =>
+      (a.health_status === "healthy" ? 0 : 1) -
+      (b.health_status === "healthy" ? 0 : 1)
+    );
   const row = colaMatchRow(slug, match);
 
   return json({
