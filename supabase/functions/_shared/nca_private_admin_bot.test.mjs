@@ -150,3 +150,46 @@ test("/readiness provides channel readiness without leaking stream URLs",async()
   assert.match(sent,/No mapped channel/);
   assert.doesNotMatch(sent,/https:\/\/stream/);
 });
+
+
+test("upcoming featured match produces a one-time private readiness alert",async()=>{
+  const key="b".repeat(64);
+  const id="22222222-2222-4222-8222-222222222222";
+  const kickoff=new Date(Date.now()+30*60000).toISOString();
+  const mock=createMock({
+    key,
+    prefs:[{chat_id:111,alert_enabled:true,monitor_enabled:false,football_enabled:true}],
+    lines:[],channels:[],
+    matches:[{
+      id,home_team:"Arsenal",away_team:"Chelsea",league:"Premier League",
+      kickoff_at:kickoff,is_finished:false,is_featured:true,is_live:false,is_active:true,
+    }],
+  });
+  const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+  const response=await handler(pulseRequest(key));
+  assert.equal(response.status,200);
+  const sent=telegramCalls(mock.calls,"sendMessage");
+  assert.equal(sent.length,1);
+  assert.match(sent[0].body.text,/FEATURED MATCH READINESS/);
+  assert.match(sent[0].body.text,/No channel assignment/);
+  assert.doesNotMatch(sent[0].body.text,/stream_url|Bearer /);
+  assert.ok(mock.calls.some(c=>c.method==="POST" && c.url.includes("nca_bot_alert_state?")));
+});
+
+test("ordinary upcoming matches do not trigger featured-only preflight",async()=>{
+  const key="b".repeat(64);
+  const mock=createMock({
+    key,
+    prefs:[{chat_id:111,alert_enabled:true,monitor_enabled:false,football_enabled:true}],
+    lines:[],channels:[],
+    matches:[{
+      id:"33333333-3333-4333-8333-333333333333",
+      home_team:"Home",away_team:"Away",league:"Friendly",
+      kickoff_at:new Date(Date.now()+30*60000).toISOString(),
+      is_finished:false,is_featured:false,is_live:false,is_active:true,
+    }],
+  });
+  const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+  assert.equal((await handler(pulseRequest(key))).status,200);
+  assert.equal(telegramCalls(mock.calls,"sendMessage").length,0);
+});

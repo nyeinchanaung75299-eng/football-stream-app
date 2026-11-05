@@ -248,7 +248,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     return database("channel_lines?select=id,channel_id,label,stream_type,health_status,last_checked_at,is_active&limit=500",env);
   }
   async function fixtures(){
-    return database("matches?select=id,league,home_team,away_team,kickoff_at,is_live,is_finished,home_score,away_score,status_short,is_active,publish_state&is_active=eq.true&publish_state=eq.published&deleted_at=is.null&order=kickoff_at.asc&limit=300",env);
+    return database("matches?select=id,league,home_team,away_team,kickoff_at,is_live,is_finished,is_featured,home_score,away_score,status_short,is_active,publish_state&is_active=eq.true&publish_state=eq.published&deleted_at=is.null&order=kickoff_at.asc&limit=300",env);
   }
   async function mappings(){
     const [links,manual,epg]=await Promise.all([
@@ -292,7 +292,9 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     const now=clock().getTime();
     const upcoming=ms.filter(m=>!m.is_finished &&
       Date.parse(m.kickoff_at)>=now-30*60000 &&
-      Date.parse(m.kickoff_at)<=now+3*3600000).slice(0,12);
+      Date.parse(m.kickoff_at)<=now+3*3600000)
+      .sort((a,b)=>Number(b.is_featured===true)-Number(a.is_featured===true))
+      .slice(0,12);
     if(!upcoming.length)return "⚽ No published matches in the next three hours.";
     const healthyLine = new Set(lines.filter(l=>l.is_active &&
       (l.health_status==="healthy"||l.health_status==="slow") &&
@@ -305,7 +307,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
         const condition=!channels.length?"⚠️ No mapped channel":
           ready===0?"🔴 No recently reachable mapped line":
           ready<channels.length?"🟡 Partial reachability":"🟢 Reachable mapping";
-        return displayMatch(m)+"\n"+matchTime(m)+"\n"+
+        return (m.is_featured?"⭐ Featured • ":"")+displayMatch(m)+"\n"+matchTime(m)+"\n"+
           condition+" • "+ready+"/"+channels.length+" mapped channel(s) recently reachable";
       }).join("\n\n")+
       "\n\nFirst-chunk reachability is not proof of video playback.";
@@ -518,8 +520,39 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     if(prefs.some(p=>p.football_enabled)){
       const ms=(await fixtures()).filter(m=>{
         const t=new Date(m.kickoff_at).getTime(),now=clock().getTime();
-        return t>=now-6*3600000 && t<=now+30*60000;
+        return t>=now-6*3600000 && t<=now+60*60000;
       });
+      // Once per featured match, check mapped channels 15-45 min before kickoff.
+      // Only private, allowlisted Admin subscribers may receive these reports.
+      const featuredSoon=ms.filter(m=>m.is_featured===true && !m.is_finished &&
+        Date.parse(m.kickoff_at)-clock().getTime()>=15*60000 &&
+        Date.parse(m.kickoff_at)-clock().getTime()<=45*60000).slice(0,15);
+      if(featuredSoon.length){
+        const [assignments,channelRows,lines]=await Promise.all([
+          mappings(),allChannels(),lineStatuses(),
+        ]);
+        const active=new Set(channelRows.filter(c=>c.is_active).map(c=>c.id));
+        const recentlyReachable=new Set(lines.filter(l=>l.is_active &&
+          (l.health_status==="healthy" || l.health_status==="slow") &&
+          Date.parse(l.last_checked_at)>=clock().getTime()-30*60000)
+          .map(l=>l.channel_id));
+        for(const match of featuredSoon){
+          const mapped=[...(assignments.get(match.id)||[])].filter(id=>active.has(id));
+          const reachable=mapped.filter(id=>recentlyReachable.has(id)).length;
+          const state=!mapped.length?"⚠️ No channel assignment":
+            !reachable?"🔴 No recent reachable mapped channel":
+            reachable<mapped.length?"🟡 Some mapped channels reachable":
+            "🟢 Mapped channels recently reachable";
+          const alertKey="readiness:"+match.id+":"+String(match.kickoff_at);
+          const alertMessage="⭐ NCA FEATURED MATCH READINESS\n"+displayMatch(match)+"\n"+
+            matchTime(match)+"\n"+state+" ("+reachable+"/"+mapped.length+")"+
+            "\nCheck /readiness or /broadcasts. First-chunk reachability only; playback unverified.";
+          for(const p of prefs.filter(x=>x.football_enabled)){
+            try {await notify(p.chat_id,"readiness",alertKey,alertMessage);}
+            catch (_) { /* Failed delivery can retry at the next scheduled pulse. */ }
+          }
+        }
+      }
       for(const m of ms.slice(0,50)){
         const start=new Date(m.kickoff_at).getTime()-clock().getTime();
         const isKickoff=start>=0&&start<=15*60000&&!m.is_finished;
