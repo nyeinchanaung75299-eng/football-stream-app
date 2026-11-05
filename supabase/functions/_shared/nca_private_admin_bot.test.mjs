@@ -47,12 +47,15 @@ function createMock({prefs=[],lines=[],channels=[],matches=[],messageFail=false,
       return Response.json(channels);
     if(href.includes("matches?"))
       return Response.json(matches);
+    if(href.includes("stream_links?") || href.includes("nca_bot_match_channels?") ||
+       href.includes("nca_epg_auto_match_channels?"))
+      return Response.json([]);
     if(href.includes("nca_bot_alert_state?") && (options.method||"GET")==="GET")
       return Response.json([]);
     if((options.method||"GET")==="POST" && href.includes("nca_bot_alert_state?"))
       return Response.json([{event_key:body.event_key}],{status:201});
     if(["PATCH","DELETE","POST"].includes(options.method))
-      return new Response("",{status:204});
+      return new Response(null,{status:204});
     throw new Error("Unexpected request in test: "+href);
   };
   return {calls,fetcher};
