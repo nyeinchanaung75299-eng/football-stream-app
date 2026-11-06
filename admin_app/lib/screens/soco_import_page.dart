@@ -156,12 +156,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
       'fawa',
       'cola',
       'arena',
+      'totalsportek',
       'playz',
     }.contains(requested)
         ? requested
         : 'soco';
     if (_isManualSource) _libraryFuture = _streamLibrary.list();
-    dayFilter = (source == 'fawa' || source == 'cola' || source == 'arena' || _isManualSource)
+    dayFilter = (source == 'fawa' || source == 'cola' || source == 'arena' || source == 'totalsportek' || _isManualSource)
         ? 'all'
         : 'today';
     _loadSoco();
@@ -573,7 +574,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       });
     }
 
-    if (source == 'fawa' || source == 'cola' || dayFilter == 'all') {
+    if (source == 'fawa' || source == 'cola' || source == 'totalsportek' || dayFilter == 'all') {
       return rows.toList();
     }
 
@@ -707,6 +708,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
       final rows = data is Map ? data['lines'] : null;
       if (!current()) return;
+      if (provider == 'totalsportek' && data is Map &&
+          DateTime.tryParse(data['match_time']?.toString() ?? '') != null) {
+        match['match_time'] = data['match_time'];
+      }
       if (rows is! List) {
         throw const FormatException('No stream quality list returned.');
       }
@@ -1743,6 +1748,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
         return 'ColaTV';
       case 'arena':
         return 'Arena Koora';
+      case 'totalsportek':
+        return 'Totalsportek';
       default:
         return 'Soco';
     }
@@ -1800,7 +1807,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 const SizedBox(height: 4),
                 if (!_isManualSource &&
                     source != 'fawa' &&
-                    source != 'cola')
+                    source != 'cola' && source != 'totalsportek')
                   Row(
                     children: [
                       _dayButton('today', 'Today'),

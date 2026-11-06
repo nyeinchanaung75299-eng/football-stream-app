@@ -71,6 +71,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     'cola' => 'ColaTV',
     'xoilac' => 'Xoilac',
     'camel' => 'Camel1',
+    'totalsportek' => 'Totalsportek',
     _ => 'Soco',
   };
   int get navIndex => switch (source) {
@@ -80,6 +81,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     'cola' => 4,
     'xoilac' => 6,
     'camel' => 7,
+    'totalsportek' => 8,
     _ => 1,
   };
   List<Future<List<Map<String, dynamic>>> Function()> _apiJobs(
@@ -590,6 +592,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
     final decoded = jsonDecode(response.body);
     final raw = decoded is Map ? decoded['streams'] : null;
+    if ((sourceName ?? source) == 'totalsportek' && decoded is Map &&
+        DateTime.tryParse(decoded['match_time']?.toString() ?? '') != null) {
+      m['match_time'] = decoded['match_time'];
+    }
     if (raw is! List) throw const FormatException('Invalid source streams.');
     // An empty verified-source response is a source result, not a failed
     // network route. Retrying it on every alias repeats the same slow scan.
@@ -1078,6 +1084,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       4 => 'cola',
       6 => 'xoilac',
       7 => 'camel',
+      8 => 'totalsportek',
       _ => 'soco',
     };
     Navigator.of(context).pushReplacement(
@@ -1153,7 +1160,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                     league: _league,
                     leagues: sourceMatchLeagues(availableMatches),
                     visibleCount: matches.length,
-                    showDateChoices: source != 'yyzb',
+                    showDateChoices: source != 'yyzb' && source != 'totalsportek',
                     onRefresh: _refresh,
                     onQueryChanged: (value) => setState(() => _query = value),
                     onTodayChanged: (value) =>

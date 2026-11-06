@@ -295,6 +295,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
       4 => 'cola',
       6 => 'xoilac',
       7 => 'camel',
+      8 => 'totalsportek',
       _ => 'soco',
     };
     Navigator.of(context).pushReplacement(

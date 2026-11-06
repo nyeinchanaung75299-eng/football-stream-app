@@ -1738,6 +1738,7 @@ class _HomePageState extends State<HomePage> {
             4 => 'cola',
             6 => 'xoilac',
             7 => 'camel',
+            8 => 'totalsportek',
             _ => 'soco',
           };
           await Navigator.of(context).push(

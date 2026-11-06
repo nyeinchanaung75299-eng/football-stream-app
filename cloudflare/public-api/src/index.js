@@ -93,7 +93,7 @@ export default {
     }
 
     const sourceStreamsRoute = url.pathname.match(
-      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena)\/streams$/,
+      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena|totalsportek)\/streams$/,
     );
     if (sourceStreamsRoute && request.method === "POST") {
       return handleSourceBrowserStreams(
@@ -135,7 +135,7 @@ export default {
     }
 
     const sourceMatchesRoute = url.pathname.match(
-      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena)\/matches$/,
+      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena|totalsportek)\/matches$/,
     );
     if (sourceMatchesRoute && request.method === "GET") {
       return handleSourceBrowserMatches(
@@ -518,6 +518,7 @@ async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
     const streams = await protectedClientLinks(normalized, env, publicOrigin);
     return json({ok: true, source, streams, stream_count: streams.length,
       live_status: payload?.live_status ?? null,
+      ...(source === 'totalsportek' ? {match_time: payload?.match_time ?? null} : {}),
       generated_at: new Date().toISOString()}, 200,
       {"Cache-Control": "no-store, max-age=0"});
   } catch (error) {
