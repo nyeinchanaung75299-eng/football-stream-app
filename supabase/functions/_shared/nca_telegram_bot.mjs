@@ -65,7 +65,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     const end = command === '/today' ? new Date(new Date(start).valueOf()+86400000).toISOString()
       : new Date(now+7*86400000).toISOString();
     const data = await database("matches?select=id,league,home_team,away_team,kickoff_at,is_live" +
-      "&is_active=eq.true&publish_state=eq.published&deleted_at=is.null" +
+      "&is_active=eq.true&is_featured=eq.true&publish_state=eq.published&deleted_at=is.null" +
       '&is_finished=eq.false&and=(kickoff_at.gte.'+start+',kickoff_at.lt.'+end+')'+
       (command === '/live' ? '&is_live=eq.true' : '') +
       '&order=kickoff_at.asc&limit=10&offset='+(page*9), env);

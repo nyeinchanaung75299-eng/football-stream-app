@@ -27,6 +27,7 @@ test('Today is filtered on the server before LIMIT, even with 100 earlier publis
   assert.match(filter,/kickoff_at.gte.2026-11-05T17:30:00.000Z/);
   assert.match(filter,/kickoff_at.lt.2026-11-06T17:30:00.000Z/);
   assert.equal(url.searchParams.get('is_finished'),'eq.false');
+  assert.equal(url.searchParams.get('is_featured'),'eq.true');
   const rows=filter?[fixture]:[...old,fixture];
   return Response.json(rows.slice(0,Number(url.searchParams.get('limit'))));
  };
@@ -86,7 +87,7 @@ test('a concurrent in-flight duplicate is retried instead of prematurely acknowl
  release();assert.equal((await first).status,200);
 });
 
-function featuresFixture({missing=false,due=[]}={}) {
+function featuresFixture({missing=false,due=[],kickoff=fixture.kickoff_at}={}) {
  const calls=[];
  const key='a'.repeat(64);
  const fetcher=async(input,init={})=>{
@@ -97,7 +98,7 @@ function featuresFixture({missing=false,due=[]}={}) {
   if(table==='nca_viewer_scheduler')return Response.json([{secret_sha256:createHash('sha256').update(key).digest('hex')}]);
   if(init.method==='PATCH')return Response.json([{chat_id:42,match_id:id}]);
   if(init.method==='DELETE'||init.method==='POST')return Response.json([]);
-  if(table==='matches')return Response.json(missing?[]:[fixture]);
+  if(table==='matches')return Response.json(missing?[]:[{...fixture,kickoff_at:kickoff}]);
   if(table==='nca_viewer_reminders')return Response.json(due);
   if(table==='nca_viewer_reports')return Response.json([]);
   if(table==='channel_lines')return Response.json([{id:lineId,channel_id:id,label:'HD'}]);
@@ -137,10 +138,18 @@ test('scheduler rejects unauthorized requests before sending any reminder',async
  assert.equal(calls.length,0);
 });
 test('scheduler claims a due reminder, sends a match link, then records delivery',async()=>{
- const {features,calls,key}=featuresFixture({due:[{chat_id:42,match_id:id}]});
+ const {features,calls,key}=featuresFixture({due:[{chat_id:42,match_id:id}],kickoff:'2026-11-06T12:05:00Z'});
  const response=await features.pulse(new Request('https://edge.example',{headers:{'x-nca-viewer-pulse-key':key}}));
  assert.deepEqual(await response.json(),{ok:true,delivered:1});
  const sent=calls.find(c=>c.url.host==='api.telegram.org');
  assert.equal(sent.body.reply_markup.inline_keyboard[0][0].url,'https://viewer.example/?match='+id);
  assert.ok(calls.some(c=>c.method==='PATCH'&&c.body.delivered_at));
+});
+
+test('a postponed kickoff reschedules the reminder instead of sending it early',async()=>{
+ const {features,calls,key}=featuresFixture({due:[{chat_id:42,match_id:id}]});
+ const response=await features.pulse(new Request('https://edge.example',{headers:{'x-nca-viewer-pulse-key':key}}));
+ assert.deepEqual(await response.json(),{ok:true,delivered:0});
+ assert.equal(calls.some(c=>c.url.host==='api.telegram.org'),false);
+ assert.ok(calls.some(c=>c.body?.due_at==='2026-11-06T12:50:00.000Z'));
 });

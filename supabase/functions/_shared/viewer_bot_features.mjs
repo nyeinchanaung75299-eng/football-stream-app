@@ -15,7 +15,7 @@ export function createViewerFeatures({env, fetcher=fetch, clock=()=>new Date(), 
   async function match(id) {
     if (!UUID.test(id)) return null;
     const rows=await db('matches?select=id,home_team,away_team,kickoff_at&id=eq.'+id+
-      '&is_active=eq.true&publish_state=eq.published&deleted_at=is.null&is_finished=eq.false&limit=1');
+      '&is_active=eq.true&is_featured=eq.true&publish_state=eq.published&deleted_at=is.null&is_finished=eq.false&limit=1');
     return rows[0]||null;
   }
   async function handle(raw, chatId) {
@@ -83,7 +83,9 @@ export function createViewerFeatures({env, fetcher=fetch, clock=()=>new Date(), 
     const rows=await db('nca_viewer_reminders?select=chat_id,match_id&delivered_at=is.null&due_at=lte.'+
       now.toISOString()+'&or=(retry_after.is.null,retry_after.lt.'+now.toISOString()+')&order=due_at.asc&limit=20');
     let delivered=0;
+    const started=performance.now();
     for (const r of rows) {
+      if (performance.now()-started>35000) break;
       const path='nca_viewer_reminders?chat_id=eq.'+r.chat_id+'&match_id=eq.'+r.match_id;
       // Claim a short delivery lease so overlapping scheduler calls cannot send twice.
       const claim=await db(path+'&delivered_at=is.null&or=(retry_after.is.null,retry_after.lt.'+now.toISOString()+')','PATCH',
@@ -93,6 +95,10 @@ export function createViewerFeatures({env, fetcher=fetch, clock=()=>new Date(), 
         const fixture=await match(r.match_id);
         if (!fixture || new Date(fixture.kickoff_at).valueOf()<now.valueOf()-5*60000) {
           await db(path,'DELETE'); continue;
+        }
+        if (new Date(fixture.kickoff_at).valueOf()>now.valueOf()+10*60000) {
+          await db(path,'PATCH',{due_at:new Date(new Date(fixture.kickoff_at).valueOf()-10*60000).toISOString(),retry_after:null});
+          continue;
         }
         const result=await fetcher('https://api.telegram.org/bot'+env.TG_VIEWER_BOT_TOKEN+'/sendMessage',{
           method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(8000),
