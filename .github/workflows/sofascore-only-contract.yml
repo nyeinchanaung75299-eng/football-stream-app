@@ -1,0 +1,23 @@
+name: SofaScore-only regression tests
+
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/source-match-list/index.ts"
+      - "supabase/functions/_shared/sofascore_only.mjs"
+      - "supabase/functions/_shared/sofascore_only.test.mjs"
+      - "admin_app/lib/screens/fixture_import_page.dart"
+      - ".github/workflows/sofascore-only-contract.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test supabase/functions/_shared/sofascore_only.test.mjs

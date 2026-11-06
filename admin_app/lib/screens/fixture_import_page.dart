@@ -137,6 +137,20 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     if (raw is! List) {
       throw FormatException('${_providerLabel(provider)} match list is invalid.');
     }
+    if (provider == 'sofascore') {
+      // Fail closed even when an older server mislabels fallback rows as SofaScore.
+      final validSource = data is Map &&
+          data['source']?.toString() == 'sofascore' &&
+          data['served_by']?.toString() == 'sofascore';
+      final validRows = raw.every((item) =>
+          item is Map &&
+          item['source']?.toString() == 'sofascore' &&
+          item['provider']?.toString() == 'sofascore');
+      if (!validSource || !validRows) {
+        throw const FormatException(
+          'SofaScore-only mode rejected data from another provider.');
+      }
+    }
 
     final wantedDate = DateTime(
       requestedDate.year,
@@ -248,13 +262,12 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       try {
         rows = await _loadSourceFixtures(provider, requestedMode, requestedDate);
       } catch (_) {
+        if (provider == 'sofascore') rethrow;
         rows = const [];
       }
 
-      // SofaScore currently challenges server-side API requests. Keep the
-      // picker useful by falling back to the configured football fixture feed.
-      // Existing team logos remain available; poster_url is used when supplied.
-      if (rows.isEmpty && (provider == 'cola' || provider == 'sofascore')) {
+      // ColaTV retains its independent fallback; SofaScore must never use it.
+      if (rows.isEmpty && provider == 'cola') {
         provider = 'fallback';
         rows = await _loadFallbackFixtures(requestedMode, requestedDate);
       }
@@ -286,7 +299,11 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         fixtures = [];
         final raw = e.toString();
         final lower = raw.toLowerCase();
-        if (lower.contains('football_providers_missing') ||
+        if (fixtureSource == 'sofascore') {
+          errorText =
+              'SofaScore is unavailable. No other fixture source was used. '
+              '${raw.replaceFirst('Exception: ', '')}';
+        } else if (lower.contains('football_providers_missing') ||
             lower.contains('no football fixture provider is configured')) {
           errorText =
               'ColaTV had no usable matches and no fallback fixture API is configured.';
@@ -608,6 +625,14 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                     await loadFixtures();
                   },
           ),
+          if (fixtureSource == 'sofascore')
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                'SofaScore only • No API-Football / Soco / YYZB fallback',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
           const SizedBox(height: 12),
           Row(
             children: [
