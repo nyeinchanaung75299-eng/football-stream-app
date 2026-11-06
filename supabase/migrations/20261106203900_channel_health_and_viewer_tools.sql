@@ -71,7 +71,7 @@ begin
       delete from public.nca_viewer_reminders where due_at < now()-interval '7 days';
       delete from public.nca_viewer_reports where created_at < now()-interval '30 days';
     $job$);
-    if to_regprocedure('vault.create_secret(text,text,text)') is not null then
+    if to_regprocedure('vault.create_secret(text,text,text,uuid)') is not null then
       pulse_key := replace(gen_random_uuid()::text || gen_random_uuid()::text,'-','');
       perform vault.create_secret(pulse_key,'nca_viewer_pulse','Private viewer reminder scheduler');
       insert into public.nca_viewer_scheduler values(1,encode(sha256(convert_to(pulse_key,'UTF8')),'hex'));

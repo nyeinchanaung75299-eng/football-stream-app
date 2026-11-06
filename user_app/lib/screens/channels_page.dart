@@ -260,8 +260,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
       // configured line twice in the server picker.
       final playerLines = addVpnFreePlaybackFallbacks(lines);
       NativePlayer.prewarm(sources: playerLines);
-      try { await library.recordRecent(id); } catch (_) { /* Playback remains available. */ }
-      if (!mounted) return;
+      unawaited(library.recordRecent(id).catchError((Object _) {}));
       await NativePlayer.open(
         context: context,
         sources: playerLines,
