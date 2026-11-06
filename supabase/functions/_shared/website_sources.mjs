@@ -1,3 +1,4 @@
+import { totalsportekMatches, totalsportekStreams } from './totalsportek_source.mjs';
 // Public source adapters: literal page metadata only; no script execution,
 // credentials, login bypass or arbitrary caller-supplied fetch destinations.
 const ROOTS = {xoilac:'https://xoilaczcb.tv/', camel:'https://www.camel1.tv/', arena:'https://www.arena-koora.online/'};
@@ -122,6 +123,7 @@ async function boundedFetch(url,fetcher,redirects=0){
  }finally{clearTimeout(timer);controller.abort();}
 }
 export async function websiteMatches(source,{fetcher=fetch,now=Date.now()}={}){
+ if(source==='totalsportek')return totalsportekMatches({fetcher});
  if(!ROOTS[source])throw new Error('Unsupported source.');
  const html=await boundedFetch(ROOTS[source],fetcher);
  if(source==='xoilac')return parseXoilac(html,now);
@@ -129,6 +131,7 @@ export async function websiteMatches(source,{fetcher=fetch,now=Date.now()}={}){
  return parseCamel(html,now);
 }
 export async function websiteStreams(source,body,{fetcher=fetch}={}){
+ if(source==='totalsportek')return totalsportekStreams(body,{fetcher});
  if(source==='arena'){
   const page=publicPage('arena',body.page_url);if(!page)throw new Error('Invalid Arena Koora match page.');
   const html=await boundedFetch(page,fetcher);const decoded=decode(String(html).replace(/\\\//g,'/'));

@@ -16,6 +16,7 @@ class StreamSourcePickerPage extends StatelessWidget {
     _SourceOption('fawa', 'Fawa', Icons.live_tv_rounded),
     _SourceOption('cola', 'ColaTV', Icons.tv_rounded),
     _SourceOption('arena', 'Arena Koora', Icons.stadium_rounded),
+    _SourceOption('totalsportek', 'Totalsportek', Icons.public_rounded),
   ];
 
   void _open(BuildContext context, _SourceOption source) {

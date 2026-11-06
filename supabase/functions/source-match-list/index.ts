@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
       return json(await arenaMatches(body.date));
     }
 
-    if (source === "xoilac" || source === "camel") {
+    if (source === "xoilac" || source === "camel" || source === "totalsportek") {
       const payload = { ok: true, source, matches: await websiteMatches(source), generated_at: new Date().toISOString() };
       return json(payload);
     }
@@ -109,10 +109,10 @@ Deno.serve(async (req) => {
   }
 });
 
-function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "xoilac" | "camel" | "arena" | "sofascore" | null {
+function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "xoilac" | "camel" | "arena" | "sofascore" | "totalsportek" | null {
   const source = String(value ?? "").trim().toLowerCase();
   if (!source) return "soco";
-  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "xoilac" || source === "camel" || source === "arena" || source === "sofascore") {
+  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "xoilac" || source === "camel" || source === "arena" || source === "sofascore" || source === "totalsportek") {
     return source;
   }
   return null;

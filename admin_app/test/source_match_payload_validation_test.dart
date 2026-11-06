@@ -31,6 +31,13 @@ void main() {
     expect(rows.single['home_team'], 'ColaTV fixture');
   });
 
+  test('accepts Totalsportek metadata without guessing a missing kickoff', () {
+    final fixture = row('totalsportek', 'Everton')..['match_time'] = null;
+    final rows = validateSourceMatchRows({'source': 'totalsportek', 'matches': [fixture]}, 'totalsportek');
+    expect(rows.single['match_time'], isNull);
+    expect(rows.single['home_team'], 'Everton');
+  });
+
   test('rejects a Soco payload shown under ColaTV', () {
     expect(
       () => validateSourceMatchRows({

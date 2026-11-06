@@ -11,6 +11,8 @@ on:
       - "scripts/test_football_names.mjs"
       - "supabase/functions/_shared/football_names.mjs"
       - "supabase/functions/_shared/website_sources.mjs"
+      - "supabase/functions/_shared/totalsportek_source.mjs"
+      - "scripts/test_totalsportek_source.mjs"
       - "scripts/test_website_sources.mjs"
       - "supabase/functions/_shared/source_match_rows.mjs"
       - "scripts/test_fawa_source.mjs"
@@ -58,7 +60,7 @@ jobs:
         run: node scripts/test_supabase_relay.mjs
 
       - name: Test public website providers
-        run: node --test scripts/test_website_sources.mjs
+        run: node --test scripts/test_website_sources.mjs scripts/test_totalsportek_source.mjs
 
       - name: Test public match feed
         run: node --test scripts/test_public_match_feed.mjs

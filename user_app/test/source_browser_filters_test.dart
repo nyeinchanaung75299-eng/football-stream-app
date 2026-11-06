@@ -51,6 +51,27 @@ List<Map<String, dynamic>> _fixtures() {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  testWidgets('Totalsportek lists its own fixtures without inventing kickoff times', (tester) async {
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home: SourceBrowserPage(source: 'totalsportek')));
+      await tester.pumpAndSettle();
+      expect(find.text('Everton'), findsOneWidget);
+      expect(find.text('Coventry City'), findsOneWidget);
+      expect(tester.widget<SourceMatchFilters>(find.byType(SourceMatchFilters)).showDateChoices, isFalse);
+      expect(tester.widget<PremiumBottomNav>(find.byType(PremiumBottomNav)).selectedIndex, 8);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, () => MockClient((request) async {
+      expect(request.url.path, '/sources/totalsportek/matches');
+      return http.Response(jsonEncode({'source': 'totalsportek', 'matches': [{
+        'source': 'totalsportek', 'source_id': '12345', 'league': 'Premier League',
+        'home_team': 'Everton', 'away_team': 'Coventry City', 'match_time': null,
+        'page_url': 'https://totalsportekl.is/Everton-vs-Coventry-City/12345',
+        'anchors': [{'room_num': '12345', 'page_url': 'https://totalsportekl.is/Everton-vs-Coventry-City/12345'}],
+      }]}), 200);
+    }));
+  });
+
   testWidgets('Soco All dates excludes old completed fixtures and labels rooms', (tester) async {
     final now = DateTime.now();
     final feed = [

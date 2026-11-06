@@ -39,6 +39,7 @@ class PremiumBottomNav extends StatelessWidget {
       label: 'Xoilac',
     ),
     (icon: Icons.live_tv_outlined, selected: Icons.live_tv, label: 'Camel1'),
+    (icon: Icons.public_outlined, selected: Icons.public, label: 'Totalsportek'),
   ];
 
   @override

@@ -1,5 +1,22 @@
 # Xoilac / Camel1 support (2026-10-28)
 
+Totalsportek was added on 2026-11-06 as an additional Admin/Viewer source.
+It reads public football fixture cards, excluding ended highlights and other
+sports, then resolves only allowlisted, explicitly linked player wrappers.
+No provider JavaScript, ad scripts, login flow or token-refresh code is executed.
+The verified player family publishes standard signed HLS; a live inspection
+returned valid master/media playlists and MPEG-TS video bytes (HTTP 206).
+Other server families may deny access or remain unsupported; they are omitted.
+No HTTP reachability result is described as confirmed device playback.
+
+Listings publish relative times, so kickoff is initially unknown. Selecting an
+event obtains its published UK kickoff, converted with Europe/London daylight
+saving rules. Date filters are hidden for this source rather than inventing a
+timestamp. Signed URL expiry is retained; reopening the source obtains a fresh
+published URL, and Admin import replaces the same logical line without duplicates.
+Viewer URLs continue through the existing protected gateway. Existing VPN and
+non-VPN routing behavior is preserved; only the new source route is allowed.
+
 - Xoilac public football fixtures are parsed from the supplied site's HTML.
   Stream lookup reads only its published literal list_stream and urlStream
   values, with fixed provider/player/media host validation and bounded reads.
