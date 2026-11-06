@@ -1,4 +1,5 @@
 import { probeStreamFirstChunk } from "./stream_probe.mjs";
+import { withTelegramUpdateDedup } from './telegram_update_dedup.mjs';
 // NCA Telegram bots: private webhook commands backed by safe Supabase metadata.
 // NO stream URLs, key IDs, key data, DRM, service keys or session tokens in replies.
 export const VIEWER_SITE = "https://nyeinchanaung75299-eng.github.io/football-stream-app/";
@@ -18,6 +19,7 @@ export const ADMIN_TOOLS_MENU = {
     [{text:"🔎 Search",callback_data:"/search"},{text:"🟢 Health",callback_data:"/health"}],
     [{text:"⚽ Match readiness",callback_data:"/readiness"},{text:"🧪 Test bot",callback_data:"/testbot"}],
     [{text:"📊 Stats",callback_data:"/stats"},{text:"🧾 Logs",callback_data:"/logs"}],
+    [{text:'🚩 Viewer reports',callback_data:'/reports'}],
     [{text:"🔒 Security",callback_data:"/security"},{text:"🛠 Builds",callback_data:"/build"}],
     [{text:"🏠 Main menu",callback_data:"/start"}],
   ],
@@ -71,6 +73,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     const response = await fetcher("https://api.telegram.org/bot" + token + "/" + method, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
     });
     if (!response.ok) throw new Error("Telegram API unavailable");
     const data = await response.json();
@@ -494,6 +497,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
             checked++;
             await writeDb("channel_lines?id=eq."+line.id,"PATCH",{
               health_status:probe.status,health_latency_ms:probe.latencyMs,
+              health_http_status:probe.httpStatus,
               last_checked_at:new Date().toISOString(),
             });
             const failedNow=probe.status==="failed" && line.health_status!=="failed";
@@ -723,6 +727,10 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
         responseText=await diagnostics(chat.id);
       } else if (cmd === "/readiness") {
         responseText=await matchReadiness();
+      } else if (cmd === '/reports') {
+        const reports=await database('nca_viewer_reports?select=created_at,channels(name),channel_lines(label)&order=created_at.desc&limit=20',env);
+        responseText='🚩 VIEWER LINE REPORTS\n'+(reports.length?reports.map(r=>
+          text(r.channels?.name,70)+' • '+text(r.channel_lines?.label,50)+'\n'+text(r.created_at,25)).join('\n\n'):'No recent reports.');
       } else if (cmd === "/health" || cmd === "/status") {
         responseText = await health(env);
       } else if (cmd === "/build") {
@@ -834,5 +842,5 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     });
     return reply({ ok: true });
   }
-  return handle;
+  return withTelegramUpdateDedup(handle, {mode, env, fetcher});
 }

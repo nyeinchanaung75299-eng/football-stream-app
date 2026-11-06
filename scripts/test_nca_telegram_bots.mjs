@@ -89,12 +89,13 @@ test("Viewer /today only displays published fixture metadata, never private stre
   assert.match(f.dbPaths[0], /publish_state=eq\.published/);
 });
 
-test("Viewer /start includes linked website and quick actions; no automatic alert promise", async () => {
+test("Viewer /start offers explicit opt-in reminders and cancellation", async () => {
   const f = fixture("viewer");
   const response = await f.handler(mkRequest("viewer", "/start"));
   assert.equal(response.status, 200);
-  assert.equal(f.sent[0].body.reply_markup.inline_keyboard[2][0].url.includes("github.io"), true);
-  assert.match(f.sent[0].body.text, /not enabled/);
+  assert.ok(f.sent[0].body.reply_markup.inline_keyboard.flat().some(b=>b.url?.includes('github.io')));
+  assert.match(f.sent[0].body.text, /optional kickoff reminder/);
+  assert.match(f.sent[0].body.text, /unsubscribe/);
 });
 
 test("Private Admin bot never makes a database call for an unapproved Telegram ID", async () => {

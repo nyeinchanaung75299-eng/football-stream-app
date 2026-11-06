@@ -16,7 +16,7 @@ void main() {
     var requests = 0;
     await http.runWithClient(() async {
       await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
-      expect(find.byType(NavigationDestination), findsNWidgets(4));
+      expect(find.byType(NavigationDestination), findsNWidgets(5));
       final destinations = tester
           .widgetList<NavigationDestination>(
             find.byType(NavigationDestination),
@@ -24,7 +24,7 @@ void main() {
           .toList();
       expect(
         destinations.map((destination) => destination.label),
-        ['Controls', 'Sources', 'TV Schedule', 'My Channels'],
+      ['Controls', 'Sources', 'TV Schedule', 'My Channels', 'Health'],
       );
       expect(find.text('Stream Detector'), findsNothing);
       expect(find.text('Pick Big Matches'), findsOneWidget);

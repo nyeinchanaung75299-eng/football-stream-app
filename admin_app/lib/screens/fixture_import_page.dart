@@ -542,7 +542,6 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pick Big Matches'),
@@ -572,37 +571,6 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),
         children: [
-          Container(
-            padding: const EdgeInsets.all(15),
-            decoration: BoxDecoration(
-              color: colors.primary.withValues(alpha: .08),
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: const Text(
-              'Selected matches are added to Live. Existing unfinished featured matches stay visible.',
-              style: TextStyle(height: 1.4),
-            ),
-          ),
-          const SizedBox(height: 14),
-          DropdownButtonFormField<String>(
-            value: fixtureSource,
-            decoration: const InputDecoration(
-              labelText: 'Big Match source',
-              prefixIcon: Icon(Icons.photo_library_outlined),
-              border: OutlineInputBorder(),
-            ),
-            items: const [
-              DropdownMenuItem(value: 'cola', child: Text('ColaTV')),
-            ],
-            onChanged: importing || loading
-                ? null
-                : (value) async {
-                    if (value == null || value == fixtureSource) return;
-                    setState(() => fixtureSource = value);
-                    await loadFixtures();
-                  },
-          ),
-          const SizedBox(height: 12),
           Row(
             children: [
               modeButton(
@@ -672,7 +640,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
               children: [
                 Expanded(
                   child: Text(
-                    '${fixtures.length} fixtures • ${_providerLabel(fixtures.first['provider'])}',
+                    '${fixtures.length} fixtures',
                     style: const TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 17,

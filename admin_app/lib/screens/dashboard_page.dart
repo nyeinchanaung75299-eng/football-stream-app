@@ -64,7 +64,8 @@ class _DashboardPageState extends State<DashboardPage> {
             0 => 'controls',
             1 => 'stream-sources',
             2 => 'tv-schedule',
-            _ => 'my-channels',
+            3 => 'my-channels',
+            _ => 'channel-health',
           };
           AnalyticsService.capture(
             'admin section opened',
@@ -93,6 +94,11 @@ class _DashboardPageState extends State<DashboardPage> {
             selectedIcon: Icon(Icons.tv_rounded),
             label: 'My Channels',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.health_and_safety_outlined),
+            selectedIcon: Icon(Icons.health_and_safety_rounded),
+            label: 'Health',
+          ),
         ],
       ),
       // Do not use an eager IndexedStack here: My Channels and TV Schedule
@@ -102,7 +108,8 @@ class _DashboardPageState extends State<DashboardPage> {
         0 => _controls(context, colors),
         1 => const StreamSourcePickerPage(embedded: true),
         2 => const TvSchedulesPage(embedded: true),
-        _ => const MyChannelsGuidePage(embedded: true),
+        3 => const MyChannelsGuidePage(embedded: true),
+        _ => const ChannelHealthPage(embedded: true),
       },
     );
   }
@@ -166,13 +173,6 @@ class _DashboardPageState extends State<DashboardPage> {
         title: 'Edit & Delete Channels',
         iconColor: const Color(0xFF6099FF),
         onTap: () => open(context, const ChannelsPage(), 'channel-management'),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.health_and_safety_rounded,
-        title: 'All TV Channel Health',
-        iconColor: const Color(0xFF10B981),
-        onTap: () => open(context, const ChannelHealthPage(), 'channel-health'),
       ),
       const SizedBox(height: 12),
       Text(

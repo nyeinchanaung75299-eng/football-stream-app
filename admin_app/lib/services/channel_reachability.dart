@@ -8,6 +8,8 @@ class ChannelReachability {
     required this.activeLines,
     required this.checkedAt,
     required this.maxLatencyMs,
+    this.reachableLines = 0,
+    this.failedLines = 0,
   });
 
   /// reachable, stale, slow, failed or unknown. NOT a playback status.
@@ -15,6 +17,8 @@ class ChannelReachability {
   final int activeLines;
   final DateTime? checkedAt;
   final int? maxLatencyMs;
+  final int reachableLines;
+  final int failedLines;
 }
 
 ChannelReachability assessChannelReachability(
@@ -34,6 +38,8 @@ ChannelReachability assessChannelReachability(
   var missingOrExpired = false;
   final latencies = <int>[];
   final statuses = <String>[];
+  var reachable = 0;
+  var failed = 0;
 
   for (final line in active) {
     statuses.add((line['health_status'] ?? 'unknown').toString());
@@ -44,6 +50,11 @@ ChannelReachability assessChannelReachability(
       missingOrExpired = true;
     } else {
       validChecks.add(raw.toUtc());
+      if (line['health_status'] == 'healthy' || line['health_status'] == 'slow') {
+        reachable++;
+      } else if (line['health_status'] == 'failed') {
+        failed++;
+      }
     }
     final value = line['health_latency_ms'];
     if (value is num && value > 0) latencies.add(value.toInt());
@@ -52,7 +63,9 @@ ChannelReachability assessChannelReachability(
   // Never promote an old first-byte response to a current playback guarantee.
   final status = missingOrExpired
       ? 'stale'
-      : statuses.contains('failed')
+      : reachable > 0 && failed > 0
+          ? 'partial'
+          : statuses.contains('failed')
           ? 'failed'
           : statuses.contains('slow')
               ? 'slow'
@@ -63,6 +76,8 @@ ChannelReachability assessChannelReachability(
   return ChannelReachability(
     status: status,
     activeLines: active.length,
+    reachableLines: reachable,
+    failedLines: failed,
     checkedAt: validChecks.isEmpty ? null
         : (validChecks..sort((a, b) => b.compareTo(a))).first,
     maxLatencyMs: latencies.isEmpty ? null

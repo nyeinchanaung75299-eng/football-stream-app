@@ -6,6 +6,7 @@ on:
       - "supabase/functions/_shared/nca_private_admin_bot.mjs"
       - "supabase/functions/_shared/nca_private_admin_bot.test.mjs"
       - "supabase/functions/_shared/stream_probe.mjs"
+      - "supabase/functions/_shared/telegram_update_dedup.mjs"
       - ".github/workflows/telegram-bot-regression.yml"
   workflow_dispatch:
 

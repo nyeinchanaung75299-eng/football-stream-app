@@ -57,7 +57,8 @@ class FootballViewerApp extends StatelessWidget {
           darkTheme: AppTheme.dark(),
           themeMode: AppThemeController.instance.mode,
           navigatorObservers: [PosthogObserver()],
-          home: HomePage(backendReady: backendReady),
+          home: HomePage(backendReady: backendReady,
+            initialMatchId: Uri.base.queryParameters['match']),
         );
       },
     );

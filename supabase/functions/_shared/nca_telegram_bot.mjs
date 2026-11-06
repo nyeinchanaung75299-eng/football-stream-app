@@ -1,3 +1,5 @@
+import { withTelegramUpdateDedup } from './telegram_update_dedup.mjs';
+import { createViewerFeatures } from './viewer_bot_features.mjs';
 // NCA Telegram bots: private webhook commands backed by safe Supabase metadata.
 // NO stream URLs, key IDs, key data, DRM, service keys or session tokens in replies.
 export const VIEWER_SITE = "https://nyeinchanaung75299-eng.github.io/football-stream-app/";
@@ -29,11 +31,13 @@ async function sameSecret(provided, expected) {
 export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () => new Date() }) {
   if (mode !== "viewer" && mode !== "admin") throw new Error("Unknown bot mode");
   const prefix = mode === "viewer" ? "TG_VIEWER" : "TG_ADMIN";
+  const features = createViewerFeatures({env, fetcher, clock, site:VIEWER_SITE});
 
   async function telegram(method, token, body) {
     const response = await fetcher("https://api.telegram.org/bot" + token + "/" + method, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
     });
     if (!response.ok) throw new Error("Telegram API unavailable");
     const data = await response.json();
@@ -47,17 +51,24 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
         Authorization: "Bearer " + env.SUPABASE_SERVICE_ROLE_KEY,
         Accept: "application/json",
       },
+      signal: AbortSignal.timeout(10000),
     });
     if (!response.ok) throw new Error("Database metadata unavailable");
     const rows = await response.json();
     if (!Array.isArray(rows)) throw new Error("Invalid database metadata");
     return rows;
   }
-  async function matches(command, env) {
-    const data = await database("matches?select=league,home_team,away_team,kickoff_at,is_live" +
-      "&is_active=eq.true&publish_state=eq.published&deleted_at=is.null" +
-      "&order=kickoff_at.asc&limit=100", env);
+  async function matches(command, env, page=0) {
     const today = myanmarDay(clock()), now = clock().valueOf();
+    const start = command === '/today' ? new Date(today+'T00:00:00+06:30').toISOString()
+      : new Date(command === '/live' ? now-8*3600000 : now).toISOString();
+    const end = command === '/today' ? new Date(new Date(start).valueOf()+86400000).toISOString()
+      : new Date(now+7*86400000).toISOString();
+    const data = await database("matches?select=id,league,home_team,away_team,kickoff_at,is_live" +
+      "&is_active=eq.true&is_featured=eq.true&publish_state=eq.published&deleted_at=is.null" +
+      '&is_finished=eq.false&and=(kickoff_at.gte.'+start+',kickoff_at.lt.'+end+')'+
+      (command === '/live' ? '&is_live=eq.true' : '') +
+      '&order=kickoff_at.asc&limit=10&offset='+(page*9), env);
     const items = data.filter(m => {
       const t = new Date(m.kickoff_at).valueOf();
       if (!Number.isFinite(t)) return false;
@@ -65,12 +76,21 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       if (command === "/today") return myanmarDay(new Date(t)) === today;
       return t >= now && t <= now + 7 * 86400000;
     }).slice(0, 9);
-    if (!items.length) return command === "/live" ?
-      "No verified live football matches right now." : "No published football matches for this selection.";
-    return (command === "/live" ? "🔴 LIVE FOOTBALL" : command === "/today" ? "⚽ TODAY'S FOOTBALL" : "📅 UPCOMING FOOTBALL") +
+    if (!items.length) return {text:command === "/live" ?
+      "No verified live football matches right now." : "No published football matches for this selection."};
+    const message = (command === "/live" ? "🔴 LIVE FOOTBALL" : command === "/today" ? "⚽ TODAY'S FOOTBALL" : "📅 UPCOMING FOOTBALL") +
       "\n" + items.map(m => text(m.home_team, 50) + " vs " + text(m.away_team, 50) +
         "\n" + text(m.league, 70) + " • " + dateInMyanmar(m.kickoff_at)).join("\n\n") +
       "\n\nWatch on NCA: " + VIEWER_SITE;
+    const buttons=items.filter(m=>/^[a-f0-9-]{36}$/i.test(m.id||'')).map(m=>[
+      {text:'Watch '+text(m.home_team,25),url:VIEWER_SITE+'?match='+m.id},
+      {text:'🔔 Remind me',callback_data:'remind:'+m.id},
+    ]);
+    const nav=[];
+    if(page>0)nav.push({text:'Previous',callback_data:'feed:'+command.slice(1)+':'+(page-1)});
+    if(data.length>9)nav.push({text:'Next',callback_data:'feed:'+command.slice(1)+':'+(page+1)});
+    if(nav.length)buttons.push(nav);
+    return {text:message,keyboard:{inline_keyboard:buttons}};
   }
   // Private Admin navigation: only safe, non-credential channel metadata is sent.
   const PAGE_SIZE = 8;
@@ -191,6 +211,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
   }
   async function handle(req) {
     if (req.method !== "POST") return reply({ error: "Method not allowed" }, 405);
+    if (mode==='viewer' && req.headers.has('x-nca-viewer-pulse-key')) return features.pulse(req);
     const token = env[prefix + "_BOT_TOKEN"];
     const secret = env[prefix + "_WEBHOOK_SECRET"];
     if (!token || !secret || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -226,18 +247,25 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     let responseText, keyboard;
     try {
       if (mode === "viewer") {
-        if (["/today", "/live", "/schedule"].includes(cmd)) {
-          responseText = await matches(cmd, env);
+        const featureRaw=raw.replace(/^\/start\s+report_/, 'report:');
+        const feature = chat.type==='private' ? await features.handle(featureRaw,chat.id) : null;
+        const feed=raw.match(/^feed:(today|live|schedule):(\d{1,4})$/);
+        if(feature) {
+          responseText=feature.text;keyboard=feature.keyboard;
+        } else if (["/today", "/live", "/schedule"].includes(cmd) || feed) {
+          const result=await matches(feed?'/'+feed[1]:cmd,env,feed?Number(feed[2]):0);
+          responseText=result.text;keyboard=result.keyboard;
         } else if (cmd === "/channels") {
           const rows = await channelList(env, false);
           responseText = "📺 NCA active channels: " + rows.length +
             "\nView EPG and authorized playback in the NCA website:\n" + VIEWER_SITE;
         } else {
           responseText = "⚽ NCA Football Viewer\nUse /today /live /schedule /channels.\n" +
-            "Automatic match alerts are not enabled until subscriptions are configured.";
+            "Choose Remind me on a match for an optional kickoff reminder.\n/reminders to manage; /unsubscribe to cancel all.";
           keyboard = { inline_keyboard: [
             [{ text: "⚽ Today", callback_data: "/today" }, { text: "🔴 Live", callback_data: "/live" }],
             [{ text: "📅 Schedule", callback_data: "/schedule" }],
+            [{ text: '🔔 My reminders', callback_data: '/reminders' }],
             [{ text: "Open Viewer", url: VIEWER_SITE }],
           ] };
         }
@@ -316,5 +344,5 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     });
     return reply({ ok: true });
   }
-  return handle;
+  return withTelegramUpdateDedup(handle, {mode, env, fetcher});
 }

@@ -244,6 +244,7 @@ async function checkChannelLine(
     .update({
       health_status: result.health,
       health_latency_ms: result.latency,
+      health_http_status: result.statusCode,
       last_checked_at: checkedAt,
     })
     .eq("id", line.id);

@@ -4,15 +4,18 @@ Bot usernames:
 - Public Viewer: https://t.me/NCAFootballViewer_bot
 - Private Admin: https://t.me/NCAPrivate_bot
 
-**Status:** source code and tests only until private credentials are configured through your own secret manager. No token or password is required in a chat message, GitHub issue, pull request, or public URL.
+The deployed bots require private credentials configured through your secret manager. Never put a token or password in chat, GitHub issues, source code, or a public URL.
 
-## Implemented (read-only)
+## Implemented
 
 - Viewer: /start, /today, /live, /schedule, /channels. Uses published football match metadata from NCA Supabase; no playback credentials.
 - Private Admin: /whoami, /start, /health, /status, /bein, /build and beIN channel buttons. Reads safe channel names, EPG IDs, stream *types* and health counts; never sends MPD URLs, key IDs, key data, referers, license URLs, service credentials or bearer tokens.
 - Admin accepts only private chats from a numeric Telegram user ID on a server-side allowlist. /whoami alone displays the caller's own ID to help pair.
 - Telegram webhook secret is checked on every POST. Supabase gateway JWT verification is disabled only for these bot endpoints, because Telegram sends a separate webhook secret.
-- No database mutations from these commands.
+- Private Admin management actions require its allowlist and confirmation.
+- Viewer Today/Live/Schedule queries apply the time window before pagination. Each match has a Watch link and an explicit **Remind me** action; `/reminders` manages subscriptions and `/unsubscribe` cancels them.
+- Channel options in Viewer include **Report broken line**, opening the Viewer bot to choose a line and confirm. Reports are visible in Admin **Health → flag icon** and private bot `/reports`.
+- Both webhooks lease `update_id` in server-only storage. Completed updates are acknowledged without repeating commands; failed deliveries can retry.
 
 ## Configure secrets in Supabase Dashboard
 
@@ -57,8 +60,12 @@ Validate:
 
 Use Telegram getWebhookInfo to troubleshoot if necessary. NEVER paste tokenized Bot API URLs into chat/screenshots.
 
-## Not implemented yet
+## Reminder delivery and retention
 
-Automatic match push alerts, viewer subscription storage and daily scheduled reports are NOT enabled yet. They need explicit viewer opt-in, de-duplication, scheduling and rate limits. Do not claim notifications are live until those parts pass end-to-end tests. Current first phase is interactive, read-only bots.
+Apply migration `20261106205045_channel_health_and_viewer_tools.sql` before deploying these bot functions. It schedules a once-per-minute Viewer reminder pulse, authenticated by its own private Vault secret. Up to 20 due reminders are handled per pulse, with a delivery lease and retry; blocked chats are unsubscribed. Telegram timeouts can have ambiguous delivery outcomes, so notifications use at-least-once delivery. Viewers must choose each match; there is no automatic mass subscription.
 
-GitHub Pages, Vercel-first public APIs, existing Admin roles and 169 TV channels stay unchanged.
+Reminders are sent approximately ten minutes before kickoff, subject to scheduler and Telegram availability. Subscribing within ten minutes schedules the next available pulse. Watch links bring the selected published match to the top of the Viewer; playback still requires a tap.
+
+Update records and old reminders expire after seven days; line reports after 30 days. Only channel IDs are stored locally for Viewer favorites/recent channels. No playback URLs or keys are included in reports, reminders, or browser history storage.
+
+Private Admin channel/readiness alerts remain separate from Viewer reminders. Daily Viewer digests are not implemented. GitHub Pages and existing VPN/non-VPN routing are preserved. The verified catalog currently contains 169 channels and 169 lines.
