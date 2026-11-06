@@ -251,10 +251,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         rows = const [];
       }
 
-      // SofaScore currently challenges server-side API requests. Keep the
-      // picker useful by falling back to the configured football fixture feed.
-      // Existing team logos remain available; poster_url is used when supplied.
-      if (rows.isEmpty && (provider == 'cola' || provider == 'sofascore')) {
+      if (rows.isEmpty && provider == 'cola') {
         provider = 'fallback';
         rows = await _loadFallbackFixtures(requestedMode, requestedDate);
       }
@@ -499,8 +496,6 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     switch (value?.toString()) {
       case 'cola':
         return 'ColaTV';
-      case 'sofascore':
-        return 'SofaScore';
       case 'football_data_org':
         return 'football-data.org';
       case 'source_fallback':
@@ -598,7 +593,6 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
             ),
             items: const [
               DropdownMenuItem(value: 'cola', child: Text('ColaTV')),
-              DropdownMenuItem(value: 'sofascore', child: Text('SofaScore')),
             ],
             onChanged: importing || loading
                 ? null

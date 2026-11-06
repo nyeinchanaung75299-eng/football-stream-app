@@ -699,7 +699,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'room_num': room,
           'schedule_id': match['schedule_id'],
           'page_url': anchor['page_url'] ?? match['page_url'],
-          'skip_probe': true,
+          // Cola URLs are checked before the operator can import them.
+          // Other rotating providers keep the fast metadata-only path.
+          'skip_probe': provider != 'cola',
         },
       );
 
