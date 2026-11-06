@@ -1,3 +1,4 @@
+-- Filename matches the version recorded by the hosted migration service.
 alter table public.channel_lines add column if not exists health_http_status integer;
 
 create table public.nca_bot_updates (

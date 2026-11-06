@@ -62,7 +62,7 @@ Use Telegram getWebhookInfo to troubleshoot if necessary. NEVER paste tokenized 
 
 ## Reminder delivery and retention
 
-Apply migration `20261106203900_channel_health_and_viewer_tools.sql` before deploying these bot functions. It schedules a once-per-minute Viewer reminder pulse, authenticated by its own private Vault secret. Up to 20 due reminders are handled per pulse, with a delivery lease and retry; blocked chats are unsubscribed. Telegram timeouts can have ambiguous delivery outcomes, so notifications use at-least-once delivery. Viewers must choose each match; there is no automatic mass subscription.
+Apply migration `20261106205045_channel_health_and_viewer_tools.sql` before deploying these bot functions. It schedules a once-per-minute Viewer reminder pulse, authenticated by its own private Vault secret. Up to 20 due reminders are handled per pulse, with a delivery lease and retry; blocked chats are unsubscribed. Telegram timeouts can have ambiguous delivery outcomes, so notifications use at-least-once delivery. Viewers must choose each match; there is no automatic mass subscription.
 
 Reminders are sent approximately ten minutes before kickoff, subject to scheduler and Telegram availability. Subscribing within ten minutes schedules the next available pulse. Watch links bring the selected published match to the top of the Viewer; playback still requires a tap.
 
