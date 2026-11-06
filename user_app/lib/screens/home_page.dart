@@ -53,9 +53,10 @@ class _PersistedMatchCache {
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.backendReady});
+  const HomePage({super.key, this.backendReady, this.initialMatchId});
 
   final Future<void>? backendReady;
+  final String? initialMatchId;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -1652,7 +1653,9 @@ class _HomePageState extends State<HomePage> {
             );
           }
 
-          final matches = _feed.data ?? const <Map<String, dynamic>>[];
+          final matches = [...?_feed.data];
+          final linkedIndex = matches.indexWhere((m) => m['id'] == widget.initialMatchId);
+          if (linkedIndex > 0) matches.insert(0, matches.removeAt(linkedIndex));
           if (matches.isEmpty) {
             return _StateMessage(
               icon: Icons.sports_soccer_outlined,

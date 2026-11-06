@@ -8,6 +8,9 @@ on:
       - 'supabase/functions/telegram-viewer/**'
       - 'supabase/functions/telegram-admin/**'
       - 'supabase/functions/_shared/telegram_connect.mjs'
+      - 'supabase/functions/_shared/telegram_update_dedup.mjs'
+      - 'supabase/functions/_shared/viewer_bot_features.mjs'
+      - 'scripts/test_viewer_tools.mjs'
       - 'supabase/functions/telegram-connect/**'
       - 'admin_app/lib/screens/telegram_setup_page.dart'
       - 'scripts/test_telegram_connect.mjs'
@@ -33,4 +36,4 @@ jobs:
           node --check supabase/functions/_shared/nca_telegram_bot.mjs
           node --check scripts/register_nca_telegram_webhooks.mjs
           node --check supabase/functions/_shared/telegram_connect.mjs
-          node --test scripts/test_nca_telegram_bots.mjs scripts/test_telegram_connect.mjs
+          node --test scripts/test_nca_telegram_bots.mjs scripts/test_telegram_connect.mjs scripts/test_viewer_tools.mjs

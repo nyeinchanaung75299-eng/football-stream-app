@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../channel_library.dart';
 
 import '../native_player.dart';
 import '../network_endpoints.dart';
@@ -31,12 +33,15 @@ class _ChannelsPageState extends State<ChannelsPage> {
   Map<String, String> nextFootball = const {};
   Set<String> epgLinkedIds = const {};
   bool guideLoaded = false;
+  final library = ChannelLibrary.instance;
+  String libraryFilter = 'all';
 
   @override
   void initState() {
     super.initState();
     _loadGroupPositions();
     _loadChannelEpg();
+    library.load().then((_) { if (mounted) setState(() {}); });
   }
 
   /// Optional football-only EPG summary. Its failure never blocks channels.
@@ -255,6 +260,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
       // configured line twice in the server picker.
       final playerLines = addVpnFreePlaybackFallbacks(lines);
       NativePlayer.prewarm(sources: playerLines);
+      try { await library.recordRecent(id); } catch (_) { /* Playback remains available. */ }
+      if (!mounted) return;
       await NativePlayer.open(
         context: context,
         sources: playerLines,
@@ -296,6 +303,23 @@ class _ChannelsPageState extends State<ChannelsPage> {
         builder: (_) => SourceBrowserPage(source: source),
       ),
     );
+  }
+
+  Future<void> _channelAction(String action, Map<String, dynamic> channel) async {
+    final id = channel['id'].toString();
+    try {
+      if (action == 'favorite') {
+        await library.toggleFavorite(id);
+        if (mounted) setState(() {});
+      } else {
+        final opened = await launchUrl(Uri.https('t.me', '/NCAFootballViewer_bot',
+            {'start': 'report_$id'}), mode: LaunchMode.externalApplication);
+        if (!opened) throw StateError('Telegram unavailable');
+      }
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not complete this action. Please try again.')));
+    }
   }
 
   @override
@@ -379,9 +403,17 @@ class _ChannelsPageState extends State<ChannelsPage> {
             groupCounts.containsKey(selectedGroup) ? selectedGroup : 'All';
         final groups = <String, List<Map<String, dynamic>>>{};
         for (final row in snapshot.data!.where(matchesSearch)) {
+          final id = row['id'].toString();
+          if (libraryFilter == 'favorites' && !library.favorites.contains(id)) continue;
+          if (libraryFilter == 'recent' && !library.recent.contains(id)) continue;
           final category = groupOf(row);
           if (activeGroup != 'All' && category != activeGroup) continue;
-          groups.putIfAbsent(category, () => []).add(row);
+          groups.putIfAbsent(libraryFilter == 'recent' ? 'Recently watched' : category, () => []).add(row);
+        }
+        if (libraryFilter == 'recent') {
+          for (final rows in groups.values) {
+            rows.sort((a,b) => library.recent.indexOf(a['id'].toString()).compareTo(library.recent.indexOf(b['id'].toString())));
+          }
         }
         final orderedEntries = groups.entries.toList()
           ..sort((a, b) =>
@@ -465,6 +497,14 @@ class _ChannelsPageState extends State<ChannelsPage> {
                           ],
                         ),
                       ),
+                      Wrap(spacing: 8, children: [
+                        for (final entry in const {'favorites': 'Favorites', 'recent': 'Recently watched'}.entries)
+                          FilterChip(label: Text(entry.value),
+                            selected: libraryFilter == entry.key,
+                            onSelected: (selected) => setState(() {
+                              libraryFilter = selected ? entry.key : 'all'; selectedGroup = 'All';
+                            })),
+                      ]),
                     ],
                   ),
                 ),
@@ -517,16 +557,28 @@ class _ChannelsPageState extends State<ChannelsPage> {
                               Expanded(
                                 child: Card(
                                   clipBehavior: Clip.antiAlias,
-                                  child: Center(
-                                    child: image.startsWith('https://')
+                                  child: Stack(fit: StackFit.expand, children: [
+                                    Center(child: image.startsWith('https://')
                                         ? Image.network(
                                             image,
                                             fit: BoxFit.contain,
                                             errorBuilder: (_, __, ___) =>
                                                 const Icon(Icons.tv),
                                           )
-                                        : const Icon(Icons.tv, size: 38),
-                                  ),
+                                        : const Icon(Icons.tv, size: 38)),
+                                    Positioned(top: 0, right: 0, child: PopupMenuButton<String>(
+                                      tooltip: 'Channel options',
+                                      icon: Icon(library.favorites.contains(channel['id'].toString())
+                                          ? Icons.star_rounded : Icons.more_vert_rounded),
+                                      onSelected: (action) => _channelAction(action, channel),
+                                      itemBuilder: (_) => [
+                                        PopupMenuItem(value: 'favorite', child: Text(
+                                          library.favorites.contains(channel['id'].toString())
+                                              ? 'Remove favorite' : 'Add favorite')),
+                                        const PopupMenuItem(value: 'report', child: Text('Report broken line')),
+                                      ],
+                                    )),
+                                  ]),
                                 ),
                               ),
                               Text(

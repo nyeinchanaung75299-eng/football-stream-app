@@ -181,5 +181,36 @@ do $$ declare result jsonb; before_count int; begin
   end if;
 end $$;
 reset role;
+do $$
+begin
+  if has_function_privilege('anon','public.claim_nca_bot_update(text,bigint,uuid)','execute')
+     or has_function_privilege('authenticated','public.claim_nca_bot_update(text,bigint,uuid)','execute') then
+    raise exception 'Bot claim RPC exposed to client roles';
+  end if;
+  if has_table_privilege('anon','public.nca_viewer_reminders','select')
+     or has_table_privilege('authenticated','public.nca_viewer_reminders','insert')
+     or has_table_privilege('anon','public.nca_viewer_reports','select') then
+    raise exception 'Viewer bot private data exposed to clients';
+  end if;
+end $$;
+
+set role service_role;
+do $$
+declare claim_id uuid := gen_random_uuid();
+begin
+  if public.claim_nca_bot_update('viewer',999999999,claim_id) <> 'claimed' then
+    raise exception 'First claim must succeed';
+  end if;
+  if public.claim_nca_bot_update('viewer',999999999,gen_random_uuid()) <> 'busy' then
+    raise exception 'Concurrent duplicate must wait for the lease';
+  end if;
+  update public.nca_bot_updates set completed=true where bot='viewer' and update_id=999999999;
+  if public.claim_nca_bot_update('viewer',999999999,gen_random_uuid()) <> 'completed' then
+    raise exception 'Completed update must not execute again';
+  end if;
+  delete from public.nca_bot_updates where bot='viewer' and update_id=999999999;
+end $$;
+reset role;
+
 select 'Database security and compatibility checks passed' as result;
 rollback;

@@ -588,6 +588,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
           'is_active': true,
           'health_status': 'unknown',
           'health_latency_ms': null,
+          'health_http_status': null,
           'last_checked_at': null,
         };
         if (line.id == null) {

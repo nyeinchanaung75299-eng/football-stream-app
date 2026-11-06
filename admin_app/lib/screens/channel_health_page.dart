@@ -3,11 +3,13 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/function_gateway.dart';
 import '../services/channel_reachability.dart';
+import 'channel_reports_page.dart';
 
 /// Admin-only TV channel diagnostics. Loads reachability metadata without
 /// touching private URLs, playback tokens, referers, or DRM credentials.
 class ChannelHealthPage extends StatefulWidget {
-  const ChannelHealthPage({super.key});
+  const ChannelHealthPage({super.key, this.embedded = false});
+  final bool embedded;
   @override
   State<ChannelHealthPage> createState() => _ChannelHealthPageState();
 }
@@ -32,17 +34,18 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
 
   Future<List<Map<String, dynamic>>> _load() async {
     final db = Supabase.instance.client;
-    final channels = await db
-        .from('channels')
-        .select('id,name,category,is_active')
-        .order('name')
-        .limit(1000)
-        .timeout(const Duration(seconds: 15));
-    final lines = await db
-        .from('channel_lines')
-        .select('channel_id,is_active,health_status,health_latency_ms,last_checked_at')
-        .limit(2000)
-        .timeout(const Duration(seconds: 15));
+    Future<List<Map<String, dynamic>>> allRows(String table, String columns) async {
+      final result = <Map<String, dynamic>>[];
+      for (var offset = 0; ; offset += 500) {
+        final page = await db.from(table).select(columns).order('id')
+            .range(offset, offset + 499).timeout(const Duration(seconds: 15));
+        result.addAll(List<Map<String, dynamic>>.from(page));
+        if (page.length < 500) return result;
+      }
+    }
+    final channels = await allRows('channels', 'id,name,category,is_active');
+    final lines = await allRows('channel_lines',
+        'id,channel_id,label,stream_type,is_active,health_status,health_latency_ms,health_http_status,last_checked_at');
     final byChannel = <String, List<Map<String, dynamic>>>{};
     for (final line in lines) {
       final id = line['channel_id']?.toString() ?? '';
@@ -66,6 +69,9 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
       'line_count': result.activeLines,
       'latency_ms': result.maxLatencyMs,
       'checked_at': result.checkedAt,
+      'reachable_lines': result.reachableLines,
+      'failed_lines': result.failedLines,
+      'lines': lines.where((line) => line['is_active'] == true).toList(),
     };
   }
 
@@ -79,7 +85,7 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
   Future<void> _checkAll(List<Map<String, dynamic>> channels) async {
     if (scanningAll || checkingChannel != null) return;
     final targets = channels
-        .where((channel) => (channel['line_count'] as int) > 0)
+        .where((channel) => channel['is_active'] == true && (channel['line_count'] as int) > 0)
         .toList(growable: false);
     if (targets.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -139,13 +145,16 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
     'reachable' => Colors.green,
     'stale' => Colors.blueGrey,
     'slow' => Colors.orange,
+    'partial' => Colors.orange,
     'failed' => Theme.of(context).colorScheme.error,
     _ => Theme.of(context).colorScheme.onSurfaceVariant,
   };
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('All TV Channel Health'), actions: [
+    appBar: widget.embedded ? null : AppBar(title: const Text('All TV Channel Health'), actions: [
+      IconButton(tooltip: 'Viewer reports', icon: const Icon(Icons.flag_outlined),
+        onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ChannelReportsPage()))),
       IconButton(
         tooltip: 'Refresh all health metadata',
         onPressed: _refresh,
@@ -175,16 +184,26 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
               (selectedStatus == 'all' || c['status'] == selectedStatus);
         }).toList();
         return Column(children: [
+          if (widget.embedded) Padding(
+            padding: const EdgeInsets.fromLTRB(14, 8, 6, 0),
+            child: Row(children: [
+              Expanded(child: Text('Channel Health', style: Theme.of(context).textTheme.titleLarge)),
+              IconButton(tooltip: 'Viewer reports', icon: const Icon(Icons.flag_outlined),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ChannelReportsPage()))),
+              IconButton(onPressed: scanningAll ? null : _refresh,
+                tooltip: 'Refresh results', icon: const Icon(Icons.refresh_rounded)),
+            ]),
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
             child: Text(
-              '${data.length} CHANNELS  •  ${counts['stale'] ?? 0} STALE  •  ${counts['reachable'] ?? 0} REACHABLE  •  ${counts['slow'] ?? 0} SLOW  •  ${counts['failed'] ?? 0} FAILED  •  ${counts['unknown'] ?? 0} UNKNOWN',
+              '${data.length} CHANNELS • ${counts['reachable'] ?? 0} REACHABLE • ${counts['partial'] ?? 0} PARTIAL • ${counts['failed'] ?? 0} FAILED • ${counts['stale'] ?? 0} STALE',
               style: Theme.of(context).textTheme.labelMedium,
             ),
           ),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-            child: Text('All runs a bounded check of every active TV channel. REACHABLE means initial bytes responded, not confirmed video/DRM playback. STALE means the check is older than two hours or missing.'),
+            child: Text('Reachable checks the first bytes only; video playback is not verified. Tap a channel for line results.'),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 5, 14, 4),
@@ -199,6 +218,8 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                       : 'CHECK ALL ${data.length} CHANNELS'),
                 ),
                 if (scanningAll) ...[
+                  TextButton(onPressed: () => setState(() => cancelScan = true),
+                    child: Text(cancelScan ? 'STOPPING…' : 'STOP CHECKING')),
                   const SizedBox(height: 7),
                   LinearProgressIndicator(
                     value: scanTotal == 0 ? null : scanChecked / scanTotal,
@@ -233,6 +254,7 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                 DropdownMenuItem(value: 'stale', child: Text('Stale')),
                   DropdownMenuItem(value: 'slow', child: Text('Slow')),
                   DropdownMenuItem(value: 'failed', child: Text('Failed')),
+                  DropdownMenuItem(value: 'partial', child: Text('Partial')),
                   DropdownMenuItem(value: 'unknown', child: Text('Unknown')),
                 ],
                 onChanged: (value) {
@@ -261,16 +283,22 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                     : DateFormat('dd MMM, h:mm a').format(checked.toLocal());
                 return Card(
                   margin: const EdgeInsets.fromLTRB(12, 3, 12, 3),
-                  child: ListTile(
+                  child: ExpansionTile(
                     leading: Icon(Icons.health_and_safety_rounded,
                       color: _statusColor(context, status)),
                     title: Text(channel['name']?.toString() ?? 'Channel',
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: Text(
-                      '${channel['category']} • ${channel['line_count']} active lines\n${status.toUpperCase()} • $detail • ${channel['latency_ms'] == null ? 'No latency yet' : '${channel['latency_ms']} ms'}',
-                      maxLines: 2,
+                      '${channel['reachable_lines']}/${channel['line_count']} reachable • ${channel['failed_lines']} failed\n${status.toUpperCase()} • $detail',
                     ),
-                    isThreeLine: true,
+                    children: [
+                      for (final line in (channel['lines'] as List).cast<Map<String, dynamic>>())
+                        ListTile(
+                          dense: true,
+                          title: Text('${line['label'] ?? 'Line'} • ${line['stream_type'] ?? ''}'),
+                          subtitle: Text('${assessChannelReachability([line]).status.toUpperCase()} • HTTP ${line['health_http_status'] ?? '—'} • ${line['health_latency_ms'] ?? '—'} ms\n${line['last_checked_at'] == null ? 'Not checked' : DateFormat('dd MMM, h:mm a').format(DateTime.parse(line['last_checked_at'].toString()).toLocal())}'),
+                        ),
+                    ],
                     trailing: OutlinedButton(
                       onPressed: checkingChannel == null && !scanningAll &&
                               (channel['line_count'] as int) > 0

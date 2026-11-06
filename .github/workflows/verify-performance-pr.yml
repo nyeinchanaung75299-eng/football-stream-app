@@ -41,7 +41,8 @@ jobs:
           node --test scripts/test_fawa_source.mjs
 
       - name: Compare Soco upstream and API fixture counts (nonblocking diagnostic)
-        run: node scripts/diagnose_soco_feed.mjs
+        run: |
+          node scripts/diagnose_soco_feed.mjs
           node --test scripts/test_soco_match_catalog.mjs
 
       - name: Verify backend startup import graph

@@ -49,6 +49,14 @@ void main() {
         'slow');
   });
 
+  test('a working backup and failed primary are partial, not wholly failed', () {
+    final result = assessChannelReachability([line(), line(status: 'failed')], now: now);
+    expect(result.status, 'partial');
+    expect(result.reachableLines, 1);
+    expect(result.failedLines, 1);
+    expect(result.activeLines, 2);
+  });
+
   test('ignores inactive lines and avoids future timestamps', () {
     expect(assessChannelReachability([
       line(active: false),
