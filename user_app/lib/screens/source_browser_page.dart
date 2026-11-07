@@ -65,6 +65,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   final _kickoffChecked = <String, DateTime>{};
   final _kickoffQueued = <String>{};
   final _kickoffQueue = Queue<Map<String, dynamic>>();
+  final _kickoffClients = <http.Client>{};
+  String? _kickoffBase;
   int _kickoffActive = 0;
   int _kickoffEpoch = 0;
   // YYZB is presented as its watchable football room catalogue, not as its
@@ -146,6 +148,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.source != widget.source) {
       _kickoffEpoch++;
+      for (final client in _kickoffClients.toList()) { client.close(); }
+      _kickoffClients.clear();
       _kickoffQueue.clear();
       _kickoffQueued.clear();
       _lastSourcePoll = null;
@@ -167,6 +171,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   @override
   void dispose() {
     _kickoffEpoch++;
+    for (final client in _kickoffClients.toList()) { client.close(); }
+    _kickoffClients.clear();
     _kickoffQueue.clear();
     _cancelSourceOperation();
     _searchController.dispose();
@@ -224,10 +230,14 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
   Future<void> _resolveKickoff(Map<String, dynamic> match, int epoch) async {
     final page = match['page_url']?.toString() ?? '';
-    for (final base in bases) {
+    final routes = [if (_kickoffBase != null) _kickoffBase!,
+      ...bases.where((base) => base != _kickoffBase)];
+    for (final base in routes) {
       if (!mounted || epoch != _kickoffEpoch) return;
+      final client = http.Client();
+      _kickoffClients.add(client);
       try {
-        final response = await http.post(
+        final response = await client.post(
           Uri.parse('$base/sources/totalsportek/streams').replace(
             queryParameters: {'metadata_only': '1'},
           ),
@@ -238,11 +248,17 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         final payload = jsonDecode(response.body);
         if (payload is! Map || payload['metadata_only'] != true) continue;
         if (!mounted || epoch != _kickoffEpoch) return;
+        _kickoffBase = base;
         _kickoffChecked[page] = DateTime.now();
         _rememberKickoff(match, payload);
         return;
       } catch (_) {
         // The countdown stays visible while an existing backup route is tried.
+      } finally {
+        // Future.timeout alone leaves a browser fetch running. Abort it before
+        // trying the backup, and cancel pending lookups when leaving the page.
+        client.close();
+        _kickoffClients.remove(client);
       }
     }
     if (mounted && epoch == _kickoffEpoch) {
