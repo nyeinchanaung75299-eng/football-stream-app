@@ -334,6 +334,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .where((row) => !_staleSourceMatch(row))
           .toList();
 
+      if (provider == 'totalsportek') {
+        final knownTimes = {for (final row in sourceMatches)
+          if (row['match_time'] != null) row['page_url']: row['match_time']};
+        for (final row in parsed) {
+          row['match_time'] ??= knownTimes[row['page_url']];
+        }
+      }
+
       parsed.sort((a, b) {
         final at =
             DateTime.tryParse(a['match_time']?.toString() ?? '')?.toLocal() ??
@@ -462,7 +470,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
       for (final anchor in anchors) {
         final key = _anchorKey(match, anchor, provider: provider);
-        if (_matchLooksLive(match)) {
+        if (_matchLooksLive(match) && provider != 'totalsportek') {
           // Paint known-live schedule rows immediately; no network round trip
           // is needed before the operator can see the red LIVE badge.
           _anchorStatuses[key] = 'live';
@@ -481,7 +489,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         if (sourceStatusIsFresh(checked, now, ttl: _statusTtl)) {
           continue;
         }
-        _anchorStatuses[key] = 'checking';
+        _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'checking';
         pending.add({'match': match, 'anchor': anchor, 'key': key});
       }
     }
@@ -490,7 +498,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     await runBoundedStatusChecks(
       pending,
-      _statusProbeConcurrency,
+      provider == 'totalsportek' ? 2 : _statusProbeConcurrency,
       (item) async {
         if (!mounted ||
             source != provider ||
@@ -515,11 +523,21 @@ class _SocoImportPageState extends State<SocoImportPage> {
               'schedule_id': match['schedule_id'],
               'page_url': anchor['page_url'] ?? match['page_url'],
               'status_only': true,
+              if (provider == 'totalsportek') 'metadata_only': true,
             },
           );
 
+          if (!mounted || source != provider || epoch != _anchorStatusEpoch) return;
           if (data is! Map) {
-            _anchorStatuses[key] = 'unknown';
+            _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'unknown';
+            return;
+          }
+          if (provider == 'totalsportek') {
+            // A published kickoff is not evidence that a video line is ready.
+            if (DateTime.tryParse(data['match_time']?.toString() ?? '') != null) {
+              (item['match'] as Map)['match_time'] = data['match_time'];
+            }
+            _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'unknown';
             return;
           }
 
@@ -1860,6 +1878,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   final kickoff = DateTime.tryParse(
                     match['match_time']?.toString() ?? '',
                   )?.toLocal();
+                  final displayKickoff = source == 'totalsportek'
+                      ? kickoff?.toUtc().add(const Duration(hours: 6, minutes: 30))
+                      : kickoff;
                   final anchors = List<Map<String, dynamic>>.from(
                     match['anchors'] ?? const [],
                   )..sort((a, b) {
@@ -1939,12 +1960,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
                           Text(
                             match['kind'] == 'channel'
                                 ? 'Broadcast channel'
-                                : kickoff == null
-                                    ? 'Unknown time'
+                                : displayKickoff == null
+                                    ? (match['time_label']?.toString().trim().isNotEmpty == true
+                                        ? match['time_label'].toString() : 'Unknown time')
                                     : DateFormat(
                                         'dd MMM • h:mm a',
                                         'en_US',
-                                      ).format(kickoff),
+                                      ).format(displayKickoff) +
+                                        (source == 'totalsportek' ? ' MMT' : ''),
                             style: TextStyle(color: colors.onSurfaceVariant),
                           ),
                           const SizedBox(height: 12),

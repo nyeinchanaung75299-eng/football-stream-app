@@ -41,6 +41,28 @@ test('selected event kickoff uses London timezone including summer time',()=>{
  assert.equal(totalsportekKickoff('<meta name="description" content="Unknown time">'),null);
  assert.equal(totalsportekKickoff(event.replace('2026-11-06','2026-02-30')),null);
 });
+test('countdowns order fixtures without manufacturing exact kickoff times',()=>{
+ const rows=parseTotalsportekMatches(listing.replace('<span>Match</span><span>Started</span>', '1day 3hr 26m <br>from now'));
+ assert.equal(rows[0].countdown_minutes,1646);
+ assert.equal(rows[0].time_label,'1day 3hr 26m from now');
+ assert.equal(rows[0].match_time,null);
+});
+test('metadata-only lookup reads the published kickoff without fetching any player',async()=>{
+ const f=fixture({[page]:'<head>'+event+'</head><body>'+'x'.repeat(200000)+'</body>'});
+ const result=await totalsportekStreams({page_url:page,metadata_only:true},{fetcher:f.fetcher});
+ assert.equal(result.match_time,'2026-11-06T20:00:00.000Z');
+ assert.equal(result.metadata_only,true);assert.deepEqual(result.lines,[]);
+ assert.equal(f.calls.length,1);
+});
+test('metadata stops at the head instead of waiting for a stalled player body',async()=>{
+ let cancelled=false;
+ const fetcher=async()=>new Response(new ReadableStream({
+  start(controller){controller.enqueue(new TextEncoder().encode('<head>'+event+'</head>'));},
+  cancel(){cancelled=true;},
+ }));
+ const result=await totalsportekStreams({page_url:page,metadata_only:true},{fetcher});
+ assert.equal(result.match_time,'2026-11-06T20:00:00.000Z');assert.equal(cancelled,true);
+});
 test('literal wrapper chain resolves a signed HLS URL with its original referer and expiry',async()=>{
  const f=fixture();const result=await totalsportekStreams({page_url:page},{fetcher:f.fetcher,now:Date.parse('2026-11-06')});
  assert.equal(result.lines.length,1);assert.equal(result.lines[0].stream_type,'hls');

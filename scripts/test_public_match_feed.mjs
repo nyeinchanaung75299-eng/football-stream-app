@@ -7,6 +7,29 @@ const { default: worker, loadMatchRows, fetchJsonWithTimeout } = await import('d
 const env = { SUPABASE_URL: 'https://database.example', SUPABASE_PUBLISHABLE_KEY: 'test-public-key', GITHUB_MIRROR_URL: 'https://mirror.example/matches.json' };
 const match = { id: 'test-match', home_team: 'Team Alpha' };
 
+test('Totalsportek kickoff-only requests forward the mode and never return stream data', async () => {
+  const original = globalThis.fetch;
+  let received;
+  globalThis.fetch = async (url, init) => {
+    assert.equal(new URL(url).pathname, '/functions/v1/soco-links');
+    received = JSON.parse(init.body);
+    return Response.json({match_time:'2026-11-07T12:30:00Z',
+      lines:[{url:'https://private.example/token'}]});
+  };
+  try {
+    const response = await worker.fetch(new Request(
+      'https://api.example/sources/totalsportek/streams?metadata_only=1', {
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({page_url:'https://totalsportekl.is/Leeds-United-vs-Tottenham-Hotspur/78932'}),
+      }),env,{});
+    assert.equal(response.status,200);
+    assert.equal(received.metadata_only,true);
+    const payload = await response.json();
+    assert.deepEqual(payload,{ok:true,source:'totalsportek',metadata_only:true,
+      match_time:'2026-11-07T12:30:00Z'});
+  } finally { globalThis.fetch = original; }
+});
+
 test('count query failure cannot produce an authoritative zero-line match', async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async url => {

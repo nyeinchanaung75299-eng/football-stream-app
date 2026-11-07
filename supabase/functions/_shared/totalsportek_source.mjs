@@ -24,7 +24,7 @@ function mediaUrl(value){
   [...u.searchParams.keys()].every(key=>key==='token')?u:null;
 }
 
-async function html(page,{fetcher,signal,referer}){
+async function html(page,{fetcher,signal,referer,headOnly=false}){
  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),5000);
  const combined=AbortSignal.any([signal,controller.signal]);
  try{
@@ -33,10 +33,17 @@ async function html(page,{fetcher,signal,referer}){
   }});
   if(!response.ok){controller.abort();await response.body?.cancel().catch(()=>{});throw new Error('Totalsportek page unavailable (HTTP '+response.status+').');}
   const reader=response.body?.getReader();if(!reader)throw new Error('Totalsportek page is empty.');
-  let size=0;const chunks=[];
+  let size=0;const chunks=[];let head='';const decoder=new TextDecoder();
   try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;
-   if(size>2*1024*1024)throw new Error('Totalsportek page exceeds size limit.');chunks.push(value);}
+   if(headOnly){
+    const available=Math.max(0,128*1024-(size-value.length));
+    head+=decoder.decode(value.subarray(0,available),{stream:true});
+    const end=head.toLowerCase().indexOf('</head>');if(end>=0)return head.slice(0,end+7);
+   }
+   if(size>(headOnly?128*1024:2*1024*1024))throw new Error('Totalsportek page exceeds size limit.');
+   if(!headOnly)chunks.push(value);}
   }finally{await reader.cancel().catch(()=>{});}
+  if(headOnly)return head+decoder.decode();
   const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
   return new TextDecoder().decode(bytes);
  }finally{clearTimeout(timer);controller.abort();}
@@ -57,12 +64,15 @@ export function parseTotalsportekMatches(markup){
   const logo=block=>url(attr(block.match(/<img\b[^>]*>/i)?.[0]||'','src'))?.href||null;
   const live=/Match\s*<\/span>\s*<span>\s*Started/i.test(body);
   const timeLabel=plain(body.match(/class=["']match-time["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]);
+  const countdown=timeLabel.match(/^(?:(\d+)\s*days?\s*)?(?:(\d+)\s*hr\s*)?(?:(\d+)\s*m\s*)?from now$/i);
+  const countdownMinutes=countdown&&countdown.slice(1).some(Boolean)
+   ?Number(countdown[1]||0)*1440+Number(countdown[2]||0)*60+Number(countdown[3]||0):null;
   seen.add(page.href);
   rows.push({source:'totalsportek',source_id:id,schedule_id:id,league,home_team:homeName,away_team:awayName,
    home_logo:logo(home),away_logo:logo(away),page_url:page.href,
    // The listing publishes relative countdowns, not exact kickoff timestamps.
    // Keep the time unknown until the selected event page supplies UK date/time.
-   match_time:null,time_label:timeLabel,is_live:live,status:live?'LIVE':'SCHEDULED',hot:false,
+   match_time:null,time_label:timeLabel,countdown_minutes:countdownMinutes,is_live:live,status:live?'LIVE':'SCHEDULED',hot:false,
    anchors:[{room_num:id,nick_name:'Totalsportek',page_url:page.href}],
   });
   if(rows.length>=160)break;
@@ -94,6 +104,10 @@ export async function totalsportekStreams(body,{fetcher=fetch,now=Date.now()}={}
  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),10000);
  const lines=[],seen=new Set();let failed=0;
  try{
+  if(body.metadata_only===true||body.metadata_only==='1'){
+   const head=await html(page,{fetcher,signal:controller.signal,headOnly:true});
+   return {ok:true,source:'totalsportek',metadata_only:true,lines:[],match_time:totalsportekKickoff(head)};
+  }
   const event=await html(page,{fetcher,signal:controller.signal});
   const players=[];
   for(const hit of event.matchAll(/<a\b[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)')[^>]*>/gi)){
