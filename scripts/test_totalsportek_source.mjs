@@ -66,6 +66,7 @@ test('metadata stops at the head instead of waiting for a stalled player body',a
 test('literal wrapper chain resolves a signed HLS URL with its original referer and expiry',async()=>{
  const f=fixture();const result=await totalsportekStreams({page_url:page},{fetcher:f.fetcher,now:Date.parse('2026-11-06')});
  assert.equal(result.lines.length,1);assert.equal(result.lines[0].stream_type,'hls');
+ assert.equal(result.lines[0].label,'Channel 15');
  assert.equal(result.lines[0].origin,'https://universaltokenforall.st');
  assert.equal(result.lines[0].expires_at,new Date(2000000000000).toISOString());
  assert.equal(result.live_status,null);assert.equal(result.lines[0].health_status,'unknown');
@@ -108,7 +109,7 @@ test('a failing player does not hide a separate working published player',async(
  assert.equal((await totalsportekStreams({page_url:page},{fetcher:f.fetcher})).lines.length,1);
 });
 test('published website choices retain their labels and are never imported as native media',async()=>{
- const event=`<a class="nocolor w-100" href="https://external.example.org/event/12345"><div class="col-md-3 col-5">Other player</div><div>HD Watch</div></a>`;
+ const event=`<a class="nocolor w-100" href="https://external.example.org/event/12345"><div class="col-md-3 col-5">Other player <span class="golden-tick">&#xF058</span></div><div>HD Watch</div></a>`;
  const choices=totalsportekPlayers(event+event+`<a href="https://ads.example.org/">Ad</a>`+
    `<a class="nocolor" href="http://127.0.0.1/private">Private</a>`,page);
  assert.deepEqual(choices,[{label:'Other player',url:'https://external.example.org/event/12345'}]);

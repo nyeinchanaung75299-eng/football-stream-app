@@ -42,7 +42,7 @@ export function totalsportekPlayers(markup,pageValue){
     target.pathname.replace(/\/$/,'')===page.pathname.replace(/\/$/,'');
   if(!own&&!/\bnocolor\b/.test(attr(hit[1],'class')))continue;
   const column=hit[2].match(/<div\b[^>]*class=["'][^"']*\bcol-md-3\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1];
-  const label=plain(column||hit[2]).replace(/&#(?:x[\da-f]+|\d+);/gi,'').trim().slice(0,100);
+  const label=plain(column||hit[2]).replace(/&#(?:x[\da-f]+|\d+);?/gi,'').trim().slice(0,100);
   if(!label)continue;
   seen.add(target.href);out.push({label,url:target.href});if(out.length>=80)break;
  }
@@ -177,7 +177,7 @@ export async function totalsportekStreams(body,{fetcher=fetch,now=Date.now()}={}
      const expiry=Number.isFinite(exp)&&exp>0?new Date(exp*1000).toISOString():null;
      if(expiry&&Date.parse(expiry)<=now)return;
      seen.add(media.href);lines.push({id:'totalsportek:'+page.pathname.match(MATCH)[1]+':soccerstreams',
-      label:'Totalsportek • SoccerStreamLinks',url:media.href,stream_type:'hls',
+      label:'SoccerStreamLinks',url:media.href,stream_type:'hls',
       referer:target.href,origin:target.origin,health_status:'unknown',expires_at:expiry});
     }
     return;
@@ -195,7 +195,7 @@ export async function totalsportekStreams(body,{fetcher=fetch,now=Date.now()}={}
      if(expiry&&Date.parse(expiry)<=now)return;
      seen.add(media.origin+media.pathname);const channel=target.pathname.match(/channel(\d+)/)?.[1]||'';
      lines.push({id:'totalsportek:'+page.pathname.match(MATCH)[1]+':'+channel,
-      label:'Totalsportek • Channel '+channel,url:media.href,stream_type:'hls',
+      label:'Channel '+channel,url:media.href,stream_type:'hls',
       referer:target.href,origin:target.origin,health_status:'unknown',expires_at:expiry});
     }
     return;
