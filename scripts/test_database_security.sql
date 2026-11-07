@@ -282,7 +282,7 @@ select set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000002'
 reset role;
 set local role service_role;
 do $$
-declare cid uuid; entry jsonb; lease jsonb; result jsonb; before_channels integer;
+declare cid uuid; entry jsonb; shared_entry jsonb; lease jsonb; result jsonb; before_channels integer;
 begin
  select count(*) into before_channels from public.channels;
  insert into public.channels(name,category,epg_id,epg_source) values('TNT Sports 1','Sports','TNT.Sports.1.uk','UK1') returning id into cid;
@@ -299,6 +299,19 @@ begin
  if (result->>'channel_id')::uuid<>cid then raise exception 'EPG-linked import duplicated an existing channel'; end if;
  perform public.import_connected_channel_source_entry(entry->>'id');
  if (select count(*) from public.channel_lines where channel_id=cid)<>2 then raise exception 'Sports backup missing or duplicated'; end if;
+ shared_entry:=jsonb_set(entry,'{id}','"ltv:channel:0000000000000000000000000002"');
+ shared_entry:=jsonb_set(shared_entry,'{streams,0,stream_url}','"https://fixture.invalid/existing.m3u8"');
+ lease:=public.begin_connected_channel_source_sync('livetv',true);
+ perform public.commit_connected_channel_source_sync('livetv',(lease->>'lease')::uuid,'sports-2',jsonb_build_array(entry,shared_entry),true,false);
+ perform public.import_connected_channel_source_entry(shared_entry->>'id');
+ if (select count(*) from public.channel_lines where channel_id=cid)<>2 then raise exception 'Identical primary configuration duplicated'; end if;
+ shared_entry:=jsonb_set(shared_entry,'{streams,0,stream_url}','"https://fixture.invalid/shared-rotation.m3u8"');
+ lease:=public.begin_connected_channel_source_sync('livetv',true);
+ perform public.commit_connected_channel_source_sync('livetv',(lease->>'lease')::uuid,'sports-3',jsonb_build_array(entry,shared_entry),true,false);
+ if (select count(*) from public.channel_lines where channel_id=cid)<>3 or not exists(
+  select from public.channel_lines where channel_id=cid and label='Existing' and stream_url='https://fixture.invalid/existing.m3u8') then
+  raise exception 'Following a shared source overwrote the existing primary';
+ end if;
  lease:=public.begin_channel_source_sync(true);
  perform public.commit_channel_source_sync((lease->>'lease')::uuid,'darkbyte-independent','[]',true,false);
  if not (select is_present from public.channel_source_catalog where id=entry->>'id') then raise exception 'DarkByte refresh removed Sports source'; end if;
