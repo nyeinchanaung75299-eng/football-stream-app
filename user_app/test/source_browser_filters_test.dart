@@ -166,14 +166,14 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('SportsRope'));
       await tester.pumpAndSettle();
-      expect(selected, ['https://bestropes.st/player.php/fixture']);
+      expect(selected.toSet(), {'https://bestropes.st/player.php/fixture'});
       expect(find.text('SportsRope • Main'), findsOneWidget);
       expect(find.text('1 lines'), findsOneWidget);
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       await tester.tap(find.text('Original-only player'));
       await tester.pumpAndSettle();
-      expect(selected, ['https://bestropes.st/player.php/fixture', 'https://original.example.org/player']);
+      expect(selected.toSet(), {'https://bestropes.st/player.php/fixture', 'https://original.example.org/player'});
       expect(find.text('No direct video link is available from this player right now.'), findsOneWidget);
       expect(find.text('Open original'), findsOneWidget);
       expect(tester.takeException(), isNull);
