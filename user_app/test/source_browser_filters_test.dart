@@ -169,7 +169,7 @@ void main() {
       expect(selected, ['https://bestropes.st/player.php/fixture']);
       expect(find.text('SportsRope • Main'), findsOneWidget);
       expect(find.text('1 lines'), findsOneWidget);
-      await tester.pageBack();
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       await tester.tap(find.text('Original-only player'));
       await tester.pumpAndSettle();
