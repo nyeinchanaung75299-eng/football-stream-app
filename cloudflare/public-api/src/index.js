@@ -654,12 +654,13 @@ async function handleTvSchedule(request, env, incoming, ctx) {
     ]);
     // The upstream guide may have an older catalog snapshot. Keep every
     // current saved channel, including newly imported lines with no EPG yet.
-    const withCatalog = guide => catalog === null ? guide : ({...guide,
-      channels: catalog.map(channel => {
-        const programmes = guide.channels.find(row => row.id === channel.id);
-        return {...(programmes || {matchedEPG:false,programmes:[]}), ...channel};
-      }),
-    });
+    const withCatalog = guide => {
+      if (catalog === null) return guide;
+      const byId = new Map(guide.channels.map(row => [row.id, row]));
+      return {...guide, channels: catalog.map(channel => ({
+        ...(byId.get(channel.id) || {matchedEPG:false,programmes:[]}), ...channel,
+      }))};
+    };
     let schedule = sanitizeTvSchedule(data, date, days);
     // The 18 optional regional feeds used to hold up every uncached guide
     // response for as long as 8.5 seconds. Give enrichment a short chance;

@@ -270,6 +270,7 @@ test('cold NBC guide does not wait for unrelated feeds and survives a later isol
  const baseline={channels:[{id:'nbc-test',name:'NBC',matchedEPG:false,programmes:[]}]};
  globalThis.fetch=async target=>{
   const u=new URL(target);
+  if(u.pathname==='/rest/v1/channels')return Response.json([{id:'nbc-test',name:'NBC'}]);
   if(u.pathname==='/api/schedule')return Response.json(baseline);
   if(u.searchParams.get('source')==='US2')return Response.json({channels:[{
    id:'nbc-test',matchedEPG:true,region:'us',programmes:[{start:Date.parse('2026-11-07T17:30:00Z'),
