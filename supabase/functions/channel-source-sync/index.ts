@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {createClient} from "jsr:@supabase/supabase-js@2";
 import {fetchDarkbyteCatalog,sourceHash} from "../_shared/darkbyte_catalog.mjs";
+import {fetchLiveTvSports} from "../_shared/livetv_sports.mjs";
 
 const cors={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization,apikey,content-type,x-client-info"};
 const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{...cors,"Cache-Control":"no-store"}});
@@ -21,18 +22,19 @@ async function access(req:Request,client:any){
  const profile=await check(client.from("profiles").select("role").eq("id",data.user.id).maybeSingle());
  return profile?.role==="admin"?"admin":null;
 }
-async function synchronize(client:any,force:boolean){
- const begun=await check(client.rpc("begin_channel_source_sync",{p_force:force}));
+async function synchronize(client:any,force:boolean,source:string){
+ const begun=await check(client.rpc("begin_connected_channel_source_sync",{p_source:source,p_force:force}));
  if(begun.skipped||begun.busy)return {ok:true,...begun};
  try{
-  const snapshot=await fetchDarkbyteCatalog({revision:begun.revision});
-  return await check(client.rpc("commit_channel_source_sync",{
-   p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,
+  const channels=source==='livetv'?await check(client.from('channels').select('id,name,epg_id,epg_source,is_active').eq('is_active',true).limit(1000)):[];
+  const snapshot=source==='livetv'?await fetchLiveTvSports({revision:force?null:begun.revision,channels}):await fetchDarkbyteCatalog({revision:begun.revision});
+  return await check(client.rpc("commit_connected_channel_source_sync",{
+   p_source:source,p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,
    p_complete:snapshot.complete,p_unchanged:snapshot.unchanged,
   }));
  }catch{
   await client.from("channel_source_state").update({status:"unavailable",last_checked_at:new Date().toISOString(),
-   lease_id:null,lease_until:null}).eq("id","darkbyte").eq("lease_id",begun.lease);
+   lease_id:null,lease_until:null}).eq("id",source).eq("lease_id",begun.lease);
   throw new Error("The published channel source is unavailable. Saved channels were kept.");
  }
 }
@@ -44,13 +46,15 @@ export async function channelSourceRequest(req:Request,client:any){
  if(!role)return json({error:"Admin authorization required"},403);
  const body=await req.json().catch(()=>({}));
  const action=String(body.action||"catalog");
+ const source=body.source==='livetv'?'livetv':'darkbyte';
  if(role==="scheduler"&&action!=="sync")return json({error:"Scheduler can only sync"},403);
  try{
-  if(action==="sync")return json(await synchronize(client,role==="admin"));
+  if(action==="sync")return json(await synchronize(client,role==="admin",source));
   if(action==="catalog"){
    const page=Math.max(0,Math.min(1000,Number(body.page)||0));
    let query=client.from("channel_source_catalog")
-    .select("id,provider,kind,name,category,image_url,stream_count,unsupported_count,playlist_url,updated_at",{count:"exact"})
+    .select("id,provider,kind,name,category,image_url,stream_count,unsupported_count,playlist_url,updated_at,epg_id,epg_source,region",{count:"exact"})
+    .eq("source_id",source)
     .eq("is_present",true);
    if([1,2,3,4,5,6].includes(Number(body.provider)))query=query.eq("provider",Number(body.provider));
    if(["channel","event","video","playlist"].includes(body.kind))query=query.eq("kind",body.kind);
@@ -62,16 +66,16 @@ export async function channelSourceRequest(req:Request,client:any){
    const linked=ids.length?await check(client.from("channel_source_links")
     .select("entry_id,channel_id,follow_updates,source_missing,last_synced_at").in("entry_id",ids)):[];
    const byId=new Map(linked.map((row:any)=>[row.entry_id,row]));
-   const state=await check(client.from("channel_source_state").select(stateColumns).eq("id","darkbyte").single());
+   const state=await check(client.from("channel_source_state").select(stateColumns).eq("id",source).single());
    return json({ok:true,state,total:count||0,page,entries:(data||[]).map((row:any)=>({...row,connection:byId.get(row.id)||null}))});
   }
   if(action==="settings"){
    if(typeof body.enabled!=="boolean")return json({error:"Invalid sync setting"},400);
-   await check(client.from("channel_source_state").update({enabled:body.enabled}).eq("id","darkbyte"));
+   await check(client.from("channel_source_state").update({enabled:body.enabled}).eq("id",source));
    return json({ok:true});
   }
   const id=String(body.entry_id||"");
-  if(!/^db:p[1-6]:(channel|event|video|playlist):[a-f\d]{28}$/.test(id))return json({error:"Invalid source entry"},400);
+  if(!(source==='livetv'?/^ltv:channel:[a-f\d]{28}$/:/^db:p[1-6]:(channel|event|video|playlist):[a-f\d]{28}$/).test(id))return json({error:"Invalid source entry"},400);
   if(action==="details"){
    const entry=await check(client.from("channel_source_catalog").select("id,name,kind,streams,playlist_url,is_present").eq("id",id).single());
    return json({ok:true,entry});
@@ -79,14 +83,14 @@ export async function channelSourceRequest(req:Request,client:any){
   if(action==="import"){
    const target=body.channel_id==null?null:String(body.channel_id);
    if(target&&!/^[a-f\d]{8}-[a-f\d-]{27}$/i.test(target))return json({error:"Invalid channel"},400);
-   return json({ok:true,...await check(client.rpc("link_channel_source_entry",{
+   return json({ok:true,...await check(client.rpc(source==='livetv'?"import_connected_channel_source_entry":"link_channel_source_entry",{
     p_entry_id:id,p_target_channel_id:target,p_refresh_only:false,
    }))});
   }
   if(action==="follow"){
    if(typeof body.enabled!=="boolean")return json({error:"Invalid follow setting"},400);
    await check(client.from("channel_source_links").update({follow_updates:body.enabled}).eq("entry_id",id));
-   if(body.enabled)await check(client.rpc("link_channel_source_entry",{p_entry_id:id,p_refresh_only:true}));
+   if(body.enabled)await check(client.rpc(source==='livetv'?"import_connected_channel_source_entry":"link_channel_source_entry",{p_entry_id:id,p_refresh_only:true}));
    return json({ok:true});
   }
   if(action==="unlink"){

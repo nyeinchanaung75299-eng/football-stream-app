@@ -182,6 +182,13 @@ class _DashboardPageState extends State<DashboardPage> {
         iconColor: const Color(0xFF54E6C1),
         onTap: () => open(context, const ConnectedChannelsPage(), 'connected-channels'),
       ),
+      const SizedBox(height: 8),
+      _ActionCard(
+        icon: Icons.sports_soccer_rounded,
+        title: 'LiveTV Sports',
+        iconColor: const Color(0xFF54E6C1),
+        onTap: () => open(context, const ConnectedChannelsPage(sportsOnly: true), 'livetv-sports'),
+      ),
       const SizedBox(height: 12),
       Text(
         'Telegram Integration',

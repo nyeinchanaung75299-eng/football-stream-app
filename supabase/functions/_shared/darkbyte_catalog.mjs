@@ -23,7 +23,7 @@ export function publicSourceUrl(value,{httpsOnly=false}={}){
  }catch{return null;}
 }
 function enabled(row){return row&&row.visible!==false&&![0,'0',false].includes(row.publish);}
-function configuration(item){
+export function configuration(item){
  const raw=item?.link??item?.url??item?.stream_url;
  if(typeof raw!=='string')return null;
  const [address,...extras]=raw.split('|');const media=publicSourceUrl(address);
@@ -95,7 +95,7 @@ export async function parseDarkbyteFile(path,payload){
  }
  return [...groups.values()];
 }
-async function readJson(target,{fetcher,signal,limit=3*1024*1024}){
+export async function readJson(target,{fetcher,signal,limit=3*1024*1024}){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),9000);
  try{
   const response=await fetcher(target,{redirect:'manual',signal:AbortSignal.any([signal,controller.signal]),

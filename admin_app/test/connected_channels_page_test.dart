@@ -29,6 +29,28 @@ void main() {
       expect(GatewayRequest.canRetry('channel-source-sync',{'action':action}),isFalse);
     }
   });
+  testWidgets('LiveTV source shows Sports and verified EPG status without DarkByte provider filters', (tester) async {
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home:ConnectedChannelsPage(sportsOnly:true)));
+      await tester.pumpAndSettle();
+      expect(find.text('LiveTV Sports'),findsOneWidget);
+      expect(find.text('All providers'),findsNothing);
+      expect(find.textContaining('EPG linked'),findsOneWidget);
+      expect(find.textContaining('No verified EPG'),findsOneWidget);
+      expect(tester.takeException(),isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },()=>MockClient((request) async {
+      final body=jsonDecode(request.body) as Map;
+      expect(body['source'],'livetv');expect(body['action'],'catalog');
+      return http.Response(jsonEncode({'ok':true,'state':{'enabled':true,'status':'ok'},'total':2,
+        'entries':[
+          {'id':'ltv:channel:0000000000000000000000000001','provider':7,'kind':'channel',
+            'name':'TNT Sports 1','category':'Sports • UK','stream_count':1,'epg_id':'TNT.Sports.1.uk','epg_source':'UK1'},
+          {'id':'ltv:channel:0000000000000000000000000002','provider':7,'kind':'channel',
+            'name':'Unverified Sports','category':'Sports','stream_count':1},
+        ]}),200,headers:{'content-type':'application/json'});
+    }));
+  });
   testWidgets('catalog refresh imports nothing; a selected channel follows, pauses and disconnects', (tester) async {
     tester.view.physicalSize=const Size(390,844);tester.view.devicePixelRatio=1;
     addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);

@@ -58,7 +58,8 @@ let handler;
 const oldDeno=globalThis.Deno;globalThis.Deno={serve(fn){handler=fn;}};
 let source=readFileSync(new URL('../supabase/functions/channel-source-sync/index.ts',import.meta.url),'utf8')
  .replace(/^import .*jsr:.*;\n/gm,'')
- .replace('"../_shared/darkbyte_catalog.mjs"',JSON.stringify(new URL('../supabase/functions/_shared/darkbyte_catalog.mjs',import.meta.url).href));
+ .replace('"../_shared/darkbyte_catalog.mjs"',JSON.stringify(new URL('../supabase/functions/_shared/darkbyte_catalog.mjs',import.meta.url).href))
+ .replace('"../_shared/livetv_sports.mjs"',JSON.stringify(new URL('../supabase/functions/_shared/livetv_sports.mjs',import.meta.url).href));
 const {channelSourceRequest}=await import('data:text/javascript;base64,'+Buffer.from(stripTypeScriptTypes(source)).toString('base64'));
 globalThis.Deno=oldDeno;
 function client(role='admin'){

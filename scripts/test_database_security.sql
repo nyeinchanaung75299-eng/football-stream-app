@@ -277,6 +277,37 @@ end $$;
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000002',true);
+-- Each source has its own lease, snapshot and selected links. A verified
+-- Sports EPG match appends a backup to the existing channel without duplicates.
+reset role;
+set local role service_role;
+do $$
+declare cid uuid; entry jsonb; lease jsonb; result jsonb; before_channels integer;
+begin
+ select count(*) into before_channels from public.channels;
+ insert into public.channels(name,category,epg_id,epg_source) values('TNT Sports 1','Sports','TNT.Sports.1.uk','UK1') returning id into cid;
+ insert into public.channel_lines(channel_id,label,stream_url) values(cid,'Existing','https://fixture.invalid/existing.m3u8');
+ entry:=jsonb_build_object('id','ltv:channel:0000000000000000000000000001','provider',7,'kind','channel',
+  'name','TNT Sports 1 HD','category','Sports • UK','source_file','LiveTV/UK/LiveTV.json',
+  'epg_id','TNT.Sports.1.uk','epg_source','UK1','epg_channel_id',cid,'region','UK','unsupported_count',0,
+  'streams',jsonb_build_array(jsonb_build_object('id','sports-primary','label','LiveTVCollector 1',
+   'stream_type','hls','stream_url','https://fixture.invalid/sports.m3u8')));
+ lease:=public.begin_connected_channel_source_sync('livetv',true);
+ perform public.commit_connected_channel_source_sync('livetv',(lease->>'lease')::uuid,'sports-1',jsonb_build_array(entry),true,false);
+ if (select count(*) from public.channels)<>before_channels+1 then raise exception 'Sports catalog published channels without a selection'; end if;
+ result:=public.import_connected_channel_source_entry(entry->>'id');
+ if (result->>'channel_id')::uuid<>cid then raise exception 'EPG-linked import duplicated an existing channel'; end if;
+ perform public.import_connected_channel_source_entry(entry->>'id');
+ if (select count(*) from public.channel_lines where channel_id=cid)<>2 then raise exception 'Sports backup missing or duplicated'; end if;
+ lease:=public.begin_channel_source_sync(true);
+ perform public.commit_channel_source_sync((lease->>'lease')::uuid,'darkbyte-independent','[]',true,false);
+ if not (select is_present from public.channel_source_catalog where id=entry->>'id') then raise exception 'DarkByte refresh removed Sports source'; end if;
+ if not exists(select from public.channels where id=cid and name='TNT Sports 1' and epg_source='UK1') then raise exception 'Source overwrote existing channel metadata'; end if;
+ if has_function_privilege('authenticated','public.import_connected_channel_source_entry(text,uuid,boolean)','execute') then raise exception 'Sports mutation bypasses Admin auth'; end if;
+end $$;
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000002',true);
 do $$ begin
  if exists(select from public.channel_source_catalog) or exists(select from public.channel_source_links) then
   raise exception 'Viewer role can read private source URLs';

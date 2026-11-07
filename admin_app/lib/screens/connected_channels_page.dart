@@ -8,13 +8,14 @@ import '../services/channel_source_service.dart';
 import '../services/connected_channel_source.dart';
 
 class ConnectedChannelsPage extends StatefulWidget {
-  const ConnectedChannelsPage({super.key});
+  const ConnectedChannelsPage({super.key, this.sportsOnly = false});
+  final bool sportsOnly;
   @override
   State<ConnectedChannelsPage> createState() => _ConnectedChannelsPageState();
 }
 
 class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
-  final service = ConnectedChannelSource();
+  late final service = ConnectedChannelSource(source: widget.sportsOnly ? 'livetv' : 'darkbyte');
   final search = TextEditingController();
   Timer? _debounce;
   int provider = 0, page = 0;
@@ -124,7 +125,8 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
     return ListTile(dense: true,
       title: Text(row['name']?.toString() ?? 'Channel', maxLines: 2),
       subtitle: Text('Provider ${row['provider']} • ${row['category']} • '
-        '${linked ? connection['source_missing'] == true ? 'Source missing' : connection['follow_updates'] == true ? 'Following' : 'Paused' : count > 0 ? '$count lines' : row['kind'] == 'playlist' ? 'Playlist' : 'Unresolved'}'),
+        '${linked ? connection['source_missing'] == true ? 'Source missing' : connection['follow_updates'] == true ? 'Following' : 'Paused' : count > 0 ? '$count lines' : row['kind'] == 'playlist' ? 'Playlist' : 'Unresolved'}'
+        '${widget.sportsOnly ? row['epg_id'] != null ? ' • EPG linked' : ' • No verified EPG' : ''}'),
       onTap: () => details(row),
       trailing: linked ? PopupMenuButton<String>(tooltip: 'Connection settings',
         icon: Icon(connection['follow_updates'] == true ? Icons.sync : Icons.pause_circle_outline),
@@ -141,7 +143,7 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
   }
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('DarkByte Channels'), actions: [
+    appBar: AppBar(title: Text(widget.sportsOnly ? 'LiveTV Sports' : 'DarkByte Channels'), actions: [
       TextButton.icon(onPressed: working ? null : () => mutate('sync', const {}),
         icon: working ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.sync, size: 18),
         label: const Text('Sync now')),
@@ -162,7 +164,7 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
         Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: TextField(controller: search,
           decoration: const InputDecoration(hintText: 'Search source channels', prefixIcon: Icon(Icons.search), isDense: true),
           onChanged: (_) { _debounce?.cancel(); _debounce = Timer(const Duration(milliseconds: 350), () => refresh(resetPage: true)); })),
-        Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Row(children: [
+        if (!widget.sportsOnly) Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Row(children: [
           Expanded(child: DropdownButton<int>(isExpanded: true, value: provider,
             items: [const DropdownMenuItem(value: 0, child: Text('All providers')),
               for (var i = 1; i <= 6; i++) DropdownMenuItem(value: i, child: Text('Provider $i'))],
