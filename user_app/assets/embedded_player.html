@@ -128,12 +128,13 @@
     }
   </style>
 <style id="nca-reference-player-style">
-    #football-player-overlay{background:#000}
+    #football-player-overlay{background:#000;-webkit-text-size-adjust:100%;text-size-adjust:100%}
     #football-player-topbar{min-height:46px;gap:5px;padding:4px 7px;background:#15151e}
     #football-player-title{font-size:12px;font-weight:700;flex:1 1 auto;min-width:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal;line-height:1.2;overflow:hidden;overflow-wrap:anywhere}
     #football-player-close{width:36px;min-width:36px;min-height:36px;flex:0 0 36px;padding:0;font-size:21px}
     #football-player-fit,#football-player-rotate{min-width:38px;min-height:36px;padding:0 5px;flex:0 0 auto}
-    #football-player-rotate{width:38px;font-size:21px}
+    #football-player-rotate{width:38px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;overflow:hidden}
+    #football-player-rotate svg{display:block;width:20px;height:20px;flex:none;pointer-events:none}
     #football-player-server{display:none!important}
     #football-player-line-rail{background:#101018}
     .football-line-chip{gap:5px;max-width:160px;padding:4px 8px}
@@ -149,6 +150,15 @@
     }
     #football-player-overlay.ios-native-mode #football-player-server{display:none!important}
     #football-player-overlay.ios-native-mode #football-player-close{width:36px;min-width:36px;padding:0}
+    #football-player-overlay.ios-native-mode #football-player-quality{
+      flex:0 0 52px;width:52px;min-width:52px;max-width:52px;
+      height:36px;min-height:36px;box-sizing:border-box;padding:0 6px;
+      font-size:12px;line-height:1.2
+    }
+    #football-player-overlay.ios-native-mode #football-player-rotate{
+      flex:0 0 44px;width:44px;min-width:44px;max-width:44px;
+      height:36px;min-height:36px;max-height:36px;padding:0
+    }
     /* Portrait player starts in a source-preserving 16:9 video box. */
     #football-player-video{object-fit:contain}
     #football-player-overlay.ios-native-mode #football-player-video{object-fit:contain}
@@ -207,7 +217,7 @@
       <button id="football-player-server" class="football-control" type="button" aria-label="Choose line">Line</button>
       <button id="football-player-quality" class="football-control" type="button" aria-label="Choose quality">Auto</button>
       <button id="football-player-fit" class="football-control" type="button">Fit</button>
-      <button id="football-player-rotate" class="football-control" type="button" aria-label="Rotate video">↻</button>
+      <button id="football-player-rotate" class="football-control" type="button" aria-label="Rotate video" title="Rotate video"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 11a9 9 0 1 0-2.7 6.4"></path><path d="M21 3v8h-8"></path></svg></button>
       <button id="football-player-fullscreen" class="football-control" type="button">Fullscreen</button>
     </div>
     <div id="football-player-menu" class="hidden" role="dialog" aria-modal="false">
@@ -1433,7 +1443,7 @@
       video.style.transform='';
       video.style.width='100%';
       video.style.height='100%';
-      rotateButton.textContent='↻ Rotate';
+      rotateButton.setAttribute('aria-label','Rotate video');
     }
 
     function applyManualRotation(){
@@ -1480,7 +1490,7 @@
         overlay.style.transform='translate(-50%,-50%) rotate('+angle+'deg)';
       }
 
-      rotateButton.textContent=angle?'↻ '+angle+'°':'↻ Rotate';
+      rotateButton.setAttribute('aria-label',angle?'Rotate video ('+angle+'°)':'Rotate video');
     }
 
     async function rotatePlayer(){
