@@ -189,7 +189,7 @@ void main() {
           expect(body['page_url'], 'https://totalsportekl.is/Home-vs-Away/12345');
           return http.Response(jsonEncode({'streams': player.contains('bestropes.st') ? [
             {'label':'SportsRope • Main','stream_url':'https://video.example.org/live.m3u8','stream_type':'hls'},
-          ] : [], 'external_players':[]}), 200);
+          ] : [], 'external_players':[]}), 200, headers:{'content-type':'application/json'});
         }
         return http.Response(jsonEncode({'streams':[], 'external_players':[
           {'label':'SportsRope','url':'https://bestropes.st/player.php/fixture'},
