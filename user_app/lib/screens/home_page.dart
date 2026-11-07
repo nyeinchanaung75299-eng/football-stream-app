@@ -1725,7 +1725,7 @@ class _HomePageState extends State<HomePage> {
             await refresh(silent: true);
             return;
           }
-          if (index == 5) {
+          if (index == 6) {
             await Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const ChannelsPage()),
             );
@@ -1736,9 +1736,7 @@ class _HomePageState extends State<HomePage> {
             2 => 'yyzb',
             3 => 'fawa',
             4 => 'cola',
-            6 => 'xoilac',
-            7 => 'camel',
-            8 => 'totalsportek',
+            5 => 'totalsportek',
             _ => 'soco',
           };
           await Navigator.of(context).push(

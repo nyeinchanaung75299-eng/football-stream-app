@@ -58,10 +58,20 @@ void main() {
       expect(find.text('Everton'), findsOneWidget);
       expect(find.text('Coventry City'), findsOneWidget);
       expect(tester.widget<SourceMatchFilters>(find.byType(SourceMatchFilters)).showDateChoices, isFalse);
-      expect(tester.widget<PremiumBottomNav>(find.byType(PremiumBottomNav)).selectedIndex, 8);
+      expect(tester.widget<PremiumBottomNav>(find.byType(PremiumBottomNav)).selectedIndex, 5);
+      await tester.tap(find.text('CHECK LINES'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('no supported direct video line'), findsOneWidget);
+      expect(find.text('Open website'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     }, () => MockClient((request) async {
+      if (request.url.path.endsWith('/streams')) {
+        expect(request.url.path, '/sources/totalsportek/streams');
+        expect(jsonDecode(request.body)['page_url'],
+            'https://totalsportekl.is/Everton-vs-Coventry-City/12345');
+        return http.Response(jsonEncode({'source': 'totalsportek', 'streams': []}), 200);
+      }
       expect(request.url.path, '/sources/totalsportek/matches');
       return http.Response(jsonEncode({'source': 'totalsportek', 'matches': [{
         'source': 'totalsportek', 'source_id': '12345', 'league': 'Premier League',

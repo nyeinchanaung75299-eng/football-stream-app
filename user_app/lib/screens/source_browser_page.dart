@@ -79,9 +79,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     'yyzb' => 2,
     'fawa' => 3,
     'cola' => 4,
-    'xoilac' => 6,
-    'camel' => 7,
-    'totalsportek' => 8,
+    'totalsportek' => 5,
+    'xoilac' || 'camel' => -1,
     _ => 1,
   };
   List<Future<List<Map<String, dynamic>>> Function()> _apiJobs(
@@ -832,6 +831,37 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     );
   }
 
+  void _totalsportekUnavailable(
+    Map<String, dynamic> match, {
+    bool requestFailed = false,
+  }) {
+    if (!mounted) return;
+    final page = Uri.tryParse(match['page_url']?.toString() ?? '');
+    final canOpen = page != null &&
+        page.scheme == 'https' &&
+        page.host == 'totalsportekl.is' &&
+        page.userInfo == '' &&
+        !page.hasPort &&
+        !page.hasQuery &&
+        RegExp(r'^/[a-zA-Z0-9-]+-vs-[a-zA-Z0-9-]+/\d{1,10}/?$')
+            .hasMatch(page.path);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          requestFailed
+              ? 'Could not load Totalsportek lines. Try again or open the match website.'
+              : 'Totalsportek has no supported direct video line for this match right now. Its website may offer an external player.',
+        ),
+        action: canOpen
+            ? SnackBarAction(
+                label: 'Open website',
+                onPressed: () => NativePlayer.openExternalPage(page.toString()),
+              )
+            : null,
+      ),
+    );
+  }
+
   Future<void> _openSourcePlayer(Map<String, dynamic> m) async {
     if (source == 'camel') {
       final target = Uri.tryParse(m['page_url']?.toString() ?? '');
@@ -880,7 +910,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           return operation.firstUsable;
         },
         onCancelled: operation.cancel,
-        onFailure: source == 'xoilac' ? (_) => _xoilacUnavailable(m) : null,
+        onFailure: source == 'xoilac'
+            ? (_) => _xoilacUnavailable(m)
+            : source == 'totalsportek'
+                ? (_) => _totalsportekUnavailable(m, requestFailed: true)
+                : null,
       );
       resolution.stop();
       if (rows == null || !current()) return;
@@ -902,6 +936,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         ),
       );
       if (rows.isEmpty) {
+        if (source == 'totalsportek') {
+          _totalsportekUnavailable(m);
+          return;
+        }
         if (source == 'xoilac') {
           _xoilacUnavailable(m);
           return;
@@ -1072,7 +1110,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       Navigator.of(context).popUntil((route) => route.isFirst);
       return;
     }
-    if (index == 5) {
+    if (index == 6) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(builder: (_) => const ChannelsPage()),
       );
@@ -1082,9 +1120,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       2 => 'yyzb',
       3 => 'fawa',
       4 => 'cola',
-      6 => 'xoilac',
-      7 => 'camel',
-      8 => 'totalsportek',
+      5 => 'totalsportek',
       _ => 'soco',
     };
     Navigator.of(context).pushReplacement(
@@ -1213,7 +1249,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                           canWatch: ready,
                           actionLabel: source == 'camel'
                               ? 'OPEN CAMEL1'
-                              : source == 'soco'
+                              : source == 'totalsportek'
+                                  ? (ready ? 'CHECK LINES' : 'NOT READY')
+                                  : source == 'soco'
                                   ? (ready
                                       ? 'CHECK  •  ${anchors.length} ROOMS'
                                       : 'NO STREAM ROOMS YET')

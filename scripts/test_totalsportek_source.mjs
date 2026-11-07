@@ -27,7 +27,9 @@ function fixture(overrides={}){
 }
 test('lists football fixtures once, excludes ended events and nonfootball sports, keeps unknown kickoff honest',()=>{
  const html=listing+card()+card('<span class="btn-highlight">Highlights</span>','999')+
-  '<div class="league-header"><span>NBA</span></div>'+card('','888');
+  '<div class="league-header"><span>NBA</span></div>'+card('','888')+
+  '<div class="league-header"><span>NCAA</span></div>'+card('','889')+
+  '<div class="league-header"><span>American Football</span></div>'+card('','890');
  const rows=parseTotalsportekMatches(html);
  assert.equal(rows.length,1);assert.equal(rows[0].home_team,'Home');assert.equal(rows[0].source,'totalsportek');
  assert.equal(rows[0].match_time,null);assert.equal(rows[0].anchors.length,1);
@@ -57,6 +59,13 @@ test('third-party arbitrary iframes and URL-looking script strings are never fol
  const f=fixture({[wrapper]:'<iframe src="https://unlisted.invalid/player"></iframe><script>var x="https://evil.invalid/live.m3u8";</script>'});
  const result=await totalsportekStreams({page_url:page},{fetcher:f.fetcher});
  assert.deepEqual(result.lines,[]);assert.equal(f.calls.length,2);
+});
+test('external-player pages are not misreported as native video lines',async()=>{
+ const f=fixture({[page]:'<a href="https://hadcrak.cyou/home-vs-away/">Stream</a>'});
+ const result=await totalsportekStreams({page_url:page},{fetcher:f.fetcher});
+ assert.deepEqual(result.lines,[]);assert.equal(result.live_status,null);
+ assert.match(result.message,/no supported direct video line/);
+ assert.equal(f.calls.length,1);
 });
 test('does not evaluate config JavaScript or accept media on untrusted hosts',async()=>{
  for(const body of ['let streamUrl = makeToken();',`let streamUrl = "http://127.0.0.1/live.m3u8";`,

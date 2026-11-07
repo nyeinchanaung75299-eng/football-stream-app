@@ -47,7 +47,7 @@ export function parseTotalsportekMatches(markup){
  const tokens=/<div\b[^>]*class=["'][^"']*\bleague-header\b[^"']*["'][^>]*>([\s\S]{0,1800}?)<\/div>|<a\b([^>]*class=["'][^"']*\bmodern-match-card\b[^"']*["'][^>]*)>([\s\S]{0,5000}?)<\/a>/gi;
  for(const hit of String(markup).matchAll(tokens)){
   if(hit[1]!==undefined){league=plain(hit[1].match(/<span\b[^>]*>([\s\S]*?)<\/span>/i)?.[1]||'Football');continue;}
-  if(/\b(?:f1|formula\s*1|motogp|tennis|golf|rugby|nhl|nba|nfl|wwe|cricket|boxing|baseball|basketball|hockey|ufc|mma|cycling|volleyball)\b/i.test(league))continue;
+  if(/\b(?:f1|formula\s*1|motogp|tennis|golf|rugby|nhl|nba|nfl|ncaa|ncaaf|cfl|american\s+football|college\s+football|wwe|cricket|boxing|baseball|basketball|hockey|ufc|mma|cycling|volleyball)\b/i.test(league))continue;
   const page=matchPage(attr(hit[2],'href'));if(!page||seen.has(page.href))continue;
   const body=hit[3];if(/btn-highlight|Match\s*<\/span>\s*<span>\s*Ended/i.test(body))continue;
   const team=side=>body.match(new RegExp('<div\\b[^>]*class=["\'][^"\']*team-'+side+'[^"\']*["\'][^>]*>([\\s\\S]*?)<\\/div>','i'))?.[1]||'';
@@ -136,6 +136,7 @@ export async function totalsportekStreams(body,{fetcher=fetch,now=Date.now()}={}
   }));
   if(!lines.length&&failed)throw new Error('Totalsportek player servers are temporarily unavailable.');
   lines.sort((a,b)=>a.id.localeCompare(b.id));
-  return {ok:true,source:'totalsportek',lines,live_status:null,match_time:totalsportekKickoff(event)};
+  return {ok:true,source:'totalsportek',lines,live_status:null,match_time:totalsportekKickoff(event),
+   ...(lines.length?{}:{message:'Totalsportek has no supported direct video line for this match right now. Its website may offer an external player.'})};
  }finally{clearTimeout(timer);controller.abort();}
 }
