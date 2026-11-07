@@ -10,6 +10,14 @@ import 'package:football_viewer/screens/source_browser_page.dart';
 import 'package:football_viewer/widgets/premium_bottom_nav.dart';
 import 'package:football_viewer/widgets/source_match_filters.dart';
 
+class _ClosingMockClient extends MockClient {
+  _ClosingMockClient(Future<http.Response> Function(http.Request) handler,
+      this.onClosed) : super(handler);
+  final VoidCallback onClosed;
+  @override
+  void close() { onClosed(); super.close(); }
+}
+
 List<Map<String, dynamic>> _fixtures() {
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day, 23, 59);
@@ -144,6 +152,54 @@ void main() {
         'page_url':'https://totalsportekl.is/Home-vs-Away/${1000+i}',
       })}),200);
     }));
+  });
+
+  testWidgets('timed-out kickoff request closes before fallback and later lookups reuse the working route', (tester) async {
+    final blocked = Completer<http.Response>();
+    String? badOrigin;
+    var badClosed = false;
+    var badRequests = 0;
+    var replacement = false;
+    final goodOrigins = <String>[];
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home: SourceBrowserPage(source:'totalsportek')));
+      await tester.pumpAndSettle();
+      expect(badRequests, 1);
+      await tester.pump(const Duration(seconds:9));
+      await tester.pumpAndSettle();
+      expect(badClosed, isTrue);
+      expect(find.text('7:00 PM MMT'), findsOneWidget);
+      replacement = true;
+      await tester.tap(find.byTooltip('Refresh matches'));
+      await tester.pumpAndSettle();
+      expect(find.text('Replacement'), findsOneWidget);
+      expect(goodOrigins.length, 2);
+      expect(goodOrigins.toSet().length, 1);
+      expect(badRequests, 1);
+      blocked.complete(http.Response('{"metadata_only":true}',200));
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(tester.takeException(), isNull);
+    }, () {
+      var wasBlocked = false;
+      return _ClosingMockClient((request) async {
+        if (request.url.path.endsWith('/streams')) {
+          expect(request.url.queryParameters['metadata_only'], '1');
+          badOrigin ??= request.url.origin;
+          if (request.url.origin == badOrigin) {
+            badRequests++; wasBlocked = true; return blocked.future;
+          }
+          expect(badClosed, isTrue);
+          goodOrigins.add(request.url.origin);
+          return http.Response('{"metadata_only":true,"match_time":"2026-11-07T12:30:00Z"}',200);
+        }
+        return http.Response(jsonEncode({'matches':[{
+          'source':'totalsportek','source_id':replacement?'1001':'1000',
+          'home_team':replacement?'Replacement':'Leeds United','away_team':'Tottenham Hotspur',
+          'league':'Premier League','time_label':'3hr 26m from now',
+          'page_url':'https://totalsportekl.is/Home-vs-Away/${replacement?1001:1000}',
+        }]}),200);
+      }, () { if (wasBlocked) badClosed = true; });
+    });
   });
 
   testWidgets('Soco All dates excludes old completed fixtures and labels rooms', (tester) async {
