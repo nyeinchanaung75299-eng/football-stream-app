@@ -236,7 +236,8 @@ test('top aligned portrait player uses Fit by default and cycles Fit Full Zoom o
 test('compact player toolbar and bottom controls show de-duplicated provider lines', async () => {
   const css=html.match(/<style id="nca-reference-player-style">([\s\S]*?)<\/style>/)?.[1]||'';
   assert.match(html,/id="football-player-close"[^>]*aria-label="Back"[^>]*>←<\/button>/);
-  assert.match(html,/id="football-player-rotate"[^>]*>↻<\/button>/);
+  assert.match(html,/id="football-player-rotate"[^>]*aria-label="Rotate video"[^>]*><svg/);
+  assert.doesNotMatch(playerScript,/rotateButton\.textContent\s*=/);
   assert.match(css,/#football-player-title\{[^}]*-webkit-line-clamp:2/);
   assert.match(css,/#football-player-server\{display:none!important\}/);
   assert.match(css,/\.nca-transport\{[^}]*margin-top:auto;/);
@@ -337,6 +338,25 @@ test('single channel starts upright without a line chooser and rotates only on t
   assert.equal(h.elements.get('football-player-line-rail').classList.contains('hidden'),true);
   h.elements.get('football-player-rotate').click();await flush();
   assert.ok(h.overlay.style.transform.includes('rotate(90deg)'));
+  assert.equal(h.elements.get('football-player-rotate').attributes['aria-label'],'Rotate video (90°)');
+  assert.equal(h.elements.get('football-player-rotate').textContent,'');
+});
+
+test('iPhone channel keeps its rotate icon through open, turns, reset and reopen', async () => {
+  const h=createHarness({ios:true});
+  const channel={...source('hls'),portraitStart:true};
+  await h.open([channel]);
+  const rotate=h.elements.get('football-player-rotate');
+  assert.equal(rotate.textContent,'');
+  assert.equal(rotate.attributes['aria-label'],'Rotate video');
+  for(const angle of [90,180,270,0]){
+    rotate.click();await flush();
+    assert.equal(rotate.textContent,'');
+    assert.equal(rotate.attributes['aria-label'],angle?'Rotate video ('+angle+'°)':'Rotate video');
+  }
+  await h.close();await h.open([channel]);
+  assert.equal(rotate.textContent,'');
+  assert.equal(rotate.attributes['aria-label'],'Rotate video');
 });
 
 test('line chip rail marks the selected server and switches through the existing player path', async () => {
