@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
 import '../widgets/theme_mode_button.dart';
 import 'channels_page.dart';
+import 'connected_channels_page.dart';
 import 'channel_health_page.dart';
 import 'edit_live_page.dart';
 import 'fixture_import_page.dart';
@@ -173,6 +174,13 @@ class _DashboardPageState extends State<DashboardPage> {
         title: 'Edit & Delete Channels',
         iconColor: const Color(0xFF6099FF),
         onTap: () => open(context, const ChannelsPage(), 'channel-management'),
+      ),
+      const SizedBox(height: 8),
+      _ActionCard(
+        icon: Icons.sync_rounded,
+        title: 'DarkByte Channels',
+        iconColor: const Color(0xFF54E6C1),
+        onTap: () => open(context, const ConnectedChannelsPage(), 'connected-channels'),
       ),
       const SizedBox(height: 12),
       Text(

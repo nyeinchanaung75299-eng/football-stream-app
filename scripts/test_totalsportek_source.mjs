@@ -146,3 +146,16 @@ test('distinct published Totalsportek player families produce two native lines p
  assert.deepEqual((await totalsportekStreams({page_url:page},{fetcher:unsafe.fetcher})).lines,[]);
  assert.equal(unsafe.calls.length,4);
 });
+test('a selected published website player can resolve through the existing native player config',async()=>{
+ const website='https://sportsguru.st/guru/total.php?ch=15';
+ const f=fixture({[page]:event+`<a class="nocolor" href="${website}">SportsGuru</a>`,
+  [website]:`<iframe src="${config}"></iframe>`});
+ const result=await totalsportekStreams({page_url:page,player_url:website},{fetcher:f.fetcher});
+ assert.equal(result.lines.length,1);assert.equal(result.lines[0].label,'SportsGuru • Channel 15');
+ assert.equal(result.lines[0].url,media);assert.deepEqual(result.external_players,[]);
+ assert(!f.calls.some(item=>item.url===wrapper),'do not scan unrelated players for a selected request');
+ const invalid=fixture();
+ await assert.rejects(()=>totalsportekStreams({page_url:page,player_url:'https://sportsguru.st/guru/total.php?ch=99'},
+  {fetcher:invalid.fetcher}),/not published/);
+ assert.equal(invalid.calls.length,1);
+});

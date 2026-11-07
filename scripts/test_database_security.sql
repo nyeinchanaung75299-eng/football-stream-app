@@ -212,5 +212,77 @@ begin
 end $$;
 reset role;
 
+-- Connected sources are never a public playlist/credential endpoint.
+do $$ begin
+ if has_table_privilege('anon','public.channel_source_catalog','select') or
+    has_function_privilege('authenticated','public.link_channel_source_entry(text,uuid,boolean)','execute') or
+    has_function_privilege('anon','public.commit_channel_source_sync(uuid,text,jsonb,boolean,boolean)','execute') then
+  raise exception 'Source catalog or mutation RPC exposed to client roles';
+ end if;
+end $$;
+set local role service_role;
+do $$
+declare lease jsonb; entry jsonb; result jsonb; cid uuid; lid uuid; before_channels integer; configured text; gateway jsonb;
+begin
+ select count(*) into before_channels from public.channels;
+ entry:=jsonb_build_object('id','db:p1:channel:0000000000000000000000000001','provider',1,'kind','channel',
+  'name','Followed source','category','Sports','source_file','provider_1/channels.json','streams',jsonb_build_array(
+   jsonb_build_object('id','primary','label','Primary','stream_url','https://fixture.invalid/first.m3u8','stream_type','hls')),'unsupported_count',0);
+ lease:=public.begin_channel_source_sync(true);
+ if not (public.begin_channel_source_sync(true)->>'busy')::boolean then raise exception 'Concurrent source refresh acquired the same lease'; end if;
+ perform public.commit_channel_source_sync((lease->>'lease')::uuid,'revision-1',jsonb_build_array(entry),true,false);
+ if (select count(*) from public.channels)<>before_channels then raise exception 'Refreshing source must never import unselected channels'; end if;
+ result:=public.link_channel_source_entry(entry->>'id');cid:=(result->>'channel_id')::uuid;
+ select (line_map->'primary'->>'line_id')::uuid into lid from public.channel_source_links where entry_id=entry->>'id';
+ perform public.link_channel_source_entry(entry->>'id');
+ if (select count(*) from public.channels)<>before_channels+1 or
+    (select count(*) from public.channel_lines where channel_id=cid)<>1 then raise exception 'Repeated import duplicated a channel or line'; end if;
+ insert into public.channel_lines(channel_id,label,stream_url) values(cid,'Manual backup','https://fixture.invalid/manual.m3u8');
+ insert into public.stream_links(match_id,channel_id,channel_line_id,label,stream_url)
+  values('10000000-0000-0000-0000-000000000001',cid,lid,'Bound source','https://fixture.invalid/stale-copy.m3u8');
+ entry:=jsonb_set(entry,'{streams,0,stream_url}','"https://fixture.invalid/rotated.m3u8"');
+ entry:=jsonb_set(entry,'{streams}',entry->'streams'||jsonb_build_array(jsonb_build_object('id','backup','label','New backup',
+  'stream_url','https://fixture.invalid/new.m3u8','stream_type','hls')));
+ lease:=public.begin_channel_source_sync(true);
+ perform public.commit_channel_source_sync((lease->>'lease')::uuid,'revision-2',jsonb_build_array(entry),true,false);
+ select stream_url into configured from public.channel_lines where id=lid;
+ if configured<>'https://fixture.invalid/rotated.m3u8' or
+    (select count(*) from public.channel_lines where channel_id=cid)<>3 then raise exception 'Source rotation or newly added backup did not follow the selection'; end if;
+ set local role authenticated;
+ gateway:=public.get_stream_metadata_for_gateway('10000000-0000-0000-0000-000000000001','local-test-gateway');
+ set local role service_role;
+ if not exists(select from jsonb_array_elements(gateway->'streams') row where row->>'label'='Bound source'
+  and row->>'stream_url'='https://fixture.invalid/rotated.m3u8') then raise exception 'Bound match did not resolve the current channel source'; end if;
+ if not exists(select from public.stream_links where channel_line_id=lid and stream_url='https://fixture.invalid/stale-copy.m3u8') then raise exception 'Resolving a binding must not rewrite operator data'; end if;
+ update public.channel_source_links set follow_updates=false where entry_id=entry->>'id';
+ entry:=jsonb_set(entry,'{streams,0,stream_url}','"https://fixture.invalid/paused-change.m3u8"');
+ lease:=public.begin_channel_source_sync(true);
+ perform public.commit_channel_source_sync((lease->>'lease')::uuid,'revision-3',jsonb_build_array(entry),true,false);
+ if (select stream_url from public.channel_lines where id=lid)<>configured then raise exception 'Paused source still overwrote local configuration'; end if;
+ update public.channel_source_links set follow_updates=true where entry_id=entry->>'id';
+ perform public.link_channel_source_entry(entry->>'id',null,true);
+ if (select stream_url from public.channel_lines where id=lid)<>'https://fixture.invalid/paused-change.m3u8' then raise exception 'Resuming did not use the latest saved source'; end if;
+ lease:=public.begin_channel_source_sync(true);
+ perform public.commit_channel_source_sync((lease->>'lease')::uuid,'partial','[]',false,false);
+ if not (select is_present from public.channel_source_catalog where id=entry->>'id') then raise exception 'Partial source failure removed last-good entries'; end if;
+ lease:=public.begin_channel_source_sync(true);
+ perform public.commit_channel_source_sync((lease->>'lease')::uuid,'revision-4','[]',true,false);
+ if not (select source_missing from public.channel_source_links where entry_id=entry->>'id') or
+  not exists(select from public.channel_lines where id=lid) then raise exception 'Missing upstream must be marked without deleting a saved channel'; end if;
+ delete from public.channel_source_links where entry_id=entry->>'id';
+ lease:=public.begin_channel_source_sync(true);
+ perform public.commit_channel_source_sync((lease->>'lease')::uuid,'revision-5',jsonb_build_array(entry),true,false);
+ if exists(select from public.channel_source_links where entry_id=entry->>'id') then raise exception 'A removed connection was automatically reimported'; end if;
+end $$;
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000002',true);
+do $$ begin
+ if exists(select from public.channel_source_catalog) or exists(select from public.channel_source_links) then
+  raise exception 'Viewer role can read private source URLs';
+ end if;
+end $$;
+reset role;
+
 select 'Database security and compatibility checks passed' as result;
 rollback;

@@ -9,7 +9,7 @@ const cors = {
   "Access-Control-Expose-Headers": "Content-Range, Accept-Ranges, Content-Location, X-Total-Count, Retry-After",
   "Cache-Control": "no-store",
 };
-const functionNames = "football-fixtures|stream-health|soco-links|source-match-list|system-monitor|telegram-connect";
+const functionNames = "football-fixtures|stream-health|soco-links|source-match-list|channel-source-sync|system-monitor|telegram-connect";
 
 function failure(message, status) {
   return Response.json({ error: message }, { status, headers: cors });
@@ -96,7 +96,7 @@ async function proxy(request) {
   // enforces authentication, Admin roles, and RLS; no privileged key is added.
   const controller = new AbortController();
   const signal = AbortSignal.any([request.signal, controller.signal]);
-  const timer = setTimeout(() => controller.abort(), 20000);
+  const timer = setTimeout(() => controller.abort(), path.endsWith('/channel-source-sync') ? 50000 : 20000);
   try {
     const method = request.method === "HEAD" && !path.startsWith("/p/") ? "GET" : request.method;
     const init = { method, headers, signal, redirect: "manual" };
