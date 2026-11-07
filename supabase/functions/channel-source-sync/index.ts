@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {createClient} from "jsr:@supabase/supabase-js@2";
 import {fetchDarkbyteCatalog,sourceHash} from "../_shared/darkbyte_catalog.mjs";
-import {fetchLiveTvSports} from "../_shared/livetv_sports.mjs";
+import {fetchLiveTvSports,sportsNeedsDrm} from "../_shared/livetv_sports.mjs";
 
 const cors={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization,apikey,content-type,x-client-info"};
 const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{...cors,"Cache-Control":"no-store"}});
@@ -81,6 +81,10 @@ export async function channelSourceRequest(req:Request,client:any){
    return json({ok:true,entry});
   }
   if(action==="import"){
+   if(source==='livetv'){
+    const entry=await check(client.from('channel_source_catalog').select('streams').eq('id',id).eq('source_id',source).single());
+    if(await sportsNeedsDrm(entry.streams||[]))return json({ok:false,error:'This source needs a DRM configuration that is not provided. The saved channel was kept.',code:'drm_required'});
+   }
    const target=body.channel_id==null?null:String(body.channel_id);
    if(target&&!/^[a-f\d]{8}-[a-f\d-]{27}$/i.test(target))return json({error:"Invalid channel"},400);
    return json({ok:true,...await check(client.rpc(source==='livetv'?"import_connected_channel_source_entry":"link_channel_source_entry",{

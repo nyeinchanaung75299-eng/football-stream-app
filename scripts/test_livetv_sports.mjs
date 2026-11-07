@@ -1,8 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseLiveTvSports,sportsGroup,verifiedSportsGuide,fetchLiveTvSports} from '../supabase/functions/_shared/livetv_sports.mjs';
+import {parseLiveTvSports,sportsGroup,verifiedSportsGuide,fetchLiveTvSports,sportsNeedsDrm} from '../supabase/functions/_shared/livetv_sports.mjs';
 const guide=[{id:'existing-uk',name:'TNT Sports 1 (NITRO)',epg_id:'TNT.Sports.1.uk',epg_source:'UK1',is_active:true},
  {id:'existing-au',name:'beIN SPORTS 1 Australia',epg_id:'beINSports1.au',epg_source:'AU1',is_active:true}];
+test('HTTP 200 encrypted DASH is distinguished from native playback without probing a license endpoint',async()=>{
+ let calls=0;const fetcher=async url=>{calls++;assert.equal(url,'https://video.example.org/live.mpd');return new Response('<MPD><ContentProtection schemeIdUri="urn:uuid:fixture"/></MPD>');};
+ assert.equal(await sportsNeedsDrm([{stream_type:'dash',stream_url:'https://video.example.org/live.mpd'}],{fetcher}),true);
+ assert.equal(await sportsNeedsDrm([{stream_type:'hls',stream_url:'https://video.example.org/live.m3u8'}],{fetcher}),false);
+ assert.equal(await sportsNeedsDrm([{stream_type:'dash',stream_url:'https://video.example.org/live.mpd',key_id:'configured',key_data:'configured'}],{fetcher}),false);
+ assert.equal(calls,1);
+});
 test('Sports-only selection excludes mixed general, kids, news and esports groups',()=>{
  for(const value of ['Sports','UK SPORTS','TR | beIN SPORT','All Sports 🌎;Tennis🎾','Esportes'])assert(sportsGroup(value));
  for(const value of ['News;Sports','Kids;Sports','Entertainment;Sports','eSports Live','Movies','General;Sports'])assert(!sportsGroup(value));

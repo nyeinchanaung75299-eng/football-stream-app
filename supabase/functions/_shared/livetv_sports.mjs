@@ -35,6 +35,28 @@ export function sportsGroup(group){
  return /\bsports?\b|\besportes\b/i.test(value)&&
   !/\besports?\b|\b(?:kids|news|music|movies|series|comedy|culture|entertainment|general|public|travel)\b/i.test(value);
 }
+// A reachable MPD can still require a license configuration. Do not import
+// known encrypted DASH as a keyless native line or attempt license extraction.
+export async function sportsNeedsDrm(streams,{fetcher=fetch}={}){
+ const candidates=streams.filter(line=>line.stream_type==='dash'&&!(line.key_id&&line.key_data));
+ const checked=await Promise.all(candidates.slice(0,12).map(async line=>{
+  const url=publicSourceUrl(line.stream_url);if(!url)return false;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);let reader;
+  try{
+   const response=await fetcher(url.href,{redirect:'manual',signal:controller.signal,headers:{
+    ...(line.referer?{Referer:line.referer}:{}),...(line.origin?{Origin:line.origin}:{})}});
+   if(!response.ok){await response.body?.cancel().catch(()=>{});return false;}
+   reader=response.body?.getReader();if(!reader)return false;
+   let size=0,text='';const decoder=new TextDecoder();
+   while(size<256*1024){const chunk=await reader.read();if(chunk.done)break;
+    size+=chunk.value.length;text+=decoder.decode(chunk.value,{stream:true});
+    if(/<ContentProtection\b/i.test(text))return true;}
+   return false;
+  }catch{return false;}
+  finally{controller.abort();clearTimeout(timer);await reader?.cancel().catch(()=>{});}
+ }));
+ return checked.some(Boolean);
+}
 export async function parseLiveTvSports(path,payload,channels=[]){
  if(!/^LiveTV\/[^/]+\/LiveTV\.json$/.test(path)&&!/^SpecialLinks\/(?:BEIN_SPORTS|INTERNATIONAL_SPORTS|SPORTS_NETWORKS)\/[^/]+\/SpecialLinks\.json$/.test(path))throw Error('Unexpected Sports export');
  const country=path.split('/')[1],groups=payload?.channels;

@@ -41,7 +41,7 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
       await service.request(action, fields);
       if (mounted) refresh();
       if (action == 'sync') notice('Source checked. Connected channels updated.');
-    } catch (_) { notice('Could not complete the request. Refresh before retrying.'); }
+    } catch (error) { notice(error is StateError ? error.message.toString() : 'Could not complete the request. Refresh before retrying.'); }
     finally { if (mounted) setState(() => working = false); }
   }
   Future<void> add(Map<String, dynamic> row, {String? channelId}) async {
