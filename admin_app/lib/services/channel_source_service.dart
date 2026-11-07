@@ -119,14 +119,20 @@ class ChannelSourceService {
   final SupabaseClient client;
 
   Future<List<Map<String, dynamic>>> list() async {
-    final rows = await client
+    final rows = <Map<String, dynamic>>[];
+    for (var offset = 0; ; offset += 500) {
+      final page = await client
         .from('channels')
         .select('id,name,category,image_url,is_active,sort_order')
         .order('category')
         .order('sort_order')
         .order('name')
+        .order('id')
+        .range(offset, offset + 499)
         .timeout(const Duration(seconds: 10));
-    return List<Map<String, dynamic>>.from(rows);
+      rows.addAll(List<Map<String, dynamic>>.from(page));
+      if (page.length < 500) return rows;
+    }
   }
 
   /// Load verified EPG channel-to-football associations once for picker search.
@@ -174,6 +180,7 @@ class ChannelSourceService {
         .select('id,label,stream_url,stream_type,referer,origin,key_id,key_data')
         .eq('channel_id', channel['id'])
         .eq('is_active', true)
+        .neq('configuration_status', 'requires_drm')
         .order('sort_order')
         .order('created_at')
         .limit(1)

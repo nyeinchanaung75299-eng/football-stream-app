@@ -45,7 +45,7 @@ export function findVerifiedGuideMatches(matches,guide,channels,now=new Date()){
     const start=Number(pg?.start),gap=(start-kickoff)/60000;
     if(!Number.isFinite(start)||start<1e12||gap < -90||gap>75)continue;
     const body=norm([pg.title,pg.subtitle,pg.description].join(" "));
-    if(!body||replay.test(body)||other.test(body)||!/\b(v|vs|versus)\b/.test(body))continue;
+    if(!body||replay.test(body)||other.test(body)||!/\b(v|vs|versus|host|hosts|hosting|face|faces|take on|takes on|at)\b/.test(body))continue;
     if(!contains(body,home)||!contains(body,away))continue;
     if(!chosen||Math.abs(gap)<Math.abs(chosen.gap)){
      chosen={match_id:match.id,channel_id:channel.id,

@@ -599,12 +599,19 @@ async function handleChannels(env) {
     const url = new URL(base.replace(/\/+$/, "") + "/rest/v1/channels");
     url.searchParams.set("select", "id,name,category,image_url,sort_order");
     url.searchParams.set("is_active", "eq.true");
-    url.searchParams.set("order", "category.asc,sort_order.asc,name.asc");
-    url.searchParams.set("limit", "250");
-    const {data} = await fetchJsonWithTimeout(url, {
-      headers: {apikey: key, Accept: "application/json"},
-    }, METADATA_TIMEOUT_MS);
-    if (!Array.isArray(data)) throw new Error("Invalid channel catalog.");
+    url.searchParams.set("order", "category.asc,sort_order.asc,name.asc,id.asc");
+    url.searchParams.set("limit", "500");
+    const data = [];
+    for (let offset = 0; ; offset += 500) {
+      if (offset >= 10000) throw new Error("Channel catalog exceeds page budget.");
+      url.searchParams.set("offset", String(offset));
+      const {data: page} = await fetchJsonWithTimeout(url, {
+        headers: {apikey: key, Accept: "application/json"},
+      }, METADATA_TIMEOUT_MS);
+      if (!Array.isArray(page)) throw new Error("Invalid channel catalog.");
+      data.push(...page);
+      if (page.length < 500) break;
+    }
     return json({ok: true, channels: data}, 200,
       {"Cache-Control": "public, max-age=15"});
   } catch (_) {
@@ -645,28 +652,35 @@ async function handleTvSchedule(request, env, incoming, ctx) {
     // response for as long as 8.5 seconds. Give enrichment a short chance;
     // otherwise serve the verified baseline and finish the optional work in
     // the background. A cached regional result keeps coverage on warm loads.
-    const cacheKey = `${date}:${days}`;
-    const cached = tvGuideCache?.key === cacheKey ? tvGuideCache.results : null;
+    // Cache public programme metadata across isolates, never a request-owned
+    // Promise. US2 is essential for NBC and must not wait behind 18 slow feeds.
+    const cache = globalThis.caches?.default;
+    const cacheUrl = new URL('/_nca-public-epg-cache', request.url);
+    cacheUrl.searchParams.set('date', date); cacheUrl.searchParams.set('days', String(days));
+    const cacheRequest = new Request(cacheUrl);
+    let cached = null;
+    try { const hit = cache && await cache.match(cacheRequest); if (hit) cached = await hit.json(); } catch (_) {}
     const enrichment = loadExtendedTvGuide(date, days);
-    let supplements = cached;
-    try {
-      const candidate = await Promise.race([
-        enrichment,
-        new Promise((resolve) => setTimeout(() => resolve(null), 1100)),
-      ]);
-      if (candidate) supplements = candidate;
-    } catch (_) {
-      // The primary guide is authoritative even when optional feeds fail.
-    }
-    if (supplements) {
-      schedule = sanitizeTvSchedule(
-        mergeTvScheduleSources(data, supplements), date, days);
-    }
-    if (ctx?.waitUntil) ctx.waitUntil(enrichment.catch(() => {}));
+    await Promise.all([
+      Promise.race([enrichment.settled, new Promise(resolve => setTimeout(resolve, cached ? 100 : 1100))]),
+      cached ? Promise.resolve() : Promise.race([enrichment.essential, new Promise(resolve => setTimeout(resolve, 2600))]),
+    ]);
+    const supplements = [
+      ...(cached ? [{source:'cached-regional',ok:true,data:cached}] : []),
+      ...enrichment.snapshot(),
+    ];
+    schedule = sanitizeTvSchedule(mergeTvScheduleSources(data, supplements), date, days);
+    const complete = enrichment.settled.then(async results => {
+      if (cache && results.some(result => result.ok && result.data.channels.some(channel => channel.matchedEPG && channel.programmes?.length))) {
+        const full = sanitizeTvSchedule(mergeTvScheduleSources(data, results), date, days);
+        await cache.put(cacheRequest, Response.json(full, {headers:{'Cache-Control':'public, max-age=180'}}));
+      }
+    }).catch(() => {});
+    if (ctx?.waitUntil) ctx.waitUntil(complete); else await complete;
     return json(schedule, 200, {
       // A baseline-only response gets a short TTL so regional enrichment can
       // appear on the next request; full guides stay cacheable for 2 minutes.
-      "Cache-Control": supplements
+      "Cache-Control": schedule.channels.some(channel => channel.name === 'NBC' && channel.matchedEPG) || cached
         ? "public, max-age=120" : "public, max-age=10",
     });
   } catch (_) {
@@ -690,16 +704,9 @@ const EXTENDED_TV_GUIDES = [
   { path: "/api/regional", source: "regional" },
   { path: "/api/uk-extended", source: "uk-extended" },
 ];
-let tvGuideCache = null;
-let tvGuideInflight = null;
-
-async function loadExtendedTvGuide(date, days) {
-  const key = `${date}:${days}`;
-  if (tvGuideCache?.key === key && Date.now() - tvGuideCache.at < 90000) {
-    return tvGuideCache.results;
-  }
-  if (tvGuideInflight?.key === key) return tvGuideInflight.promise;
-  const promise = Promise.all(EXTENDED_TV_GUIDES.map(async ({ path, source }) => {
+function loadExtendedTvGuide(date, days) {
+  const completed = new Array(EXTENDED_TV_GUIDES.length);
+  const jobs = EXTENDED_TV_GUIDES.map(async ({ path, source }, index) => {
     const url = new URL(path, TV_GUIDE_ORIGIN);
     url.searchParams.set("date", date);
     url.searchParams.set("days", String(days));
@@ -711,18 +718,13 @@ async function loadExtendedTvGuide(date, days) {
         headers: { Accept: "application/json" },
       }, 8500);
       if (!Array.isArray(data?.channels)) throw Error("Guide had no channels");
-      return { source, data, ok: true };
+      return completed[index] = { source, data, ok: true };
     } catch (_) {
-      return { source, data: null, ok: false };
+      return completed[index] = { source, data: null, ok: false };
     }
-  })).then((results) => {
-    tvGuideCache = { key, at: Date.now(), results };
-    return results;
-  }).finally(() => {
-    if (tvGuideInflight?.key === key) tvGuideInflight = null;
   });
-  tvGuideInflight = { key, promise };
-  return promise;
+  return {settled:Promise.all(jobs), essential:jobs[EXTENDED_TV_GUIDES.findIndex(row => row.source==='US2')],
+    snapshot:()=>completed.filter(Boolean)};
 }
 
 function mergeTvScheduleSources(base, supplements) {
@@ -772,7 +774,12 @@ function mergeTvScheduleSources(base, supplements) {
       .sort((a, b) => Number(a.start) - Number(b.start))
       .slice(0, 60);
   }
-  return { ...safeBase, sources: sourceRows, channels: rows };
+  const sourcesByName = new Map();
+  for (const row of sourceRows) {
+    const previous = sourcesByName.get(row.name);
+    sourcesByName.set(row.name, {...row, ok: previous?.ok === true || row.ok === true});
+  }
+  return { ...safeBase, sources: [...sourcesByName.values()], channels: rows };
 }
 
 function sanitizeTvSchedule(raw, date, days) {
@@ -811,7 +818,7 @@ function sanitizeTvSchedule(raw, date, days) {
       .filter((row) => row.name) : [],
     matched_channels: Array.isArray(source.channels)
       ? source.channels.filter((c) => c?.matchedEPG === true && c?.programmes?.length).length : 0,
-    channels: Array.isArray(source.channels) ? source.channels.slice(0, 300)
+    channels: Array.isArray(source.channels) ? source.channels.slice(0, 10000)
       .map((row) => ({
         id: text(row?.id, 100),
         name: text(row?.name),

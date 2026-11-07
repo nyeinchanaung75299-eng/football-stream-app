@@ -45,7 +45,7 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
     }
     final channels = await allRows('channels', 'id,name,category,is_active');
     final lines = await allRows('channel_lines',
-        'id,channel_id,label,stream_type,is_active,health_status,health_latency_ms,health_http_status,last_checked_at');
+        'id,channel_id,label,stream_type,is_active,configuration_status,health_status,health_latency_ms,health_http_status,last_checked_at');
     final byChannel = <String, List<Map<String, dynamic>>>{};
     for (final line in lines) {
       final id = line['channel_id']?.toString() ?? '';
@@ -295,7 +295,8 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                       for (final line in (channel['lines'] as List).cast<Map<String, dynamic>>())
                         ListTile(
                           dense: true,
-                          title: Text('${line['label'] ?? 'Line'} • ${line['stream_type'] ?? ''}'),
+                          title: Text('${line['label'] ?? 'Line'} • ${line['stream_type'] ?? ''}'
+                              '${line['configuration_status'] == 'requires_drm' ? ' • Needs DRM configuration' : ''}'),
                           subtitle: Text('${assessChannelReachability([line]).status.toUpperCase()} • HTTP ${line['health_http_status'] ?? '—'} • ${line['health_latency_ms'] ?? '—'} ms\n${line['last_checked_at'] == null ? 'Not checked' : DateFormat('dd MMM, h:mm a').format(DateTime.parse(line['last_checked_at'].toString()).toLocal())}'),
                         ),
                     ],

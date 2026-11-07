@@ -328,5 +328,35 @@ do $$ begin
 end $$;
 reset role;
 
+-- Bulk repository imports retain private credentials, skip existing and
+-- cross-repository token rotations, and never publish missing-key MPDs.
+set local role service_role;
+do $$
+declare payload jsonb; result jsonb; cid uuid; before_channels integer;
+begin
+ select count(*) into before_channels from public.channels;
+ payload:=jsonb_build_array(jsonb_build_object('repository','rohmanabdu/lian','revision',repeat('a',40),
+  'source_file','hasill','name','Repository MPD fixture','category','Sports',
+  'stream_url','https://cdn.example.org/new.mpd?id=one&token=first','configuration_status','requires_drm'));
+ result:=public.import_repository_mpds(payload);
+ if (result->>'added_channels')::integer<>1 or (result->>'added_lines')::integer<>1 then raise exception 'New MPD missing'; end if;
+ payload:=jsonb_set(payload,'{0,stream_url}','"https://cdn.example.org/new.mpd?token=second&id=one"');
+ payload:=jsonb_set(payload,'{0,repository}','"Roshavarma/cfy"');
+ result:=public.import_repository_mpds(payload);
+ if (result->>'added_lines')::integer<>0 or (result->>'skipped_existing')::integer<>1 then raise exception 'Rotated MPD duplicated'; end if;
+ if (select count(*) from public.channels)<>before_channels+1 then raise exception 'Duplicate channel created'; end if;
+ if not exists(select from public.channel_lines where stream_url like 'https://cdn.example.org/new.mpd%' and configuration_status='requires_drm') then raise exception 'Missing DRM not labelled'; end if;
+ select c.id into cid from public.channels c where c.name='Repository MPD fixture';
+ if jsonb_array_length(public.get_channel_metadata_for_gateway(cid,'local-test-gateway')->'streams')<>0 then raise exception 'Missing DRM became playable'; end if;
+ if has_function_privilege('authenticated','public.import_repository_mpds(jsonb)','execute') or has_function_privilege('anon','public.import_repository_mpds(jsonb)','execute') then raise exception 'Unprivileged MPD mutation'; end if;
+end $$;
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000002',true);
+do $$ begin
+ if exists(select from public.channel_repository_imports) then raise exception 'Viewer sees private MPD provenance'; end if;
+end $$;
+reset role;
+
 select 'Database security and compatibility checks passed' as result;
 rollback;

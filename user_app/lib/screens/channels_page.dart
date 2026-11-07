@@ -68,8 +68,11 @@ class _ChannelsPageState extends State<ChannelsPage> {
           final title = (item['title'] ?? item['subtitle'] ?? '').toString();
           final extra = (item['description'] ?? '').toString();
           final body = '$title $extra';
-          if (!RegExp(r'\b(vs|v|versus)\b', caseSensitive: false)
-              .hasMatch(body)) continue;
+          final versus = RegExp(r'\b(vs|v|versus)\b', caseSensitive: false).hasMatch(body);
+          final hostedFootball = RegExp(r'\blive\b',caseSensitive:false).hasMatch(body) &&
+              RegExp(r'\b(soccer|premier league|la liga|bundesliga|serie a|ligue 1|champions league)\b',caseSensitive:false).hasMatch(body) &&
+              RegExp(r'\b(host|hosts|hosting|face|faces|take on|takes on)\b',caseSensitive:false).hasMatch(body);
+          if (!versus && !hostedFootball) continue;
           if (item['stream_ambiguous'] == true ||
               RegExp(r'\b(replay|highlights?|recap|preview|repeat|classic|aflw?|australian rules|aussie rules|american football|nfl|nba|hockey|rugby|cricket|tennis|basketball|motorsport|esports|formula 1)\b',
                   caseSensitive: false).hasMatch(body)) continue;
