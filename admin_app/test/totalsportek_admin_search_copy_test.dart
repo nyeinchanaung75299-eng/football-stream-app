@@ -69,14 +69,20 @@ void main() {
       }
       expect(extractions,0);
       await tester.tap(find.textContaining('Totalsportek • UNKNOWN'));
-      await tester.pumpAndSettle();
+      // The source button keeps its progress indicator while its modal is
+      // open. Advance the modal animation without waiting for that indicator.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Select Stream Quality'),findsOneWidget);
       expect(extractions,1);
       for(final choice in {'Copy Referer':referer,'Copy Origin':origin,'Copy video URL':video,
         'Copy all details':'URL: $video\nReferer: $referer\nOrigin: $origin'}.entries) {
         await tester.tap(find.byTooltip('Copy link or headers'));
-        await tester.pumpAndSettle();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
         await tester.tap(find.text(choice.key));
-        await tester.pumpAndSettle();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
         expect(clipboard,choice.value);
       }
       Navigator.of(tester.element(find.text('Select Stream Quality'))).pop();
