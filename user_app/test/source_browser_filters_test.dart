@@ -157,6 +157,54 @@ void main() {
     }));
   });
 
+  testWidgets('selected website player resolves only that option and leaves unsupported players available', (tester) async {
+    final selected = <String>[];
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home: SourceBrowserPage(source:'totalsportek')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('CHECK LINES'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('SportsRope'));
+      await tester.pumpAndSettle();
+      expect(selected, ['https://bestropes.st/player.php/fixture']);
+      expect(find.text('SportsRope • Main'), findsOneWidget);
+      expect(find.text('1 lines'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Original-only player'));
+      await tester.pumpAndSettle();
+      expect(selected, ['https://bestropes.st/player.php/fixture', 'https://original.example.org/player']);
+      expect(find.text('No direct video link is available from this player right now.'), findsOneWidget);
+      expect(find.text('Open original'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, () => MockClient((request) async {
+      if (request.url.path.endsWith('/streams')) {
+        final body = jsonDecode(request.body) as Map;
+        final player = body['player_url']?.toString();
+        if (player != null) {
+          selected.add(player);
+          expect(body['page_url'], 'https://totalsportekl.is/Home-vs-Away/12345');
+          return http.Response(jsonEncode({'streams': player.contains('bestropes.st') ? [
+            {'label':'SportsRope • Main','stream_url':'https://video.example.org/live.m3u8','stream_type':'hls'},
+          ] : [], 'external_players':[]}), 200);
+        }
+        return http.Response(jsonEncode({'streams':[], 'external_players':[
+          {'label':'SportsRope','url':'https://bestropes.st/player.php/fixture'},
+          {'label':'Original-only player','url':'https://original.example.org/player'},
+        ]}), 200);
+      }
+      return http.Response(jsonEncode({'matches':[{
+        'source':'totalsportek','source_id':'12345','league':'Football',
+        'home_team':'Home','away_team':'Away',
+        'page_url':'https://totalsportekl.is/Home-vs-Away/12345',
+        'anchors':[{'room_num':'12345'}],
+      }]}), 200);
+    }));
+  });
+
   testWidgets('kickoff lookup is bounded and closing the source ignores pending responses', (tester) async {
     final pending = <Completer<http.Response>>[];
     await http.runWithClient(() async {
