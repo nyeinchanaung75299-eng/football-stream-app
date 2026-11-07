@@ -21,6 +21,8 @@ test('verified EPG keeps country and numbered channels separate and rejects ambi
  assert.equal(verifiedSportsGuide('beIN SPORTS 1 🇦🇺','AU',guide)?.id,'existing-au');
  assert.equal(verifiedSportsGuide('TNT Sports 1','',guide),null);
  assert.equal(verifiedSportsGuide('TNT Sports 1','UK',[...guide,{...guide[0],epg_id:'different.uk'}]),null);
+ assert.equal(verifiedSportsGuide('Willow Sports (1080p)','US',[
+  {id:'wrong-guide',name:'Willow Sports',epg_source:'US2',epg_id:'Willow.Cricket.HD.us2'}]),null);
 });
 test('source URL rotations retain channel identity and private media headers without importing non-sports',async()=>{
  const make=token=>({channels:{Sports:[{name:'TNT Sports 1 HD',url:'https://video.example.org/live.m3u8?token='+token+'|Referer=https%3A%2F%2Fplayer.example.org%2Fwatch',logo:'https://images.example.org/tnt.png'},

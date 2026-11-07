@@ -26,6 +26,9 @@ export function verifiedSportsGuide(name,region,channels){
  const key=channelName(name);
  if(!key)return null;
  const found=channels.filter(row=>row.is_active!==false&&row.epg_id&&row.epg_source&&
+  // Willow Sports FAST and the paid Willow Cricket channel have different
+  // schedules. A previously saved cross-brand EPG assignment is not proof.
+  !(key==='willow sports'&&!/willow[._ -]*sports/i.test(row.epg_id))&&
   channelName(row.name)===key&&(sportsRegion(row.name)||({UK1:'UK',US2:'US',AU1:'AU',MY1:'MY',CZ1:'CZ',SK1:'SK',MX1:'MX',CA1:'CA'}[row.epg_source]))===region);
  const unique=new Map(found.map(row=>[row.epg_source+':'+row.epg_id,row]));
  return unique.size===1?[...unique.values()][0]:null;
