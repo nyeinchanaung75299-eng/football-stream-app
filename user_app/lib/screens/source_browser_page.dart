@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -60,6 +61,12 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   String _query = '';
   String? _league;
   bool _todayOnly = false;
+  final _kickoffTimes = <String, String>{};
+  final _kickoffChecked = <String, DateTime>{};
+  final _kickoffQueued = <String>{};
+  final _kickoffQueue = Queue<Map<String, dynamic>>();
+  int _kickoffActive = 0;
+  int _kickoffEpoch = 0;
   // YYZB is presented as its watchable football room catalogue, not as its
   // full score database. The state remains for the shared filter component,
   // but Viewer never exposes an all-schedule toggle for YYZB.
@@ -138,6 +145,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   void didUpdateWidget(covariant SourceBrowserPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.source != widget.source) {
+      _kickoffEpoch++;
+      _kickoffQueue.clear();
+      _kickoffQueued.clear();
       _lastSourcePoll = null;
       _cancelSourceOperation();
       _query = '';
@@ -156,11 +166,88 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
   @override
   void dispose() {
+    _kickoffEpoch++;
+    _kickoffQueue.clear();
     _cancelSourceOperation();
     _searchController.dispose();
     _sourceRefreshTimer?.cancel();
     _feed.dispose();
     super.dispose();
+  }
+
+  void _rememberKickoff(Map<String, dynamic> match, dynamic payload) {
+    if (!mounted || source != 'totalsportek' || payload is! Map) return;
+    final time = DateTime.tryParse(payload['match_time']?.toString() ?? '');
+    final page = match['page_url']?.toString() ?? '';
+    if (time == null || page.isEmpty) return;
+    setState(() {
+      _kickoffTimes[page] = time.toUtc().toIso8601String();
+      _kickoffChecked[page] = DateTime.now();
+    });
+  }
+
+  // Start only after a visible card's first frame. Looking up all fixtures
+  // before returning the catalog would make every refresh wait on the provider.
+  void _queueKickoff(Map<String, dynamic> match) {
+    if (source != 'totalsportek' || sourceMatchKickoff(match) != null) return;
+    final page = match['page_url']?.toString() ?? '';
+    final checked = _kickoffChecked[page];
+    if (page.isEmpty || (checked != null &&
+        DateTime.now().difference(checked) < const Duration(minutes: 2)) ||
+        !_kickoffQueued.add(page)) return;
+    final epoch = _kickoffEpoch;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || epoch != _kickoffEpoch) return;
+      if (_kickoffQueue.length >= 8) {
+        _kickoffQueued.remove(_kickoffQueue.removeFirst()['page_url']?.toString());
+      }
+      _kickoffQueue.add(match);
+      _drainKickoffs();
+    });
+  }
+
+  void _drainKickoffs() {
+    if (!mounted || source != 'totalsportek') return;
+    while (_kickoffActive < 2 && _kickoffQueue.isNotEmpty) {
+      final match = _kickoffQueue.removeFirst();
+      final epoch = _kickoffEpoch;
+      _kickoffActive++;
+      unawaited(_resolveKickoff(match, epoch).whenComplete(() {
+        _kickoffActive--;
+        if (epoch == _kickoffEpoch) {
+          _kickoffQueued.remove(match['page_url']?.toString());
+        }
+        _drainKickoffs();
+      }));
+    }
+  }
+
+  Future<void> _resolveKickoff(Map<String, dynamic> match, int epoch) async {
+    final page = match['page_url']?.toString() ?? '';
+    for (final base in bases) {
+      if (!mounted || epoch != _kickoffEpoch) return;
+      try {
+        final response = await http.post(
+          Uri.parse('$base/sources/totalsportek/streams').replace(
+            queryParameters: {'metadata_only': '1'},
+          ),
+          headers: const {'Content-Type': 'application/json', 'Accept': 'application/json'},
+          body: jsonEncode({'page_url': page}),
+        ).timeout(const Duration(seconds: 8));
+        if (response.statusCode != 200) continue;
+        final payload = jsonDecode(response.body);
+        if (payload is! Map || payload['metadata_only'] != true) continue;
+        if (!mounted || epoch != _kickoffEpoch) return;
+        _kickoffChecked[page] = DateTime.now();
+        _rememberKickoff(match, payload);
+        return;
+      } catch (_) {
+        // The countdown stays visible while an existing backup route is tried.
+      }
+    }
+    if (mounted && epoch == _kickoffEpoch) {
+      _kickoffChecked[page] = DateTime.now();
+    }
   }
 
   Future<List<Map<String, dynamic>>> _hedged(
@@ -591,10 +678,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
     final decoded = jsonDecode(response.body);
     final raw = decoded is Map ? decoded['streams'] : null;
-    if ((sourceName ?? source) == 'totalsportek' && decoded is Map &&
-        DateTime.tryParse(decoded['match_time']?.toString() ?? '') != null) {
-      m['match_time'] = decoded['match_time'];
-    }
+    if ((sourceName ?? source) == 'totalsportek') _rememberKickoff(m, decoded);
     if (raw is! List) throw const FormatException('Invalid source streams.');
     // An empty verified-source response is a source result, not a failed
     // network route. Retrying it on every alias repeats the same slow scan.
@@ -654,6 +738,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
     final decoded = jsonDecode(response.body);
     final raw = decoded is Map ? decoded['lines'] : null;
+    if (provider == 'totalsportek') _rememberKickoff(m, decoded);
     if (raw is! List) throw const FormatException('Invalid direct streams.');
     final name =
         (anchor['nick_name'] ?? anchor['name'] ?? anchor['room_num'] ?? '')
@@ -1232,9 +1317,13 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                         final live = _live(m);
                         final anchors = _anchors(m);
                         final ready = anchors.isNotEmpty;
-                        final time = DateTime.tryParse(
-                          m['match_time']?.toString() ?? '',
-                        )?.toLocal();
+                        _queueKickoff(m);
+                        final utcTime = DateTime.tryParse(
+                          (m['match_time'] ?? _kickoffTimes[m['page_url']])?.toString() ?? '',
+                        );
+                        final time = source == 'totalsportek'
+                            ? utcTime?.toUtc().add(const Duration(hours: 6, minutes: 30))
+                            : utcTime?.toLocal();
 
                         return PremiumMatchCard(
                           league: (m['league'] ?? 'Football').toString(),
@@ -1245,6 +1334,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                           awayLogo: (m['away_logo'] ?? m['away_logo_url'])
                               ?.toString(),
                           kickoff: time,
+                          timeLabel: source == 'totalsportek' && !live
+                              ? m['time_label']?.toString() : null,
+                          timeZoneLabel: source == 'totalsportek' ? 'MMT' : '',
                           isLive: live,
                           canWatch: ready,
                           actionLabel: source == 'camel'

@@ -15,6 +15,8 @@ class PremiumMatchCard extends StatelessWidget {
     this.homeLogo,
     this.awayLogo,
     this.metaLabel,
+    this.timeLabel,
+    this.timeZoneLabel = '',
   });
 
   final String league;
@@ -28,6 +30,8 @@ class PremiumMatchCard extends StatelessWidget {
   final String? homeLogo;
   final String? awayLogo;
   final String? metaLabel;
+  final String? timeLabel;
+  final String timeZoneLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -83,6 +87,8 @@ class PremiumMatchCard extends StatelessWidget {
                   _StatusPill(
                     isLive: isLive,
                     kickoff: kickoff,
+                    timeLabel: timeLabel,
+                    timeZoneLabel: timeZoneLabel,
                   ),
                 ],
               ),
@@ -173,22 +179,29 @@ class _StatusPill extends StatelessWidget {
   const _StatusPill({
     required this.isLive,
     required this.kickoff,
+    this.timeLabel,
+    this.timeZoneLabel = '',
   });
 
   final bool isLive;
   final DateTime? kickoff;
+  final String? timeLabel;
+  final String timeZoneLabel;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final color = isLive ? Colors.redAccent : colors.primary;
+    final when = kickoff == null
+        ? (timeLabel?.trim() ?? '')
+        : DateFormat('h:mm a', 'en_US').format(kickoff!) +
+            (timeZoneLabel.isEmpty ? '' : ' $timeZoneLabel');
     final text = isLive
-        ? 'LIVE'
-        : kickoff == null
-            ? 'SCHEDULED'
-            : DateFormat('h:mm a', 'en_US').format(kickoff!);
+        ? (timeZoneLabel.isNotEmpty && kickoff != null ? 'LIVE • $when' : 'LIVE')
+        : when.isEmpty ? 'SCHEDULED' : when;
 
     return Container(
+      constraints: const BoxConstraints(maxWidth: 165),
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
       decoration: BoxDecoration(
         color: color.withValues(alpha: .11),
@@ -209,15 +222,17 @@ class _StatusPill extends StatelessWidget {
             ),
             const SizedBox(width: 6),
           ],
-          Text(
+          Flexible(child: Text(
             text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: color,
               fontSize: 10.5,
               fontWeight: FontWeight.w900,
               letterSpacing: .35,
             ),
-          ),
+          )),
         ],
       ),
     );

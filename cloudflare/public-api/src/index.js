@@ -480,7 +480,11 @@ async function handleSourceBrowserMatches(request, source, env) {
 }
 
 async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
-  if (!(await allowRequest(request, env, "source-streams-" + source, 30))) {
+  const metadataOnly = source === 'totalsportek' &&
+    new URL(request.url).searchParams.get('metadata_only') === '1';
+  if (!(await allowRequest(request, env,
+    (metadataOnly ? "source-times-" : "source-streams-") + source,
+    metadataOnly ? 90 : 30))) {
     return json({error: "Too many source requests."}, 429,
       {"Retry-After": "60", "Cache-Control": "no-store"});
   }
@@ -495,7 +499,11 @@ async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
       source_id: input?.source_id ?? null,
       anchor_name: input?.anchor_name ?? null,
       skip_probe: true,
+      ...(metadataOnly ? {metadata_only: true} : {}),
     });
+    if (metadataOnly) return json({ok: true, source, metadata_only: true,
+      match_time: payload?.match_time ?? null}, 200,
+      {"Cache-Control": "no-store, max-age=0"});
     if (payload?.requires_login) return json({ok:false, requires_login:true,
       error:"Camel1 requires sign-in on its own website."},403,{"Cache-Control":"no-store"});
     const candidates = Array.isArray(payload?.lines) ? payload.lines : [];

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -70,7 +71,9 @@ void main() {
         expect(request.url.path, '/sources/totalsportek/streams');
         expect(jsonDecode(request.body)['page_url'],
             'https://totalsportekl.is/Everton-vs-Coventry-City/12345');
-        return http.Response(jsonEncode({'source': 'totalsportek', 'streams': []}), 200);
+        return http.Response(jsonEncode({'source': 'totalsportek', 'streams': [],
+          if (request.url.queryParameters['metadata_only']=='1') 'metadata_only': true,
+        }), 200);
       }
       expect(request.url.path, '/sources/totalsportek/matches');
       return http.Response(jsonEncode({'source': 'totalsportek', 'matches': [{
@@ -79,6 +82,67 @@ void main() {
         'page_url': 'https://totalsportekl.is/Everton-vs-Coventry-City/12345',
         'anchors': [{'room_num': '12345', 'page_url': 'https://totalsportekl.is/Everton-vs-Coventry-City/12345'}],
       }]}), 200);
+    }));
+  });
+
+  testWidgets('Spurs search shows countdown immediately then verified Myanmar kickoff without opening video', (tester) async {
+    final metadata = Completer<http.Response>();
+    var videoRequests = 0;
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home: SourceBrowserPage(source: 'totalsportek')));
+      await tester.pumpAndSettle();
+      expect(find.text('Leeds United'), findsOneWidget);
+      expect(find.text('3hr 26m from now'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'Spurs');
+      await tester.pumpAndSettle();
+      expect(find.text('Tottenham Hotspur'), findsOneWidget);
+      metadata.complete(http.Response(jsonEncode({'metadata_only':true,
+        'match_time':'2026-11-07T12:30:00Z'}),200));
+      await tester.pumpAndSettle();
+      expect(find.text('7:00 PM MMT'), findsOneWidget);
+      expect(find.text('3hr 26m from now'), findsNothing);
+      expect(videoRequests, 0);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, () => MockClient((request) async {
+      if (request.url.path.endsWith('/streams')) {
+        if (request.url.queryParameters['metadata_only']=='1') return metadata.future;
+        videoRequests++;
+        return http.Response('{"streams":[]}',200);
+      }
+      return http.Response(jsonEncode({'matches':[{
+        'source':'totalsportek','source_id':'78932','league':'Premier League',
+        'home_team':'Leeds United','away_team':'Tottenham Hotspur',
+        'match_time':null,'time_label':'3hr 26m from now','countdown_minutes':206,
+        'page_url':'https://totalsportekl.is/Leeds-United-vs-Tottenham-Hotspur/78932',
+      }]}),200);
+    }));
+  });
+
+  testWidgets('kickoff lookup is bounded and closing the source ignores pending responses', (tester) async {
+    final pending = <Completer<http.Response>>[];
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home: SourceBrowserPage(source: 'totalsportek')));
+      await tester.pumpAndSettle();
+      expect(pending.length, 2);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      for (final request in pending) {
+        request.complete(http.Response('{"metadata_only":true,"match_time":"2026-11-07T12:30:00Z"}',200));
+      }
+      await tester.pumpAndSettle();
+      expect(pending.length, 2);
+      expect(tester.takeException(), isNull);
+    }, () => MockClient((request) async {
+      if (request.url.path.endsWith('/streams')) {
+        expect(request.url.queryParameters['metadata_only'], '1');
+        final gate = Completer<http.Response>(); pending.add(gate); return gate.future;
+      }
+      return http.Response(jsonEncode({'matches':List.generate(40,(i)=>{
+        'source':'totalsportek','source_id':'${1000+i}',
+        'home_team':'Home $i','away_team':'Away $i','league':'Football',
+        'time_label':'3hr 26m from now',
+        'page_url':'https://totalsportekl.is/Home-vs-Away/${1000+i}',
+      })}),200);
     }));
   });
 
