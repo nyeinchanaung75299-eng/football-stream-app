@@ -12,25 +12,59 @@ function url(value,base=ROOT){
 function matchPage(value){const u=url(value);return u&&u.origin===ROOT&&MATCH.test(u.pathname)&&!u.search?u:null;}
 function playerPage(value){
  const u=url(value);if(!u)return null;
- if(/^live[2-6]\.totalsportek\.today$/.test(u.hostname)&&MATCH.test(u.pathname)&&!u.search)return u;
+ if(/^live[2-6]?\.totalsportek\.today$/.test(u.hostname)&&MATCH.test(u.pathname)&&!u.search)return u;
  if(u.hostname==='total.footybite.info.pl'&&/^\/best\/player[1-5]\.php$/.test(u.pathname)&&
    /^\?ch=\d{1,4}$/.test(u.search))return u;
  if(u.hostname==='universaltokenforall.st'&&/^\/player[1-5]\/channel\d{1,4}$/.test(u.pathname)&&!u.search)return u;
+ if(u.hostname==='soccerstreamlinks.st'&&/^\/player\.php\/[a-z0-9-]{1,200}$/.test(u.pathname)&&!u.search)return u;
+ if(u.hostname==='s3.vertex.st'&&u.pathname==='/ch'&&/^\?id=\d{1,6}$/.test(u.search))return u;
+ if(u.hostname==='matchli.st'&&['/embed.php','/embed-edge.php'].includes(u.pathname)&&/^\?code=[a-zA-Z0-9_-]{1,128}$/.test(u.search))return u;
  return null;
 }
 function mediaUrl(value){
  const u=url(value);
- return u&&u.hostname==='sha.sharpnessonline.store'&&/^\/simpch\d{1,4}\/index\.m3u8$/.test(u.pathname)&&
-  [...u.searchParams.keys()].every(key=>key==='token')?u:null;
+ if(!u)return null;
+ if(u.hostname==='sha.sharpnessonline.store'&&/^\/simpch\d{1,4}\/index\.m3u8$/.test(u.pathname)&&
+   [...u.searchParams.keys()].every(key=>key==='token'))return u;
+ if(u.hostname==='hls.lshls.st'&&u.pathname==='/secure_hls.php'&&
+   [...u.searchParams.keys()].every(key=>['path','e','sig'].includes(key))&&
+   u.searchParams.has('path')&&u.searchParams.has('sig'))return u;
+ return null;
 }
 
-async function html(page,{fetcher,signal,referer,headOnly=false}){
+export function totalsportekPlayers(markup,pageValue){
+ const page=matchPage(String(pageValue));if(!page)return [];
+ const out=[],seen=new Set();
+ for(const hit of String(markup).matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)){
+  const target=url(attr(hit[1],'href'));if(!target||seen.has(target.href)||target.origin===ROOT||
+    /^[\d.]+$|:|(^|\.)(localhost|local|internal|test|invalid)$/.test(target.hostname))continue;
+  const own=/^live[2-6]?\.totalsportek\.today$/.test(target.hostname)&&
+    target.pathname.replace(/\/$/,'')===page.pathname.replace(/\/$/,'');
+  if(!own&&!/\bnocolor\b/.test(attr(hit[1],'class')))continue;
+  const column=hit[2].match(/<div\b[^>]*class=["'][^"']*\bcol-md-3\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1];
+  const label=plain(column||hit[2]).replace(/&#(?:x[\da-f]+|\d+);/gi,'').trim().slice(0,100);
+  if(!label)continue;
+  seen.add(target.href);out.push({label,url:target.href});if(out.length>=80)break;
+ }
+ return out;
+}
+
+async function html(page,{fetcher,signal,referer,headOnly=false,redirects=0}){
  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),5000);
  const combined=AbortSignal.any([signal,controller.signal]);
  try{
   const response=await fetcher(page.href,{redirect:'manual',signal:combined,headers:{
    Accept:'text/html','User-Agent':'Mozilla/5.0',...(referer?{Referer:referer}:{}),
   }});
+  if([301,302,307,308].includes(response.status)&&page.hostname==='matchli.st'&&
+    page.pathname==='/embed.php'&&redirects===0){
+   let next=null;try{next=playerPage(new URL(response.headers.get('Location')||'',page).href);}catch{}
+   await response.body?.cancel().catch(()=>{});
+   if(next?.origin===page.origin&&next.pathname==='/embed-edge.php'&&next.search===page.search){
+    return await html(next,{fetcher,signal,referer,headOnly,redirects:1});
+   }
+   throw new Error('Unsupported Totalsportek player redirect.');
+  }
   if(!response.ok){controller.abort();await response.body?.cancel().catch(()=>{});throw new Error('Totalsportek page unavailable (HTTP '+response.status+').');}
   const reader=response.body?.getReader();if(!reader)throw new Error('Totalsportek page is empty.');
   let size=0;const chunks=[];let head='';const decoder=new TextDecoder();
@@ -109,17 +143,45 @@ export async function totalsportekStreams(body,{fetcher=fetch,now=Date.now()}={}
    return {ok:true,source:'totalsportek',metadata_only:true,lines:[],match_time:totalsportekKickoff(head)};
   }
   const event=await html(page,{fetcher,signal:controller.signal});
+  const externalPlayers=totalsportekPlayers(event,page.href);
   const players=[];
-  for(const hit of event.matchAll(/<a\b[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)')[^>]*>/gi)){
-   const target=playerPage(hit[1]||hit[2]);
+  for(const item of externalPlayers){
+   const target=playerPage(item.url);
    // Only follow the provider's own published wrappers for this exact event.
-   if(!target||!/^live[2-6]\.totalsportek\.today$/.test(target.hostname)||target.pathname.replace(/\/$/,'')!==page.pathname.replace(/\/$/,''))continue;
+   if(!target||!/^live[2-6]?\.totalsportek\.today$/.test(target.hostname)||target.pathname.replace(/\/$/,'')!==page.pathname.replace(/\/$/,''))continue;
    if(!players.some(p=>p.href===target.href))players.push(target);
   }
   async function resolve(target,referer,depth,visited){
-   if(depth>3||visited.has(target.href)||controller.signal.aborted)return;
+   if(depth>7||visited.has(target.href)||controller.signal.aborted)return;
    const nextVisited=new Set(visited);nextVisited.add(target.href);
    const text=await html(target,{fetcher,signal:controller.signal,referer});
+   if(target.hostname==='soccerstreamlinks.st'){
+    if(!text.includes('_player_data'))return;
+    const dataUrl=new URL(target);dataUrl.searchParams.set('_player_data','1');
+    const data=JSON.parse(await html(dataUrl,{fetcher,signal:controller.signal,referer:target.href}));
+    const next=playerPage(data?.u);if(next?.hostname==='s3.vertex.st')await resolve(next,target.href,depth+1,nextVisited);
+    return;
+   }
+   if(target.hostname==='s3.vertex.st'){
+    if(!text.includes('api/player.php?id='))return;
+    const endpoint=new URL('/api/player.php',target);endpoint.searchParams.set('id',target.searchParams.get('id'));
+    const data=JSON.parse(await html(endpoint,{fetcher,signal:controller.signal,referer:target.href}));
+    const next=playerPage(data?.url);if(next?.hostname==='matchli.st')await resolve(next,target.href,depth+1,nextVisited);
+    return;
+   }
+   if(target.hostname==='matchli.st'){
+    const literal=text.match(/window\.PP_STABLE_CONFIG\s*=\s*(\{[^\r\n]{1,16384}\})\s*;/);
+    let media=null;try{media=literal&&mediaUrl(JSON.parse(literal[1]).src);}catch{}
+    if(media&&!seen.has(media.href)){
+     const exp=Number(media.searchParams.get('e'));
+     const expiry=Number.isFinite(exp)&&exp>0?new Date(exp*1000).toISOString():null;
+     if(expiry&&Date.parse(expiry)<=now)return;
+     seen.add(media.href);lines.push({id:'totalsportek:'+page.pathname.match(MATCH)[1]+':soccerstreams',
+      label:'Totalsportek • SoccerStreamLinks',url:media.href,stream_type:'hls',
+      referer:target.href,origin:target.origin,health_status:'unknown',expires_at:expiry});
+    }
+    return;
+   }
    if(target.hostname==='universaltokenforall.st'){
     const literal=text.match(/\b(?:let|const|var)\s+streamUrl\s*=\s*("(?:\\.|[^"\\])*")/);
     let media=null;try{media=literal&&mediaUrl(JSON.parse(literal[1]));}catch{}
@@ -139,18 +201,22 @@ export async function totalsportekStreams(body,{fetcher=fetch,now=Date.now()}={}
     return;
    }
    const frames=[...text.matchAll(/<iframe\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)')[^>]*>/gi)]
-    .map(m=>playerPage(m[1]||m[2])).filter(Boolean).slice(0,2);
+    .map(m=>{try{return playerPage(new URL(m[1]||m[2],target).href);}catch{return null;}}).filter(Boolean).slice(0,4);
    for(const frame of frames)await resolve(frame,target.href,depth+1,nextVisited);
   }
-  let index=0;const selected=players.slice(0,5);
+  // Resolve the two verified literal player families first. Large unsupported
+  // wrappers must not consume the request budget before those chains start.
+  const rank=target=>target.hostname==='live3.totalsportek.today'?0:
+    target.hostname==='live6.totalsportek.today'?1:2;
+  let index=0;const selected=players.sort((a,b)=>rank(a)-rank(b)).slice(0,6);
   await Promise.all(Array.from({length:Math.min(3,selected.length)},async()=>{
    while(index<selected.length){const target=selected[index++];
     try{await resolve(target,page.href,0,new Set());}catch{failed++;}
    }
   }));
-  if(!lines.length&&failed)throw new Error('Totalsportek player servers are temporarily unavailable.');
+  if(!lines.length&&failed&&!externalPlayers.length)throw new Error('Totalsportek player servers are temporarily unavailable.');
   lines.sort((a,b)=>a.id.localeCompare(b.id));
-  return {ok:true,source:'totalsportek',lines,live_status:null,match_time:totalsportekKickoff(event),
+  return {ok:true,source:'totalsportek',lines,external_players:externalPlayers,live_status:null,match_time:totalsportekKickoff(event),
    ...(lines.length?{}:{message:'Totalsportek has no supported direct video line for this match right now. Its website may offer an external player.'})};
  }finally{clearTimeout(timer);controller.abort();}
 }

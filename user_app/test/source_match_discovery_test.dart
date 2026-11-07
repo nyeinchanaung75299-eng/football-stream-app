@@ -21,7 +21,7 @@ void main() {
     expect(rows.every((m)=>m['match_time']==null), isTrue);
   });
   group('source stream availability', () {
-    for (final source in ['soco', 'yyzb']) {
+    for (final source in ['soco', 'yyzb', 'arena']) {
       test('$source schedule IDs never become streamer rooms', () {
         expect(
           sourceMatchAnchors({
@@ -62,6 +62,16 @@ void main() {
         [anchor],
       );
     });
+    for (final source in ['yyzb', 'arena']) {
+      test('$source never revives roomless rows from an old mirror or cache', () {
+        final rows = <SourceMatch>[
+          {'source_id':'score-only','page_url':'https://example.org/match','anchors':[]},
+          {'source_id':'room','anchors':[{'room_num':'published-room'}]},
+        ];
+        expect(filterSourceMatches(rows, todayOnly:false, source:source)
+          .map((row)=>row['source_id']), ['room']);
+      });
+    }
 
     for (final source in ['fawa', 'cola']) {
       test('$source retains its existing page and room fallback', () {

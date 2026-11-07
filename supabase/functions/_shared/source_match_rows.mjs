@@ -1,5 +1,31 @@
 // Providers repeat featured schedules in a `hot` group. Keep that membership
 // when the main schedule list appears first, without changing match metadata.
+export function isFootballSourceRow(row, { allowUnclassified = false } = {}) {
+  const id = value => value == null || value === '' ? NaN : Number(value);
+  const sport = id(row?.sportId ?? row?.sport_id ?? row?.sport?.id);
+  const category = id(row?.categoryId ?? row?.category_id);
+  if ([sport, category].some(value => Number.isFinite(value) && value > 0 && value !== 1)) return false;
+  const names = [row?.categoryName, row?.subCateName, row?.leagueName,
+    row?.sportName, row?.sport?.name, row?.sport?.slug,
+    row?.tournament?.name_en, row?.tournament?.name]
+    .filter(value => typeof value === 'string').join(' ').toLowerCase();
+  if (/basketball|volleyball|tennis|esport|cricket|baseball|hockey|rugby|american\s*football|\bnfl\b|\bnba\b|\bncaa\b|\bncaaf\b|\bnhl\b|boxing|\bufc\b|\bmma\b|motogp|formula|篮球|籃球|排球|网球|網球|电竞|電競|كرة\s*السلة|تنس|كريكت/.test(names)) return false;
+  if (sport === 1 || category === 1) return true;
+  if (/football|soccer|足球|كرة\s*القدم/.test(names)) return true;
+  // Soco's legacy feed sometimes omits its sport field. YYZB must supply
+  // positive football metadata; a pair of team names is not sport evidence.
+  return allowUnclassified && !Number.isFinite(category) &&
+    (row?.hostName != null || row?.homeName != null || row?.homeTeam != null || row?.teams?.home != null) &&
+    (row?.guestName != null || row?.awayName != null || row?.awayTeam != null || row?.teams?.away != null);
+}
+
+export function hasPublishedSourceRoom(row) {
+  return Array.isArray(row?.anchors) && row.anchors.some(anchor => {
+    const room = String(anchor?.room_num ?? '').trim();
+    return /^[A-Za-z0-9_-]{1,64}$/.test(room) && !['0', 'null', 'undefined'].includes(room);
+  });
+}
+
 function featuredRow(row) {
   return row.hot === true ||
     String(row.hot ?? row.isHot ?? "0") === "1";

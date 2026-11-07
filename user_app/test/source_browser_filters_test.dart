@@ -127,6 +127,36 @@ void main() {
     }));
   });
 
+  testWidgets('Totalsportek exposes every published website choice when no native video is available', (tester) async {
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home: SourceBrowserPage(source:'totalsportek')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('CHECK LINES'));
+      await tester.pumpAndSettle();
+      expect(find.text('Totalsportek website players (2)'), findsOneWidget);
+      expect(find.text('First provider'), findsOneWidget);
+      expect(find.text('Second provider'), findsOneWidget);
+      expect(find.textContaining('no supported direct video line'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, () => MockClient((request) async {
+      if(request.url.path.endsWith('/streams')) {
+        return http.Response(jsonEncode({'streams':[],
+          if(request.url.queryParameters['metadata_only']=='1') 'metadata_only':true,
+          'external_players':[
+            {'label':'First provider','url':'https://first.example.org/event/12345'},
+            {'label':'Second provider','url':'https://second.example.org/event/12345'},
+          ]}),200);
+      }
+      return http.Response(jsonEncode({'matches':[{
+        'source':'totalsportek','source_id':'12345','league':'Premier League',
+        'home_team':'Everton','away_team':'Coventry City',
+        'page_url':'https://totalsportekl.is/Everton-vs-Coventry-City/12345',
+        'anchors':[{'room_num':'12345'}],
+      }]}),200);
+    }));
+  });
+
   testWidgets('kickoff lookup is bounded and closing the source ignores pending responses', (tester) async {
     final pending = <Completer<http.Response>>[];
     await http.runWithClient(() async {

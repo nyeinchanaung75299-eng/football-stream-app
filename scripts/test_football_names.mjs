@@ -164,6 +164,22 @@ test('authenticated room nicknames use the same decoded import identity as catal
 });
 
 for (const adapter of adapters.filter(a => a.name !== 'football-fixtures')) {
+  test(adapter.name + ': YYZB only exposes football fixtures with a published room after duplicate merging', async () => {
+    const saved = globalThis.fetch;
+    const row = {scheduleId:'football',categoryId:1,hostName:'Home',guestName:'Away',matchTime:'2030-10-10T14:00:00Z'};
+    globalThis.fetch = async () => Response.json({data:{normal:[row,
+      {...row,scheduleId:'score-only'},
+      {...row,scheduleId:'basketball',categoryId:2,anchors:[{anchor:{roomNum:'nba'}}]},
+      {...row,scheduleId:'mislabelled',categoryName:'American Football',anchors:[{anchor:{roomNum:'nfl'}}]},
+      {...row,scheduleId:'unknown-sport',categoryId:null,anchors:[{anchor:{roomNum:'unknown'}}]},
+      {...row,scheduleId:'invalid-room',anchors:[{anchor:{roomNum:'0'}}]},
+    ],hot:[{...row,anchors:[{anchor:{roomNum:'real-room'}}]}]}});
+    try {
+      const result=await (await adapter.jsonpMatches({source:'yyzb',url:'https://source.example/matches'})).json();
+      assert.deepEqual(result.matches.map(row=>row.source_id),['football']);
+      assert.equal(result.matches[0].anchors[0].room_num,'real-room');
+    } finally {globalThis.fetch=saved;}
+  });
   test(adapter.name + ': YYZB display preserves IDs, legacy Admin imports, and Viewer masking', async () => {
     const originalFetch = globalThis.fetch;
     const row = { scheduleId: 1448174, categoryId: 1, subCateId: 8, subCateName: '德甲',
@@ -196,7 +212,7 @@ for (const adapter of adapters.filter(a => a.name !== 'football-fixtures')) {
     } finally { globalThis.fetch = originalFetch; }
   });
 
-  test(adapter.name + ': representative 4030-match catalogs fit the existing 2MiB relay limit', async () => {
+  test(adapter.name + ': YYZB keeps every published football room from a 4030-match schedule', async () => {
     const originalFetch = globalThis.fetch;
     const rows = Array.from({ length: 4030 }, (_, index) => ({
       scheduleId: 1440000 + index, categoryId: 1, subCateId: 8, subCateName: '德甲',
@@ -212,10 +228,11 @@ for (const adapter of adapters.filter(a => a.name !== 'football-fixtures')) {
         const response = await adapter.jsonpMatches({ source: 'yyzb', url: 'https://source.example/matches', viewerPublic });
         const text = await response.text();
         const result = JSON.parse(text);
-        assert.equal(result.matches.length, rows.length, 'never discard fixtures to meet a body cap');
+        const watchable = rows.filter(row => row.anchors.length > 0);
+        assert.equal(result.matches.length, watchable.length, 'keep room-backed fixtures without truncating them');
         assert.ok(Buffer.byteLength(text) < 2 * 1024 * 1024, 'compact names must fit the current body budget');
         assert.equal(result.matches[0].schedule_id, rows[0].scheduleId);
-        assert.equal(result.matches.at(-1).schedule_id, rows.at(-1).scheduleId);
+        assert.equal(result.matches.at(-1).schedule_id, watchable.at(-1).scheduleId);
       }
     } finally { globalThis.fetch = originalFetch; }
   });
@@ -255,6 +272,7 @@ for (const adapter of adapters.filter(a => a.name !== 'football-fixtures')) {
       scheduleId: 'source-123', categoryId: 1, categoryName: '足球',
       subCateName: '英超', hostName: '切尔西', guestName: '伯恩茅斯',
       hostNameEn: 'Chelsea FC', matchTime: '2030-10-10T14:00:00Z',
+      anchors: [{anchor:{roomNum:'published-room'}}],
     }] });
     try {
       const payload = await (await adapter.jsonpMatches({ source: 'yyzb', url: 'https://source.example/matches' })).json();
@@ -427,6 +445,7 @@ for (const adapter of adapters.filter(a => a.name !== 'football-fixtures')) {
       hostLogo:'/file/imgs/team/football/chelsea.png',
       guestLogo:'/file/imgs/team/football/arsenal.png',
       matchTime:'2030-10-10T14:00:00Z',
+      anchors:[{anchor:{roomNum:'published-room'}}],
     };
     globalThis.fetch = async () => Response.json({data:[row]});
     try {

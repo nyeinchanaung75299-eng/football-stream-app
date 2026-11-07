@@ -694,7 +694,12 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
     final decoded = jsonDecode(response.body);
     final raw = decoded is Map ? decoded['streams'] : null;
-    if ((sourceName ?? source) == 'totalsportek') _rememberKickoff(m, decoded);
+    if ((sourceName ?? source) == 'totalsportek') {
+      _rememberKickoff(m, decoded);
+      if (decoded is Map && decoded['external_players'] is List) {
+        m['external_players'] = decoded['external_players'];
+      }
+    }
     if (raw is! List) throw const FormatException('Invalid source streams.');
     // An empty verified-source response is a source result, not a failed
     // network route. Retrying it on every alias repeats the same slow scan.
@@ -754,7 +759,12 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
     final decoded = jsonDecode(response.body);
     final raw = decoded is Map ? decoded['lines'] : null;
-    if (provider == 'totalsportek') _rememberKickoff(m, decoded);
+    if (provider == 'totalsportek') {
+      _rememberKickoff(m, decoded);
+      if (decoded is Map && decoded['external_players'] is List) {
+        m['external_players'] = decoded['external_players'];
+      }
+    }
     if (raw is! List) throw const FormatException('Invalid direct streams.');
     final name =
         (anchor['nick_name'] ?? anchor['name'] ?? anchor['room_num'] ?? '')
@@ -963,6 +973,40 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     );
   }
 
+  List<Map<String, dynamic>> _websitePlayers(Map<String, dynamic> match) {
+    final raw = match['external_players'];
+    if (raw is! List) return const [];
+    return raw.whereType<Map>().map((row) => Map<String, dynamic>.from(row))
+        .where((row) {
+          final uri = Uri.tryParse(row['url']?.toString() ?? '');
+          return uri?.scheme == 'https' && uri!.host.isNotEmpty && uri.userInfo.isEmpty;
+        }).toList();
+  }
+
+  Future<void> _showWebsitePlayers(Map<String, dynamic> match) async {
+    final players = _websitePlayers(match);
+    await showModalBottomSheet<void>(
+      context: context, useSafeArea: true, showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => SizedBox(
+        height: MediaQuery.sizeOf(context).height * .7,
+        child: Column(children: [
+          Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            child: Text('Totalsportek website players (${players.length})',
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800))),
+          Expanded(child: ListView.builder(
+            itemCount: players.length,
+            itemBuilder: (_, index) => ListTile(
+              title: Text(players[index]['label']?.toString() ?? 'Website player'),
+              trailing: const Icon(Icons.open_in_new, size: 19),
+              onTap: () => NativePlayer.openExternalPage(players[index]['url'].toString()),
+            ),
+          )),
+        ]),
+      ),
+    );
+  }
+
   Future<void> _openSourcePlayer(Map<String, dynamic> m) async {
     if (source == 'camel') {
       final target = Uri.tryParse(m['page_url']?.toString() ?? '');
@@ -1038,6 +1082,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       );
       if (rows.isEmpty) {
         if (source == 'totalsportek') {
+          if (_websitePlayers(m).isNotEmpty) {
+            await _showWebsitePlayers(m);
+            return;
+          }
           _totalsportekUnavailable(m);
           return;
         }
@@ -1100,6 +1148,12 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                     ),
                   ),
                   const Divider(height: 1),
+                  if (source == 'totalsportek' && _websitePlayers(m).isNotEmpty)
+                    TextButton.icon(
+                      onPressed: () => _showWebsitePlayers(m),
+                      icon: const Icon(Icons.open_in_new, size: 17),
+                      label: Text('Website players (${_websitePlayers(m).length})'),
+                    ),
                   Expanded(
                     child: ListView.separated(
                       controller: controller,
@@ -1266,13 +1320,14 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           // Its Viewer tab mirrors the website's watchable football catalogue:
           // an actual streamer room is mandatory and there is no score-only
           // fallback view.
-          final availableMatches = source == 'yyzb'
+          final availableMatches = (source == 'yyzb' || source == 'arena')
               ? allMatches
                   .where((row) => sourceMatchAnchors(row, source).isNotEmpty)
                   .toList()
               : allMatches;
           final matches = filterSourceMatches(
             availableMatches,
+            source: source,
             todayOnly: _todayOnly,
             query: _query,
             league: _league,

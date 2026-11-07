@@ -21,6 +21,21 @@ test('Totalsportek GET and POST routes are forwarded without opening arbitrary p
     {path:'/sources/totalsportek/streams',method:'POST'}]);
 });
 const backend = 'https://woggzixprvyjnfjzsglz.supabase.co';
+test('Arena Koora match and stream requests retain the VPN-free public route', async () => {
+  const calls=[];
+  await withFetch(async (url,init)=>{
+    calls.push({path:new URL(url).pathname,method:init.method});
+    return Response.json({ok:true,streams:[]});
+  },async()=>{
+    for(const [action,method] of [['matches','GET'],['streams','POST']]) {
+      const response=await proxy(new Request(origin+'/sources/arena/'+action,
+        method==='POST'?{method,body:'{}'}:{}));
+      assert.equal(response.status,200);await response.body.cancel();
+    }
+  });
+  assert.deepEqual(calls,[{path:'/sources/arena/matches',method:'GET'},
+    {path:'/sources/arena/streams',method:'POST'}]);
+});
 const worker = 'https://football-api.nyeinchanaung.us.ci';
 
 async function withFetch(stub, action) {

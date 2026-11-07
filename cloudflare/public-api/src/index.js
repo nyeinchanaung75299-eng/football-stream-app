@@ -526,7 +526,8 @@ async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
     const streams = await protectedClientLinks(normalized, env, publicOrigin);
     return json({ok: true, source, streams, stream_count: streams.length,
       live_status: payload?.live_status ?? null,
-      ...(source === 'totalsportek' ? {match_time: payload?.match_time ?? null} : {}),
+      ...(source === 'totalsportek' ? {match_time: payload?.match_time ?? null,
+        external_players: Array.isArray(payload?.external_players) ? payload.external_players.slice(0,80) : []} : {}),
       generated_at: new Date().toISOString()}, 200,
       {"Cache-Control": "no-store, max-age=0"});
   } catch (error) {

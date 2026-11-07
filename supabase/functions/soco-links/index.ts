@@ -2,7 +2,7 @@ import { websiteMatches, websiteStreams } from "../_shared/website_sources.mjs";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
-import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
+import { sourceMatchRows, isFootballSourceRow, hasPublishedSourceRoom } from "../_shared/source_match_rows.mjs";
 import { sourceLogo } from "../_shared/source_team_logos.mjs";
 import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
 
@@ -181,7 +181,8 @@ async function jsonpMatches(args: {
 }) {
   const raw = await fetchText(`${args.url}?v=${Date.now()}`);
   const payload = parseJsonp(raw);
-  const matches = sourceMatchRows(payload?.data ?? payload, isFootballRow)
+  const matches = sourceMatchRows(payload?.data ?? payload,
+    (row: any) => isFootballSourceRow(row, { allowUnclassified: args.source === "soco" }))
     .map((row: any) => {
       const scheduleId =
         row.scheduleId ?? row.schedule_id ?? row.fixtureId ??
@@ -235,7 +236,8 @@ async function jsonpMatches(args: {
     })
     // Preserve the original Soco current-fixtures behavior: completed games
     // must not linger in the catalogue. All dates is not match history.
-    .filter((row: any) => !staleKickoff(row.match_time))
+    .filter((row: any) => !staleKickoff(row.match_time) &&
+      (args.source !== "yyzb" || hasPublishedSourceRoom(row)))
     .sort(compareMatches);
 
   return json({
@@ -744,31 +746,6 @@ function colaMediaUrl(value: unknown) {
   } catch (_) {
     return null;
   }
-}
-
-function isFootballRow(row: any) {
-  const sportId = Number(row?.sportId ?? row?.sport_id);
-  if (Number.isFinite(sportId) && sportId > 0 && sportId !== 1) return false;
-  const rawCategoryId = row?.categoryId ?? row?.category_id;
-  const categoryId = rawCategoryId == null || rawCategoryId === ''
-    ? NaN : Number(rawCategoryId);
-
-  const category = [
-    row?.categoryName,
-    row?.subCateName,
-    row?.leagueName,
-    row?.sportName,
-  ].map((value) => String(value ?? "").toLowerCase()).join(" ");
-
-  if (/basketball|篮球|籃球|volleyball|排球|tennis|网球|網球|esport|电竞|電競/i.test(category)) return false;
-  if (Number.isFinite(categoryId) && categoryId > 0) return categoryId === 1;
-  if (/football|soccer|足球/.test(category)) return true;
-
-  return !Number.isFinite(categoryId) &&
-    (row?.hostName != null || row?.homeName != null ||
-      row?.homeTeam != null || row?.teams?.home != null) &&
-    (row?.guestName != null || row?.awayName != null ||
-      row?.awayTeam != null || row?.teams?.away != null);
 }
 
 function staleKickoff(value: unknown) {

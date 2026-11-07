@@ -16,6 +16,19 @@ const env = {
 const matchId = '00000000-0000-4000-8000-000000000001';
 const originalFetch = globalThis.fetch;
 const realTimeout = globalThis.setTimeout;
+test('Totalsportek keeps published website choices separate from protected native video lines', async () => {
+  const previous = globalThis.fetch;
+  const choices=[{label:'Alternative player',url:'https://player.example.org/event/12345'}];
+  globalThis.fetch = async () => Response.json({ok:true,source:'totalsportek',lines:[],external_players:choices});
+  try {
+    const result=await worker.fetch(new Request('https://api.example/sources/totalsportek/streams',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({page_url:'https://totalsportekl.is/Home-vs-Away/12345'})
+    }),env);
+    assert.equal(result.status,200);
+    const payload=await result.json();assert.deepEqual(payload.external_players,choices);
+    assert.deepEqual(payload.streams,[]);assert.equal(payload.stream_count,0);
+  } finally {globalThis.fetch=previous;}
+});
 const pause = ms => new Promise(resolve => realTimeout(resolve, ms));
 
 function withShortDeadlines() {
