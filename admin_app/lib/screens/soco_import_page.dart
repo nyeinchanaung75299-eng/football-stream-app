@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../analytics_service.dart';
 import '../football_english.dart';
@@ -335,6 +336,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
       final parsed = rows
           .map((row) => englishSourceMatch(row, provider))
+          .where((row) => (provider != 'yyzb' && provider != 'arena') ||
+              (row['anchors'] is List && (row['anchors'] as List).any((anchor) =>
+                anchor is Map && (anchor['room_num']?.toString().trim().isNotEmpty ?? false))))
           .where((row) => !_staleSourceMatch(row))
           .toList();
 
@@ -732,6 +736,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .map((row) => Map<String, dynamic>.from(row as Map))
           .where((row) => (row['url'] ?? '').toString().trim().isNotEmpty)
           .toList();
+      final websitePlayers = data is Map && data['external_players'] is List
+          ? (data['external_players'] as List).whereType<Map>()
+              .map((row) => Map<String, dynamic>.from(row)).where((row) {
+                final uri = Uri.tryParse(row['url']?.toString() ?? '');
+                return uri?.scheme == 'https' && uri!.host.isNotEmpty && uri.userInfo.isEmpty;
+              }).toList()
+          : <Map<String, dynamic>>[];
 
       final statusKey = _anchorKey(match, anchor, provider: provider);
       final sourceIsLive = data is Map && _isLiveStatus(data['live_status']);
@@ -763,7 +774,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
 
       if (!current()) return;
-      if (lines.isEmpty) {
+      if (lines.isEmpty && websitePlayers.isEmpty) {
         // Only display a short, redacted source status returned by our
         // authenticated resolver. No signed URL or token is shown.
         final upstream = data is Map ? data['message']?.toString() ?? '' : '';
@@ -800,6 +811,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         match: match,
         anchor: resolvedAnchor,
         lines: lines,
+        websitePlayers: websitePlayers,
         sourceLiveStatus: data is Map ? data['live_status'] : null,
       );
     } catch (e) {
@@ -823,6 +835,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     required Map<String, dynamic> match,
     required Map<String, dynamic> anchor,
     required List<Map<String, dynamic>> lines,
+    List<Map<String, dynamic>> websitePlayers = const [],
     dynamic sourceLiveStatus,
   }) async {
     final anchorName = (anchor['nick_name'] ?? 'Streamer').toString().trim();
@@ -1056,6 +1069,19 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     ),
                   );
                 }),
+                if (websitePlayers.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text('Website players (${websitePlayers.length})',
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  ...websitePlayers.map((player) => ListTile(
+                    dense: true, contentPadding: EdgeInsets.zero,
+                    title: Text(player['label']?.toString() ?? 'Website player'),
+                    trailing: const Icon(Icons.open_in_new, size: 19),
+                    onTap: () => launchUrl(Uri.parse(player['url'].toString()),
+                      mode: LaunchMode.platformDefault, webOnlyWindowName: '_blank'),
+                  )),
+                ],
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
@@ -1854,7 +1880,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       : '${visible.length} of ${sourceMatches.length} matches',
                     style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
                 ],
-                if (!_isManualSource && source != 'totalsportek')
+                if (!_isManualSource && source != 'totalsportek' &&
+                    source != 'yyzb' && source != 'arena')
                   SwitchListTile.adaptive(
                     value: availableOnly,
                     contentPadding: EdgeInsets.zero,

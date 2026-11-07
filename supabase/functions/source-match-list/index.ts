@@ -2,7 +2,7 @@ import { websiteMatches, websiteStreams } from "../_shared/website_sources.mjs";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
-import { sourceMatchRows } from "../_shared/source_match_rows.mjs";
+import { sourceMatchRows, isFootballSourceRow, hasPublishedSourceRoom } from "../_shared/source_match_rows.mjs";
 import { sourceLogo } from "../_shared/source_team_logos.mjs";
 
 const corsHeaders = {
@@ -79,12 +79,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (source === "arena") {
-      return json(await arenaMatches(body.date));
-    }
-
-    if (source === "xoilac" || source === "camel" || source === "totalsportek") {
-      const payload = { ok: true, source, matches: await websiteMatches(source), generated_at: new Date().toISOString() };
+    if (source === "xoilac" || source === "camel" || source === "arena" || source === "totalsportek") {
+      const payload = { ok: true, source, matches: await websiteMatches(source, { date: body.date }), generated_at: new Date().toISOString() };
       return json(payload);
     }
 
@@ -118,56 +114,6 @@ function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "x
   return null;
 }
 
-
-function arenaEnglishName(value: string, kind: "team" | "league" = "team") {
-  const raw = value.trim();
-  const known: Record<string, string> = {
-    "ميلان": "AC Milan",
-    "فيرينتسفاروشي": "Ferencvaros",
-    "ألكمار": "AZ Alkmaar",
-    "يوفنتوس": "Juventus",
-    "الدوري الأوروبي": "UEFA Europa League",
-    "دوري أبطال أوروبا": "UEFA Champions League",
-    "الدوري الإنجليزي الممتاز": "Premier League",
-    "الدوري الإسباني": "La Liga",
-    "الدوري الإيطالي": "Serie A",
-    "الدوري الألماني": "Bundesliga",
-    "الدوري الفرنسي": "Ligue 1",
-  };
-  const normalized = known[raw] ?? englishFootballName(raw, kind);
-  return /[\u0600-\u06ff]/.test(normalized)
-    ? arabicToLatin(normalized)
-    : normalized;
-}
-
-function arabicToLatin(value: string) {
-  const digraphs: Record<string, string> = {
-    "لا": "la", "ال": "al ",
-  };
-  let text = value;
-  for (const [arabic, latin] of Object.entries(digraphs)) {
-    text = text.split(arabic).join(latin);
-  }
-  const letters: Record<string, string> = {
-    "ا": "a", "أ": "a", "إ": "i", "آ": "aa", "ب": "b", "ت": "t",
-    "ث": "th", "ج": "j", "ح": "h", "خ": "kh", "د": "d", "ذ": "dh",
-    "ر": "r", "ز": "z", "س": "s", "ش": "sh", "ص": "s", "ض": "d",
-    "ط": "t", "ظ": "z", "ع": "a", "غ": "gh", "ف": "f", "ق": "q",
-    "ك": "k", "ل": "l", "م": "m", "ن": "n", "ه": "h", "ة": "a",
-    "و": "w", "ؤ": "u", "ي": "y", "ى": "a", "ئ": "y", "ء": "",
-    "پ": "p", "چ": "ch", "ژ": "zh", "گ": "g",
-  };
-  const result = [...text.normalize("NFKD")]
-    .filter((char) => !/[\u064b-\u065f\u0670]/.test(char))
-    .map((char) => letters[char] ?? char)
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
-  return result
-    .split(" ")
-    .map((part) => part ? part[0].toUpperCase() + part.slice(1) : part)
-    .join(" ");
-}
 
 async function fallbackFootballMatches(args: { supabaseUrl: string; anonKey: string; authHeader: string; rawDate: unknown }) {
   const value = String(args.rawDate ?? "").trim();
@@ -210,55 +156,6 @@ async function fallbackFootballMatches(args: { supabaseUrl: string; anonKey: str
     };
   }).filter((row: any) => row != null).sort(compareMatches);
   return { ok: true, source: "sofascore", served_by: "football-fixtures", matches, results: matches.length, date, generated_at: new Date().toISOString() };
-}
-
-async function arenaMatches(rawDate: unknown) {
-  const value = String(rawDate ?? "").trim();
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
-    ? value
-    : new Date().toISOString().slice(0, 10);
-  const url = new URL("https://arenaaliive22.site/api/v1/matches");
-  url.searchParams.set("date", date);
-  url.searchParams.set("scope", "all");
-  url.searchParams.set("lang", "en");
-  const payload = JSON.parse(await fetchText(url.toString()));
-  const rows = Array.isArray(payload?.matches) ? payload.matches : [];
-  const matches = rows.map((row: any) => {
-    const id = String(row?.id ?? "").trim();
-    const homeRaw = String(row?.home_team?.name_en ?? row?.home_team?.name ?? "").trim();
-    const awayRaw = String(row?.away_team?.name_en ?? row?.away_team?.name ?? "").trim();
-    if (!id || !homeRaw || !awayRaw) return null;
-    const home = arenaEnglishName(homeRaw);
-    const away = arenaEnglishName(awayRaw);
-    const state = String(row?.state ?? "").toLowerCase();
-    const live = state === "live" || state === "inprogress";
-    const servers = Array.isArray(row?.servers) ? row.servers : [];
-    return {
-      source: "arena",
-      source_id: id,
-      schedule_id: id,
-      provider: "arena",
-      league: arenaEnglishName(
-        String(row?.tournament?.name_en ?? row?.tournament?.name ?? "Football"),
-        "league",
-      ),
-      home_team: home,
-      away_team: away,
-      home_logo: row?.home_team?.logo ?? null,
-      away_logo: row?.away_team?.logo ?? null,
-      match_time: normalizeMatchTime(row?.start_at ?? row?.timestamp),
-      hot: live,
-      status: live ? "LIVE" : state === "finished" ? "FT" : "NS",
-      match_status: live ? "LIVE" : state === "finished" ? "FT" : "SCHEDULED",
-      page_url: "https://www.arena-koora.online/?match=" + encodeURIComponent(id) + "&date=" + encodeURIComponent(date),
-      anchors: servers.map((server: any, index: number) => ({
-        uid: String(server?.id ?? index),
-        nick_name: String(server?.name ?? server?.label ?? "Arena Koora " + (index + 1)),
-        room_num: String(server?.id ?? index),
-      })),
-    };
-  }).filter((row: any) => row != null).sort(compareMatches);
-  return { ok: true, source: "arena", matches, results: matches.length, date, generated_at: new Date().toISOString() };
 }
 
 async function sofascoreMatches(rawDate: unknown) {
@@ -323,7 +220,8 @@ async function jsonpMatches(args: {
 }) {
   const raw = await fetchText(`${args.url}?v=${Date.now()}`);
   const payload = parseJsonp(raw);
-  const matches = sourceMatchRows(payload?.data ?? payload, isFootballRow)
+  const matches = sourceMatchRows(payload?.data ?? payload,
+    (row: any) => isFootballSourceRow(row, { allowUnclassified: args.source === "soco" }))
     .map((row: any) => {
       const scheduleId =
         row.scheduleId ?? row.schedule_id ?? row.fixtureId ??
@@ -369,7 +267,8 @@ async function jsonpMatches(args: {
     })
     // Match-list parity with the source: finished games are not a history
     // archive, and upstream removal is authoritative on a successful fetch.
-    .filter((row: any) => !staleKickoff(row.match_time))
+    .filter((row: any) => !staleKickoff(row.match_time) &&
+      (args.source !== "yyzb" || hasPublishedSourceRoom(row)))
     .sort(compareMatches);
 
   return json({
@@ -677,33 +576,6 @@ function colaMediaUrl(value: unknown) {
   } catch (_) {
     return null;
   }
-}
-
-function isFootballRow(row: any) {
-  const sportId = Number(row?.sportId ?? row?.sport_id);
-  if (Number.isFinite(sportId) && sportId > 0 && sportId !== 1) return false;
-  const rawCategoryId = row?.categoryId ?? row?.category_id;
-  const categoryId = rawCategoryId == null || rawCategoryId === ''
-    ? NaN : Number(rawCategoryId);
-
-  const category = [
-    row?.categoryName,
-    row?.subCateName,
-    row?.leagueName,
-    row?.sportName,
-  ].map((value) => String(value ?? "").toLowerCase()).join(" ");
-
-  if (/basketball|篮球|籃球|volleyball|排球|tennis|网球|網球|esport|电竞|電競/i.test(category)) return false;
-  if (Number.isFinite(categoryId) && categoryId > 0) return categoryId === 1;
-  if (/football|soccer|足球/.test(category)) return true;
-
-  // Some source revisions omit categoryId entirely but still expose the same
-  // football schedule shape.
-  return !Number.isFinite(categoryId) &&
-    (row?.hostName != null || row?.homeName != null ||
-      row?.homeTeam != null || row?.teams?.home != null) &&
-    (row?.guestName != null || row?.awayName != null ||
-      row?.awayTeam != null || row?.teams?.away != null);
 }
 
 function staleKickoff(value: unknown) {

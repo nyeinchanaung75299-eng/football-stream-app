@@ -74,6 +74,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.text('Select Stream Quality'),findsOneWidget);
+      expect(find.text('Website players (2)'),findsOneWidget);
+      expect(find.text('Alternative provider'),findsOneWidget);
       expect(extractions,1);
       for(final choice in {'Copy Referer':referer,'Copy Origin':origin,'Copy video URL':video,
         'Copy all details':'URL: $video\nReferer: $referer\nOrigin: $origin'}.entries) {
@@ -98,7 +100,10 @@ void main() {
         if(body['metadata_only']==true) return reply({'source':'totalsportek','metadata_only':true,
           'match_time':DateTime.now().toUtc().add(const Duration(hours:1)).toIso8601String(),'lines':[]});
         extractions++;
-        return reply({'source':'totalsportek','lines':[{'label':'Totalsportek • Channel 9',
+        return reply({'source':'totalsportek','external_players':[
+          {'label':'Alternative provider','url':'https://alternative.example.org/event/78932'},
+          {'label':'Original provider','url':'https://original.example.org/event/78932'}],
+          'lines':[{'label':'Totalsportek • Channel 9',
           'stream_type':'hls','url':video,'referer':referer,'origin':origin,'health_status':'unknown'}]});
       }
       return reply({'source':'totalsportek','matches':fixtures});

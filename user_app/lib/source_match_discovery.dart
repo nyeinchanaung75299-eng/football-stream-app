@@ -18,7 +18,7 @@ List<SourceMatch> sourceMatchAnchors(SourceMatch match, String source) {
     if (anchors.isNotEmpty) return anchors;
   }
   // Soco/YYZB schedule IDs identify fixtures, not streamer rooms.
-  if (source == 'soco' || source == 'yyzb') return const [];
+  if (source == 'soco' || source == 'yyzb' || source == 'arena') return const [];
   final room = (match['source_id'] ?? match['schedule_id'] ?? '')
       .toString()
       .trim();
@@ -72,7 +72,7 @@ List<SourceMatch> filterSourceMatches(
   List<SourceMatch> matches, {
   required bool todayOnly,
   bool streamsOnly = false,
-  String source = 'yyzb',
+  String source = 'soco',
   String query = '',
   String? league,
   DateTime? now,
@@ -85,9 +85,10 @@ List<SourceMatch> filterSourceMatches(
       .where((word) => word.isNotEmpty)
       .toList();
   return matches.where((match) {
-    // A provider's full score/schedule DB is not a watchable-room list. YYZB
-    // defaults to fixtures with actual listed rooms, but can show all football
-    // events through the explicit "All football" control.
+    // Apply the room policy to older local/mirror catalogs as well as fresh
+    // API data. A fixture ID is never evidence that a stream room exists.
+    if ((source == 'yyzb' || source == 'arena') &&
+        sourceMatchAnchors(match, source).isEmpty) return false;
     if (streamsOnly && sourceMatchAnchors(match, source).isEmpty) return false;
     if (todayOnly) {
       final kickoff = sourceMatchKickoff(match)?.toLocal();

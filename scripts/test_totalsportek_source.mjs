@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseTotalsportekMatches,totalsportekKickoff,totalsportekMatches,totalsportekStreams} from '../supabase/functions/_shared/totalsportek_source.mjs';
+import {parseTotalsportekMatches,totalsportekKickoff,totalsportekMatches,totalsportekStreams,totalsportekPlayers} from '../supabase/functions/_shared/totalsportek_source.mjs';
 const page='https://totalsportekl.is/Home-vs-Away/12345';
 const card=(extra='',id='12345')=>`<a href="/Home-vs-Away/${id}" class="modern-match-card"><div class="team-name team-left">Home<img src="/images/teams/Home.png"></div><div class="match-time"><span>Match</span><span>Started</span></div><span class="btn-live">Live Streams</span><div class="team-name team-right">Away<img src="/images/teams/Away.png"></div>${extra}</a>`;
 const listing='<div class="league-header"><span>Premier League</span></div>'+card();
@@ -106,4 +106,42 @@ test('a failing player does not hide a separate working published player',async(
  const second=wrapper.replace('live3','live4');
  const f=fixture({[page]:event+`<a href="${second}">Watch</a>`,[second]:'<iframe src="https://not-supported.invalid/player"></iframe>'});
  assert.equal((await totalsportekStreams({page_url:page},{fetcher:f.fetcher})).lines.length,1);
+});
+test('published website choices retain their labels and are never imported as native media',async()=>{
+ const event=`<a class="nocolor w-100" href="https://external.example.org/event/12345"><div class="col-md-3 col-5">Other player</div><div>HD Watch</div></a>`;
+ const choices=totalsportekPlayers(event+event+`<a href="https://ads.example.org/">Ad</a>`+
+   `<a class="nocolor" href="http://127.0.0.1/private">Private</a>`,page);
+ assert.deepEqual(choices,[{label:'Other player',url:'https://external.example.org/event/12345'}]);
+ const f=fixture({[page]:event});const result=await totalsportekStreams({page_url:page},{fetcher:f.fetcher});
+ assert.deepEqual(result.lines,[]);assert.deepEqual(result.external_players,choices);assert.equal(f.calls.length,1);
+});
+test('distinct published Totalsportek player families produce two native lines plus every website choice',async()=>{
+ const second=wrapper.replace('live3','live6');
+ const soccer='https://soccerstreamlinks.st/player.php/home-vs-away-football';
+ const vertex='https://s3.vertex.st/ch?id=24';
+ const config='https://matchli.st/embed.php?code=published-code';
+ const hls='https://hls.lshls.st/secure_hls.php?path=football/master.m3u8&e=2000000000&sig=original-signature';
+ const f=fixture({[page]:event+`<a href="${second}">SoccerStreamLinks</a>`,
+  [second]:`<iframe src="${soccer}"></iframe>`,[soccer]:`const endpoint='_player_data';`,
+  [soccer+'?_player_data=1']:JSON.stringify({u:vertex}),
+  [vertex]:`fetch('api/player.php?id='+id)`,
+  ['https://s3.vertex.st/api/player.php?id=24']:JSON.stringify({url:config}),
+  [config]:`window.PP_STABLE_CONFIG=${JSON.stringify({src:hls})};`,
+ });
+ const original=f.fetcher;
+ f.fetcher=async(input,init)=>String(input)===config
+   ? new Response('',{status:302,headers:{Location:config.replace('/embed.php','/embed-edge.php')}})
+   : String(input)===config.replace('/embed.php','/embed-edge.php')
+     ? new Response(`window.PP_STABLE_CONFIG=${JSON.stringify({src:hls})};`)
+     : original(input,init);
+ const result=await totalsportekStreams({page_url:page},{fetcher:f.fetcher,now:Date.parse('2026-11-07')});
+ assert.equal(result.lines.length,2);assert.equal(result.external_players.length,2);
+ const line=result.lines.find(line=>line.label.includes('SoccerStreamLinks'));
+ assert.equal(line.url,hls);assert.equal(line.referer,config);assert.equal(line.origin,'https://matchli.st');
+ assert.equal(line.expires_at,'2033-05-18T03:33:20.000Z');
+ // A public JSON endpoint cannot select an arbitrary next destination.
+ const unsafe=fixture({[page]:`<a href="${second}">Watch</a>`,[second]:`<iframe src="${soccer}"></iframe>`,
+  [soccer]:`const endpoint='_player_data';`,[soccer+'?_player_data=1']:JSON.stringify({u:'http://127.0.0.1/private'})});
+ assert.deepEqual((await totalsportekStreams({page_url:page},{fetcher:unsafe.fetcher})).lines,[]);
+ assert.equal(unsafe.calls.length,4);
 });
