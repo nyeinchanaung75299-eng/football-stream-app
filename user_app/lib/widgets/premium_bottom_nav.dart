@@ -32,14 +32,8 @@ class PremiumBottomNav extends StatelessWidget {
       label: 'Fawa',
     ),
     (icon: Icons.tv_outlined, selected: Icons.tv_rounded, label: 'ColaTV'),
-    (icon: Icons.tv_outlined, selected: Icons.tv_rounded, label: 'Channels'),
-    (
-      icon: Icons.sports_soccer_outlined,
-      selected: Icons.sports_soccer,
-      label: 'Xoilac',
-    ),
-    (icon: Icons.live_tv_outlined, selected: Icons.live_tv, label: 'Camel1'),
     (icon: Icons.public_outlined, selected: Icons.public, label: 'Totalsportek'),
+    (icon: Icons.tv_outlined, selected: Icons.tv_rounded, label: 'Channels'),
   ];
 
   @override
@@ -64,16 +58,12 @@ class PremiumBottomNav extends StatelessWidget {
         top: false,
         child: SizedBox(
           height: 64,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            reverse: selectedIndex >= 6,
-            child: Row(
-              children: List.generate(_items.length, (index) {
+          child: Row(
+            children: List.generate(_items.length, (index) {
                 final item = _items[index];
                 final selected = selectedIndex == index;
 
-                return SizedBox(
-                  width: MediaQuery.sizeOf(context).width / 6,
+                return Expanded(
                   child: Semantics(
                     button: true,
                     selected: selected,
@@ -87,7 +77,7 @@ class PremiumBottomNav extends StatelessWidget {
                           duration: const Duration(milliseconds: 180),
                           curve: Curves.easeOutCubic,
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
+                            horizontal: 3,
                             vertical: 6,
                           ),
                           decoration: BoxDecoration(
@@ -108,10 +98,14 @@ class PremiumBottomNav extends StatelessWidget {
                               ),
                               const SizedBox(height: 3),
                               Text(
-                                item.label,
-                                maxLines: 1,
+                                item.label == 'Totalsportek'
+                                    ? 'Total\nsportek'
+                                    : item.label,
+                                maxLines: 2,
+                                textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: 10.5,
+                                  height: 1.1,
                                   fontWeight: selected
                                       ? FontWeight.w800
                                       : FontWeight.w600,
@@ -128,7 +122,6 @@ class PremiumBottomNav extends StatelessWidget {
                   ),
                 );
               }),
-            ),
           ),
         ),
       ),
