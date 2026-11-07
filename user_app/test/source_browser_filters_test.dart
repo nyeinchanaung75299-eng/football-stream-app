@@ -157,7 +157,9 @@ void main() {
   testWidgets('timed-out kickoff request closes before fallback and later lookups reuse the working route', (tester) async {
     final blocked = Completer<http.Response>();
     String? badOrigin;
-    var badClosed = false, badRequests = 0, replacement = false;
+    var badClosed = false;
+    var badRequests = 0;
+    var replacement = false;
     final goodOrigins = <String>[];
     await http.runWithClient(() async {
       await tester.pumpWidget(const MaterialApp(home: SourceBrowserPage(source:'totalsportek')));
