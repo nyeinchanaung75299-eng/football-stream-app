@@ -36,6 +36,13 @@ const checked=async(query,label)=>{
  if(error)throw new Error(label+" failed");
  return data||[];
 };
+async function checkedPages(build,label){
+ const rows=[];
+ for(let offset=0;;offset+=500){
+  const page=await checked(build().order('id').range(offset,offset+499),label);
+  rows.push(...page);if(page.length<500)return rows;
+ }
+}
 async function guideFromNCA(now){
  const date=new Date(now.getTime()+390*60000).toISOString().slice(0,10);
  for(const base of SOURCES){
@@ -70,10 +77,10 @@ async function reconcile(req,admin,body){
    .gte("kickoff_at",new Date(now.getTime()-90*60000).toISOString())
    .lte("kickoff_at",new Date(now.getTime()+8*86400000).toISOString()).limit(350),
    "Match list"),
-  checked(admin.from("channels").select("id,name,epg_id,epg_source,is_active").eq("is_active",true).limit(500),"Channel list"),
-  checked(admin.from("channel_lines")
+  checkedPages(()=>admin.from("channels").select("id,name,epg_id,epg_source,is_active").eq("is_active",true),"Channel list"),
+  checkedPages(()=>admin.from("channel_lines")
    .select("id,channel_id,label,stream_type,stream_url,referer,origin,key_id,key_data,is_active,sort_order")
-   .eq("is_active",true).limit(500),"Channel lines"),
+   .eq("is_active",true).neq('configuration_status','requires_drm'),"Channel lines"),
   checked(admin.from("stream_links").select("id,match_id,channel_line_id,sort_order")
    .not("channel_line_id","is",null).limit(1500),"Existing match links"),
  ]);
