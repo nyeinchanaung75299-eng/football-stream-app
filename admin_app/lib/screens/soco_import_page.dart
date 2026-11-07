@@ -13,6 +13,7 @@ import '../services/manual_source_url.dart';
 import '../services/function_gateway.dart';
 import '../services/stream_library_service.dart';
 import '../source_line_validation.dart';
+import '../source_match_search.dart';
 
 @visibleForTesting
 List<Map<String, dynamic>> validateSourceMatchRows(
@@ -112,6 +113,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
   String source = 'soco';
   String dayFilter = 'today';
   String? errorText;
+  final _sourceSearch = TextEditingController();
+  String _sourceQuery = '';
   List<Map<String, dynamic>> sourceMatches = const [];
   final Map<String, String> _anchorStatuses = <String, String>{};
   final Map<String, int> _anchorLineCounts = <String, int>{};
@@ -176,6 +179,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   void dispose() {
     _sourceLoadEpoch += 1;
     _sourceRefreshTimer?.cancel();
+    _sourceSearch.dispose();
     _playzServerName.dispose();
     _playzUrl.dispose();
     _playzReferer.dispose();
@@ -342,19 +346,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         }
       }
 
-      parsed.sort((a, b) {
-        final at =
-            DateTime.tryParse(a['match_time']?.toString() ?? '')?.toLocal() ??
-                DateTime(9999);
-        final bt =
-            DateTime.tryParse(b['match_time']?.toString() ?? '')?.toLocal() ??
-                DateTime(9999);
-        final byTime = at.compareTo(bt);
-        if (byTime != 0) return byTime;
-        return (a['home_team'] ?? '').toString().toLowerCase().compareTo(
-              (b['home_team'] ?? '').toString().toLowerCase(),
-            );
-      });
+      parsed.sort((a, b) => compareAdminSourceMatches(a, b, provider));
 
       unawaited(
         AnalyticsService.capture(
@@ -583,7 +575,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
       a.year == b.year && a.month == b.month && a.day == b.day;
 
   List<Map<String, dynamic>> get _visibleSourceMatches {
-    Iterable<Map<String, dynamic>> rows = sourceMatches;
+    Iterable<Map<String, dynamic>> rows = sourceMatches.where(
+      (row) => sourceMatchMatchesQuery(row, _sourceQuery),
+    );
 
     if (availableOnly) {
       rows = rows.where((row) {
@@ -1004,10 +998,28 @@ class _SocoImportPageState extends State<SocoImportPage> {
                               ],
                             ),
                           ),
-                          IconButton(
-                            tooltip: 'Copy link',
-                            onPressed: () async {
-                              await Clipboard.setData(ClipboardData(text: url));
+                          PopupMenuButton<String>(
+                            tooltip: 'Copy link or headers',
+                            icon: const Icon(Icons.copy_rounded),
+                            itemBuilder: (_) => [
+                              const PopupMenuItem(value: 'url', child: Text('Copy video URL')),
+                              if (referer.isNotEmpty)
+                                const PopupMenuItem(value: 'referer', child: Text('Copy Referer')),
+                              if (origin.isNotEmpty)
+                                const PopupMenuItem(value: 'origin', child: Text('Copy Origin')),
+                              const PopupMenuItem(value: 'all', child: Text('Copy all details')),
+                            ],
+                            onSelected: (field) async {
+                              final value = switch (field) {
+                                'referer' => referer,
+                                'origin' => origin,
+                                'all' => ['URL: $url',
+                                  if (referer.isNotEmpty) 'Referer: $referer',
+                                  if (origin.isNotEmpty) 'Origin: $origin',
+                                ].join('\n'),
+                                _ => url,
+                              };
+                              await Clipboard.setData(ClipboardData(text: value));
                               unawaited(
                                 AnalyticsService.capture(
                                   'source link copied',
@@ -1016,12 +1028,16 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                     'stream_type':
                                         (line['stream_type'] ?? 'auto')
                                             .toString(),
+                                    'copied_field': field,
                                   },
                                 ),
                               );
-                              message('${_sourceLabel(source)} link copied.');
+                              final label = switch (field) {
+                                'referer' => 'Referer', 'origin' => 'Origin',
+                                'all' => 'Stream details', _ => '${_sourceLabel(source)} link',
+                              };
+                              message('$label copied.');
                             },
-                            icon: const Icon(Icons.copy_rounded),
                           ),
                           FilledButton(
                             onPressed: () async {
@@ -1810,7 +1826,35 @@ class _SocoImportPageState extends State<SocoImportPage> {
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
           children: [
                 if (_isManualSource) _manualSourceCard(colors),
-                if (!_isManualSource)
+                if (!_isManualSource) ...[
+                  TextField(
+                    key: const Key('source-match-search'),
+                    controller: _sourceSearch,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    textInputAction: TextInputAction.search,
+                    style: const TextStyle(fontSize: 13),
+                    onChanged: (value) => setState(() => _sourceQuery = value),
+                    decoration: InputDecoration(
+                      hintText: 'Search teams or leagues',
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      prefixIcon: const Icon(Icons.search, size: 19),
+                      suffixIcon: _sourceQuery.isEmpty ? null : IconButton(
+                        tooltip: 'Clear search', icon: const Icon(Icons.close, size: 18),
+                        onPressed: () => setState(() {
+                          _sourceSearch.clear(); _sourceQuery = '';
+                        }),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(visible.length == sourceMatches.length
+                      ? '${sourceMatches.length} matches'
+                      : '${visible.length} of ${sourceMatches.length} matches',
+                    style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+                ],
+                if (!_isManualSource && source != 'totalsportek')
                   SwitchListTile.adaptive(
                     value: availableOnly,
                     contentPadding: EdgeInsets.zero,
@@ -1870,7 +1914,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     child: Padding(
                       padding: const EdgeInsets.all(18),
                       child: Text(
-                        'No football matches in this source section.',
+                        _sourceQuery.trim().isEmpty
+                            ? 'No football matches in this source section.'
+                            : 'No matches found. Clear search to see all fixtures.',
                       ),
                     ),
                   ),
