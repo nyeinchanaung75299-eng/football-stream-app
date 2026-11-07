@@ -591,11 +591,10 @@ async function handleStreams(request, matchId, env, publicOrigin) {
   }
 }
 
-async function handleChannels(env) {
+async function loadChannelRows(env) {
   const base = env.SUPABASE_URL?.trim() || "";
   const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() || "";
-  if (!base || !key) return json({error: "Channel catalog is not configured."}, 503);
-  try {
+  if (!base || !key) throw new Error("Channel catalog is not configured.");
     const url = new URL(base.replace(/\/+$/, "") + "/rest/v1/channels");
     url.searchParams.set("select", "id,name,category,image_url,sort_order");
     url.searchParams.set("is_active", "eq.true");
@@ -612,7 +611,12 @@ async function handleChannels(env) {
       data.push(...page);
       if (page.length < 500) break;
     }
-    return json({ok: true, channels: data}, 200,
+    return data;
+}
+
+async function handleChannels(env) {
+  try {
+    return json({ok: true, channels: await loadChannelRows(env)}, 200,
       {"Cache-Control": "public, max-age=15"});
   } catch (_) {
     return json({error: "Channel catalog is unavailable."}, 502);
@@ -644,9 +648,18 @@ async function handleTvSchedule(request, env, incoming, ctx) {
     // Cloudflare may limit concurrent connections to a single upstream host:
     // starting 18 optional lookups first previously starved this required
     // request and produced a 502 even though the primary guide was healthy.
-    const { data } = await fetchJsonWithTimeout(upstream, {
-      headers: { Accept: "application/json" },
-    }, METADATA_TIMEOUT_MS);
+    const [{data}, catalog] = await Promise.all([
+      fetchJsonWithTimeout(upstream, {headers: {Accept: "application/json"}}, METADATA_TIMEOUT_MS),
+      loadChannelRows(env).catch(() => null),
+    ]);
+    // The upstream guide may have an older catalog snapshot. Keep every
+    // current saved channel, including newly imported lines with no EPG yet.
+    const withCatalog = guide => catalog === null ? guide : ({...guide,
+      channels: catalog.map(channel => {
+        const programmes = guide.channels.find(row => row.id === channel.id);
+        return {...(programmes || {matchedEPG:false,programmes:[]}), ...channel};
+      }),
+    });
     let schedule = sanitizeTvSchedule(data, date, days);
     // The 18 optional regional feeds used to hold up every uncached guide
     // response for as long as 8.5 seconds. Give enrichment a short chance;
@@ -669,10 +682,10 @@ async function handleTvSchedule(request, env, incoming, ctx) {
       ...(cached ? [{source:'cached-regional',ok:true,data:cached}] : []),
       ...enrichment.snapshot(),
     ];
-    schedule = sanitizeTvSchedule(mergeTvScheduleSources(data, supplements), date, days);
+    schedule = withCatalog(sanitizeTvSchedule(mergeTvScheduleSources(data, supplements), date, days));
     const complete = enrichment.settled.then(async results => {
       if (cache && results.some(result => result.ok && result.data.channels.some(channel => channel.matchedEPG && channel.programmes?.length))) {
-        const full = sanitizeTvSchedule(mergeTvScheduleSources(data, results), date, days);
+        const full = withCatalog(sanitizeTvSchedule(mergeTvScheduleSources(data, results), date, days));
         await cache.put(cacheRequest, Response.json(full, {headers:{'Cache-Control':'public, max-age=180'}}));
       }
     }).catch(() => {});

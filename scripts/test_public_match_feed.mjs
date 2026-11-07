@@ -24,6 +24,26 @@ test('channel catalog pages past the old 250-channel truncation without returnin
  }finally{globalThis.fetch=original;}
 });
 
+test('My Channels guide retains imported channels missing from the older upstream EPG catalog',async()=>{
+ const original=globalThis.fetch;
+ globalThis.fetch=async target=>{
+  const u=new URL(target);
+  if(u.pathname==='/rest/v1/channels')return Response.json([
+   {id:'nbc',name:'NBC',category:'NBC'},
+   {id:'imported',name:'New Sports MPD',category:'Sports'},
+  ]);
+  if(u.pathname==='/api/schedule')return Response.json({ok:true,channels:[{id:'nbc',name:'NBC',matchedEPG:true,programmes:[
+   {title:'Live football',start:1794072600000,end:1794079800000}]}]});
+  return Response.json({ok:true,channels:[]});
+ };
+ try{
+  const response=await worker.fetch(new Request('https://api.example/tv-schedule?date=2026-11-08'),env,{});
+  const payload=await response.json();assert.equal(response.status,200);
+  assert.equal(payload.channels.length,2);assert.equal(payload.channels[0].programmes.length,1);
+  assert.equal(payload.channels[1].matchedEPG,false);assert.deepEqual(payload.channels[1].programmes,[]);
+ }finally{globalThis.fetch=original;}
+});
+
 test('Totalsportek kickoff-only requests forward the mode and never return stream data', async () => {
   const original = globalThis.fetch;
   let received;
