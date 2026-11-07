@@ -684,6 +684,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             'schedule_id': m['schedule_id'] ?? m['source_id'],
             'source_id': m['source_id'],
             'page_url': anchor['page_url'] ?? m['page_url'],
+            if (anchor['player_url'] != null) 'player_url': anchor['player_url'],
             'anchor_name':
                 anchor['nick_name'] ?? anchor['name'] ?? anchor['room_num'],
           }),
@@ -746,6 +747,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               'source_id': (m['source_id'] ?? '').toString(),
               'page_url': (anchor['page_url'] ?? m['page_url'] ?? '')
                   .toString(),
+              if (anchor['player_url'] != null) 'player_url': anchor['player_url'].toString(),
               't': DateTime.now().millisecondsSinceEpoch.toString(),
             },
           ),
@@ -998,14 +1000,37 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             itemCount: players.length,
             itemBuilder: (_, index) => ListTile(
               title: Text(players[index]['label']?.toString() ?? 'Website player'),
-              trailing: const Icon(Icons.open_in_new, size: 19),
-              onTap: () => NativePlayer.openExternalPage(players[index]['url'].toString()),
+              subtitle: const Text('Get video link', style: TextStyle(fontSize: 11)),
+              leading: const Icon(Icons.play_circle_outline),
+              trailing: IconButton(tooltip: 'Open original', icon: const Icon(Icons.open_in_new, size: 19),
+                onPressed: () => NativePlayer.openExternalPage(players[index]['url'].toString())),
+              onTap: () => _openSourcePlayer({...match,
+                'selected_player_url': players[index]['url'],
+                'selected_player_label': players[index]['label'],
+                'anchors': [{'room_num': match['source_id'] ?? match['schedule_id'],
+                  'page_url': match['page_url'], 'player_url': players[index]['url'], 'nick_name': ''}],
+              }),
             ),
           )),
         ]),
       ),
     );
   }
+
+  Future<void> _selectedPlayerUnavailable(Map<String, dynamic> match) => showDialog<void>(
+    context: context,
+    builder: (dialog) => AlertDialog(
+      title: Text(match['selected_player_label']?.toString() ?? 'Website player'),
+      content: const Text('No direct video link is available from this player right now.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Close')),
+        TextButton(onPressed: () {
+          Navigator.pop(dialog);
+          NativePlayer.openExternalPage(match['selected_player_url'].toString());
+        }, child: const Text('Open original')),
+      ],
+    ),
+  );
 
   Future<void> _openSourcePlayer(Map<String, dynamic> m) async {
     if (source == 'camel') {
@@ -1058,7 +1083,13 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         onFailure: source == 'xoilac'
             ? (_) => _xoilacUnavailable(m)
             : source == 'totalsportek'
-                ? (_) => _totalsportekUnavailable(m, requestFailed: true)
+                ? (_) {
+                    if (m['selected_player_url'] != null) {
+                      unawaited(_selectedPlayerUnavailable(m));
+                    } else {
+                      _totalsportekUnavailable(m, requestFailed: true);
+                    }
+                  }
                 : null,
       );
       resolution.stop();
@@ -1082,6 +1113,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       );
       if (rows.isEmpty) {
         if (source == 'totalsportek') {
+          if (m['selected_player_url'] != null) {
+            await _selectedPlayerUnavailable(m);
+            return;
+          }
           if (_websitePlayers(m).isNotEmpty) {
             await _showWebsitePlayers(m);
             return;
@@ -1148,9 +1183,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                     ),
                   ),
                   const Divider(height: 1),
-                  if (source == 'totalsportek' && _websitePlayers(m).isNotEmpty)
+                  if (source == 'totalsportek' && m['selected_player_url'] == null && _websitePlayers(m).isNotEmpty)
                     TextButton.icon(
-                      onPressed: () => _showWebsitePlayers(m),
+                      onPressed: () => Navigator.pop(sheet, -1),
                       icon: const Icon(Icons.open_in_new, size: 17),
                       label: Text('Website players (${_websitePlayers(m).length})'),
                     ),
@@ -1229,7 +1264,12 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         ),
       );
 
-      if (picked == null || !current()) return;
+      if (!current()) return;
+      if (picked == -1) {
+        await _showWebsitePlayers(m);
+        return;
+      }
+      if (picked == null) return;
       publishedCount = operation.rows.length;
       await NativePlayer.open(
         context: context,

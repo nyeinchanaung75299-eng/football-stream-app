@@ -12,6 +12,9 @@ on:
       - "supabase/functions/_shared/football_names.mjs"
       - "supabase/functions/_shared/website_sources.mjs"
       - "supabase/functions/_shared/arena_source.mjs"
+      - "supabase/functions/_shared/darkbyte_catalog.mjs"
+      - "supabase/functions/channel-source-sync/index.ts"
+      - "scripts/test_darkbyte_channel_source.mjs"
       - "scripts/test_arena_source.mjs"
       - "supabase/functions/_shared/totalsportek_source.mjs"
       - "scripts/test_totalsportek_source.mjs"
@@ -62,7 +65,7 @@ jobs:
         run: node scripts/test_supabase_relay.mjs
 
       - name: Test public website providers
-        run: node --test scripts/test_website_sources.mjs scripts/test_totalsportek_source.mjs scripts/test_arena_source.mjs
+        run: node --test scripts/test_website_sources.mjs scripts/test_totalsportek_source.mjs scripts/test_arena_source.mjs scripts/test_darkbyte_channel_source.mjs
 
       - name: Test public match feed
         run: node --test scripts/test_public_match_feed.mjs

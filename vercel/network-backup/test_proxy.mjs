@@ -38,6 +38,19 @@ test('Arena Koora match and stream requests retain the VPN-free public route', a
 });
 const worker = 'https://football-api.nyeinchanaung.us.ci';
 
+test('private channel-source-sync uses the authenticated Admin gateway',async()=>{
+ let called=false;
+ await withFetch(async(url,init)=>{
+  called=true;assert.equal(String(url),worker+'/admin/functions/channel-source-sync');
+  assert.equal(init.headers.get('Authorization'),'Bearer operator-fixture');return Response.json({ok:true});
+ },async()=>{
+  const path=origin+'/admin/functions/channel-source-sync';
+  assert.equal((await proxy(new Request(path,{method:'POST',body:'{}'}))).status,401);
+  const result=await proxy(new Request(path,{method:'POST',headers:{Authorization:'Bearer operator-fixture'},body:'{}'}));
+  assert.equal(result.status,200);await result.body.cancel();assert(called);
+ });
+});
+
 async function withFetch(stub, action) {
   const previous = globalThis.fetch;
   globalThis.fetch = stub;

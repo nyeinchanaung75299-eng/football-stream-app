@@ -40,6 +40,8 @@ class GatewayRequest {
         'soco-links',
         'stream-health',
       }.contains(functionName) ||
+      (functionName == 'channel-source-sync' && body is Map &&
+          const {'catalog', 'details'}.contains(body['action'])) ||
       (functionName == 'system-monitor' &&
           body is Map &&
           body['action'] == 'summary');

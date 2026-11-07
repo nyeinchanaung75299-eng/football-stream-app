@@ -127,6 +127,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   static const _statusProbeConcurrency = 12;
   int _anchorStatusEpoch = 0;
   String? _extractingAnchorKey;
+  final _gettingWebsiteLine = ValueNotifier<String?>(null);
   Timer? _sourceRefreshTimer;
   bool _backgroundRefreshBusy = false;
   int _sourceLoadEpoch = 0;
@@ -181,6 +182,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     _sourceLoadEpoch += 1;
     _sourceRefreshTimer?.cancel();
     _sourceSearch.dispose();
+    _gettingWebsiteLine.dispose();
     _playzServerName.dispose();
     _playzUrl.dispose();
     _playzReferer.dispose();
@@ -831,6 +833,47 @@ class _SocoImportPageState extends State<SocoImportPage> {
     }
   }
 
+  Future<void> _getWebsiteVideo(Map<String, dynamic> match,
+      Map<String, dynamic> anchor, Map<String, dynamic> player) async {
+    if (_gettingWebsiteLine.value != null) return;
+    _gettingWebsiteLine.value = player['url'].toString();
+    try {
+      final data = await FunctionGateway.invoke('soco-links', body: {
+        'source': 'totalsportek', 'action': 'streams', 'skip_probe': true,
+        'page_url': match['page_url'], 'player_url': player['url'],
+        'schedule_id': match['schedule_id'],
+      });
+      if (!mounted) return;
+      final lines = data is Map && data['lines'] is List
+          ? (data['lines'] as List).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList()
+          : <Map<String, dynamic>>[];
+      if (lines.isNotEmpty) {
+        await _showQualityPicker(match: match, anchor: {...anchor, 'nick_name': player['label']}, lines: lines);
+      } else {
+        await _websiteVideoUnavailable(player);
+      }
+    } catch (_) {
+      if (mounted) await _websiteVideoUnavailable(player);
+    } finally {
+      if (mounted) _gettingWebsiteLine.value = null;
+    }
+  }
+
+  Future<void> _websiteVideoUnavailable(Map<String, dynamic> player) => showDialog<void>(
+    context: context,
+    builder: (dialog) => AlertDialog(
+      title: Text(player['label']?.toString() ?? 'Website player'),
+      content: const Text('No direct video link is available from this player right now.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Close')),
+        TextButton(onPressed: () {
+          Navigator.pop(dialog);
+          launchUrl(Uri.parse(player['url'].toString()), mode: LaunchMode.platformDefault, webOnlyWindowName: '_blank');
+        }, child: const Text('Open original')),
+      ],
+    ),
+  );
+
   Future<void> _showQualityPicker({
     required Map<String, dynamic> match,
     required Map<String, dynamic> anchor,
@@ -1074,12 +1117,20 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   Text('Website players (${websitePlayers.length})',
                     style: const TextStyle(fontWeight: FontWeight.w800)),
                   const SizedBox(height: 4),
-                  ...websitePlayers.map((player) => ListTile(
-                    dense: true, contentPadding: EdgeInsets.zero,
-                    title: Text(player['label']?.toString() ?? 'Website player'),
-                    trailing: const Icon(Icons.open_in_new, size: 19),
-                    onTap: () => launchUrl(Uri.parse(player['url'].toString()),
-                      mode: LaunchMode.platformDefault, webOnlyWindowName: '_blank'),
+                  ...websitePlayers.map((player) => ValueListenableBuilder<String?>(
+                    valueListenable: _gettingWebsiteLine,
+                    builder: (_, pending, __) => ListTile(
+                      dense: true, contentPadding: EdgeInsets.zero,
+                      title: Text(player['label']?.toString() ?? 'Website player'),
+                      subtitle: const Text('Get video link', style: TextStyle(fontSize: 11)),
+                      leading: pending == player['url']
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.play_circle_outline, size: 22),
+                      trailing: IconButton(tooltip: 'Open original', icon: const Icon(Icons.open_in_new, size: 19),
+                        onPressed: () => launchUrl(Uri.parse(player['url'].toString()),
+                          mode: LaunchMode.platformDefault, webOnlyWindowName: '_blank')),
+                      onTap: pending == null ? () => _getWebsiteVideo(match, anchor, player) : null,
+                    ),
                   )),
                 ],
                 Padding(

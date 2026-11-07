@@ -71,7 +71,7 @@ export default {
     }
 
     const adminFunctionRoute = url.pathname.match(
-      /^\/admin\/functions\/(football-fixtures|stream-health|soco-links|source-match-list|system-monitor)$/,
+      /^\/admin\/functions\/(football-fixtures|stream-health|soco-links|source-match-list|channel-source-sync|system-monitor)$/,
     );
     if (adminFunctionRoute && request.method === "POST") {
       return handleAdminFunction(request, adminFunctionRoute[1], env);
@@ -498,6 +498,7 @@ async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
       page_url: input?.page_url ?? null,
       source_id: input?.source_id ?? null,
       anchor_name: input?.anchor_name ?? null,
+      ...(source === 'totalsportek' && typeof input?.player_url === 'string' ? {player_url: input.player_url} : {}),
       skip_probe: true,
       ...(metadataOnly ? {metadata_only: true} : {}),
     });

@@ -17,6 +17,8 @@ function playerPage(value){
    /^\?ch=\d{1,4}$/.test(u.search))return u;
  if(u.hostname==='universaltokenforall.st'&&/^\/player[1-5]\/channel\d{1,4}$/.test(u.pathname)&&!u.search)return u;
  if(u.hostname==='soccerstreamlinks.st'&&/^\/player\.php\/[a-z0-9-]{1,200}$/.test(u.pathname)&&!u.search)return u;
+ if(u.hostname==='bestropes.st'&&/^\/player\.php\/[a-z0-9-]{1,200}$/.test(u.pathname)&&!u.search)return u;
+ if(u.hostname==='sportsguru.st'&&u.pathname==='/guru/total.php'&&u.search.length<512)return u;
  if(u.hostname==='s3.vertex.st'&&u.pathname==='/ch'&&/^\?id=\d{1,6}$/.test(u.search))return u;
  if(u.hostname==='matchli.st'&&['/embed.php','/embed-edge.php'].includes(u.pathname)&&/^\?code=[a-zA-Z0-9_-]{1,128}$/.test(u.search))return u;
  return null;
@@ -145,16 +147,25 @@ export async function totalsportekStreams(body,{fetcher=fetch,now=Date.now()}={}
   const event=await html(page,{fetcher,signal:controller.signal});
   const externalPlayers=totalsportekPlayers(event,page.href);
   const players=[];
+  const chosen=body.player_url?externalPlayers.find(item=>item.url===body.player_url):null;
+  if(body.player_url&&!chosen)throw new Error('The selected player is not published for this match.');
   for(const item of externalPlayers){
    const target=playerPage(item.url);
    // Only follow the provider's own published wrappers for this exact event.
    if(!target||!/^live[2-6]?\.totalsportek\.today$/.test(target.hostname)||target.pathname.replace(/\/$/,'')!==page.pathname.replace(/\/$/,''))continue;
    if(!players.some(p=>p.href===target.href))players.push(target);
   }
+  if(chosen){players.length=0;const target=playerPage(chosen.url);if(target)players.push(target);}
   async function resolve(target,referer,depth,visited){
    if(depth>7||visited.has(target.href)||controller.signal.aborted)return;
    const nextVisited=new Set(visited);nextVisited.add(target.href);
    const text=await html(target,{fetcher,signal:controller.signal,referer});
+   if(target.hostname==='bestropes.st'){
+    const literal=text.match(/\b(?:const|let|var)\s+SERVER_DATA\s*=\s*(\{[^\r\n]{1,16384}\})\s*;/);
+    let next=null;try{next=literal&&playerPage(JSON.parse(literal[1]).u);}catch{}
+    if(next?.hostname==='s3.vertex.st')await resolve(next,target.href,depth+1,nextVisited);
+    return;
+   }
    if(target.hostname==='soccerstreamlinks.st'){
     if(!text.includes('_player_data'))return;
     const dataUrl=new URL(target);dataUrl.searchParams.set('_player_data','1');
@@ -216,7 +227,8 @@ export async function totalsportekStreams(body,{fetcher=fetch,now=Date.now()}={}
   }));
   if(!lines.length&&failed&&!externalPlayers.length)throw new Error('Totalsportek player servers are temporarily unavailable.');
   lines.sort((a,b)=>a.id.localeCompare(b.id));
-  return {ok:true,source:'totalsportek',lines,external_players:externalPlayers,live_status:null,match_time:totalsportekKickoff(event),
+  if(chosen)for(const line of lines)line.label=chosen.label+' • '+line.label;
+  return {ok:true,source:'totalsportek',lines,external_players:chosen?[]:externalPlayers,live_status:null,match_time:totalsportekKickoff(event),
    ...(lines.length?{}:{message:'Totalsportek has no supported direct video line for this match right now. Its website may offer an external player.'})};
  }finally{clearTimeout(timer);controller.abort();}
 }

@@ -58,6 +58,8 @@ class FunctionGateway {
     try {
       final result = await GatewayRequest(
         bases: _basesFor(functionName, body),
+        totalTimeout: functionName == 'channel-source-sync' && body is Map &&
+            body['action'] == 'sync' ? const Duration(seconds: 55) : null,
         send: (uri, bearer, timeout) async {
           final transport = http.Client();
           try {
