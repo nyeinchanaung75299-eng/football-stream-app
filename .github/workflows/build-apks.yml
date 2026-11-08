@@ -449,7 +449,7 @@ jobs:
       # must never publish to the in-app updater. Only main + explicit opt-in
       # + successful stable signing may replace the public release manifest.
       - name: Publish in-app updater release
-        if: ${{ env.NCA_SIGNING_READY == 'true' && env.NCA_ADMIN_SIGNING_READY == 'true' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-update]'))) }}
+        if: ${{ env.NCA_SIGNING_READY == 'true' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-update]'))) }}
         run: |
           set -e
           git config user.name "github-actions[bot]"
@@ -463,7 +463,9 @@ jobs:
 
           mkdir -p public/releases
           cp /tmp/NCA-arm64-v8a-latest.apk public/releases/NCA-arm64-v8a-latest.apk
-          cp /tmp/NCA-admin-arm64-v8a-latest.apk public/releases/NCA-admin-arm64-v8a-latest.apk
+          if [ "$NCA_ADMIN_SIGNING_READY" = "true" ]; then
+            cp /tmp/NCA-admin-arm64-v8a-latest.apk public/releases/NCA-admin-arm64-v8a-latest.apk
+          fi
 
           python3 - <<'PY'
           import json, os
@@ -479,22 +481,26 @@ jobs:
           }
           with open("public/releases/latest.json", "w", encoding="utf-8") as f:
               json.dump(data, f, separators=(",", ":"))
-          admin_data = {
-              "app": "nca_admin",
-              "version_name": "2.5.2",
-              "build_number": int(os.environ["NCA_ADMIN_BUILD_NUMBER"]),
-              "apk_url": "https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/releases/NCA-admin-arm64-v8a-latest.apk",
-              "abi": "arm64-v8a",
-              "sha256": os.environ["NCA_ADMIN_APK_SHA256"],
-              "size_bytes": int(os.environ["NCA_ADMIN_APK_SIZE"]),
-              "mandatory": False,
-              "notes": "NCA Admin update with channel-source and health-status improvements."
-          }
-          with open("public/releases/admin-latest.json", "w", encoding="utf-8") as f:
-              json.dump(admin_data, f, separators=(",", ":"))
+          if os.environ.get("NCA_ADMIN_SIGNING_READY") == "true":
+              admin_data = {
+                  "app": "nca_admin",
+                  "version_name": "2.5.2",
+                  "build_number": int(os.environ["NCA_ADMIN_BUILD_NUMBER"]),
+                  "apk_url": "https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/releases/NCA-admin-arm64-v8a-latest.apk",
+                  "abi": "arm64-v8a",
+                  "sha256": os.environ["NCA_ADMIN_APK_SHA256"],
+                  "size_bytes": int(os.environ["NCA_ADMIN_APK_SIZE"]),
+                  "mandatory": False,
+                  "notes": "NCA Admin update with channel-source and health-status improvements."
+              }
+              with open("public/releases/admin-latest.json", "w", encoding="utf-8") as f:
+                  json.dump(admin_data, f, separators=(",", ":"))
           PY
 
-          git add public/releases/NCA-arm64-v8a-latest.apk public/releases/latest.json public/releases/NCA-admin-arm64-v8a-latest.apk public/releases/admin-latest.json
+          git add public/releases/NCA-arm64-v8a-latest.apk public/releases/latest.json
+          if [ "$NCA_ADMIN_SIGNING_READY" = "true" ]; then
+            git add public/releases/NCA-admin-arm64-v8a-latest.apk public/releases/admin-latest.json
+          fi
           if git diff --cached --quiet; then
             echo "Release feed already up to date."
             exit 0
@@ -514,7 +520,7 @@ jobs:
           exit 1
 
       - name: Refresh GitHub Pages release files
-        if: ${{ env.NCA_SIGNING_READY == 'true' && env.NCA_ADMIN_SIGNING_READY == 'true' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-update]'))) }}
+        if: ${{ env.NCA_SIGNING_READY == 'true' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-update]'))) }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy-web.yml --ref "${GITHUB_REF_NAME}"
