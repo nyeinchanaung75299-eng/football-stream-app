@@ -12,6 +12,17 @@ import 'live_links_page.dart';
 
 const channelGroupPresets = <String>[
   'beIN Sports',
+  'UFC',
+  'Travel',
+  'Sky Sports',
+  'DAZN',
+  'ESPN',
+  'Ziggo Sport',
+  'Eleven Sports',
+  'Setanta Sports',
+  'NBC / USA / Peacock',
+  'Willow / Cricket',
+  'Uncategorized',
   'TNT Sports',
   'Fubo',
   'FanCode',
@@ -67,7 +78,8 @@ class ChannelUploadPage extends StatelessWidget {
 }
 
 class ChannelsPage extends StatefulWidget {
-  const ChannelsPage({super.key, this.embedded = false});
+  const ChannelsPage({super.key, this.embedded = false, this.initialQuery = ''});
+  final String initialQuery;
 
   /// Dashboard uses the same catalog in its persistent bottom navigation.
   /// Keep the standalone page for existing deep links and control cards.
@@ -89,6 +101,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
   @override
   void initState() {
     super.initState();
+    search.text = widget.initialQuery;
     _loadGroupPositions();
   }
 
@@ -548,6 +561,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
       final fields = {
         'name': name.text.trim(),
         'category': category.text.trim(),
+        'category_locked': true,
         'image_url': image.text.trim().isEmpty ? null : image.text.trim(),
         'sort_order': int.tryParse(order.text) ?? 0,
         'is_active': widget.channel == null ? false : active,

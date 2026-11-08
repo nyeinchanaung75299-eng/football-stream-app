@@ -21,6 +21,12 @@ on:
       - 'scripts/test_livetv_sports.mjs'
       - 'supabase/functions/_shared/repository_mpd.mjs'
       - 'scripts/test_repository_mpd.mjs'
+      - 'supabase/functions/_shared/repository_matches.mjs'
+      - 'supabase/functions/_shared/repository_updates.mjs'
+      - 'supabase/functions/_shared/channel_media_probe.mjs'
+      - 'supabase/functions/stream-health/**'
+      - 'scripts/test_repository_matches.mjs'
+      - 'scripts/test_channel_media_probe.mjs'
       - '.github/workflows/verify-admin-stream-detector.yml'
   workflow_dispatch:
 
@@ -39,6 +45,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Test website scanner API and network backup
         run: |
+          python3 -m unittest discover -s scripts -p 'test_configure_gradle_distribution.py'
           node --test scripts/test_website_stream_scanner.mjs
           node --test scripts/test_browser_stream_scanner.mjs
           node --test vercel/network-backup/test_proxy.mjs
@@ -47,6 +54,7 @@ jobs:
           node --test scripts/test_darkbyte_channel_source.mjs
           node --test scripts/test_livetv_sports.mjs
           node --test scripts/test_repository_mpd.mjs
+          node --test scripts/test_repository_matches.mjs scripts/test_channel_media_probe.mjs scripts/test_channel_health_api.mjs
           node --test scripts/test_epg_host_match.mjs
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -62,6 +70,7 @@ jobs:
         working-directory: admin_app
         run: |
           flutter create --platforms=android .
+          python3 ../scripts/configure_gradle_distribution.py android/gradle/wrapper/gradle-wrapper.properties
           rm -f test/widget_test.dart
       - name: Install dependencies
         working-directory: admin_app
@@ -107,6 +116,7 @@ jobs:
         working-directory: user_app
         run: |
           flutter create --platforms=android .
+          python3 ../scripts/configure_gradle_distribution.py android/gradle/wrapper/gradle-wrapper.properties
           rm -f test/widget_test.dart
       - name: Install Viewer dependencies
         working-directory: user_app

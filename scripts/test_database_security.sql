@@ -451,5 +451,59 @@ begin
 end $$;
 reset role;
 
+set local role service_role;
+do $$
+declare entry text:='repo:match:9999999999999999999999999999'; target uuid; owned uuid; manual uuid;
+ job uuid; same_job uuid; item record; current_item record; valid jsonb;
+begin
+ if public.channel_group_name('beIN SPORTS 2','Sports')<>'beIN Sports' or
+  public.channel_group_name('UFC TV - AQ','Sports')<>'UFC' or
+  public.channel_group_name('PBS Travel','Documentaries')<>'Travel' then raise exception 'Channel grouping wrong'; end if;
+ if public.channel_group_name('FS 1 - AQ','Sports')<>'FOX Sports' or
+  public.channel_group_name('ICC TV','Sports')<>'Cricket' or public.channel_group_name('Server 1','Sports')<>'Extra Servers' then raise exception 'Known brands or anonymous slots were grouped incorrectly'; end if;
+ insert into public.channels(name,category) values('beIN Sports 99','Sports') returning id into target;
+ if (select category from public.channels where id=target)<>'beIN Sports' then raise exception 'New channel was not grouped'; end if;
+ update public.channels set category='My custom group',category_locked=true where id=target;
+ update public.channels set name='beIN Sports 99 Updated',category='Sports' where id=target;
+ if (select category from public.channels where id=target)<>'My custom group' then raise exception 'Source overwrote the operator group'; end if;
+ insert into public.channel_source_catalog(id,source_id,provider,kind,name,category,source_file,streams,stream_count,revision,event_meta)
+ values(entry,'repository',8,'event','Napoli vs Inter','Football','fixtures.json',
+  '[{"id":"old-line","stream_url":"https://cdn.example.org/repo-test.mpd","stream_type":"dash","key_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","key_data":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]',1,'fixture',
+  '{"home_team":"Napoli","away_team":"Inter"}');
+ owned:=(public.add_connected_source_line_to_match(entry,'old-line','10000000-0000-0000-0000-000000000001')->>'stream_link_id')::uuid;
+ insert into public.stream_links(match_id,stream_url) values('10000000-0000-0000-0000-000000000001','https://cdn.example.org/manual-safe.m3u8') returning id into manual;
+ update public.channel_source_catalog set streams='[{"id":"rotated-line","stream_url":"https://cdn.example.org/repo-test.mpd","stream_type":"dash","key_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","key_data":"cccccccccccccccccccccccccccccccc"}]' where id=entry;
+ perform public.reconcile_repository_match_links();perform public.sync_connected_source_match_lines('repository');
+ if not exists(select from public.stream_links where id=owned and key_data=repeat('c',32)) then raise exception 'Repository key rotation lost the selected match line'; end if;
+ update public.channel_source_catalog set is_present=false where id=entry;
+ perform public.reconcile_repository_match_links();
+ if exists(select from public.stream_links where id=owned) or not exists(select from public.stream_links where id=manual) then raise exception 'Source removal deleted a manual line or left its owned line'; end if;
+ insert into public.channel_lines(channel_id,label,stream_url) values(target,'Health fixture','https://cdn.example.org/health-original.m3u8');
+ job:=public.start_channel_health_job('all');same_job:=public.start_channel_health_job('all');
+ if job<>same_job then raise exception 'Repeated Check All created concurrent jobs'; end if;
+ update public.channel_health_jobs set status='paused' where id=job;
+ if exists(select from public.claim_channel_health_items(32)) then raise exception 'Paused health job still claimed work'; end if;
+ update public.channel_health_jobs set status='running' where id=job;
+ valid:='{"health_status":"healthy","http_status":200,"latency_ms":20,"manifest_status":"valid","segment_status":"reachable","drm_status":"not_required","detail":"Test media bytes"}';
+ for item in select * from public.claim_channel_health_items(32) loop
+  if item.configuration->>'stream_url'='https://cdn.example.org/health-original.m3u8' then
+   update public.channel_lines set stream_url='https://cdn.example.org/health-rotated.m3u8' where id=item.line_id;
+   if public.finish_channel_health_item(item.item_id,item.config_hash,valid) then raise exception 'Stale health result applied to a changed source'; end if;
+  else perform public.finish_channel_health_item(item.item_id,item.config_hash,valid); end if;
+ end loop;
+ for current_item in select * from public.claim_channel_health_items(32) loop
+  perform public.finish_channel_health_item(current_item.item_id,current_item.config_hash,valid);
+ end loop;
+ if (select status from public.channel_health_jobs where id=job)<>'completed' then raise exception 'Health queue did not finish'; end if;
+ if has_function_privilege('anon','public.start_channel_health_job(text)','execute') or
+  has_function_privilege('authenticated','public.claim_channel_health_items(integer)','execute') then raise exception 'Unverified health mutation exposed'; end if;
+end $$;
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000002',true);
+do $$ begin
+ if exists(select from public.channel_health_jobs) or exists(select from public.channel_health_job_items) then raise exception 'Viewer can read Admin health jobs'; end if;
+end $$;
+reset role;
 select 'Database security and compatibility checks passed' as result;
 rollback;

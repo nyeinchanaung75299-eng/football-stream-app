@@ -24,6 +24,7 @@ class MyChannelsGuidePage extends StatefulWidget {
 class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
   late Future<TvScheduleGuide> _guide = _load();
   String selectedGroup = 'All';
+  String epgFilter = 'all';
   Map<String, int> groupPositions = const {};
 
   @override
@@ -86,6 +87,7 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
         final channelListings = guide.channels
             .where((channel) =>
                 activeGroup == 'All' || categoryOf(channel) == activeGroup)
+            .where((channel)=>epgFilter=='all'||channel.coverageStatus==epgFilter)
             .map(
               (channel) => _ChannelGuideItems(
                 channel: channel,
@@ -145,6 +147,17 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
                 },
               ),
               const SizedBox(height: 8),
+              Row(children:[Expanded(child:Text(
+                '${guide.channels.where((c)=>c.coverageStatus=="ready").length} EPG ready • ${guide.channels.where((c)=>c.coverageStatus=="awaiting_guide").length} waiting • ${guide.channels.where((c)=>c.coverageStatus=="not_linked").length} not linked',
+                style:const TextStyle(fontSize:11))),
+                PopupMenuButton<String>(tooltip:'Filter EPG status',icon:const Icon(Icons.filter_alt_outlined,size:19),
+                  onSelected:(value)=>setState(()=>epgFilter=value),itemBuilder:(_)=>const[
+                    PopupMenuItem(value:'all',child:Text('All EPG statuses')),
+                    PopupMenuItem(value:'ready',child:Text('EPG ready')),
+                    PopupMenuItem(value:'awaiting_guide',child:Text('Linked • awaiting guide')),
+                    PopupMenuItem(value:'not_linked',child:Text('Not linked')),
+                  ]),
+              ]),
               SizedBox(
                 height: 44,
                 child: ListView(

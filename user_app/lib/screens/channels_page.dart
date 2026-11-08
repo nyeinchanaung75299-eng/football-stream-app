@@ -504,6 +504,10 @@ class _ChannelsPageState extends State<ChannelsPage> {
                         ),
                       ),
                       const SizedBox(height: 8),
+                      if (guideLoaded && (search.text.trim().isNotEmpty || selectedMatchId!=null))
+                        const Padding(padding:EdgeInsets.only(bottom:6),child:Text(
+                          'Team and match search uses verified football EPG. Channels without a guide can still be found by channel name.',
+                          style:TextStyle(fontSize:11))),
                       SizedBox(
                         height: 45,
                         child: ListView(

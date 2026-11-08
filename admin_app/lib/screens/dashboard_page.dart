@@ -14,6 +14,7 @@ import 'my_channels_guide_page.dart';
 import 'stream_source_picker_page.dart';
 import 'tv_schedules_page.dart';
 import 'telegram_setup_page.dart';
+import 'repository_matches_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -155,6 +156,14 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       const SizedBox(height: 8),
       const SizedBox(height: 12),
+      Text(
+        'Repository Sources',
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+      ),
+      const SizedBox(height: 8),
+      _ActionCard(icon: Icons.sports_soccer_rounded, title: 'Repository Matches', iconColor: colors.primary,
+        onTap: () => open(context, const RepositoryMatchesPage(), 'repository-matches')),
+      const SizedBox(height: 16),
       Text(
         'Channel Management',
         style: Theme.of(context).textTheme.titleLarge?.copyWith(
