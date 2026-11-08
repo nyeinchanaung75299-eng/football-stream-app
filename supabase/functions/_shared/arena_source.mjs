@@ -27,6 +27,9 @@ function servers(row) {
 }
 function name(value, kind = 'team') {
   const known = {'ليدز يونايتد':'Leeds United','توتنهام':'Tottenham Hotspur',
+    'نابولي':'Napoli','لاتسيو':'Lazio','كريستال بالاس':'Crystal Palace','ليفربول':'Liverpool',
+    'سندرلاند':'Sunderland','تشيلسي':'Chelsea','مان يونايتد':'Manchester United','أستون فيلا':'Aston Villa',
+    'إنتر ميلان':'Inter Milan','كومو':'Como','أتلتيكو مدريد':'Atletico Madrid','برشلونة':'Barcelona',
     'أرسنال':'Arsenal','هال سيتي':'Hull City','إيفرتون':'Everton','فولهام':'Fulham',
     'ميلان':'AC Milan','فيرينتسفاروشي':'Ferencvaros','ألكمار':'AZ Alkmaar','يوفنتوس':'Juventus',
     'الدوري الإنجليزي':'Premier League','الدوري الإنجليزي الممتاز':'Premier League',

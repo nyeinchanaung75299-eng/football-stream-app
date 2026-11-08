@@ -1345,8 +1345,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             );
           }
 
-          // YYZB's match_all.json is a score database with thousands of rows.
-          // Its Viewer tab mirrors the website's watchable football catalogue:
+          // YYZB mirrors its website's own football-room catalogue:
           // an actual streamer room is mandatory and there is no score-only
           // fallback view.
           final availableMatches = source == 'yyzb'

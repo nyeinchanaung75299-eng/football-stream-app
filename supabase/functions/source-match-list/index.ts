@@ -4,7 +4,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
 import { sourceMatchRows, isFootballSourceRow, hasPublishedSourceRoom } from "../_shared/source_match_rows.mjs";
 import { sourceLogo } from "../_shared/source_team_logos.mjs";
-import { loadYyzbSchedules } from '../_shared/yyzb_schedule.mjs';
+import { loadYyzbFootballCatalogue } from '../_shared/yyzb_schedule.mjs';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,7 +13,7 @@ const corsHeaders = {
 };
 
 const SOCO_MATCHES_URL = "https://json.vnres.co/matches.json";
-const YYZB_MATCHES_URL = "https://json.ncctrials.com/match_all.json";
+const YYZB_MATCHES_URL = "https://json.ncctrials.com/matches.json";
 const FAWA_HOME = "http://www.fawanews.sc/";
 const COLA_HOME = "https://colatv66.live/";
 const COLA_API = "https://api.cltvlv.com/api/matches";
@@ -219,7 +219,7 @@ async function jsonpMatches(args: {
   source: "soco" | "yyzb";
   url: string;
 }) {
-  const payload = args.source==='yyzb'?await loadYyzbSchedules(fetchText):parseJsonp(await fetchText(`${args.url}?v=${Date.now()}`));
+  const payload = args.source==='yyzb'?await loadYyzbFootballCatalogue(fetchText):parseJsonp(await fetchText(`${args.url}?v=${Date.now()}`));
   const matches = sourceMatchRows(payload?.data ?? payload,
     (row: any) => isFootballSourceRow(row, { allowUnclassified: args.source === "soco" }))
     .map((row: any) => {
