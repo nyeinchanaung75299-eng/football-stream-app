@@ -744,7 +744,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
 
       if (!current()) return;
-      if (lines.isEmpty && websitePlayers.isEmpty) {
+      if (lines.isEmpty) {
         // Only display a short, redacted source status returned by our
         // authenticated resolver. No signed URL or token is shown.
         final upstream = data is Map ? data['message']?.toString() ?? '' : '';
@@ -781,7 +781,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
         match: match,
         anchor: resolvedAnchor,
         lines: lines,
-        websitePlayers: websitePlayers,
         sourceLiveStatus: data is Map ? data['live_status'] : null,
       );
     } catch (e) {
@@ -805,7 +804,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
     required Map<String, dynamic> match,
     required Map<String, dynamic> anchor,
     required List<Map<String, dynamic>> lines,
-    List<Map<String, dynamic>> websitePlayers = const [],
     dynamic sourceLiveStatus,
   }) async {
     final anchorName = (anchor['nick_name'] ?? 'Streamer').toString().trim();
@@ -1973,8 +1971,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                     : DateFormat(
                                         'dd MMM • h:mm a',
                                         'en_US',
-                                      ).format(displayKickoff) +
-                                        '',
+                                      ).format(displayKickoff),
                             style: TextStyle(color: colors.onSurfaceVariant),
                           ),
                           const SizedBox(height: 12),
