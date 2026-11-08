@@ -344,6 +344,7 @@ begin
  payload:=jsonb_set(payload,'{0,repository}','"Roshavarma/cfy"');
  result:=public.import_repository_mpds(payload);
  if (result->>'added_lines')::integer<>0 or (result->>'skipped_existing')::integer<>1 then raise exception 'Rotated MPD duplicated'; end if;
+ if not exists(select from public.channel_lines where stream_url='https://cdn.example.org/new.mpd?id=one&token=first' and configuration_status='requires_drm') then raise exception 'Repeated import overwrote saved configuration'; end if;
  if (select count(*) from public.channels)<>before_channels+1 then raise exception 'Duplicate channel created'; end if;
  if not exists(select from public.channel_lines where stream_url like 'https://cdn.example.org/new.mpd%' and configuration_status='requires_drm') then raise exception 'Missing DRM not labelled'; end if;
  select c.id into cid from public.channels c where c.name='Repository MPD fixture';

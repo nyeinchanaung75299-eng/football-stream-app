@@ -44,6 +44,17 @@ test('My Channels guide retains imported channels missing from the older upstrea
  }finally{globalThis.fetch=original;}
 });
 
+test('a failed later catalog page returns a retryable error instead of silently hiding channels',async()=>{
+ const original=globalThis.fetch;
+ globalThis.fetch=async target=>new URL(target).searchParams.get('offset')==='0'
+  ?Response.json(Array.from({length:500},(_,i)=>({id:String(i)})))
+  :new Response('Unavailable',{status:503});
+ try{
+  const response=await worker.fetch(new Request('https://api.example/channels'),env,{});
+  assert.equal(response.status,502);assert.equal((await response.json()).channels,undefined);
+ }finally{globalThis.fetch=original;}
+});
+
 test('Totalsportek kickoff-only requests forward the mode and never return stream data', async () => {
   const original = globalThis.fetch;
   let received;
