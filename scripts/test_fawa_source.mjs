@@ -8,7 +8,7 @@ let handler;
 const priorDeno = globalThis.Deno;
 globalThis.Deno = { serve(fn) { handler = fn; } };
 let code = readFileSync(entry, 'utf8').replace(/^import .*jsr:.*;\n/gm, '')
-  .replace(/"(\.\.\/_shared\/[^"]+)"/g, (_, path) => JSON.stringify(new URL(path, entry).href));
+  .replace(/(['"])(\.\.\/_shared\/[^'"]+)\1/g, (_, quote, path) => JSON.stringify(new URL(path, entry).href));
 code += '\nexport { extractFawaMediaUrls };';
 const { extractFawaMediaUrls } = await import('data:text/javascript;base64,' +
   Buffer.from(stripTypeScriptTypes(code)).toString('base64'));

@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/connected_channel_source.dart';
+import '../services/repository_logo.dart';
 import '../widgets/match_destination_sheet.dart';
 import 'repository_channel_updates_page.dart';
 
@@ -23,6 +25,25 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
   @override
   void dispose() { debounce?.cancel(); search.dispose(); super.dispose(); }
   void notice(String value) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value))); }
+  void copyField(String value) {
+    Clipboard.setData(ClipboardData(text:value)).then((_)=>notice('Copied.'),onError:(_){
+      if(!mounted)return;
+      showDialog<void>(context:context,builder:(_)=>AlertDialog(title:const Text('Copy line'),
+        content:SingleChildScrollView(child:SelectableText(value)),actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Close'))]));
+    });
+  }
+  Widget copyMenu(Map line)=>PopupMenuButton<String>(tooltip:'Copy line',icon:const Icon(Icons.copy),
+    onSelected:(field)=>copyField(field=='all'?[
+      'URL: ${line['stream_url']??''}',
+      for(final pair in const {'referer':'Referer','origin':'Origin','key_id':'Key ID','key_data':'Key Data'}.entries)
+        if(line[pair.key]?.toString().isNotEmpty==true)'${pair.value}: ${line[pair.key]}',
+    ].join('\n'):line[field]?.toString()??''),
+    itemBuilder:(_)=>[
+      const PopupMenuItem(value:'stream_url',child:Text('Copy stream URL')),
+      const PopupMenuItem(value:'all',child:Text('Copy all line details')),
+      for(final pair in const {'referer':'Referer','origin':'Origin','key_id':'Key ID','key_data':'Key Data'}.entries)
+        if(line[pair.key]?.toString().isNotEmpty==true)PopupMenuItem(value:pair.key,child:Text('Copy ${pair.value}')),
+    ]);
   Future<void> sync({bool imports = false}) async {
     if (working) return;
     setState(() => working = true);
@@ -62,15 +83,15 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
             for (final line in lines) ListTile(contentPadding:EdgeInsets.zero,
               title:Text(line['label']?.toString() ?? 'Line'),
               subtitle:Text(line['configuration_status']=='requires_drm' ? 'Needs DRM configuration' : '${line['stream_type']?.toString().toUpperCase()} • Video not yet verified'),
-              trailing:IconButton(tooltip:'Add to Match',icon:const Icon(Icons.playlist_add),
-                onPressed:line['configuration_status']=='requires_drm' ? null : () { Navigator.pop(sheet); add(row,line); })),
+              trailing:Row(mainAxisSize:MainAxisSize.min,children:[copyMenu(line),IconButton(tooltip:'Add to Match',icon:const Icon(Icons.playlist_add),
+                onPressed:line['configuration_status']=='requires_drm' ? null : () { Navigator.pop(sheet); add(row,line); })])),
             if (lines.isEmpty) const Text('The source has not published a native video line for this match.'),
           ])))));
     } catch (_) { notice('Could not load match lines.'); }
   }
   Widget team(Map meta, String side) => Expanded(child:Column(children:[
     SizedBox(width:52,height:52,child:meta['${side}_logo_url'] is String
-      ? Image.network(meta['${side}_logo_url'],fit:BoxFit.contain,errorBuilder:(_,__,___)=>const Icon(Icons.shield_outlined,size:38))
+      ? Image.network(repositoryLogoUrl(meta['${side}_logo_url']),fit:BoxFit.contain,errorBuilder:(_,__,___)=>const Icon(Icons.shield_outlined,size:38))
       : const Icon(Icons.shield_outlined,size:38)),
     const SizedBox(height:6),Text(meta['${side}_team']?.toString() ?? '',textAlign:TextAlign.center,maxLines:2,overflow:TextOverflow.ellipsis),
   ]));

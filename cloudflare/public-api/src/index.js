@@ -93,9 +93,10 @@ export default {
     }
 
     const sourceStreamsRoute = url.pathname.match(
-      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena|totalsportek)\/streams$/,
+      /^\/sources\/(soco|yyzb|fawa|cola|arena|repository)\/streams$/,
     );
     if (sourceStreamsRoute && request.method === "POST") {
+      if(sourceStreamsRoute[1]==='repository')return handleRepositorySource(request,env,url.origin,true);
       return handleSourceBrowserStreams(
         request,
         sourceStreamsRoute[1],
@@ -104,6 +105,8 @@ export default {
       );
     }
 
+    const teamLogo=url.pathname.match(/^\/team-logos\/(\d{1,12})$/);
+    if(teamLogo&&(request.method==='GET'||request.method==='HEAD'))return handleTeamLogo(request,teamLogo[1]);
     if (request.method !== "GET") {
       return json({ error: "Method not allowed." }, 405);
     }
@@ -135,9 +138,10 @@ export default {
     }
 
     const sourceMatchesRoute = url.pathname.match(
-      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena|totalsportek)\/matches$/,
+      /^\/sources\/(soco|yyzb|fawa|cola|arena|repository)\/matches$/,
     );
     if (sourceMatchesRoute && request.method === "GET") {
+      if(sourceMatchesRoute[1]==='repository')return handleRepositorySource(request,env,url.origin,false);
       return handleSourceBrowserMatches(
         request,
         sourceMatchesRoute[1],
@@ -160,6 +164,44 @@ export default {
     return json({ error: "Not found." }, 404);
   },
 };
+
+async function handleTeamLogo(request,id){
+ try{
+  const response=await fetch('https://img.sofascore.com/api/v1/team/'+id+'/image',{
+   headers:{Accept:'image/png,image/webp,image/jpeg', 'User-Agent':'Mozilla/5.0'},redirect:'error',
+   signal:AbortSignal.timeout(6000),cf:{cacheTtl:86400,cacheEverything:true}});
+  const type=response.headers.get('Content-Type')||'';
+  if(!response.ok||!/^image\/(png|jpe?g|webp|gif)(?:;|$)/i.test(type)){await response.body?.cancel();throw Error('Unavailable image');}
+  const reader=response.body.getReader(),chunks=[];let size=0;
+  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>256*1024)throw Error('Image exceeds budget');chunks.push(value);}}
+  finally{await reader.cancel().catch(()=>{});}
+  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+  return new Response(request.method==='HEAD'?null:bytes,{headers:{...corsHeaders(),'Content-Type':type,'Cache-Control':'public, max-age=86400'}});
+ }catch{return json({error:'Team logo unavailable'},502,{'Cache-Control':'no-store'});}
+}
+
+async function handleRepositorySource(request,env,publicOrigin,streamsOnly){
+ if(!(await allowRequest(request,env,streamsOnly?'repository-lines':'repository-matches',streamsOnly?30:20)))return json({error:'Too many requests'},429);
+ const base=env.SUPABASE_URL?.trim(),key=env.SUPABASE_PUBLISHABLE_KEY?.trim(),secret=env.PLAYBACK_BACKEND_SECRET?.trim();
+ if(!base||!key||!secret)return json({error:'Live 2 is not configured'},503);
+ let entry=null;
+ try{
+  if(streamsOnly){
+   const input=JSON.parse(await readBoundedText(request,8192));entry=input.source_id??input.schedule_id??input.room_num;
+   if(typeof entry!=='string'||!/^repo:match:[a-f\d]{28}$/.test(entry))return json({error:'Invalid Live 2 fixture'},400);
+  }
+  const {data}=await fetchJsonWithTimeout(base.replace(/\/+$/,'')+'/rest/v1/rpc/get_repository_metadata_for_gateway',{
+   method:'POST',headers:{apikey:key,Accept:'application/json','Content-Type':'application/json'},
+   body:JSON.stringify({p_entry_id:entry,p_secret:secret})},METADATA_TIMEOUT_MS);
+  if(streamsOnly){
+   if(!data?.match_valid)return json({error:'Live 2 fixture unavailable'},404,{'Cache-Control':'no-store'});
+   const streams=await protectedClientLinks(Array.isArray(data.streams)?data.streams:[],env,publicOrigin);
+   return json({ok:true,source:'repository',streams,stream_count:streams.length},200,{'Cache-Control':'no-store'});
+  }
+  if(!Array.isArray(data?.matches))throw Error('Invalid Live 2 catalogue');
+  return json({ok:true,source:'repository',matches:data.matches,results:data.matches.length},200,{'Cache-Control':'no-store'});
+ }catch{return json({error:'Live 2 is temporarily unavailable'},502,{'Cache-Control':'no-store'});}
+}
 
 async function handleSupabaseRelay(request, env) {
   const base = env.SUPABASE_URL?.trim() || "";
@@ -505,8 +547,6 @@ async function handleSourceBrowserStreams(request, source, env, publicOrigin) {
     if (metadataOnly) return json({ok: true, source, metadata_only: true,
       match_time: payload?.match_time ?? null}, 200,
       {"Cache-Control": "no-store, max-age=0"});
-    if (payload?.requires_login) return json({ok:false, requires_login:true,
-      error:"Camel1 requires sign-in on its own website."},403,{"Cache-Control":"no-store"});
     const candidates = Array.isArray(payload?.lines) ? payload.lines : [];
     const room = String(input?.room_num || "room");
     const anchor = String(input?.anchor_name || "").trim();

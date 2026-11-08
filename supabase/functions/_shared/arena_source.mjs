@@ -27,6 +27,9 @@ function servers(row) {
 }
 function name(value, kind = 'team') {
   const known = {'ليدز يونايتد':'Leeds United','توتنهام':'Tottenham Hotspur',
+    'نابولي':'Napoli','لاتسيو':'Lazio','كريستال بالاس':'Crystal Palace','ليفربول':'Liverpool',
+    'سندرلاند':'Sunderland','تشيلسي':'Chelsea','مان يونايتد':'Manchester United','أستون فيلا':'Aston Villa',
+    'إنتر ميلان':'Inter Milan','كومو':'Como','أتلتيكو مدريد':'Atletico Madrid','برشلونة':'Barcelona',
     'أرسنال':'Arsenal','هال سيتي':'Hull City','إيفرتون':'Everton','فولهام':'Fulham',
     'ميلان':'AC Milan','فيرينتسفاروشي':'Ferencvaros','ألكمار':'AZ Alkmaar','يوفنتوس':'Juventus',
     'الدوري الإنجليزي':'Premier League','الدوري الإنجليزي الممتاز':'Premier League',
@@ -58,7 +61,7 @@ function selectable(row, now) {
   const kickoff=Date.parse(row?.start_at || '');
   return football(row) && !row?.hidden && !row?.tournament_hidden &&
     !['finished','ended','cancelled'].includes(String(row?.state || '').toLowerCase()) &&
-    (!Number.isFinite(kickoff) || now-kickoff<=4*3600000) && servers(row).length>0;
+    (!Number.isFinite(kickoff) || now-kickoff<=4*3600000);
 }
 export async function arenaMatches({date,fetcher=fetch,now=Date.now()}={}) {
   const {day,rows}=await catalog({date,fetcher,now});

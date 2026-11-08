@@ -52,6 +52,7 @@ jobs:
           node --test vercel/network-backup/test_proxy.mjs
           node --test scripts/test_totalsportek_source.mjs
           node --test scripts/test_arena_source.mjs
+          node --test scripts/test_yyzb_schedule.mjs scripts/test_live2_gateway.mjs
           node --test scripts/test_darkbyte_channel_source.mjs
           node --test scripts/test_livetv_sports.mjs
           node --test scripts/test_repository_mpd.mjs

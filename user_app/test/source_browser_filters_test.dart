@@ -60,35 +60,23 @@ List<Map<String, dynamic>> _fixtures() {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('Totalsportek lists its own fixtures without inventing kickoff times', (tester) async {
+  testWidgets('Live 2 lists repository fixtures without depending on main Live or inventing kickoff times', (tester) async {
     await http.runWithClient(() async {
-      await tester.pumpWidget(const MaterialApp(home: SourceBrowserPage(source: 'totalsportek')));
+      await tester.pumpWidget(const MaterialApp(home: SourceBrowserPage(source: 'repository')));
       await tester.pumpAndSettle();
       expect(find.text('Everton'), findsOneWidget);
       expect(find.text('Coventry City'), findsOneWidget);
-      expect(tester.widget<SourceMatchFilters>(find.byType(SourceMatchFilters)).showDateChoices, isFalse);
-      expect(tester.widget<PremiumBottomNav>(find.byType(PremiumBottomNav)).selectedIndex, 5);
-      await tester.tap(find.text('CHECK LINES'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('no supported direct video line'), findsOneWidget);
-      expect(find.text('Open website'), findsOneWidget);
+      expect(tester.widget<PremiumBottomNav>(find.byType(PremiumBottomNav)).selectedIndex, 1);
+      expect(find.text('Live 2'),findsOneWidget);
+      expect(find.text('Totalsportek'),findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     }, () => MockClient((request) async {
-      if (request.url.path.endsWith('/streams')) {
-        expect(request.url.path, '/sources/totalsportek/streams');
-        expect(jsonDecode(request.body)['page_url'],
-            'https://totalsportekl.is/Everton-vs-Coventry-City/12345');
-        return http.Response(jsonEncode({'source': 'totalsportek', 'streams': [],
-          if (request.url.queryParameters['metadata_only']=='1') 'metadata_only': true,
-        }), 200);
-      }
-      expect(request.url.path, '/sources/totalsportek/matches');
-      return http.Response(jsonEncode({'source': 'totalsportek', 'matches': [{
-        'source': 'totalsportek', 'source_id': '12345', 'league': 'Premier League',
+      expect(request.url.path, '/sources/repository/matches');
+      return http.Response(jsonEncode({'source': 'repository', 'matches': [{
+        'source': 'repository', 'source_id': 'repo:match:aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'league': 'Premier League',
         'home_team': 'Everton', 'away_team': 'Coventry City', 'match_time': null,
-        'page_url': 'https://totalsportekl.is/Everton-vs-Coventry-City/12345',
-        'anchors': [{'room_num': '12345', 'page_url': 'https://totalsportekl.is/Everton-vs-Coventry-City/12345'}],
+        'anchors': [{'room_num': 'repo:match:aaaaaaaaaaaaaaaaaaaaaaaaaaaa'}],
       }]}), 200);
     }));
   });

@@ -1,6 +1,9 @@
-// Keep this mirror aligned with the live Vercel project: workers.dev is disabled.
+// Use the enabled Cloudflare Worker custom domain. The workers.dev
+// subdomain is intentionally disabled and returns Cloudflare 404 pages.
 const publicOrigin = "https://football-api.nyeinchanaung.us.ci";
-// Direct Supabase is reachable from Vercel; the Cloudflare Auth relay was not.
+// Vercel reaches Supabase directly. Cloudflare's Supabase relay returned 502
+// from Vercel even when the public Viewer API was healthy; do not route Auth
+// through that unreachable relay. JWT + anon/publishable key stay client-owned.
 const backendOrigin = "https://woggzixprvyjnfjzsglz.supabase.co";
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -19,8 +22,9 @@ function routeKind(path) {
   if (["/health", "/matches", "/channels", "/tv-schedule", "/backend-health"].includes(path) ||
       /^\/matches\/[A-Za-z0-9_-]+\/streams$/.test(path) ||
       /^\/channels\/[A-Za-z0-9_-]+\/streams$/.test(path) ||
+      /^\/team-logos\/\d{1,12}$/.test(path) ||
       /^\/p\/[A-Za-z0-9_-]+(?:\/.*)?$/.test(path) ||
-      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena|totalsportek)\/(matches|streams)$/.test(path)) return "public";
+      /^\/sources\/(soco|yyzb|fawa|cola|arena|repository)\/(matches|streams)$/.test(path)) return "public";
   if (path === "/admin/stream-detect" || path === "/admin/stream-detect-browser") return "admin";
   if (new RegExp("^/admin/functions/(" + functionNames + ")$").test(path)) return "admin";
   if (/^\/(auth|rest|storage)\/v1(?:\/.*)?$/.test(path) ||
@@ -71,7 +75,7 @@ async function proxy(request) {
   const kind = routeKind(path);
   if (!kind) return failure("Not found.", 404);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-  const sourcePost = /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena|totalsportek)\/streams$/.test(path);
+  const sourcePost = /^\/sources\/(soco|yyzb|fawa|cola|arena|repository)\/streams$/.test(path);
   const methods = kind === "backend" ? ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"] :
     (kind === "admin" || sourcePost ? ["POST"] : ["GET", "HEAD"]);
   if (!methods.includes(request.method)) return failure("Method not allowed.", 405);
@@ -80,6 +84,7 @@ async function proxy(request) {
   }
 
   const backend = kind === "backend" || path === "/backend-health";
+  // Probe the *real* Auth endpoint, not a generic Worker /health success.
   const upstream = new URL(path === "/backend-health" ? "/auth/v1/health" : path, backend ? backendOrigin : publicOrigin);
   if (path !== "/backend-health" && routeKind(upstream.pathname) !== kind) return failure("Not found.", 404);
   upstream.search = incoming.search;
@@ -106,8 +111,8 @@ async function proxy(request) {
     }
     const response = await fetch(upstream, init);
     const outputHeaders = new Headers(cors);
-    // Cache only public, non-sensitive guide/catalog metadata. Protected media,
-    // private Auth, Admin functions and stream URLs always remain no-store.
+    // Cache only safe public GET metadata. Never cache signed playback
+    // manifests/segments, Admin functions, auth, user data or stream URLs.
     if (!backend && kind === "public" && method === "GET" && response.ok) {
       if (path === "/tv-schedule") {
         outputHeaders.set("Cache-Control",
@@ -116,6 +121,8 @@ async function proxy(request) {
             : "public, max-age=15");
       } else if (path === "/channels") {
         outputHeaders.set("Cache-Control", "public, max-age=15");
+      } else if(path.startsWith('/team-logos/')) {
+        outputHeaders.set('Cache-Control','public, max-age=86400');
       }
     }
     for (const name of ["Content-Type", "Content-Range", "Accept-Ranges", "Content-Location", "Retry-After"]) {
@@ -148,13 +155,27 @@ async function proxy(request) {
       } finally { await reader.cancel().catch(() => {}); }
       const body = new Uint8Array(size); let offset = 0;
       for (const part of parts) { body.set(part, offset); offset += part.byteLength; }
+      let text = new TextDecoder().decode(body);
       // Metadata keeps canonical Worker URLs, so healthy networks use the
       // shortest route. When a client explicitly opens a Vercel /p/ fallback,
       // keep absolute manifest children on that same fallback origin; relative
       // children already resolve there without changes.
-      let text = new TextDecoder().decode(body);
       if (path.startsWith("/p/") && /mpegurl|dash\+xml/i.test(type)) {
         text = text.replaceAll(publicOrigin + "/p/", incoming.origin + "/p/");
+      }
+      if (path === "/channels" && response.ok && /json/i.test(type)) {
+        try {
+          const catalog = JSON.parse(text);
+          if (Array.isArray(catalog.channels)) {
+            for (const channel of catalog.channels) {
+              if (channel.id && channel.image_url) {
+                channel.image_url = "https://nca-network-backup-test.vercel.app/api/channel-logo?id=" +
+                  encodeURIComponent(channel.id) + "&v=" + encodeURIComponent(channel.image_url);
+              }
+            }
+            text = JSON.stringify(catalog);
+          }
+        } catch (_) { /* Return the upstream response unchanged. */ }
       }
       return new Response(text, { status: response.status, headers: outputHeaders });
     }

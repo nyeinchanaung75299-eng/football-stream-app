@@ -4,21 +4,22 @@ import { GET as proxy } from './api/proxy.js';
 
 const origin = 'https://backup.example';
 
-test('Totalsportek GET and POST routes are forwarded without opening arbitrary providers', async () => {
+test('Live 2 GET and POST routes replace Totalsportek without opening arbitrary providers', async () => {
   const calls=[];
   await withFetch(async (url,init) => {
     calls.push({path:new URL(url).pathname,method:init.method});
     return Response.json({ok:true,streams:[]});
   }, async () => {
     for (const [action,method] of [['matches','GET'],['streams','POST']]) {
-      const response=await proxy(new Request(origin+'/sources/totalsportek/'+action,
+      const response=await proxy(new Request(origin+'/sources/repository/'+action,
         method==='POST'?{method,body:'{}'}:{}));
       assert.equal(response.status,200);await response.body.cancel();
     }
     assert.equal((await proxy(new Request(origin+'/sources/unapproved-provider/matches'))).status,404);
+    assert.equal((await proxy(new Request(origin+'/sources/totalsportek/matches'))).status,404);
   });
-  assert.deepEqual(calls,[{path:'/sources/totalsportek/matches',method:'GET'},
-    {path:'/sources/totalsportek/streams',method:'POST'}]);
+  assert.deepEqual(calls,[{path:'/sources/repository/matches',method:'GET'},
+    {path:'/sources/repository/streams',method:'POST'}]);
 });
 const backend = 'https://woggzixprvyjnfjzsglz.supabase.co';
 test('Arena Koora match and stream requests retain the VPN-free public route', async () => {
@@ -296,15 +297,15 @@ test('Browser Run scanner proxy preserves Admin authentication',async()=>{
 });
 
 
-test('Xoilac and Camel1 metadata use the protected public backend', async () => {
+test('removed source aliases cannot reach a provider through the public proxy', async () => {
   const seen=[];
   await withFetch(async(url,init)=>{seen.push(String(url));return Response.json({ok:true,matches:[]});}, async()=>{
     for(const source of ['xoilac','camel']){
       const response=await proxy(new Request(origin+'/sources/'+source+'/matches'));
-      assert.equal(response.status,200);
-      assert.equal(seen.at(-1),worker+'/sources/'+source+'/matches');
+      assert.equal(response.status,404);
     }
   });
+  assert.equal(seen.length,0);
 });
 
 

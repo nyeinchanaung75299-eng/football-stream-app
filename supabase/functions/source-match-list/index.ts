@@ -4,6 +4,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
 import { sourceMatchRows, isFootballSourceRow, hasPublishedSourceRoom } from "../_shared/source_match_rows.mjs";
 import { sourceLogo } from "../_shared/source_team_logos.mjs";
+import { loadYyzbFootballCatalogue } from '../_shared/yyzb_schedule.mjs';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,7 +13,7 @@ const corsHeaders = {
 };
 
 const SOCO_MATCHES_URL = "https://json.vnres.co/matches.json";
-const YYZB_MATCHES_URL = "https://json.ncctrials.com/match_all.json";
+const YYZB_MATCHES_URL = "https://json.ncctrials.com/matches.json";
 const FAWA_HOME = "http://www.fawanews.sc/";
 const COLA_HOME = "https://colatv66.live/";
 const COLA_API = "https://api.cltvlv.com/api/matches";
@@ -79,7 +80,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (source === "xoilac" || source === "camel" || source === "arena" || source === "totalsportek") {
+    if (source === "arena" || source === "totalsportek") {
       const payload = { ok: true, source, matches: await websiteMatches(source, { date: body.date }), generated_at: new Date().toISOString() };
       return json(payload);
     }
@@ -105,10 +106,10 @@ Deno.serve(async (req) => {
   }
 });
 
-function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "xoilac" | "camel" | "arena" | "sofascore" | "totalsportek" | null {
+function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "arena" | "sofascore" | "totalsportek" | null {
   const source = String(value ?? "").trim().toLowerCase();
   if (!source) return "soco";
-  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "xoilac" || source === "camel" || source === "arena" || source === "sofascore" || source === "totalsportek") {
+  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "arena" || source === "sofascore" || source === "totalsportek") {
     return source;
   }
   return null;
@@ -218,8 +219,7 @@ async function jsonpMatches(args: {
   source: "soco" | "yyzb";
   url: string;
 }) {
-  const raw = await fetchText(`${args.url}?v=${Date.now()}`);
-  const payload = parseJsonp(raw);
+  const payload = args.source==='yyzb'?await loadYyzbFootballCatalogue(fetchText):parseJsonp(await fetchText(`${args.url}?v=${Date.now()}`));
   const matches = sourceMatchRows(payload?.data ?? payload,
     (row: any) => isFootballSourceRow(row, { allowUnclassified: args.source === "soco" }))
     .map((row: any) => {

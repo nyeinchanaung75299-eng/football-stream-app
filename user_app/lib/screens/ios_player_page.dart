@@ -712,8 +712,10 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
         top: false,
         child: Column(
           children: [
-            Expanded(
+            Flexible(
+              fit: FlexFit.loose,
               child: Align(
+                heightFactor: 1,
                 alignment: Alignment.topCenter,
                 child: AspectRatio(
                   aspectRatio: MediaQuery.orientationOf(context) == Orientation.portrait

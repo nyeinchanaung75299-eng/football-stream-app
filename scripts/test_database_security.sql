@@ -420,6 +420,7 @@ begin
   values(keeper,'Different key','dash','https://cdn.example.org/exact-full-set.mpd',repeat('c',32),repeat('f',32)) returning id into different_key;
  insert into public.channel_lines(channel_id,label,stream_type,stream_url,referer,key_id,key_data)
   values(keeper,'Different header','dash','https://cdn.example.org/exact-full-set.mpd','https://another.example/player',repeat('c',32),repeat('d',32)) returning id into different_header;
+ update public.channel_lines set sort_order=1 where id=different_header;
  config:=jsonb_build_object('id','full-set-line','label','Source label','stream_type','dash','stream_url','https://cdn.example.org/exact-full-set.mpd','key_id',repeat('c',32),'key_data',repeat('d',32));
  insert into public.channel_source_catalog(id,provider,kind,name,category,source_file,streams,stream_count,revision)
   values(entry,1,'channel','Alias station','Sports','provider_1/channels.json',jsonb_build_array(config),1,'dedup-source');
@@ -435,14 +436,18 @@ begin
   values('10000000-0000-0000-0000-000000000001',alias_channel,'manual');
  perform public.deduplicate_exact_channel_lines();
  if exists(select from public.channel_lines where id=duplicate_line) or exists(select from public.channels where id=alias_channel) then raise exception 'Exact duplicate remained'; end if;
- if not exists(select from public.channel_lines where id=different_key) or not exists(select from public.channel_lines where id=different_header) then raise exception 'Different configurations were removed'; end if;
+ if not exists(select from public.channel_lines where id=different_key) then raise exception 'Different key configuration was removed'; end if;
+ if exists(select from public.channel_lines where id=different_header) then raise exception 'A request header incorrectly prevented three-field MPD merging'; end if;
  if not exists(select from public.stream_links where id=attached and channel_line_id=primary_line and channel_id=keeper) then raise exception 'Match reference broke during deduplication'; end if;
  if not exists(select from public.nca_epg_auto_stream_links where stream_link_id=attached and channel_line_id=primary_line) or
   not exists(select from public.nca_epg_auto_match_channels where channel_id=keeper and programme_title='Verified fixture') or
   not exists(select from public.nca_bot_match_channels where channel_id=keeper and source='manual') then raise exception 'Guide or bot reference broke during deduplication'; end if;
  if not exists(select from public.channel_source_links where entry_id=entry and channel_id=keeper and not owns_channel and (line_map->'full-set-line'->>'shared')::boolean) then raise exception 'Following source reference lost'; end if;
  perform public.link_channel_source_entry(entry,null,true);
- if (select count(*) from public.channel_lines where channel_id=keeper)<>3 then raise exception 'Source refresh recreated the duplicate'; end if;
+ if (select count(*) from public.channel_lines where channel_id=keeper)<>2 then raise exception 'Source refresh recreated the duplicate'; end if;
+ update public.channel_source_catalog set streams=jsonb_build_array(config||jsonb_build_object('referer','https://rotated-header.example.org/')) where id=entry;
+ perform public.link_channel_source_entry(entry,null,true);
+ if (select count(*) from public.channel_lines where channel_id=keeper)<>2 then raise exception 'Header-only source refresh recreated a three-field duplicate'; end if;
  -- A new source selection with the same complete configuration reuses the
  -- saved channel and keeps its EPG/name instead of publishing another card.
  delete from public.channel_source_links where entry_id=entry;
@@ -503,6 +508,44 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000002',true);
 do $$ begin
  if exists(select from public.channel_health_jobs) or exists(select from public.channel_health_job_items) then raise exception 'Viewer can read Admin health jobs'; end if;
+end $$;
+reset role;
+-- URL + key ID + key data identity ignores headers, names and multi-line aliases.
+set local role service_role;
+do $$
+declare verified uuid; alias uuid; keep_line uuid; duplicate uuid; other_line uuid; payload jsonb;
+ entry text:='repo:match:'||repeat('d',28);
+begin
+ insert into public.channels(name,category,epg_id,epg_source) values('Verified EPG station','Football','verified.us','US2') returning id into verified;
+ insert into public.channels(name,category) values('Completely different name','Football') returning id into alias;
+ insert into public.channel_lines(channel_id,label,stream_url,stream_type,key_id,key_data,referer)
+  values(verified,'Verified','https://cdn.example.org/three-fields.mpd','dash',repeat('a',32),repeat('b',32),'https://one.example.org/') returning id into keep_line;
+ insert into public.channel_lines(channel_id,label,stream_url,stream_type,key_id,key_data,referer)
+  values(alias,'Other header','https://cdn.example.org/three-fields.mpd','dash',repeat('a',32),repeat('b',32),'https://two.example.org/') returning id into duplicate;
+ insert into public.channel_lines(channel_id,label,stream_url,stream_type,key_id,key_data)
+  values(alias,'Independent line','https://cdn.example.org/independent.mpd','dash',repeat('c',32),repeat('d',32)) returning id into other_line;
+ perform public.deduplicate_exact_channel_lines();
+ if exists(select from public.channel_lines where id=duplicate) or not exists(select from public.channel_lines where id=keep_line)
+  or not exists(select from public.channel_lines where id=other_line) then raise exception 'Three-field merging lost the verified EPG or an independent alias line'; end if;
+ insert into public.channel_source_catalog(id,provider,kind,name,category,source_file,streams,stream_count,revision,source_id,event_meta)
+ values(entry,8,'event','Independent repository fixture','Football','fixture.json',jsonb_build_array(jsonb_build_object(
+  'id','private-line','label','HD','stream_url','https://private-repository.example.org/stream.mpd','stream_type','dash',
+  'key_id',repeat('a',32),'key_data',repeat('b',32),'referer','https://private-origin.example.org/','configuration_status','configured')),1,'fixture','repository',
+  jsonb_build_object('home_team','Napoli','away_team','Lazio','league','Serie A','kickoff_at',now()));
+ -- The repository fixture is not published to the main Live match table.
+ payload:=public.get_repository_metadata_for_gateway(null,'local-test-gateway');
+ if payload->'matches' is null or not exists(select from jsonb_array_elements(payload->'matches') m where m->>'source_id'=entry) then raise exception 'Live 2 depended on an NCA Live match'; end if;
+ if payload::text like '%private-repository%' or payload::text like '%key_data%' or payload::text like '%private-origin%' then raise exception 'Repository listing leaked a native configuration'; end if;
+ payload:=public.get_repository_metadata_for_gateway(entry,'local-test-gateway');
+ if payload->>'match_valid'<>'true' or payload->'streams'->0->>'key_id'<>repeat('a',32) then raise exception 'Trusted gateway lost the configured key pair'; end if;
+ update public.channel_source_catalog set is_present=false where id=entry;
+ if public.get_repository_metadata_for_gateway(entry,'local-test-gateway')->>'match_valid'<>'false' then raise exception 'Live 2 revived a removed repository fixture'; end if;
+end $$;
+reset role;
+set local role anon;
+do $$ begin
+ begin perform public.get_repository_metadata_for_gateway(null,'wrong-secret');raise exception 'Public repository metadata bypassed gateway authentication';
+ exception when insufficient_privilege then null;end;
 end $$;
 reset role;
 select 'Database security and compatibility checks passed' as result;

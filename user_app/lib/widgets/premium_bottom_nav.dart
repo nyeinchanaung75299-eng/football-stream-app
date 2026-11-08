@@ -17,6 +17,11 @@ class PremiumBottomNav extends StatelessWidget {
       label: 'Live',
     ),
     (
+      icon: Icons.live_tv_outlined,
+      selected: Icons.live_tv_rounded,
+      label: 'Live 2',
+    ),
+    (
       icon: Icons.sports_soccer_outlined,
       selected: Icons.sports_soccer_rounded,
       label: 'Soco',
@@ -26,13 +31,8 @@ class PremiumBottomNav extends StatelessWidget {
       selected: Icons.sensors_rounded,
       label: 'YYZB',
     ),
-    (
-      icon: Icons.language_outlined,
-      selected: Icons.language_rounded,
-      label: 'Fawa',
-    ),
     (icon: Icons.tv_outlined, selected: Icons.tv_rounded, label: 'ColaTV'),
-    (icon: Icons.public_outlined, selected: Icons.public, label: 'Totalsportek'),
+    (icon: Icons.language_outlined, selected: Icons.language_rounded, label: 'Fawa'),
     (icon: Icons.tv_outlined, selected: Icons.tv_rounded, label: 'Channels'),
   ];
 
@@ -98,9 +98,7 @@ class PremiumBottomNav extends StatelessWidget {
                               ),
                               const SizedBox(height: 3),
                               Text(
-                                item.label == 'Totalsportek'
-                                    ? 'Total\nsportek'
-                                    : item.label,
+                                item.label,
                                 maxLines: 2,
                                 textAlign: TextAlign.center,
                                 style: TextStyle(

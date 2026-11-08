@@ -15,6 +15,7 @@ import '../channel_match_search.dart';
 import '../widgets/premium_bottom_nav.dart';
 import 'home_page.dart';
 import 'source_browser_page.dart';
+import '../viewer_navigation.dart';
 
 class ChannelsPage extends StatefulWidget {
   const ChannelsPage({super.key});
@@ -304,13 +305,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
       );
       return;
     }
-    final source = switch (index) {
-      2 => 'yyzb',
-      3 => 'fawa',
-      4 => 'cola',
-      5 => 'totalsportek',
-      _ => 'soco',
-    };
+    final source = viewerSourceAt(index);
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
         builder: (_) => SourceBrowserPage(source: source),

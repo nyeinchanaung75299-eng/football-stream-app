@@ -154,6 +154,7 @@ export const priorityEuropeanAliases = [
   ["VfB斯图加特","VfB Stuttgart"],
   ["门兴","Borussia Monchengladbach"],
   ["波鸿","VfL Bochum"],
+  ["马格德堡","FC Magdeburg"],
   ["荷尔斯泰因基尔","Holstein Kiel"],
   ["基尔荷尔斯泰因","Holstein Kiel"],
   ["菲尔特","Greuther Furth"],

@@ -17,6 +17,8 @@ import '../player_loading.dart';
 import '../source_line_loader.dart';
 import '../source_match_discovery.dart';
 import '../football_english.dart';
+import '../viewer_navigation.dart';
+import '../repository_logo.dart';
 import '../widgets/premium_bottom_nav.dart';
 import '../widgets/premium_match_card.dart';
 import '../widgets/source_match_filters.dart';
@@ -75,23 +77,14 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
   String get source => widget.source.toLowerCase();
   String get title => switch (source) {
+    'repository' => 'Live 2',
     'yyzb' => 'YYZB',
     'fawa' => 'Fawa',
     'cola' => 'ColaTV',
-    'xoilac' => 'Xoilac',
-    'camel' => 'Camel1',
     'totalsportek' => 'Totalsportek',
     _ => 'Soco',
   };
-  int get navIndex => switch (source) {
-    'soco' => 1,
-    'yyzb' => 2,
-    'fawa' => 3,
-    'cola' => 4,
-    'totalsportek' => 5,
-    'xoilac' || 'camel' => -1,
-    _ => 1,
-  };
+  int get navIndex => viewerSourceIndex(source);
   List<Future<List<Map<String, dynamic>>> Function()> _apiJobs(
     Future<List<Map<String, dynamic>>> Function(String) load,
   ) {
@@ -926,24 +919,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
   }
 
-  void _xoilacUnavailable(Map<String, dynamic> match) {
-    if (!mounted) return;
-    final page = Uri.tryParse(match['page_url']?.toString() ?? '');
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text(
-          'Xoilac is not providing a playable source right now.',
-        ),
-        action: page?.scheme == 'https' && page?.host == 'xoilaczcb.tv'
-            ? SnackBarAction(
-                label: 'Open Xoilac',
-                onPressed: () => NativePlayer.openExternalPage(page.toString()),
-              )
-            : null,
-      ),
-    );
-  }
-
   void _totalsportekUnavailable(
     Map<String, dynamic> match, {
     bool requestFailed = false,
@@ -1033,13 +1008,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   );
 
   Future<void> _openSourcePlayer(Map<String, dynamic> m) async {
-    if (source == 'camel') {
-      final target = Uri.tryParse(m['page_url']?.toString() ?? '');
-      if (target?.scheme == 'https' && target?.host == 'www.camel1.tv') {
-        NativePlayer.openExternalPage(target.toString());
-      }
-      return;
-    }
     if (_anchors(m).isEmpty) return;
     final generation = _sourceGeneration;
     final selectedSource = source;
@@ -1080,9 +1048,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           return operation.firstUsable;
         },
         onCancelled: operation.cancel,
-        onFailure: source == 'xoilac'
-            ? (_) => _xoilacUnavailable(m)
-            : source == 'totalsportek'
+        onFailure: source == 'totalsportek'
                 ? (_) {
                     if (m['selected_player_url'] != null) {
                       unawaited(_selectedPlayerUnavailable(m));
@@ -1122,10 +1088,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             return;
           }
           _totalsportekUnavailable(m);
-          return;
-        }
-        if (source == 'xoilac') {
-          _xoilacUnavailable(m);
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1311,13 +1273,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       );
       return;
     }
-    final next = switch (index) {
-      2 => 'yyzb',
-      3 => 'fawa',
-      4 => 'cola',
-      5 => 'totalsportek',
-      _ => 'soco',
-    };
+    final next = viewerSourceAt(index);
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(builder: (_) => SourceBrowserPage(source: next)),
     );
@@ -1356,11 +1312,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             );
           }
 
-          // YYZB's match_all.json is a score database with thousands of rows.
-          // Its Viewer tab mirrors the website's watchable football catalogue:
+          // YYZB mirrors its website's own football-room catalogue:
           // an actual streamer room is mandatory and there is no score-only
           // fallback view.
-          final availableMatches = (source == 'yyzb' || source == 'arena')
+          final availableMatches = source == 'yyzb'
               ? allMatches
                   .where((row) => sourceMatchAnchors(row, source).isNotEmpty)
                   .toList()
@@ -1378,13 +1333,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               slivers: [
-                if (source == 'camel')
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      child: Text('Watch on Camel1 • sign-in required'),
-                    ),
-                  ),
                 SliverToBoxAdapter(
                   child: SourceMatchFilters(
                     controller: _searchController,
@@ -1440,19 +1388,15 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                           league: (m['league'] ?? 'Football').toString(),
                           homeName: (m['home_team'] ?? 'Home').toString(),
                           awayName: (m['away_team'] ?? 'Away').toString(),
-                          homeLogo: (m['home_logo'] ?? m['home_logo_url'])
-                              ?.toString(),
-                          awayLogo: (m['away_logo'] ?? m['away_logo_url'])
-                              ?.toString(),
+                          homeLogo: repositoryLogoUrl((m['home_logo'] ?? m['home_logo_url'] ?? '').toString()),
+                          awayLogo: repositoryLogoUrl((m['away_logo'] ?? m['away_logo_url'] ?? '').toString()),
                           kickoff: time,
                           timeLabel: source == 'totalsportek' && !live
                               ? m['time_label']?.toString() : null,
                           timeZoneLabel: source == 'totalsportek' ? 'MMT' : '',
                           isLive: live,
                           canWatch: ready,
-                          actionLabel: source == 'camel'
-                              ? 'OPEN CAMEL1'
-                              : source == 'totalsportek'
+                          actionLabel: source == 'totalsportek'
                                   ? (ready ? 'CHECK LINES' : 'NOT READY')
                                   : source == 'soco'
                                   ? (ready
