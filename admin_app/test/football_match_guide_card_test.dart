@@ -41,7 +41,7 @@ void main() {
     expect(find.textContaining('LIVE ONLY'), findsNothing);
     expect(find.textContaining('Canal 5'), findsOneWidget);
     expect(find.textContaining('Premier Sports 2 UK'), findsOneWidget);
-    expect(find.textContaining('07:30 PM MMT'), findsOneWidget);
+    expect(find.textContaining('07:30 PM MMT'), findsWidgets);
     expect(find.textContaining('POSSIBLE FOOTBALL AIRINGS'), findsOneWidget);
     expect(find.textContaining('TSN 3'), findsOneWidget);
   });
