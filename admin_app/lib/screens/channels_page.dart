@@ -421,6 +421,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
 class _Line {
   _Line([Map<String, dynamic>? row])
     : id = row?['id']?.toString(),
+      originalUrl = row?['stream_url']?.toString() ?? '',
+      configurationStatus = row?['configuration_status']?.toString() ?? 'unverified',
       label = TextEditingController(
         text: row?['label']?.toString() ?? 'Server 1',
       ),
@@ -429,6 +431,7 @@ class _Line {
       keyId = TextEditingController(text: row?['key_id']?.toString() ?? ''),
       keyData = TextEditingController(text: row?['key_data']?.toString() ?? '');
   final String? id;
+  final String originalUrl, configurationStatus;
   final TextEditingController label, url, referer, keyId, keyData;
   void dispose() {
     for (final field in [label, url, referer, keyId, keyData]) {
@@ -476,7 +479,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
     try {
       final rows = await Supabase.instance.client
           .from('channel_lines')
-          .select('id,label,stream_url,referer,key_id,key_data')
+          .select('id,label,stream_url,referer,key_id,key_data,configuration_status')
           .eq('channel_id', widget.channel!['id'])
           .order('sort_order');
       if (!mounted) return;
@@ -590,6 +593,9 @@ class _ChannelEditorState extends State<_ChannelEditor> {
           'health_latency_ms': null,
           'health_http_status': null,
           'last_checked_at': null,
+          'configuration_status': line.keyId.text.trim().isNotEmpty && line.keyData.text.trim().isNotEmpty
+              ? 'configured'
+              : (line.url.text.trim() == line.originalUrl ? line.configurationStatus : 'unverified'),
         };
         if (line.id == null) {
           final row = await db
@@ -794,7 +800,7 @@ class _ChannelLineHealthSheetState extends State<_ChannelLineHealthSheet> {
     final rows = await Supabase.instance.client
         .from('channel_lines')
         .select(
-          'id,label,stream_type,is_active,health_status,health_latency_ms,last_checked_at',
+          'id,label,stream_type,is_active,configuration_status,health_status,health_latency_ms,last_checked_at',
         )
         .eq('channel_id', widget.channelId)
         .order('sort_order')
@@ -977,6 +983,7 @@ String _healthDetails(Map<String, dynamic> line) {
       ?.toLocal();
   final parts = <String>[
     status,
+    if (line['configuration_status'] == 'requires_drm') 'NEEDS DRM CONFIGURATION',
     if (latency != null) '${latency}ms',
     if (checked != null) DateFormat('dd MMM, h:mm a', 'en_US').format(checked),
     if (line['is_active'] != true) 'INACTIVE',

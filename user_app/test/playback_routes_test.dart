@@ -93,12 +93,15 @@ void main() {
       {'id':'cola-hls','label':'ColaTV HLS','url':'${directUrl}2'},
       {'id':'cola-flv','label':'ColaTV FLV','url':'${directUrl}3'},
       {'id':'cola-backup','label':'ColaTV Backup','url':'${directUrl}4'},
+      {'id':'channel-nbc','label':'NBC Server 1','url':'${directUrl}5'},
     ]);
-    expect(routes.length, 8, reason:'Relays stay available for recovery');
+    expect(routes.length, 10, reason:'Relays stay available for recovery');
     final visible = visiblePlaybackIndices(routes);
-    expect(visible.length, 4, reason:'Do not display relay backups as selectable lines');
+    expect(visible.length, 5, reason:'Do not display relay backups as selectable lines');
     expect(visible.map((index) => routes[index]['label']),
-      ['ColaTV Main','ColaTV HLS','ColaTV FLV','ColaTV Backup']);
+      ['ColaTV Main','ColaTV HLS','ColaTV FLV','ColaTV Backup','NBC Server 1']);
+    expect(routes[visible.last]['id'], 'channel-nbc', reason:'The last visible selection uses its playback index');
+    expect(routes[visible.last + 1]['transport'], 'vercel-fallback');
     expect(routes[1]['transport'], 'vercel-fallback');
   });
 

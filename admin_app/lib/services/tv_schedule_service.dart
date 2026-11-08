@@ -443,7 +443,10 @@ bool _containsAlias(String body, List<String> aliases) => aliases.any(
 bool _looksLikeMatch(String body) => RegExp(
       r'\b(?:vs|v|versus)\b',
       caseSensitive: false,
-    ).hasMatch(body);
+    ).hasMatch(body) ||
+    (RegExp(r'\blive\b').hasMatch(body) &&
+     RegExp(r'\b(?:soccer|premier league|la liga|bundesliga|serie a|ligue 1|champions league)\b').hasMatch(body) &&
+     RegExp(r'\b(?:host|hosts|hosting|face|faces|take on|takes on)\b').hasMatch(body));
 
 bool _isReplay(String body) => RegExp(
       r'\b(?:replay|repeat|re run|rebroadcast|recorded|highlights?|mini match|full impact|classic|recap|review|magazine|preview|match of the day|z zaznam|zaznam|aufzeichnung|ripetizione|rediffusion|resume|resumen|souhrn)\b',

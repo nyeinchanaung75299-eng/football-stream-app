@@ -1139,6 +1139,7 @@ class _HomePageState extends State<HomePage> {
           .toList(),
     );
 
+    final visibleIndices = visiblePlaybackIndices(nativeSources);
     if (nativeSources.isEmpty) {
       await AnalyticsService.capture(
         'stream unavailable',
@@ -1230,7 +1231,7 @@ class _HomePageState extends State<HomePage> {
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
-                            '${nativeSources.length} lines',
+                            '${visibleIndices.length} lines',
                             style: TextStyle(
                               color: colors.onPrimaryContainer,
                               fontWeight: FontWeight.w800,
@@ -1246,10 +1247,11 @@ class _HomePageState extends State<HomePage> {
                     child: ListView.separated(
                       controller: scrollController,
                       padding: const EdgeInsets.fromLTRB(14, 10, 14, 22),
-                      itemCount: nativeSources.length,
+                      itemCount: visibleIndices.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
-                        final source = nativeSources[index];
+                        final sourceIndex = visibleIndices[index];
+                        final source = nativeSources[sourceIndex];
                         final rawLabel = (source['label'] ?? '')
                             .toString()
                             .trim();
@@ -1337,7 +1339,7 @@ class _HomePageState extends State<HomePage> {
                           child: InkWell(
                             onTap: blocked
                                 ? null
-                                : () => Navigator.pop(sheetContext, index),
+                                : () => Navigator.pop(sheetContext, sourceIndex),
                             child: Padding(
                               padding: const EdgeInsets.all(13),
                               child: Row(

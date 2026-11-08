@@ -6,6 +6,19 @@ import 'package:http/testing.dart';
 import 'package:football_admin/services/tv_schedule_service.dart';
 
 void main() {
+  test('NBC live soccer with host wording is a match, while previews and other sports stay hidden', () {
+    final now=DateTime.utc(2026,11,7,18);
+    final guide=TvScheduleGuide.fromJson({'channels':[{
+      'id':'nbc','name':'NBC','matchedEPG':true,'programmes':[
+        {'start':DateTime.utc(2026,11,7,17,30).millisecondsSinceEpoch,'title':'Live: Premier League Soccer',
+          'description':'Nottingham Forest host Manchester City at the City Ground.'},
+        {'start':now.millisecondsSinceEpoch,'title':'Live: NFL Football','description':'Chicago hosts Tampa Bay.'},
+        {'start':now.millisecondsSinceEpoch,'title':'Premier League Soccer preview','description':'Nottingham Forest host Manchester City.'},
+      ],
+    }]});
+    final rows=guide.liveAndUpcomingMatchListings(now:now);
+    expect(rows,hasLength(1));expect(rows.single.isLive,isTrue);expect(rows.single.channel.name,'NBC');
+  });
   test('TV guide finds only a nearby non-replay programme with both teams', () {
     const kickoff = '2026-10-29T19:45:00Z';
     final guide = TvScheduleGuide.fromJson({

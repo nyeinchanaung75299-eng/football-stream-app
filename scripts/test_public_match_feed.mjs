@@ -7,6 +7,54 @@ const { default: worker, loadMatchRows, fetchJsonWithTimeout } = await import('d
 const env = { SUPABASE_URL: 'https://database.example', SUPABASE_PUBLISHABLE_KEY: 'test-public-key', GITHUB_MIRROR_URL: 'https://mirror.example/matches.json' };
 const match = { id: 'test-match', home_team: 'Team Alpha' };
 
+test('channel catalog pages past the old 250-channel truncation without returning a partial catalog', async()=>{
+ const original=globalThis.fetch;
+ const rows=Array.from({length:793},(_,i)=>({id:String(i),name:'Channel '+i}));
+ const offsets=[];
+ globalThis.fetch=async target=>{
+  const u=new URL(target);assert.equal(u.pathname,'/rest/v1/channels');
+  assert.match(u.searchParams.get('order'),/id.asc/);
+  const offset=Number(u.searchParams.get('offset'));offsets.push(offset);
+  return Response.json(rows.slice(offset,offset+Number(u.searchParams.get('limit'))));
+ };
+ try{
+  const response=await worker.fetch(new Request('https://api.example/channels'),env,{});
+  assert.equal(response.status,200);assert.equal((await response.json()).channels.length,793);
+  assert.deepEqual(offsets,[0,500]);
+ }finally{globalThis.fetch=original;}
+});
+
+test('My Channels guide retains imported channels missing from the older upstream EPG catalog',async()=>{
+ const original=globalThis.fetch;
+ globalThis.fetch=async target=>{
+  const u=new URL(target);
+  if(u.pathname==='/rest/v1/channels')return Response.json([
+   {id:'nbc',name:'NBC',category:'NBC'},
+   {id:'imported',name:'New Sports MPD',category:'Sports'},
+  ]);
+  if(u.pathname==='/api/schedule')return Response.json({ok:true,channels:[{id:'nbc',name:'NBC',matchedEPG:true,programmes:[
+   {title:'Live football',start:1794072600000,end:1794079800000}]}]});
+  return Response.json({ok:true,channels:[]});
+ };
+ try{
+  const response=await worker.fetch(new Request('https://api.example/tv-schedule?date=2026-11-08'),env,{});
+  const payload=await response.json();assert.equal(response.status,200);
+  assert.equal(payload.channels.length,2);assert.equal(payload.channels[0].programmes.length,1);
+  assert.equal(payload.channels[1].matchedEPG,false);assert.deepEqual(payload.channels[1].programmes,[]);
+ }finally{globalThis.fetch=original;}
+});
+
+test('a failed later catalog page returns a retryable error instead of silently hiding channels',async()=>{
+ const original=globalThis.fetch;
+ globalThis.fetch=async target=>new URL(target).searchParams.get('offset')==='0'
+  ?Response.json(Array.from({length:500},(_,i)=>({id:String(i)})))
+  :new Response('Unavailable',{status:503});
+ try{
+  const response=await worker.fetch(new Request('https://api.example/channels'),env,{});
+  assert.equal(response.status,502);assert.equal((await response.json()).channels,undefined);
+ }finally{globalThis.fetch=original;}
+});
+
 test('Totalsportek kickoff-only requests forward the mode and never return stream data', async () => {
   const original = globalThis.fetch;
   let received;
@@ -223,4 +271,34 @@ test('TV schedule joins the public MX and UK extended feeds by existing channel 
     assert.equal(mx.programmes[0].start, start);
     assert.equal(uk.programmes[0].start, start);
   } finally { globalThis.fetch = original; }
+});
+
+test('cold NBC guide does not wait for unrelated feeds and survives a later isolate through public metadata cache',async()=>{
+ const original=globalThis.fetch,originalCaches=globalThis.caches;
+ const stored=new Map(),background=[];let release;
+ const gate=new Promise(resolve=>release=resolve);
+ globalThis.caches={default:{async match(req){return stored.get(req.url)?.clone();},async put(req,response){stored.set(req.url,response.clone());}}};
+ const baseline={channels:[{id:'nbc-test',name:'NBC',matchedEPG:false,programmes:[]}]};
+ globalThis.fetch=async target=>{
+  const u=new URL(target);
+  if(u.pathname==='/rest/v1/channels')return Response.json([{id:'nbc-test',name:'NBC'}]);
+  if(u.pathname==='/api/schedule')return Response.json(baseline);
+  if(u.searchParams.get('source')==='US2')return Response.json({channels:[{
+   id:'nbc-test',matchedEPG:true,region:'us',programmes:[{start:Date.parse('2026-11-07T17:30:00Z'),
+    title:'Live: Premier League Soccer',description:'Nottingham Forest host Manchester City.',drm_key:'never-cache-this'}],
+  }]});
+  await gate;return Response.json({channels:[]});
+ };
+ try{
+  const request=new Request('https://worker.example/tv-schedule?date=2026-11-08&days=3');
+  const response=await worker.fetch(request,env,{waitUntil:p=>background.push(p)});
+  const first=await response.json();assert.equal(first.channels[0].matchedEPG,true);
+  assert.equal(first.channels[0].programmes[0].description,'Nottingham Forest host Manchester City.');
+  release();await Promise.all(background);
+  assert.equal(stored.size,1);assert(!(await [...stored.values()][0].clone().text()).includes('never-cache-this'));
+  globalThis.fetch=async target=>new URL(target).pathname==='/api/schedule'?Response.json(baseline):Promise.reject(Error('Regional feed down'));
+  const second=await worker.fetch(request,env,{waitUntil:p=>background.push(p)});
+  assert.equal((await second.json()).channels[0].matchedEPG,true);
+  await Promise.all(background);
+ }finally{release();globalThis.fetch=original;globalThis.caches=originalCaches;}
 });

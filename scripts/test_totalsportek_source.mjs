@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseTotalsportekMatches,totalsportekKickoff,totalsportekMatches,totalsportekStreams,totalsportekPlayers} from '../supabase/functions/_shared/totalsportek_source.mjs';
+import {parseTotalsportekMatches,totalsportekKickoff,totalsportekMatches,totalsportekStreams,totalsportekPlayers,totalsportekMediaIdentity} from '../supabase/functions/_shared/totalsportek_source.mjs';
 const page='https://totalsportekl.is/Home-vs-Away/12345';
 const card=(extra='',id='12345')=>`<a href="/Home-vs-Away/${id}" class="modern-match-card"><div class="team-name team-left">Home<img src="/images/teams/Home.png"></div><div class="match-time"><span>Match</span><span>Started</span></div><span class="btn-live">Live Streams</span><div class="team-name team-right">Away<img src="/images/teams/Away.png"></div>${extra}</a>`;
 const listing='<div class="league-header"><span>Premier League</span></div>'+card();
@@ -158,4 +158,31 @@ test('a selected published website player can resolve through the existing nativ
  await assert.rejects(()=>totalsportekStreams({page_url:page,player_url:'https://sportsguru.st/guru/total.php?ch=99'},
   {fetcher:invalid.fetcher}),/not published/);
  assert.equal(invalid.calls.length,1);
+});
+
+test('reviewed Nexa website chain resolves literal metadata and keeps two genuinely distinct media feeds',async()=>{
+ const website='https://kumku.cfd/tot-15/k9.php';
+ const nexa='https://ch.nexa.st/stream?id=9';
+ const embed='https://matchli.st/embed.php?code=published-nexa';
+ const hls='https://hls.lshls.st/secure_hls.php?path=channel9&e=2000000000&sig=published';
+ const f=fixture({[page]:event+`<a class="nocolor" href="${website}">Sportswatcher</a>`,
+  [website]:`<iframe src="${nexa}"></iframe><iframe src="http://127.0.0.1/private"></iframe>`,
+  [nexa]:`fetch("api/player.php?id=" + id)`,
+  'https://ch.nexa.st/api/player.php?id=9':JSON.stringify({url:embed}),
+  [embed]:`window.PP_STABLE_CONFIG = ${JSON.stringify({src:hls})};`,
+ });
+ const result=await totalsportekStreams({page_url:page,player_url:website},{fetcher:f.fetcher,now:0});
+ assert.equal(result.lines.length,1);assert.equal(result.lines[0].url,hls);
+ assert.equal(result.lines[0].label,'Sportswatcher • SoccerStreamLinks');
+ assert.equal(f.calls.length,5);
+ const failed=fixture({[page]:`<a class="nocolor" href="${website}">Sportswatcher</a>`,[website]:`<iframe src="${nexa}"></iframe>`});
+ const original=failed.fetcher;
+ failed.fetcher=async(input,init)=>String(input)===nexa?new Response('denied',{status:403}):original(input,init);
+ assert.equal((await totalsportekStreams({page_url:page,player_url:website},{fetcher:failed.fetcher})).lines.length,0);
+});
+test('signed media URL rotations collapse while separate underlying channels remain distinct',()=>{
+ const a='https://hls.lshls.st/secure_hls.php?path=channel9&e=1&sig=old';
+ const b='https://hls.lshls.st/secure_hls.php?sig=new&e=2&path=channel9';
+ assert.equal(totalsportekMediaIdentity(a),totalsportekMediaIdentity(b));
+ assert.notEqual(totalsportekMediaIdentity(a),totalsportekMediaIdentity(b.replace('channel9','channel10')));
 });

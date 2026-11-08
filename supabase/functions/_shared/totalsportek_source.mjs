@@ -20,8 +20,28 @@ function playerPage(value){
  if(u.hostname==='bestropes.st'&&/^\/player\.php\/[a-z0-9-]{1,200}$/.test(u.pathname)&&!u.search)return u;
  if(u.hostname==='sportsguru.st'&&u.pathname==='/guru/total.php'&&u.search.length<512)return u;
  if(u.hostname==='s3.vertex.st'&&u.pathname==='/ch'&&/^\?id=\d{1,6}$/.test(u.search))return u;
+ if(['ch.nexa.st','ripple.kora.st','s1.virazo.sx'].includes(u.hostname)&&
+   ['/ch','/stream'].includes(u.pathname)&&/^\?id=\d{1,6}$/.test(u.search))return u;
+ const reviewedParents={
+  'kumku.cfd':/^\/tot-\d{1,4}\/k\d{1,4}\.php$/,
+  'rainostreams.lol':/^\/Rai-T\d{1,4}\/\d{1,4}\.html$/,
+  'amaansports.sbs':/^\/tot-\d{1,4}\/k\d{1,4}\.php$/,
+  'pianoplays.biz':/^\/Is-\d{1,4}\/lie\/\d{1,4}\.html$/,
+  'iusman.lol':/^\/tot-\d{1,4}\/k\d{1,4}\.php$/,
+  'ytstreams.club':/^\/YT\d{1,6}\/Nexa\/\d{1,4}\.html$/,
+  '9soccer.biz':/^\/T\d{1,4}\/Ch\d{1,4}\/\d{1,4}\.html$/,
+  'alphastreams.mom':/^\/20\d{2}\/\d{2}\/\d{2}\/[a-z0-9-]{1,200}\/$/,
+  'dotplay.click':/^\/t\d{1,4}\/\d{1,4}\.php$/,
+  'goodstream.click':/^\/st\d{1,4}\/\d{1,4}\.php$/,
+ };
+ if(reviewedParents[u.hostname]?.test(u.pathname)&&!u.search)return u;
  if(u.hostname==='matchli.st'&&['/embed.php','/embed-edge.php'].includes(u.pathname)&&/^\?code=[a-zA-Z0-9_-]{1,128}$/.test(u.search))return u;
  return null;
+}
+export function totalsportekMediaIdentity(value){
+ const u=mediaUrl(value);if(!u)return null;
+ for(const key of ['token','e','sig'])u.searchParams.delete(key);
+ u.searchParams.sort();return u.href;
 }
 function mediaUrl(value){
  const u=url(value);
@@ -173,7 +193,7 @@ export async function totalsportekStreams(body,{fetcher=fetch,now=Date.now()}={}
     const next=playerPage(data?.u);if(next?.hostname==='s3.vertex.st')await resolve(next,target.href,depth+1,nextVisited);
     return;
    }
-   if(target.hostname==='s3.vertex.st'){
+   if(['s3.vertex.st','ch.nexa.st','ripple.kora.st','s1.virazo.sx'].includes(target.hostname)){
     if(!text.includes('api/player.php?id='))return;
     const endpoint=new URL('/api/player.php',target);endpoint.searchParams.set('id',target.searchParams.get('id'));
     const data=JSON.parse(await html(endpoint,{fetcher,signal:controller.signal,referer:target.href}));
@@ -183,11 +203,12 @@ export async function totalsportekStreams(body,{fetcher=fetch,now=Date.now()}={}
    if(target.hostname==='matchli.st'){
     const literal=text.match(/window\.PP_STABLE_CONFIG\s*=\s*(\{[^\r\n]{1,16384}\})\s*;/);
     let media=null;try{media=literal&&mediaUrl(JSON.parse(literal[1]).src);}catch{}
-    if(media&&!seen.has(media.href)){
+    const identity=media&&totalsportekMediaIdentity(media.href);
+    if(media&&!seen.has(identity)){
      const exp=Number(media.searchParams.get('e'));
      const expiry=Number.isFinite(exp)&&exp>0?new Date(exp*1000).toISOString():null;
      if(expiry&&Date.parse(expiry)<=now)return;
-     seen.add(media.href);lines.push({id:'totalsportek:'+page.pathname.match(MATCH)[1]+':soccerstreams',
+     seen.add(identity);lines.push({id:'totalsportek:'+page.pathname.match(MATCH)[1]+':soccerstreams:'+lines.length,
       label:'SoccerStreamLinks',url:media.href,stream_type:'hls',
       referer:target.href,origin:target.origin,health_status:'unknown',expires_at:expiry});
     }
@@ -196,7 +217,8 @@ export async function totalsportekStreams(body,{fetcher=fetch,now=Date.now()}={}
    if(target.hostname==='universaltokenforall.st'){
     const literal=text.match(/\b(?:let|const|var)\s+streamUrl\s*=\s*("(?:\\.|[^"\\])*")/);
     let media=null;try{media=literal&&mediaUrl(JSON.parse(literal[1]));}catch{}
-    if(media&&!seen.has(media.origin+media.pathname)){
+    const identity=media&&totalsportekMediaIdentity(media.href);
+    if(media&&!seen.has(identity)){
      let expiry=null;
      try{
       const payload=media.searchParams.get('token')?.split('.')[0]||'';
@@ -204,7 +226,7 @@ export async function totalsportekStreams(body,{fetcher=fetch,now=Date.now()}={}
       if(Number.isFinite(exp)&&exp>0)expiry=new Date(exp*1000).toISOString();
      }catch{}
      if(expiry&&Date.parse(expiry)<=now)return;
-     seen.add(media.origin+media.pathname);const channel=target.pathname.match(/channel(\d+)/)?.[1]||'';
+     seen.add(identity);const channel=target.pathname.match(/channel(\d+)/)?.[1]||'';
      lines.push({id:'totalsportek:'+page.pathname.match(MATCH)[1]+':'+channel,
       label:'Channel '+channel,url:media.href,stream_type:'hls',
       referer:target.href,origin:target.origin,health_status:'unknown',expires_at:expiry});
