@@ -950,7 +950,6 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                           'HTTP check cannot confirm decoded video. Open player to test.',
                           style: TextStyle(fontSize: 10, color: colors.onSurfaceVariant),
                         ),
-                        ),
                       ],
                     ),
                   ),
