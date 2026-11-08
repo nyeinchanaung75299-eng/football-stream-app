@@ -18,6 +18,7 @@ try {
       .replace('"../_shared/football_names.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/football_names.mjs', import.meta.url).href))
       .replace('"../_shared/source_match_rows.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/source_match_rows.mjs', import.meta.url).href))
       .replace('"../_shared/source_team_logos.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/source_team_logos.mjs', import.meta.url).href))
+      .replace("'../_shared/yyzb_schedule.mjs'", JSON.stringify(new URL('../supabase/functions/_shared/yyzb_schedule.mjs', import.meta.url).href))
       .replace('"../_shared/stream_probe.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/stream_probe.mjs', import.meta.url).href));
     source += name === 'football-fixtures'
       ? '\nexport { loadSourceFallbackFixtures, sourceFixtureId };'

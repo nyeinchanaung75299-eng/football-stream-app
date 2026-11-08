@@ -21,7 +21,9 @@ test('Arena Koora Admin and Viewer share football-only published-server metadata
     ]});
   };
   const matches=await websiteMatches('arena',{fetcher,date:'2030-11-07'});
-  assert.equal(matches.length,1);assert.equal(matches[0].home_team,'Leeds United');
+  assert.deepEqual(matches.map(m=>m.source_id),['12345','2','3','8']);
+  assert(matches.slice(1).every(m=>m.anchors.length===0));
+  assert.equal(matches[0].home_team,'Leeds United');
   assert.equal(matches[0].away_team,'Tottenham Hotspur');assert.equal(matches[0].page_url,page);
   assert.equal(matches[0].anchors[0].room_num,'server-1');
   const result=await websiteStreams('arena',{page_url:page,room_num:'server-1'},{fetcher});

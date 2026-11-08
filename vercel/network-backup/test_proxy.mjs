@@ -4,21 +4,22 @@ import { GET as proxy } from './api/proxy.js';
 
 const origin = 'https://backup.example';
 
-test('Totalsportek GET and POST routes are forwarded without opening arbitrary providers', async () => {
+test('Live 2 GET and POST routes replace Totalsportek without opening arbitrary providers', async () => {
   const calls=[];
   await withFetch(async (url,init) => {
     calls.push({path:new URL(url).pathname,method:init.method});
     return Response.json({ok:true,streams:[]});
   }, async () => {
     for (const [action,method] of [['matches','GET'],['streams','POST']]) {
-      const response=await proxy(new Request(origin+'/sources/totalsportek/'+action,
+      const response=await proxy(new Request(origin+'/sources/repository/'+action,
         method==='POST'?{method,body:'{}'}:{}));
       assert.equal(response.status,200);await response.body.cancel();
     }
     assert.equal((await proxy(new Request(origin+'/sources/unapproved-provider/matches'))).status,404);
+    assert.equal((await proxy(new Request(origin+'/sources/totalsportek/matches'))).status,404);
   });
-  assert.deepEqual(calls,[{path:'/sources/totalsportek/matches',method:'GET'},
-    {path:'/sources/totalsportek/streams',method:'POST'}]);
+  assert.deepEqual(calls,[{path:'/sources/repository/matches',method:'GET'},
+    {path:'/sources/repository/streams',method:'POST'}]);
 });
 const backend = 'https://woggzixprvyjnfjzsglz.supabase.co';
 test('Arena Koora match and stream requests retain the VPN-free public route', async () => {

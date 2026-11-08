@@ -19,8 +19,9 @@ function routeKind(path) {
   if (["/health", "/matches", "/channels", "/tv-schedule", "/backend-health"].includes(path) ||
       /^\/matches\/[A-Za-z0-9_-]+\/streams$/.test(path) ||
       /^\/channels\/[A-Za-z0-9_-]+\/streams$/.test(path) ||
+      /^\/team-logos\/\d{1,12}$/.test(path) ||
       /^\/p\/[A-Za-z0-9_-]+(?:\/.*)?$/.test(path) ||
-      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena|totalsportek)\/(matches|streams)$/.test(path)) return "public";
+      /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena|repository)\/(matches|streams)$/.test(path)) return "public";
   if (path === "/admin/stream-detect" || path === "/admin/stream-detect-browser") return "admin";
   if (new RegExp("^/admin/functions/(" + functionNames + ")$").test(path)) return "admin";
   if (/^\/(auth|rest|storage)\/v1(?:\/.*)?$/.test(path) ||
@@ -71,7 +72,7 @@ async function proxy(request) {
   const kind = routeKind(path);
   if (!kind) return failure("Not found.", 404);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-  const sourcePost = /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena|totalsportek)\/streams$/.test(path);
+  const sourcePost = /^\/sources\/(soco|yyzb|fawa|cola|xoilac|camel|arena|repository)\/streams$/.test(path);
   const methods = kind === "backend" ? ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"] :
     (kind === "admin" || sourcePost ? ["POST"] : ["GET", "HEAD"]);
   if (!methods.includes(request.method)) return failure("Method not allowed.", 405);
@@ -116,6 +117,8 @@ async function proxy(request) {
             : "public, max-age=15");
       } else if (path === "/channels") {
         outputHeaders.set("Cache-Control", "public, max-age=15");
+      } else if(path.startsWith('/team-logos/')) {
+        outputHeaders.set('Cache-Control','public, max-age=86400');
       }
     }
     for (const name of ["Content-Type", "Content-Range", "Accept-Ranges", "Content-Location", "Retry-After"]) {

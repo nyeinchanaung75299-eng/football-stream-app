@@ -17,6 +17,8 @@ import '../player_loading.dart';
 import '../source_line_loader.dart';
 import '../source_match_discovery.dart';
 import '../football_english.dart';
+import '../viewer_navigation.dart';
+import '../repository_logo.dart';
 import '../widgets/premium_bottom_nav.dart';
 import '../widgets/premium_match_card.dart';
 import '../widgets/source_match_filters.dart';
@@ -75,6 +77,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
   String get source => widget.source.toLowerCase();
   String get title => switch (source) {
+    'repository' => 'Live 2',
     'yyzb' => 'YYZB',
     'fawa' => 'Fawa',
     'cola' => 'ColaTV',
@@ -83,15 +86,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     'totalsportek' => 'Totalsportek',
     _ => 'Soco',
   };
-  int get navIndex => switch (source) {
-    'soco' => 1,
-    'yyzb' => 2,
-    'fawa' => 3,
-    'cola' => 4,
-    'totalsportek' => 5,
-    'xoilac' || 'camel' => -1,
-    _ => 1,
-  };
+  int get navIndex => viewerSourceIndex(source);
   List<Future<List<Map<String, dynamic>>> Function()> _apiJobs(
     Future<List<Map<String, dynamic>>> Function(String) load,
   ) {
@@ -1311,13 +1306,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       );
       return;
     }
-    final next = switch (index) {
-      2 => 'yyzb',
-      3 => 'fawa',
-      4 => 'cola',
-      5 => 'totalsportek',
-      _ => 'soco',
-    };
+    final next = viewerSourceAt(index);
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(builder: (_) => SourceBrowserPage(source: next)),
     );
@@ -1360,7 +1349,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           // Its Viewer tab mirrors the website's watchable football catalogue:
           // an actual streamer room is mandatory and there is no score-only
           // fallback view.
-          final availableMatches = (source == 'yyzb' || source == 'arena')
+          final availableMatches = source == 'yyzb'
               ? allMatches
                   .where((row) => sourceMatchAnchors(row, source).isNotEmpty)
                   .toList()
@@ -1440,10 +1429,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                           league: (m['league'] ?? 'Football').toString(),
                           homeName: (m['home_team'] ?? 'Home').toString(),
                           awayName: (m['away_team'] ?? 'Away').toString(),
-                          homeLogo: (m['home_logo'] ?? m['home_logo_url'])
-                              ?.toString(),
-                          awayLogo: (m['away_logo'] ?? m['away_logo_url'])
-                              ?.toString(),
+                          homeLogo: repositoryLogoUrl((m['home_logo'] ?? m['home_logo_url'] ?? '').toString()),
+                          awayLogo: repositoryLogoUrl((m['away_logo'] ?? m['away_logo_url'] ?? '').toString()),
                           kickoff: time,
                           timeLabel: source == 'totalsportek' && !live
                               ? m['time_label']?.toString() : null,

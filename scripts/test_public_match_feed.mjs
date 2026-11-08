@@ -55,7 +55,7 @@ test('a failed later catalog page returns a retryable error instead of silently 
  }finally{globalThis.fetch=original;}
 });
 
-test('Totalsportek kickoff-only requests forward the mode and never return stream data', async () => {
+test('retired Totalsportek kickoff requests do not call its provider', async () => {
   const original = globalThis.fetch;
   let received;
   globalThis.fetch = async (url, init) => {
@@ -70,11 +70,10 @@ test('Totalsportek kickoff-only requests forward the mode and never return strea
         method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({page_url:'https://totalsportekl.is/Leeds-United-vs-Tottenham-Hotspur/78932'}),
       }),env,{});
-    assert.equal(response.status,200);
-    assert.equal(received.metadata_only,true);
+    assert.equal(response.status,405);
+    assert.equal(received,undefined);
     const payload = await response.json();
-    assert.deepEqual(payload,{ok:true,source:'totalsportek',metadata_only:true,
-      match_time:'2026-11-07T12:30:00Z'});
+    assert.equal(payload.streams,undefined);
   } finally { globalThis.fetch = original; }
 });
 

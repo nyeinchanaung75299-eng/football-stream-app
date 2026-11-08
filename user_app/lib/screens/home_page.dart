@@ -14,6 +14,7 @@ import '../network_endpoints.dart';
 import '../playback_routes.dart';
 import '../native_player.dart';
 import 'source_browser_page.dart';
+import '../viewer_navigation.dart';
 import 'channels_page.dart';
 import 'network_diagnostics_page.dart';
 import '../widgets/theme_mode_button.dart';
@@ -1734,13 +1735,7 @@ class _HomePageState extends State<HomePage> {
             if (mounted) await refresh(silent: true);
             return;
           }
-          final source = switch (index) {
-            2 => 'yyzb',
-            3 => 'fawa',
-            4 => 'cola',
-            5 => 'totalsportek',
-            _ => 'soco',
-          };
+          final source = viewerSourceAt(index);
           await Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => SourceBrowserPage(source: source),

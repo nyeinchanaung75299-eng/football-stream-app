@@ -58,7 +58,7 @@ function selectable(row, now) {
   const kickoff=Date.parse(row?.start_at || '');
   return football(row) && !row?.hidden && !row?.tournament_hidden &&
     !['finished','ended','cancelled'].includes(String(row?.state || '').toLowerCase()) &&
-    (!Number.isFinite(kickoff) || now-kickoff<=4*3600000) && servers(row).length>0;
+    (!Number.isFinite(kickoff) || now-kickoff<=4*3600000);
 }
 export async function arenaMatches({date,fetcher=fetch,now=Date.now()}={}) {
   const {day,rows}=await catalog({date,fetcher,now});

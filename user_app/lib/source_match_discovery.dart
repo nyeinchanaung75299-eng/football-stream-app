@@ -87,7 +87,7 @@ List<SourceMatch> filterSourceMatches(
   return matches.where((match) {
     // Apply the room policy to older local/mirror catalogs as well as fresh
     // API data. A fixture ID is never evidence that a stream room exists.
-    if ((source == 'yyzb' || source == 'arena') &&
+    if (source == 'yyzb' &&
         sourceMatchAnchors(match, source).isEmpty) return false;
     if (streamsOnly && sourceMatchAnchors(match, source).isEmpty) return false;
     if (todayOnly) {

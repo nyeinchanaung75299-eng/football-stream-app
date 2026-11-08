@@ -186,6 +186,9 @@
     .nca-settings-tabs button.selected{border-color:#38d88a;background:#163c2d}
     #football-player-overlay.ios-native-mode #football-player-custom-controls{display:none!important}
     @media (orientation:portrait){
+      #football-player-overlay.ios-native-mode #football-player-video-wrap{flex:0 0 auto;width:100%;height:min(calc(56.25vw + 48px),calc(100dvh - 120px))}
+      #football-player-overlay.ios-native-mode #football-player-line-rail{position:relative;inset:auto;flex:0 0 auto;transform:none;border-top:0}
+      #football-player-overlay.ios-native-mode #football-player-line-rail.controls-hidden{opacity:1;pointer-events:auto}
       #football-player-overlay:not(.ios-native-mode) #football-player-topbar{
         position:relative;top:auto;min-height:46px;flex:0 0 auto;gap:4px;padding:4px 6px;flex-wrap:nowrap;opacity:1!important;pointer-events:auto!important}
       #football-player-overlay:not(.ios-native-mode) #football-player-title{font-size:12px;flex:1 1 auto;min-width:0}
