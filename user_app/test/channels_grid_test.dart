@@ -35,6 +35,9 @@ void main() {
           if (request.url.path.endsWith('/tv-schedule')) {
             return http.Response(jsonEncode({'ok': true, 'channels': []}), 200);
           }
+          if (request.url.path.endsWith('/matches')) {
+            return http.Response(jsonEncode({'ok': true, 'matches': []}), 200);
+          }
           reads++;
           return http.Response(
             jsonEncode({
