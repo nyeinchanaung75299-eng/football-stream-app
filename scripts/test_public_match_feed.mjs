@@ -305,12 +305,12 @@ test('cold NBC guide does not wait for unrelated feeds and survives a later isol
 });
 
 test('GitHub EPG requires a fresh saved station binding and strips private source fields',async()=>{
- const original=globalThis.fetch;let binding='Station1.in',old=false;
+ const original=globalThis.fetch;let binding='Station1.in',old=false,baselineHasStation=true;
  const channel={id:'imported-station',name:'Sports 1',epg_source:'GH:share_IN1'};
  globalThis.fetch=async target=>{
   const u=new URL(target);
   if(u.pathname==='/rest/v1/channels')return Response.json([{...channel,epg_id:binding}]);
-  if(u.pathname==='/api/schedule')return Response.json({channels:[{...channel,matchedEPG:false,programmes:[]}]});
+  if(u.pathname==='/api/schedule')return Response.json({channels:baselineHasStation?[{...channel,matchedEPG:false,programmes:[]}]:[]});
   if(u.hostname==='raw.githubusercontent.com')return Response.json({ok:true,
    updated_at:new Date(Date.now()-(old?36*3600000:0)).toISOString(),channels:[{
     ...channel,epg_id:'Station1.in',matchedEPG:true,programmes:[{
@@ -324,6 +324,8 @@ test('GitHub EPG requires a fresh saved station binding and strips private sourc
   const first=await run();assert.equal(first.channels[0].matchedEPG,true);
   assert.equal(first.channels[0].programmes[0].title,'Napoli vs Inter Milan');
   assert(!JSON.stringify(first).includes('never-publish-this'));
+  baselineHasStation=false;
+  assert.equal((await run()).channels[0].matchedEPG,true,'new saved station must not wait for the upstream catalog snapshot');
   binding='AnotherStation.in';assert.equal((await run()).channels[0].matchedEPG,false);
   binding='Station1.in';old=true;assert.equal((await run()).channels[0].matchedEPG,false);
  }finally{globalThis.fetch=original;}
