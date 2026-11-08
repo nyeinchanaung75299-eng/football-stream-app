@@ -328,3 +328,25 @@ test('GitHub EPG requires a fresh saved station binding and strips private sourc
   binding='Station1.in';old=true;assert.equal((await run()).channels[0].matchedEPG,false);
  }finally{globalThis.fetch=original;}
 });
+
+test('saved US2 NBC metadata is available even when the regional guide is cold',async()=>{
+ const original=globalThis.fetch;
+ let savedSource='US2',verifiedAt=new Date().toISOString();
+ const row={id:'verified-nbc',name:'NBC',epg_id:'NBC.East.Stream.us2',epg_source:'US2'};
+ globalThis.fetch=async target=>{
+  const u=new URL(target);
+  if(u.pathname==='/rest/v1/channels')return Response.json([{...row,epg_source:savedSource}]);
+  if(u.pathname==='/api/schedule')return Response.json({channels:[{...row,matchedEPG:false,programmes:[]}]});
+  if(u.hostname==='raw.githubusercontent.com')return Response.json({ok:true,updated_at:new Date().toISOString(),channels:[{
+   ...row,verified_at:verifiedAt,matchedEPG:true,programmes:[{start:Date.now(),title:'Live: Premier League Soccer'}],
+  }]});
+  throw Error('Regional feed cold');
+ };
+ const run=()=>worker.fetch(new Request('https://api.example/tv-schedule?date=2026-11-08'),env,{}).then(r=>r.json());
+ try{
+  assert.equal((await run()).channels[0].matchedEPG,true);
+  savedSource='UK1';assert.equal((await run()).channels[0].matchedEPG,false);
+  savedSource='US2';verifiedAt=new Date(Date.now()-36*3600000).toISOString();
+  assert.equal((await run()).channels[0].matchedEPG,false);
+ }finally{globalThis.fetch=original;}
+});
