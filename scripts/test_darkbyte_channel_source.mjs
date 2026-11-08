@@ -40,7 +40,7 @@ test('catalog pins one public revision, ignores private builder paths, and prese
  const fetcher=async target=>{
   calls.push(target);
   if(target.endsWith('/branches/main'))return Response.json({commit:{sha}});
-  if(target.includes('/git/trees/'))return Response.json({tree:[
+  if(target.includes('/git/trees/'))return Response.json({sha,tree:[
    {type:'blob',path:'provider_1/channels.json'}, {type:'blob',path:'provider_2/channels.json'},
    {type:'blob',path:'.github/workflows/provider_1.yml'},{type:'blob',path:'Provider/logo.png'},
   ]});
@@ -51,7 +51,7 @@ test('catalog pins one public revision, ignores private builder paths, and prese
  const result=await fetchDarkbyteCatalog({fetcher});assert.equal(result.entries.length,1);
  assert.equal(result.complete,false);assert.equal(result.failed_files,1);assert.equal(calls.length,4);
  calls.length=0;
- const same=await fetchDarkbyteCatalog({fetcher,revision:sha});assert.equal(same.unchanged,true);assert.equal(calls.length,1);
+ const same=await fetchDarkbyteCatalog({fetcher,revision:sha});assert.equal(same.unchanged,true);assert.equal(calls.length,2);
 });
 
 let handler;

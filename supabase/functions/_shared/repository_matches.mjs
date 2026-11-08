@@ -1,5 +1,6 @@
 // Published fixture data only. Never call tokenApi, license servers or builders.
-import {configuration,publicSourceUrl,readJson,sourceHash} from './darkbyte_catalog.mjs';
+import {configuration,publicSourceUrl,sourceHash} from './darkbyte_catalog.mjs';
+import {readRepositoryTrees} from './repository_trees.mjs';
 import {mpdIdentity,MPD_REPOSITORIES} from './repository_mpd.mjs';
 import {englishFootballName} from './football_names.mjs';
 const clean=x=>String(x??'').replace(/<[^>]*>/g,' ').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim();
@@ -112,7 +113,7 @@ export async function fetchRepositoryMatches({fetcher=fetch,revision=null}={}){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
  try{
   const opts={fetcher,signal:controller.signal,limit:3*1024*1024};
-  const trees=await Promise.all(MPD_REPOSITORIES.map(repo=>readJson('https://api.github.com/repos/'+repo+'/git/trees/HEAD?recursive=1',opts)));
+  const trees=await readRepositoryTrees(MPD_REPOSITORIES,opts);
   const revisions=trees.map(tree=>{if(tree.truncated||!Array.isArray(tree.tree)||!/^[a-f\d]{40}$/.test(tree.sha||''))throw Error('Incomplete repository tree');return tree.sha;});
   const digest=await sourceHash(revisions.join(':'));
   // Rebuild even unchanged snapshots so finished fixtures age out naturally.
@@ -127,7 +128,7 @@ export async function fetchRepositoryMatches({fetcher=fetch,revision=null}={}){
   let cursor=0;const parsed=new Array(tasks.length);
   await Promise.all(Array.from({length:5},async()=>{while(cursor<tasks.length){const i=cursor++,task=tasks[i];
    const response=await fetcher('https://raw.githubusercontent.com/'+task.repository+'/'+task.revision+'/'+task.source_file,{redirect:'error',signal:controller.signal});
-   if(!response.ok){await response.body?.cancel();throw Error('Repository fixture file unavailable');}
+   if(!response.ok){await response.body?.cancel();throw Object.assign(Error('Repository fixture file unavailable'),{code:'repository_file_http_'+response.status});}
    const bytes=new Uint8Array(await response.arrayBuffer());if(bytes.length>3*1024*1024)throw Error('Repository fixture file too large');
    const header=new TextEncoder().encode('blob '+bytes.length+'\0'),blob=new Uint8Array(header.length+bytes.length);blob.set(header);blob.set(bytes,header.length);
    const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-1',blob))].map(b=>b.toString(16).padStart(2,'0')).join('');
