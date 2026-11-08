@@ -18,5 +18,7 @@ class GradleDistributionTests(unittest.TestCase):
         self.assertIn("includeVersion('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '2.2.21')",result)
         self.assertNotIn('includeGroup',result)
         self.assertIn('project.buildscript.repositories',result)
+        self.assertIn('settings.dependencyResolutionManagement.repositories',result)
+        self.assertIn('RepositoriesMode.PREFER_PROJECT',result)
 
 if __name__ == '__main__': unittest.main()

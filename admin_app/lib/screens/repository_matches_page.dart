@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/connected_channel_source.dart';
 import '../widgets/match_destination_sheet.dart';
+import 'repository_channel_updates_page.dart';
 
 class RepositoryMatchesPage extends StatefulWidget {
   const RepositoryMatchesPage({super.key});
@@ -77,8 +78,8 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar:AppBar(title:const Text('Repository Matches'),actions:[
       IconButton(tooltip:'Sync matches',onPressed:working?null:()=>sync(),icon:const Icon(Icons.sync)),
-      PopupMenuButton<String>(onSelected:(_)=>sync(imports:true),itemBuilder:(_)=>[
-        const PopupMenuItem(value:'imports',child:Text('Check imported channel updates'))]),
+      PopupMenuButton<String>(onSelected:(_)=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>const RepositoryChannelUpdatesPage())),itemBuilder:(_)=>[
+        const PopupMenuItem(value:'imports',child:Text('Channel source updates'))]),
     ]),
     body:FutureBuilder<Map<String,dynamic>>(future:catalog,builder:(context,snapshot){
       if(snapshot.hasError)return Center(child:TextButton(onPressed:refresh,child:const Text('Retry repository catalog')));

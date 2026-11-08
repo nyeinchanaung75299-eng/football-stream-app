@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {parseRepositoryMatches,mergeRepositoryMatches,repositoryKickoff} from '../supabase/functions/_shared/repository_matches.mjs';
+import {publicRepositoryUpdate} from '../supabase/functions/_shared/repository_updates.mjs';
 const context={repository:'Roshavarma/cfy',source_file:'api/events.json'};
 const row={cat:'Football',eventInfo:{teamA:'Napoli',teamB:'Inter Milan',eventName:'Serie A',startTime:'2026/11/08 14:00:00 +0000',teamAFlag:'https://logos.example.org/napoli.png',teamBFlag:'https://logos.example.org/inter.png'},
  channels_data:[{title:'HD',link:'https://cdn.example.org/sport.mpd?token=a',api:'a'.repeat(32)+':'+ 'b'.repeat(32),type:1}]};
@@ -24,4 +25,8 @@ test('M3U match data ignores tokenApi/code and reads an explicit WIB date withou
 test('only a verified publisher HTML landing page is an empty export; a network error page is not a deletion',()=>{
  assert.deepEqual(parseRepositoryMatches('<!DOCTYPE HTML PUBLIC "test"><html></html>',{...context,publisher_blob_verified:true}),[]);
  assert.throws(()=>parseRepositoryMatches('<html>gateway error</html>',context),/Invalid published/);
+});
+test('Admin import activity returns change field names without source URLs or key values',()=>{
+ const row=publicRepositoryUpdate({repository:'test',metadata:{license_url:'https://private.example.org/license',changed_fields:['Key','https://private.example.org/source'],last_updated_at:'2026-11-08T00:00:00Z'},channel_lines:{id:'id',label:'HD',stream_url:'https://private.example.org/source',key_data:'private-key',channels:{name:'Sports'}}});
+ assert.deepEqual(row.changed_fields,['Key']);assert(!JSON.stringify(row).includes('private.example'));assert(!JSON.stringify(row).includes('private-key'));
 });

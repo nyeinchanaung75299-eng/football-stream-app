@@ -3,7 +3,7 @@ import {createClient} from "jsr:@supabase/supabase-js@2";
 import {fetchDarkbyteCatalog,sourceHash} from "../_shared/darkbyte_catalog.mjs";
 import {fetchLiveTvSports,sportsNeedsDrm} from "../_shared/livetv_sports.mjs";
 import {fetchRepositoryMatches} from '../_shared/repository_matches.mjs';
-import {repositoryChannelUpdates} from '../_shared/repository_updates.mjs';
+import {repositoryChannelUpdates,publicRepositoryUpdate} from '../_shared/repository_updates.mjs';
 
 const cors={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization,apikey,content-type,x-client-info"};
 const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{...cors,"Cache-Control":"no-store"}});
@@ -61,6 +61,14 @@ export async function channelSourceRequest(req:Request,client:any){
  try{
   if(action==="sync")return json(await synchronize(client,role==="admin",source));
   if(action==='state')return json({ok:true,state:await check(client.from('channel_source_state').select(stateColumns).eq('id',source).single())});
+  if(action==='updates'&&source==='repository-imports'){
+   const page=Math.max(0,Math.min(100,Number(body.page)||0));
+   const {data,error,count}=await client.from('channel_repository_imports')
+    .select('repository,metadata,channel_lines(id,label,configuration_status,channels(id,name,category))',{count:'exact'})
+    .order('fingerprint').range(page*100,page*100+99);
+   if(error)throw new Error('Import update history unavailable');
+   return json({ok:true,entries:(data||[]).map(publicRepositoryUpdate),total:count||0});
+  }
   if(action==="catalog"){
    const page=Math.max(0,Math.min(1000,Number(body.page)||0));
    let query=client.from("channel_source_catalog")

@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 String channelPlaybackDocument(Map<String,dynamic> line, String nonce) {
-  final config=jsonEncode({'url':line['stream_url'],'keyId':line['key_id'],'keyData':line['key_data'],'nonce':nonce})
+  final config=jsonEncode({'url':line['stream_url'],'type':line['stream_type'],'keyId':line['key_id'],'keyData':line['key_data'],'nonce':nonce})
       .replaceAll('<',r'\u003c').replaceAll('>',r'\u003e');
   return '''<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><style>
   body{margin:0;background:#07100c;color:#e2f6e8;font:15px system-ui}video{width:100%;max-height:70vh;background:#000}button{padding:14px;margin:12px;border:0;border-radius:12px;background:#a5d7a7;font-size:16px}p{padding:0 12px}</style>
@@ -17,13 +17,14 @@ String channelPlaybackDocument(Map<String,dynamic> line, String nonce) {
   document.getElementById('start').onclick=async()=>{document.getElementById('start').disabled=true;s.textContent='Checking video…';
    timer=setTimeout(()=>finish('failed'),25000);v.muted=true;v.requestVideoFrameCallback?.(frame);startTime=v.currentTime;
    try{
-    if(c.keyId||!v.canPlayType('application/vnd.apple.mpegurl')){
+    if(c.type==='flv'){finish('unsupported');return;}
+    if(c.type==='dash'||c.keyId||!v.canPlayType('application/vnd.apple.mpegurl')){
      if(!window.shaka){finish('unsupported');return;}shaka.polyfill.installAll();
      if(!shaka.Player.isBrowserSupported()){finish('unsupported');return;}
      player=new shaka.Player();await player.attach(v);
      if(c.keyId&&c.keyData){const keys={};keys[c.keyId]=c.keyData;player.configure({drm:{clearKeys:keys}});}
      player.addEventListener('error',e=>finish([6001,6002].includes(e.detail?.code)?'unsupported':'failed'));
-     await player.load(c.url);
+     await player.load(c.url,null,c.type==='dash'?'application/dash+xml':c.type==='hls'?'application/x-mpegurl':c.type==='mp4'?'video/mp4':undefined);
     }else v.src=c.url;
     await v.play();
     const interval=setInterval(()=>{if(done){clearInterval(interval);return;}const q=v.getVideoPlaybackQuality?.();

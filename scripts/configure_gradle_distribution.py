@@ -60,10 +60,13 @@ def kotlin_init(repository_uri):
   filter { includeVersion('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '2.2.21') }
  }
 }
-gradle.beforeProject { project ->
- addVerifiedCompiler(project.repositories)
- addVerifiedCompiler(project.buildscript.repositories)
+gradle.settingsEvaluated { settings ->
+ addVerifiedCompiler(settings.dependencyResolutionManagement.repositories)
+ if (settings.dependencyResolutionManagement.repositoriesMode.get() == org.gradle.api.initialization.resolve.RepositoriesMode.PREFER_PROJECT) {
+  gradle.beforeProject { project -> addVerifiedCompiler(project.repositories) }
+ }
 }
+gradle.beforeProject { project -> addVerifiedCompiler(project.buildscript.repositories) }
 ''' % repository_uri.replace("'", "\\'")
 
 def prefetch_kotlin():

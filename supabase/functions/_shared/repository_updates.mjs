@@ -2,6 +2,13 @@ import {fetchRepositoryMpds,mpdIdentity} from './repository_mpd.mjs';
 import {probeChannelMedia} from './channel_media_probe.mjs';
 import {sourceHash} from './darkbyte_catalog.mjs';
 const config=row=>JSON.stringify([row.stream_url,row.referer||'',row.origin||'',row.key_id||'',row.key_data||'']);
+export function publicRepositoryUpdate(row){
+ const line=row.channel_lines||{},channel=line.channels||{},meta=row.metadata||{};
+ return {repository:row.repository,line_id:line.id,label:line.label,channel_id:channel.id,name:channel.name,category:channel.category,
+  configuration_status:line.configuration_status,source_missing:meta.source_missing===true,configuration_pending:meta.configuration_pending===true,
+  last_source_check:meta.last_source_check||null,last_config_probe:meta.last_config_probe||null,last_updated_at:meta.last_updated_at||null,
+  changed_fields:Array.isArray(meta.changed_fields)?meta.changed_fields.filter(v=>['URL','Headers','Key ID','Key','Configuration'].includes(v)):[]};
+}
 // Re-check a bounded number of changed configurations each run. Unchanged
 // working lines do not download their manifests on every source refresh.
 export async function repositoryChannelUpdates(imports,{fetcher=fetch,maxProbes=12}={}){

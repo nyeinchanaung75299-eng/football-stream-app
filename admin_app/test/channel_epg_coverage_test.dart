@@ -16,5 +16,6 @@ void main(){
     expect(html.contains('</script><script>injected()'),isFalse);
     expect(html.contains('getVideoPlaybackQuality'),isTrue);
     expect(html.contains('v.videoWidth>0'),isTrue);
+    expect(html.contains("c.type==='dash'?'application/dash+xml'"),isTrue);
   });
 }
