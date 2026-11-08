@@ -37,6 +37,10 @@ FEEDS = [
                            ('PL1','PL'),('UK1','GB'),('US2','US')]]
 SOURCE_COUNTRIES = {'US2':'US','UK1':'GB','AU1':'AU','CZ1':'CZ','SK1':'SK','MY1':'MY',
                     'MX1':'MX','CA1':'CA','BR1':'BR','TVDANAS_BA':'BA'}
+# Existing operator bindings use these exact XMLTV station IDs already.
+# Publish their programme metadata too, so a cold regional API request does
+# not temporarily hide an already verified NBC/TNT channel.
+SAVED_FEEDS = {code:'share_'+code for code in ('US2','UK1','CZ1','SK1','MY1','BR1')}
 COUNTRY_LABELS = {'usa':'US','united states':'US','uk':'GB','united kingdom':'GB','australia':'AU',
                   'canada':'CA','malaysia':'MY','germany':'DE','italia':'IT','italy':'IT',
                   'portugal':'PT','spain':'ES','france':'FR','bangladesh':'BD','nepal':'NP',
@@ -227,6 +231,9 @@ def propose_binding(channel,index,official,aliases):
     selected=sorted(rows,key=lambda r:(-len(r['programmes']),r['feed'],r['id']))[0]
     return selected,'exact station identity'+(' and region' if country else '')
 
+def saved_feed(source):
+    return source[3:] if source.startswith('GH:') else SAVED_FEEDS.get(source)
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--catalog',required=True)
@@ -254,16 +261,17 @@ def main():
     by_id={(r['feed'],r['id']):r for r in all_rows};output=[];audit=[]
     for channel in channels:
         source=channel.get('epg_source') or '';identity=channel.get('epg_id')
-        if source.startswith('GH:'):
-            selected=by_id.get((source[3:],identity));reason='saved verified binding'
+        feed=saved_feed(source)
+        if feed:
+            selected=by_id.get((feed,identity));reason='saved verified binding'
         elif options.propose and not source and not identity:
             selected,reason=propose_binding(channel,index,official,aliases)
         else:continue
-        audit.append({'id':channel['id'],'name':channel['name'],'epg_source':'GH:'+selected['feed'] if selected else None,
+        audit.append({'id':channel['id'],'name':channel['name'],'epg_source':source or 'GH:'+selected['feed'] if selected else None,
                       'epg_id':selected['id'] if selected else None,'reason':reason})
         if selected:output.append({'id':channel['id'],'name':channel['name'],'category':channel.get('category',''),
                                   'matchedEPG':True,'region':selected['country'].lower(),'programmes':selected['programmes'],
-                                  'epg_id':selected['id'],'epg_source':'GH:'+selected['feed'],'verified_at':now.isoformat()})
+                                  'epg_id':selected['id'],'epg_source':source or 'GH:'+selected['feed'],'verified_at':now.isoformat()})
     # Retain a still-fresh saved binding during a temporary provider outage.
     # A changed station/source never inherits the previous station's guide.
     if options.previous and Path(options.previous).exists():

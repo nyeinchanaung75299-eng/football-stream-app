@@ -53,4 +53,10 @@ class ChannelEpgTests(unittest.TestCase):
         _,aliases=epg.official_directory(data)
         self.assertNotIn(('tencricket','IN'),aliases)
 
+    def test_saved_station_bindings_keep_their_original_source_and_exact_id(self):
+        self.assertEqual(epg.saved_feed('US2'),'share_US2')
+        self.assertEqual(epg.saved_feed('GH:share_US2'),'share_US2')
+        self.assertEqual(epg.saved_feed('UK1'),'share_UK1')
+        self.assertIsNone(epg.saved_feed('unknown'))
+
 if __name__=='__main__':unittest.main()
