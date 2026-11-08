@@ -1,5 +1,5 @@
 import unittest
-from configure_gradle_distribution import configure, KNOWN
+from configure_gradle_distribution import configure, KNOWN, kotlin_init
 
 class GradleDistributionTests(unittest.TestCase):
     def test_version_settings_and_checksum_are_preserved_or_verified(self):
@@ -13,5 +13,10 @@ class GradleDistributionTests(unittest.TestCase):
         result = configure('distributionUrl=https://services.gradle.org/distributions/gradle-9.3.1-all.zip\ndistributionSha256Sum=wrong\n')
         self.assertNotIn('wrong', result)
         with self.assertRaises(ValueError): configure('distributionUrl=unversioned')
+    def test_verified_maven_override_is_limited_to_the_exact_compiler_version(self):
+        result=kotlin_init('file:///tmp/verified-maven')
+        self.assertIn("includeVersion('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '2.2.21')",result)
+        self.assertNotIn('includeGroup',result)
+        self.assertIn('project.buildscript.repositories',result)
 
 if __name__ == '__main__': unittest.main()
