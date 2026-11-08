@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/function_gateway.dart';
 import '../services/channel_reachability.dart';
 import 'channel_reports_page.dart';
+import 'channel_playback_test_page.dart';
+import 'channels_page.dart';
 
 /// Admin-only TV channel diagnostics. Loads reachability metadata without
 /// touching private URLs, playback tokens, referers, or DRM credentials.
@@ -19,15 +22,20 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
   String selectedStatus = 'all';
   String? checkingChannel;
   bool scanningAll = false;
-  bool cancelScan = false;
+  Map<String,dynamic> job = const {};
+  Timer? jobTimer;
+  bool polling = false;
   int scanChecked = 0;
   int scanTotal = 0;
   int scanErrors = 0;
   late Future<List<Map<String, dynamic>>> rows = _load();
 
   @override
+  void initState() { super.initState(); _pollJob(); }
+
+  @override
   void dispose() {
-    cancelScan = true;
+    jobTimer?.cancel();
     search.dispose();
     super.dispose();
   }
@@ -45,7 +53,7 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
     }
     final channels = await allRows('channels', 'id,name,category,is_active');
     final lines = await allRows('channel_lines',
-        'id,channel_id,label,stream_type,is_active,configuration_status,health_status,health_latency_ms,health_http_status,last_checked_at');
+        'id,channel_id,label,stream_type,is_active,configuration_status,health_status,health_latency_ms,health_http_status,last_checked_at,manifest_status,segment_status,drm_status,playback_status,playback_device,last_playback_checked_at,health_detail');
     final byChannel = <String, List<Map<String, dynamic>>>{};
     for (final line in lines) {
       final id = line['channel_id']?.toString() ?? '';
@@ -79,49 +87,29 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
     if (mounted) setState(() => rows = _load());
   }
 
-  /// The All control performs an actual scan, not only a database filter.
-  /// Limit client concurrency to three channel requests, each using the
-  /// authenticated, server-side stream-health probe. Never expose URLs.
-  Future<void> _checkAll(List<Map<String, dynamic>> channels) async {
-    if (scanningAll || checkingChannel != null) return;
-    final targets = channels
-        .where((channel) => channel['is_active'] == true && (channel['line_count'] as int) > 0)
-        .toList(growable: false);
-    if (targets.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No active channel lines to check.')),
-      );
-      return;
+  bool get activeJob => ['running','paused'].contains(job['status']);
+  Future<void> _pollJob() async {
+    if (polling) return;
+    polling=true;
+    try {
+      final data=await FunctionGateway.invoke('stream-health',body:const {'action':'job_status'});
+      if (!mounted) return;
+      final next=Map<String,dynamic>.from((data as Map)['job'] as Map? ?? {});
+      final changed=next['checked']!=job['checked'];
+      setState(() {job=next;scanningAll=job['status']=='running';scanChecked=(job['checked'] as num?)?.toInt() ?? 0;
+        scanTotal=(job['total'] as num?)?.toInt() ?? 0;scanErrors=(job['failed'] as num?)?.toInt() ?? 0;});
+      if (changed) _refresh();
+    } catch (_) { /* Keep the last progress while the gateway reconnects. */ }
+    finally {
+      polling=false;
+      if (mounted && activeJob) {jobTimer?.cancel();jobTimer=Timer(const Duration(seconds:5),_pollJob);}
     }
-    setState(() {
-      scanningAll = true;
-      cancelScan = false;
-      scanTotal = targets.length;
-      scanChecked = 0;
-      scanErrors = 0;
-    });
-    var index = 0;
-    Future<void> worker() async {
-      while (!cancelScan && index < targets.length) {
-        final channel = targets[index++];
-        try {
-          await FunctionGateway.invoke(
-            'stream-health', body: {'channel_id': channel['id'].toString()},
-          ).timeout(const Duration(seconds: 40));
-        } catch (_) {
-          scanErrors++;
-        }
-        if (mounted) setState(() => scanChecked++);
-      }
-    }
-    await Future.wait(List.generate(3, (_) => worker()));
-    if (!mounted) return;
-    setState(() => scanningAll = false);
-    _refresh();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('Checked $scanChecked of $scanTotal channels'
-          '${scanErrors == 0 ? '' : ' • $scanErrors requests failed'}'),
-    ));
+  }
+  Future<void> _jobAction(String action,{String mode='all'}) async {
+    try {
+      await FunctionGateway.invoke('stream-health',body:{'action':action,'mode':mode,if(job['id']!=null)'job_id':job['id']});
+      await _pollJob();
+    } catch (_) { if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Could not update the scan. Refresh and retry.'))); }
   }
 
   Future<void> _check(Map<String, dynamic> channel) async {
@@ -181,7 +169,9 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
         final filtered = data.where((c) {
           final text = '${c['name']} ${c['category']}'.toLowerCase();
           return text.contains(search.text.trim().toLowerCase()) &&
-              (selectedStatus == 'all' || c['status'] == selectedStatus);
+              (selectedStatus == 'all' || c['status'] == selectedStatus ||
+               selectedStatus == 'drm' && (c['lines'] as List).any((line)=>line['configuration_status']=='requires_drm') ||
+               selectedStatus == 'verified' && (c['lines'] as List).any((line)=>line['playback_status']=='verified'));
         }).toList();
         return Column(children: [
           if (widget.embedded) Padding(
@@ -203,7 +193,7 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
           ),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-            child: Text('Reachable checks the first bytes only; video playback is not verified. Tap a channel for line results.'),
+            child: Text('HTTP, manifest and segment checks are separate from video decoding. Test Video verifies frames on this device.'),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 5, 14, 4),
@@ -211,22 +201,26 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 FilledButton.icon(
-                  onPressed: scanningAll ? null : () => _checkAll(data),
+                  onPressed: activeJob ? null : () => _jobAction('start_job'),
                   icon: const Icon(Icons.fact_check_rounded),
                   label: Text(scanningAll
                       ? 'CHECKING $scanChecked / $scanTotal'
                       : 'CHECK ALL ${data.length} CHANNELS'),
                 ),
-                if (scanningAll) ...[
-                  TextButton(onPressed: () => setState(() => cancelScan = true),
-                    child: Text(cancelScan ? 'STOPPING…' : 'STOP CHECKING')),
+                if (!activeJob) Wrap(spacing:8,children:[
+                  TextButton(onPressed:()=>_jobAction('start_job',mode:'failed'),child:const Text('Recheck Failed')),
+                  TextButton(onPressed:()=>_jobAction('start_job',mode:'unverified'),child:const Text('Check Unverified')),
+                ]),
+                if (activeJob) ...[
+                  Row(children:[TextButton(onPressed:()=>_jobAction(scanningAll?'pause_job':'resume_job'),child:Text(scanningAll?'Pause':'Resume')),
+                    TextButton(onPressed:()=>_jobAction('cancel_job'),child:const Text('Cancel scan'))]),
                   const SizedBox(height: 7),
                   LinearProgressIndicator(
                     value: scanTotal == 0 ? null : scanChecked / scanTotal,
                     minHeight: 5,
                   ),
                   const SizedBox(height: 4),
-                  Text('$scanChecked / $scanTotal checked • $scanErrors request errors',
+                  Text('$scanChecked / $scanTotal lines checked • $scanErrors failed • Continues when this page is closed',
                       style: Theme.of(context).textTheme.labelSmall),
                 ],
               ],
@@ -256,6 +250,8 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                   DropdownMenuItem(value: 'failed', child: Text('Failed')),
                   DropdownMenuItem(value: 'partial', child: Text('Partial')),
                   DropdownMenuItem(value: 'unknown', child: Text('Unknown')),
+                  DropdownMenuItem(value: 'drm', child: Text('Needs DRM')),
+                  DropdownMenuItem(value: 'verified', child: Text('Video verified')),
                 ],
                 onChanged: (value) {
                   if (value == null) return;
@@ -297,7 +293,15 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                           dense: true,
                           title: Text('${line['label'] ?? 'Line'} • ${line['stream_type'] ?? ''}'
                               '${line['configuration_status'] == 'requires_drm' ? ' • Needs DRM configuration' : ''}'),
-                          subtitle: Text('${assessChannelReachability([line]).status.toUpperCase()} • HTTP ${line['health_http_status'] ?? '—'} • ${line['health_latency_ms'] ?? '—'} ms\n${line['last_checked_at'] == null ? 'Not checked' : DateFormat('dd MMM, h:mm a').format(DateTime.parse(line['last_checked_at'].toString()).toLocal())}'),
+                          subtitle: Text('HTTP ${line['health_http_status'] ?? '—'} • Manifest ${line['manifest_status'] ?? 'not_tested'} • Segment ${line['segment_status'] ?? 'not_tested'}\nVideo ${line['playback_status'] ?? 'not_tested'}${line['playback_device']==null?'':' • ${line['playback_device']}'}\n${line['last_checked_at'] == null ? 'Not checked' : DateFormat('dd MMM, h:mm a').format(DateTime.parse(line['last_checked_at'].toString()).toLocal())}'),
+                          trailing: IconButton(tooltip:line['configuration_status']=='requires_drm'?'Configure DRM':'Test Video',
+                            icon:Icon(line['configuration_status']=='requires_drm'?Icons.settings:Icons.play_circle_outline),
+                            onPressed:()async{
+                              await Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>line['configuration_status']=='requires_drm'
+                                ? ChannelsPage(initialQuery:channel['name'].toString())
+                                : ChannelPlaybackTestPage(lineId:line['id'].toString(),channelId:id)));
+                              _refresh();
+                            }),
                         ),
                     ],
                     trailing: OutlinedButton(

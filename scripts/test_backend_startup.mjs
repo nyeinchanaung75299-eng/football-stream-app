@@ -225,7 +225,8 @@ test('manual and scheduled checks persist a stalled first byte as failed without
     ]) {
       let ts = readFileSync(new URL(`../supabase/functions/${file}/index.ts`, import.meta.url), 'utf8')
         .replace(/^import .*jsr:.*;\n/gm, '')
-        .replace('"../_shared/stream_probe.mjs"', JSON.stringify(sharedUrl.href));
+        .replace('"../_shared/stream_probe.mjs"', JSON.stringify(sharedUrl.href))
+        .replace(/(['"])(\.\.\/_shared\/[^'"]+\.mjs)\1/g,(_,quote,path)=>JSON.stringify(new URL('../supabase/functions/'+path.replace(/^\.\.\//,''),import.meta.url).href));
       ts += `\nexport { ${exportName} };`;
       const mod = await import('data:text/javascript;base64,' + Buffer.from(stripTypeScriptTypes(ts)).toString('base64'));
       await mod[exportName](client, line);

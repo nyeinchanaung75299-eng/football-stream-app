@@ -76,7 +76,7 @@ export async function uniqueMpdEntries(entries) {
  for(const row of byUrl.values())output.push({...row,fingerprint:await sourceHash(row.identity)});
  return output;
 }
-export async function fetchRepositoryMpds({fetcher=fetch}={}) {
+export async function fetchRepositoryMpds({fetcher=fetch,deduplicate=true}={}) {
  async function read(url,max=3*1024*1024) {
   const response=await fetcher(url,{redirect:'error',signal:AbortSignal.timeout(15000),headers:{Accept:'application/json','User-Agent':'NCA-Published-MPD-Import/1.0'}});
   if(!response.ok)throw new Error('Published repository unavailable: HTTP '+response.status);
@@ -107,5 +107,5 @@ export async function fetchRepositoryMpds({fetcher=fetch}={}) {
   }));
  }
  entries.sort((a,b)=>MPD_REPOSITORIES.indexOf(a.repository)-MPD_REPOSITORIES.indexOf(b.repository)||a.source_file.localeCompare(b.source_file)||a.name.localeCompare(b.name));
- return {revisions,files,raw_count:entries.length,entries:await uniqueMpdEntries(entries)};
+ return {revisions,files,raw_count:entries.length,entries:deduplicate?await uniqueMpdEntries(entries):entries};
 }

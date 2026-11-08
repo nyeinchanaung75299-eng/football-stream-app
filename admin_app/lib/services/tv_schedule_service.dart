@@ -55,6 +55,7 @@ class TvScheduleChannel {
     required this.hasGuide,
     required this.region,
     required this.programmes,
+    this.epgId = '', this.epgSource = '',
   });
 
   final String id;
@@ -64,6 +65,13 @@ class TvScheduleChannel {
   final bool hasGuide;
   final String region;
   final List<TvScheduleProgramme> programmes;
+  final String epgId, epgSource;
+  String get coverageStatus => coverageAt(DateTime.now().toUtc());
+  String coverageAt(DateTime now) {
+    if (epgId.isEmpty || epgSource.isEmpty) return 'not_linked';
+    if (hasGuide && programmes.any((p)=>(p.end ?? p.start.add(const Duration(hours:3))).isAfter(now))) return 'ready';
+    return 'awaiting_guide';
+  }
 
   factory TvScheduleChannel.fromJson(Map<String, dynamic> json) {
     final rows = json['programmes'];
@@ -74,6 +82,7 @@ class TvScheduleChannel {
       category: _text(json['category']),
       imageUrl: imageUrl.isEmpty ? _text(json['image']) : imageUrl,
       hasGuide: json['matchedEPG'] == true,
+      epgId: _text(json['epg_id']), epgSource: _text(json['epg_source']),
       region: _text(json['region']),
       programmes: rows is List
           ? rows

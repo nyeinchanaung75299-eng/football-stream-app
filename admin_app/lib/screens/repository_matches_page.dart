@@ -1,0 +1,119 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/connected_channel_source.dart';
+import '../widgets/match_destination_sheet.dart';
+
+class RepositoryMatchesPage extends StatefulWidget {
+  const RepositoryMatchesPage({super.key});
+  @override
+  State<RepositoryMatchesPage> createState() => _RepositoryMatchesPageState();
+}
+class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
+  final source = ConnectedChannelSource(source: 'repository');
+  final search = TextEditingController();
+  Timer? debounce;
+  int page = 0;
+  bool working = false;
+  late Future<Map<String, dynamic>> catalog = load();
+  Future<Map<String, dynamic>> load() => source.request('catalog', {'query': search.text.trim(), 'page': page});
+  void refresh() { if (mounted) setState(() => catalog = load()); }
+  @override
+  void dispose() { debounce?.cancel(); search.dispose(); super.dispose(); }
+  void notice(String value) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value))); }
+  Future<void> sync({bool imports = false}) async {
+    if (working) return;
+    setState(() => working = true);
+    try {
+      final result = await (imports ? ConnectedChannelSource(source: 'repository-imports') : source).request('sync');
+      if (imports) {
+        notice('Updated ${result['updated_lines'] ?? 0} lines • Checked ${result['probed'] ?? 0} changed configurations • Repaired ${result['repaired'] ?? 0}');
+      } else { refresh(); notice('Repository matches updated.'); }
+    } catch (_) { notice('Source check unavailable. The last complete catalog was kept.'); }
+    finally { if (mounted) setState(() => working = false); }
+  }
+  Future<void> add(Map row, Map line) async {
+    try {
+      final matches = await Supabase.instance.client.from('matches').select('id,home_team,away_team,league,kickoff_at')
+          .eq('is_active',true).eq('is_finished',false).isFilter('deleted_at',null)
+          .gte('kickoff_at',DateTime.now().toUtc().subtract(const Duration(hours:12)).toIso8601String())
+          .order('kickoff_at').limit(300).timeout(const Duration(seconds:15));
+      if (!mounted) return;
+      if (matches.isEmpty) { notice('Add an NCA match in Live Management first.'); return; }
+      final match = await showModalBottomSheet<String>(context: context,isScrollControlled:true,showDragHandle:true,
+        builder: (_) => MatchDestinationSheet(matches: List<Map<String,dynamic>>.from(matches)));
+      if (match == null || !mounted) return;
+      await source.request('add_match',{'entry_id':row['id'],'source_line_id':line['id'],'match_id':match});
+      notice('Line added. Repository updates and removals are followed.');
+    } catch (error) { notice(error is StateError ? error.message.toString() : 'Could not add this line.'); }
+  }
+  Future<void> details(Map row) async {
+    try {
+      final data = await source.request('details',{'entry_id':row['id']});
+      if (!mounted) return;
+      final lines = ((data['entry'] as Map)['streams'] as List? ?? []).whereType<Map>().toList();
+      await showModalBottomSheet<void>(context:context,showDragHandle:true,isScrollControlled:true,
+        builder: (sheet) => SafeArea(child: SingleChildScrollView(child: Padding(padding:const EdgeInsets.fromLTRB(16,0,16,20),
+          child: Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            Text(row['name'].toString(),style:Theme.of(sheet).textTheme.titleLarge),
+            const SizedBox(height:8),
+            for (final line in lines) ListTile(contentPadding:EdgeInsets.zero,
+              title:Text(line['label']?.toString() ?? 'Line'),
+              subtitle:Text(line['configuration_status']=='requires_drm' ? 'Needs DRM configuration' : '${line['stream_type']?.toString().toUpperCase()} • Video not yet verified'),
+              trailing:IconButton(tooltip:'Add to Match',icon:const Icon(Icons.playlist_add),
+                onPressed:line['configuration_status']=='requires_drm' ? null : () { Navigator.pop(sheet); add(row,line); })),
+            if (lines.isEmpty) const Text('The source has not published a native video line for this match.'),
+          ])))));
+    } catch (_) { notice('Could not load match lines.'); }
+  }
+  Widget team(Map meta, String side) => Expanded(child:Column(children:[
+    SizedBox(width:52,height:52,child:meta['${side}_logo_url'] is String
+      ? Image.network(meta['${side}_logo_url'],fit:BoxFit.contain,errorBuilder:(_,__,___)=>const Icon(Icons.shield_outlined,size:38))
+      : const Icon(Icons.shield_outlined,size:38)),
+    const SizedBox(height:6),Text(meta['${side}_team']?.toString() ?? '',textAlign:TextAlign.center,maxLines:2,overflow:TextOverflow.ellipsis),
+  ]));
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar:AppBar(title:const Text('Repository Matches'),actions:[
+      IconButton(tooltip:'Sync matches',onPressed:working?null:()=>sync(),icon:const Icon(Icons.sync)),
+      PopupMenuButton<String>(onSelected:(_)=>sync(imports:true),itemBuilder:(_)=>[
+        const PopupMenuItem(value:'imports',child:Text('Check imported channel updates'))]),
+    ]),
+    body:FutureBuilder<Map<String,dynamic>>(future:catalog,builder:(context,snapshot){
+      if(snapshot.hasError)return Center(child:TextButton(onPressed:refresh,child:const Text('Retry repository catalog')));
+      if(!snapshot.hasData)return const Center(child:CircularProgressIndicator());
+      final data=snapshot.data!,state=data['state'] as Map;
+      final rows=(data['entries'] as List).whereType<Map>().toList();
+      rows.sort((a,b)=>((a['event_meta'] as Map?)?['kickoff_at']?.toString() ?? '9999').compareTo((b['event_meta'] as Map?)?['kickoff_at']?.toString() ?? '9999'));
+      return Column(children:[
+        SwitchListTile.adaptive(dense:true,title:const Text('Auto-sync every 5 minutes',style:TextStyle(fontSize:12)),
+          subtitle:Text('${state['status']} • ${data['total']} football matches',style:const TextStyle(fontSize:11)),
+          value:state['enabled']==true,onChanged:(value)async{await source.request('settings',{'enabled':value});refresh();}),
+        Padding(padding:const EdgeInsets.symmetric(horizontal:12),child:TextField(controller:search,
+          decoration:const InputDecoration(hintText:'Search teams or leagues',prefixIcon:Icon(Icons.search),isDense:true),
+          onChanged:(_){debounce?.cancel();debounce=Timer(const Duration(milliseconds:300),(){page=0;refresh();});})),
+        if(working)const LinearProgressIndicator(),
+        Expanded(child:RefreshIndicator(onRefresh:()async{refresh();await catalog;},child:ListView.builder(
+          itemCount:rows.isEmpty?1:rows.length,itemBuilder:(_,i){
+            if(rows.isEmpty)return const Padding(padding:EdgeInsets.all(24),child:Text('No published football fixtures. Try Sync matches.'));
+            final row=rows[i],meta=Map<String,dynamic>.from(row['event_meta'] as Map? ?? {});
+            final kickoff=DateTime.tryParse(meta['kickoff_at']?.toString() ?? '');
+            return Card(margin:const EdgeInsets.fromLTRB(12,8,12,2),child:InkWell(onTap:()=>details(row),child:Padding(
+              padding:const EdgeInsets.all(12),child:Column(children:[
+                Text(meta['league']?.toString() ?? 'Football',style:Theme.of(context).textTheme.labelMedium),
+                const SizedBox(height:12),Row(children:[team(meta,'home'),const Padding(padding:EdgeInsets.symmetric(horizontal:10),child:Text('VS')),team(meta,'away')]),
+                const SizedBox(height:10),Text(kickoff==null?'Kickoff time not provided':
+                  '${DateFormat('dd MMM • h:mm a').format(kickoff.toUtc().add(const Duration(hours:6,minutes:30)))} MMT',style:const TextStyle(fontSize:12)),
+                TextButton.icon(onPressed:()=>details(row),icon:const Icon(Icons.playlist_play),label:Text('${row['stream_count']} unique lines')),
+              ]))));
+          }))),
+        Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[
+          IconButton(onPressed:page>0?(){page--;refresh();}:null,icon:const Icon(Icons.chevron_left)),
+          Text('${page*100+1}–${page*100+rows.length} / ${data['total']}',style:const TextStyle(fontSize:12)),
+          IconButton(onPressed:(page+1)*100<(data['total'] as num)?(){page++;refresh();}:null,icon:const Icon(Icons.chevron_right)),
+        ]),
+      ]);
+    }),
+  );
+}

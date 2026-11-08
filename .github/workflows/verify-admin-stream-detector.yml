@@ -21,6 +21,12 @@ on:
       - 'scripts/test_livetv_sports.mjs'
       - 'supabase/functions/_shared/repository_mpd.mjs'
       - 'scripts/test_repository_mpd.mjs'
+      - 'supabase/functions/_shared/repository_matches.mjs'
+      - 'supabase/functions/_shared/repository_updates.mjs'
+      - 'supabase/functions/_shared/channel_media_probe.mjs'
+      - 'supabase/functions/stream-health/**'
+      - 'scripts/test_repository_matches.mjs'
+      - 'scripts/test_channel_media_probe.mjs'
       - '.github/workflows/verify-admin-stream-detector.yml'
   workflow_dispatch:
 
@@ -47,6 +53,7 @@ jobs:
           node --test scripts/test_darkbyte_channel_source.mjs
           node --test scripts/test_livetv_sports.mjs
           node --test scripts/test_repository_mpd.mjs
+          node --test scripts/test_repository_matches.mjs scripts/test_channel_media_probe.mjs
           node --test scripts/test_epg_host_match.mjs
       - name: Set up Java
         uses: actions/setup-java@v4

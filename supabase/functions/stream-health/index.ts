@@ -1,6 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
+import { probeChannelMedia } from "../_shared/channel_media_probe.mjs";
+import { sourceHash } from "../_shared/darkbyte_catalog.mjs";
 
 type LinkRow = {
   id: string;
@@ -18,6 +20,9 @@ type ChannelLineRow = {
   stream_url: string | null;
   referer: string | null;
   origin: string | null;
+  stream_type?: string;
+  key_id?: string | null;
+  key_data?: string | null;
 };
 
 Deno.serve(async (req) => {
@@ -35,10 +40,18 @@ Deno.serve(async (req) => {
       return json({ error: "Supabase server credentials are missing." }, 500);
     }
 
-    const cronAuthorized =
+    let cronAuthorized =
       !!cronSecret &&
       req.headers.get("x-cron-secret") === cronSecret;
 
+    const admin = createClient(supabaseUrl, serviceRole);
+    const pulse = req.headers.get('x-nca-channel-source-key');
+    let healthWorker = false;
+    if (pulse && /^[a-f\d]{64}$/i.test(pulse)) {
+      const {data: auth} = await admin.from('channel_source_sync_auth').select('secret_sha256').eq('id',1).maybeSingle();
+      healthWorker = auth?.secret_sha256 === await sourceHash(pulse);
+      cronAuthorized ||= healthWorker;
+    }
     let adminAuthorized = false;
 
     if (!cronAuthorized && anonKey) {
@@ -81,14 +94,72 @@ Deno.serve(async (req) => {
     const channelId = body?.channel_id?.toString();
     const checkAll = body?.all === true || cronAuthorized;
 
-    const admin = createClient(supabaseUrl, serviceRole);
+    const rpc = async (name: string, fields: Record<string,unknown> = {}) => {
+      const {data,error} = await admin.rpc(name,fields); if(error)throw new Error('Health operation failed');return data;
+    };
+    const action = String(body.action || '');
+    if (healthWorker && action !== 'work') return json({error:'Worker access only'},403);
+    if (action === 'work') {
+      if (!cronAuthorized) return json({error:'Worker authorization required'},403);
+      const items = await rpc('claim_channel_health_items',{p_limit:24}) || [];
+      let cursor=0;
+      await Promise.all(Array.from({length:6},async()=>{while(cursor<items.length){
+        const item=items[cursor++];
+        const result=item.configuration ? await probeChannelMedia(item.configuration) : {
+          health_status:'unknown',http_status:0,latency_ms:0,manifest_status:'not_tested',segment_status:'not_tested',drm_status:'unknown',detail:'Line removed',
+        };
+        await rpc('finish_channel_health_item',{p_item:item.item_id,p_hash:item.config_hash,p_result:result});
+      }}));
+      const job=await rpc('channel_health_job_status');
+      if(items.length && job.status==='running'){
+        const next=fetch(supabaseUrl+'/functions/v1/stream-health',{method:'POST',
+          headers:{'Content-Type':'application/json',...(pulse?{'x-nca-channel-source-key':pulse}:{'x-cron-secret':cronSecret||''})},
+          body:JSON.stringify({action:'work'}),signal:AbortSignal.timeout(55000),
+        }).then(response=>response.body?.cancel()).catch(()=>{});
+        EdgeRuntime.waitUntil(next);
+      }
+      return json({ok:true,processed:items.length,job});
+    }
+    if (action) {
+      if(!adminAuthorized)return json({error:'Admin access required'},403);
+      if(action==='start_job'){
+        await rpc('start_channel_health_job',{p_mode:String(body.mode||'all')});
+        return json({ok:true,job:await rpc('channel_health_job_status')});
+      }
+      if(action==='job_status')return json({ok:true,job:await rpc('channel_health_job_status')});
+      if(['pause_job','resume_job','cancel_job'].includes(action)){
+        const status=action==='pause_job'?'paused':action==='resume_job'?'running':'cancelled';
+        const {error}=await admin.from('channel_health_jobs').update({status,updated_at:new Date().toISOString()})
+          .eq('id',String(body.job_id)).in('status',['running','paused']);
+        if(error)throw new Error('Could not change scan state');
+        if(status==='running')await rpc('request_channel_health_worker');
+        return json({ok:true,job:await rpc('channel_health_job_status')});
+      }
+      if(action==='preview' || action==='record_playback'){
+        const id=String(body.channel_line_id||'');
+        if(!/^[a-f\d-]{36}$/i.test(id))return json({error:'Invalid channel line'},400);
+        const {data:line,error}=await admin.from('channel_lines').select('id,label,stream_url,stream_type,referer,origin,key_id,key_data').eq('id',id).single();
+        if(error||!line)return json({error:'Channel line unavailable'},404);
+        const version=await rpc('channel_line_config_hash',{p_id:id});
+        if(action==='preview')return json({ok:true,line,version});
+        if(body.version!==version)return json({error:'Source changed; test the current line'},409);
+        const status=String(body.status);
+        if(!['verified','failed','unsupported'].includes(status))return json({error:'Invalid playback result'},400);
+        if(status==='verified' && !(Number(body.frames)>0 && Number(body.width)>0 && Number(body.height)>0 && Number(body.advanced)>0.2))
+          return json({error:'Decoded video frames required'},400);
+        const {error:updateError}=await admin.from('channel_lines').update({playback_status:status,playback_device:String(body.device||'Admin').slice(0,30),last_playback_checked_at:new Date().toISOString()}).eq('id',id);
+        if(updateError)throw new Error('Could not store playback result');
+        return json({ok:true});
+      }
+      return json({error:'Unknown health action'},400);
+    }
 
     // Channel-line checks are explicitly scoped to one private channel or
     // line. They never return a stream URL, referer, key, or playback token.
     if (channelLineId || channelId) {
       let channelQuery = admin
         .from("channel_lines")
-        .select("id,channel_id,stream_url,referer,origin")
+        .select("id,channel_id,stream_url,stream_type,referer,origin,key_id,key_data")
         .eq("is_active", true)
         .order("sort_order", { ascending: true })
         .limit(channelLineId ? 1 : 30);
