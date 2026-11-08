@@ -81,9 +81,13 @@ async function downloadImage(source) {
 export async function GET(request) {
   const query = new URL(request.url).searchParams;
   const id = query.get('id');
+  const team = query.get('team');
   try {
     let source;
-    if (id && /^[0-9a-fA-F-]{36}$/.test(id)) {
+    if (team !== null) {
+      if (!/^\d{1,12}$/.test(team)) return reply('Team image unavailable', 404);
+      source = new URL('https://img.sofascore.com/api/v1/team/' + team + '/image');
+    } else if (id && /^[0-9a-fA-F-]{36}$/.test(id)) {
       source = await savedChannelImage(request, id);
     } else if (!id && query.has('url')) {
       // Keep previously published URLs working without an open URL proxy.
