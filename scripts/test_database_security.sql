@@ -514,7 +514,7 @@ reset role;
 set local role service_role;
 do $$
 declare verified uuid; alias uuid; keep_line uuid; duplicate uuid; other_line uuid; payload jsonb;
- entry text:='repo:match:9999999999999999999999999999';
+ entry text:='repo:match:'||repeat('d',28);
 begin
  insert into public.channels(name,category,epg_id,epg_source) values('Verified EPG station','Football','verified.us','US2') returning id into verified;
  insert into public.channels(name,category) values('Completely different name','Football') returning id into alias;

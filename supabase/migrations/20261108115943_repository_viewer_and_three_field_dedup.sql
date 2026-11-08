@@ -53,7 +53,7 @@ begin
  old_lookup:=$old$where channel_id=l.channel_id and
      (stream_url,referer,origin,key_id,key_data) is not distinct from
      (config->>'stream_url',config->>'referer',config->>'origin',config->>'key_id',config->>'key_data')
-     and (stream_type=config->>'stream_type' or stream_type='auto' or config->>'stream_type='auto')$old$;
+     and (stream_type=config->>'stream_type' or stream_type='auto' or config->>'stream_type'='auto')$old$;
  if strpos(definition,old_lookup)=0 then raise exception 'Shared MPD refresh identity hook unavailable'; end if;
  definition:=replace(definition,old_lookup,
   'where public.same_channel_mpd_configuration(id,config) or ('||substr(old_lookup,7)||')');

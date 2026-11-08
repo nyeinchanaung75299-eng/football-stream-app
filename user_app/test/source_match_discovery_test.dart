@@ -62,7 +62,7 @@ void main() {
         [anchor],
       );
     });
-    for (final source in ['yyzb', 'arena']) {
+    for (final source in ['yyzb']) {
       test('$source never revives roomless rows from an old mirror or cache', () {
         final rows = <SourceMatch>[
           {'source_id':'score-only','page_url':'https://example.org/match','anchors':[]},
@@ -72,6 +72,12 @@ void main() {
           .map((row)=>row['source_id']), ['room']);
       });
     }
+
+    test('Arena keeps published football fixtures before stream servers are available', () {
+      final row=<String,dynamic>{'source_id':'fixture','anchors':[]};
+      expect(filterSourceMatches([row],todayOnly:false,source:'arena'),[row]);
+      expect(sourceMatchAnchors(row,'arena'),isEmpty);
+    });
 
     for (final source in ['fawa', 'cola']) {
       test('$source retains its existing page and room fallback', () {
