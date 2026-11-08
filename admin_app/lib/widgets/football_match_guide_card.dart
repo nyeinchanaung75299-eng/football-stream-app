@@ -19,11 +19,13 @@ class FootballGuideAiring {
     required this.when,
     this.region = '',
     this.source = 'EPG schedule',
+    this.title = '',
   });
   final String channel;
   final DateTime when;
   final String region;
   final String source;
+  final String title;
 }
 
 class FootballMatchGuideCard extends StatelessWidget {
@@ -34,6 +36,7 @@ class FootballMatchGuideCard extends StatelessWidget {
     required this.kickoff,
     required this.live,
     this.airings = const [],
+    this.possibleAirings = const [],
   });
 
   final String league;
@@ -41,6 +44,7 @@ class FootballMatchGuideCard extends StatelessWidget {
   final DateTime? kickoff;
   final bool live;
   final List<FootballGuideAiring> airings;
+  final List<FootballGuideAiring> possibleAirings;
 
   String _clock(DateTime date) =>
       DateFormat('EEE, MMM d • hh:mm a', 'en_US').format(
@@ -94,7 +98,7 @@ class FootballMatchGuideCard extends StatelessWidget {
         const SizedBox(height: 15),
         const Divider(color: FootballGuideColors.border, height: 1),
         const SizedBox(height: 12),
-        const Text('🔴  LIVE ONLY • YOUR CHANNELS', style: TextStyle(
+        const Text('EPG VERIFIED • YOUR CHANNELS', style: TextStyle(
           color: FootballGuideColors.muted, fontWeight: FontWeight.w900,
           fontSize: 11, letterSpacing: 1.1,
         )),
@@ -129,7 +133,7 @@ class FootballMatchGuideCard extends StatelessWidget {
                 )),
                 const SizedBox(height: 4),
                 Text(
-                  'LIVE • ${airing.source} • ${_clock(airing.when)} MMT'
+                  '${airing.source} • ${_clock(airing.when)} MMT'
                   '${airing.region.isEmpty ? '' : ' • ${airing.region.toUpperCase()}'}',
                   style: const TextStyle(
                     color: Color(0xFFA9D7D2), fontSize: 12, height: 1.5,
@@ -138,6 +142,27 @@ class FootballMatchGuideCard extends StatelessWidget {
               ],
             ),
           ),
+        if (possibleAirings.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          const Text('POSSIBLE FOOTBALL AIRINGS • NOT VERIFIED',
+            style: TextStyle(color: FootballGuideColors.muted,
+              fontWeight: FontWeight.w900, fontSize: 11)),
+          const SizedBox(height: 5),
+          const Text(
+            'Guide shows football near kickoff but does not name both teams. '
+            'Check the channel before treating it as live coverage.',
+            style: TextStyle(color: FootballGuideColors.muted, fontSize: 11)),
+          const SizedBox(height: 8),
+          for (final airing in possibleAirings)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                '📺 ${airing.channel} • ${airing.title} • ${_clock(airing.when)} MMT',
+                style: const TextStyle(
+                  color: FootballGuideColors.muted, fontSize: 12),
+              ),
+            ),
+        ],
       ],
     ),
   );
