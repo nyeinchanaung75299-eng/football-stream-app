@@ -720,7 +720,10 @@ async function handleTvSchedule(request, env, incoming, ctx) {
     const enrichment = loadExtendedTvGuide(date, days);
     await Promise.all([
       Promise.race([enrichment.settled, new Promise(resolve => setTimeout(resolve, cached ? 100 : 1100))]),
-      cached ? Promise.resolve() : Promise.race([enrichment.essential, new Promise(resolve => setTimeout(resolve, 2600))]),
+      cached ? Promise.resolve() : Promise.race([Promise.all([
+        enrichment.essential,
+        enrichment.canadian,
+      ]), new Promise(resolve => setTimeout(resolve, 2600))]),
     ]);
     const catalogById = new Map((catalog || []).map(row => [row.id, row]));
     const verifiedPublished = publishedEpg && catalog !== null ? {
@@ -805,8 +808,13 @@ function loadExtendedTvGuide(date, days) {
       return completed[index] = { source, data: null, ok: false };
     }
   });
-  return {settled:Promise.all(jobs), essential:jobs[EXTENDED_TV_GUIDES.findIndex(row => row.source==='US2')],
-    snapshot:()=>completed.filter(Boolean)};
+  return {
+    settled: Promise.all(jobs),
+    essential: jobs[EXTENDED_TV_GUIDES.findIndex(row => row.source === 'US2')],
+    // TSN and other Canadian channels must get an early guide chance too.
+    canadian: jobs[EXTENDED_TV_GUIDES.findIndex(row => row.source === 'IC_CA')],
+    snapshot: () => completed.filter(Boolean),
+  };
 }
 
 function mergeTvScheduleSources(base, supplements) {
@@ -909,6 +917,10 @@ function sanitizeTvSchedule(raw, date, days) {
         matchedEPG: row?.matchedEPG === true,
         guide_candidate: row?.guide_candidate === true,
         region: text(row?.region, 40),
+        // Keep the saved EPG binding separate from programme availability.
+        // Admin must distinguish "linked, guide pending" from "not linked".
+        epg_id: text(row?.epg_id, 240),
+        epg_source: text(row?.epg_source, 100),
         programmes: programmes(row?.programmes),
       }))
       .filter((row) => row.id && row.name) : [],

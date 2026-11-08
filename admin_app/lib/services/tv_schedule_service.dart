@@ -216,6 +216,57 @@ class TvScheduleGuide {
     return airings;
   }
 
+  /// Generic football listings with no verified team names are potential
+  /// coverage only, not match confirmations. Keep these separate from
+  /// [airingsForMatch] so Admin never promotes a generic EPG slot to LIVE.
+  List<TvScheduleAiring> possibleAiringsForMatch(Map<String, dynamic> match) {
+    final kickoff = DateTime.tryParse(_text(match['kickoff_at']))?.toUtc();
+    if (kickoff == null) return const [];
+    final home = _teamAliases(_text(match['home_team']));
+    final away = _teamAliases(_text(match['away_team']));
+    if (home.isEmpty || away.isEmpty) return const [];
+
+    final possibles = <TvScheduleAiring>[];
+    for (final channel in channels) {
+      if (!channel.hasGuide) continue;
+      TvScheduleProgramme? best;
+      for (final programme in channel.programmes) {
+        final gap = programme.start.difference(kickoff).inMinutes;
+        if (gap < -90 || gap > 75) continue;
+        final end = programme.end ??
+            programme.start.add(const Duration(hours: 3));
+        if (end.isBefore(kickoff)) continue;
+        final body = _normalise(
+          '${programme.title} ${programme.subtitle} ${programme.description}',
+        );
+        if (body.isEmpty || programme.ambiguous ||
+            _isReplay(body) || _isNonFootball(body)) continue;
+        // A slot that names another fixture must never be suggested.
+        if (RegExp(r'\b(?:vs|v|versus)\b').hasMatch(body)) continue;
+        if (!_isGenericFootballSlot(body)) continue;
+        if (_containsAlias(body, home) && _containsAlias(body, away)) {
+          continue; // Already in the verified list.
+        }
+        if (best == null ||
+            programme.start.difference(kickoff).abs() <
+                best.start.difference(kickoff).abs()) {
+          best = programme;
+        }
+      }
+      if (best != null) {
+        possibles.add(TvScheduleAiring(
+          channel: channel.name, when: best.start,
+          title: best.title, region: channel.region,
+        ));
+      }
+    }
+    possibles.sort((a, b) {
+      final byTime = a.when.compareTo(b.when);
+      return byTime != 0 ? byTime : a.channel.compareTo(b.channel);
+    });
+    return possibles;
+  }
+
   /// Returns only current or upcoming team-v-team programmes.
   ///
   /// Replays, classics and recap shows are hidden so My Channels and TV
@@ -456,6 +507,13 @@ bool _looksLikeMatch(String body) => RegExp(
     (RegExp(r'\blive\b').hasMatch(body) &&
      RegExp(r'\b(?:soccer|premier league|la liga|bundesliga|serie a|ligue 1|champions league)\b').hasMatch(body) &&
      RegExp(r'\b(?:host|hosts|hosting|face|faces|take on|takes on)\b').hasMatch(body));
+
+// Generic programme names are not evidence of a specific fixture.
+// Keep this list deliberately narrow and label every result as unverified.
+bool _isGenericFootballSlot(String body) => RegExp(
+  r'\b(?:soccer|la liga|laliga|primera division|serie a|bundesliga|ligue 1|'
+  r'premier league|uefa champions league|football)\b',
+).hasMatch(body);
 
 bool _isReplay(String body) => RegExp(
       r'\b(?:replay|repeat|re run|rebroadcast|recorded|highlights?|mini match|full impact|classic|recap|review|magazine|preview|match of the day|z zaznam|zaznam|aufzeichnung|ripetizione|rediffusion|resume|resumen|souhrn)\b',

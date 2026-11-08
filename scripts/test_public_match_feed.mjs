@@ -44,6 +44,34 @@ test('My Channels guide retains imported channels missing from the older upstrea
  }finally{globalThis.fetch=original;}
 });
 
+test('TV guide preserves saved EPG IDs even when regional programmes are pending', async () => {
+ const original = globalThis.fetch;
+ globalThis.fetch = async target => {
+  const u = new URL(target);
+  if (u.pathname === '/rest/v1/channels') return Response.json([
+   {id:'tsn3',name:'CA - TSN 3',category:'TSN',
+     epg_id:'TSN3.ca',epg_source:'IC_CA'},
+   {id:'fancode',name:'FanCode 1 (NITRO)',category:'FanCode',
+     epg_id:null,epg_source:null},
+  ]);
+  if (u.pathname === '/api/schedule') return Response.json({
+   ok:true,channels:[]});
+  return Response.json({ok:true,channels:[]});
+ };
+ try {
+  const response = await worker.fetch(new Request(
+    'https://api.example/tv-schedule?date=2026-11-09'),env,{});
+  assert.equal(response.status,200);
+  const {channels} = await response.json();
+  assert.equal(channels.find(c=>c.id==='tsn3').epg_id,'TSN3.ca');
+  assert.equal(channels.find(c=>c.id==='tsn3').epg_source,'IC_CA');
+  assert.equal(channels.find(c=>c.id==='tsn3').matchedEPG,false);
+  assert.equal(channels.find(c=>c.id==='fancode').epg_id,null);
+  assert.equal(channels.find(c=>c.id==='fancode').epg_source,null);
+  assert.equal(channels.find(c=>c.id==='tsn3').stream_url,undefined);
+ } finally { globalThis.fetch = original; }
+});
+
 test('a failed later catalog page returns a retryable error instead of silently hiding channels',async()=>{
  const original=globalThis.fetch;
  globalThis.fetch=async target=>new URL(target).searchParams.get('offset')==='0'
