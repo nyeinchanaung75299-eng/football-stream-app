@@ -80,6 +80,18 @@ export async function channelSourceRequest(req:Request,client:any){
    const entry=await check(client.from("channel_source_catalog").select("id,name,kind,streams,playlist_url,is_present").eq("id",id).single());
    return json({ok:true,entry});
   }
+  if(action==='add_match'){
+   const match=String(body.match_id||''),lineId=String(body.source_line_id||'');
+   if(!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(match)||!lineId||lineId.length>100)
+    return json({error:'Invalid match or source line'},400);
+   const entry=await check(client.from('channel_source_catalog').select('streams').eq('id',id).eq('source_id',source).eq('is_present',true).single());
+   const line=(entry.streams||[]).find((item:any)=>item.id===lineId);
+   if(!line)return json({error:'Source line unavailable'},404);
+   if(await sportsNeedsDrm([line]))return json({ok:false,code:'drm_required',error:'This line needs a DRM configuration.'});
+   return json({ok:true,...await check(client.rpc('add_connected_source_line_to_match',{
+    p_entry_id:id,p_source_line_id:lineId,p_match_id:match,
+   }))});
+  }
   if(action==="import"){
    if(source==='livetv'){
     const entry=await check(client.from('channel_source_catalog').select('streams').eq('id',id).eq('source_id',source).single());

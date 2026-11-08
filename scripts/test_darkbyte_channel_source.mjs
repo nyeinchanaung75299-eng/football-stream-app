@@ -67,7 +67,8 @@ function client(role='admin'){
  return {calls,auth:{async getUser(token){return token==='valid'?{data:{user:{id:'user-1',user_metadata:{role:'admin'}}}}:{data:{user:null},error:{}};}},
   from(table){
    const q={select(fields){calls.push({table,fields});return q;},eq(){return q;},
-    async maybeSingle(){return {data:table==='profiles'?{role}:null};}};return q;
+    async maybeSingle(){return {data:table==='profiles'?{role}:null};},
+    async single(){return {data:{streams:[{id:'source-hd',stream_type:'hls',stream_url:'https://cdn.example.org/live.m3u8'}]}};}};return q;
   },async rpc(name,args){calls.push({name,args});return {data:{channel_id:'00000000-0000-4000-8000-000000000001'}};}};
 }
 const request=(body,token)=>new Request('https://backend.example/channel-source-sync',{method:'POST',
@@ -84,4 +85,16 @@ test('verified Admin import uses the atomic idempotent link RPC and accepts an e
  assert.equal(result.status,200);assert.equal((await result.json()).channel_id,target);
  const call=fake.calls.find(call=>call.name);assert.equal(call.name,'link_channel_source_entry');assert.equal(call.args.p_target_channel_id,target);
  assert.equal(call.args.p_refresh_only,false);
+});
+
+test('verified Admin adds one selected source line to a match using server-owned configuration',async()=>{
+ const fake=client();const match='00000000-0000-4000-8000-000000000001';
+ const response=await channelSourceRequest(request({action:'add_match',entry_id:'db:p1:channel:'+'0'.repeat(28),
+  source_line_id:'source-hd',match_id:match,stream_url:'https://untrusted.example/replace'},'valid'),fake);
+ assert.equal(response.status,200);
+ const call=fake.calls.find(c=>c.name==='add_connected_source_line_to_match');
+ assert.equal(call.args.p_match_id,match);assert.equal(call.args.p_source_line_id,'source-hd');
+ assert(!JSON.stringify(call).includes('untrusted.example'));
+ const missing=await channelSourceRequest(request({action:'add_match',entry_id:'db:p1:channel:'+'0'.repeat(28),source_line_id:'missing',match_id:match},'valid'),fake);
+ assert.equal(missing.status,404);
 });

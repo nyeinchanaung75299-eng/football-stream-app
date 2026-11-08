@@ -359,5 +359,34 @@ do $$ begin
 end $$;
 reset role;
 
+set local role service_role;
+do $$
+declare entry text:='db:p1:channel:8888888888888888888888888888'; result jsonb; link uuid; before_channels integer;
+begin
+ select count(*) into before_channels from public.channels;
+ insert into public.channel_source_catalog(id,provider,kind,name,category,source_file,streams,stream_count,revision)
+ values(entry,1,'channel','Connected test channel','Sports','provider_1/channels.json',jsonb_build_array(jsonb_build_object(
+  'id','match-source-line','label','HD','stream_type','dash','stream_url','https://cdn.example.org/source.mpd',
+  'key_id',repeat('a',32),'key_data',repeat('b',32))),1,'match-source-1');
+ result:=public.add_connected_source_line_to_match(entry,'match-source-line','10000000-0000-0000-0000-000000000001');
+ link:=(result->>'stream_link_id')::uuid;
+ if not exists(select from public.stream_links where id=link and key_id=repeat('a',32) and key_data=repeat('b',32) and channel_id is null) then raise exception 'Match attachment lost configuration'; end if;
+ if (select count(*) from public.channels)<>before_channels then raise exception 'Add to Match published another channel'; end if;
+ result:=public.add_connected_source_line_to_match(entry,'match-source-line','10000000-0000-0000-0000-000000000001');
+ if result->>'already_exists'<>'true' or (result->>'stream_link_id')::uuid<>link then raise exception 'Repeated match attachment duplicated'; end if;
+ update public.stream_links set label='Operator label' where id=link;
+ update public.channel_source_catalog set streams=jsonb_set(streams,'{0,stream_url}','"https://cdn.example.org/rotated.mpd"') where id=entry;
+ perform public.sync_connected_source_match_lines('darkbyte');
+ if not exists(select from public.stream_links where id=link and stream_url='https://cdn.example.org/rotated.mpd' and label='Operator label') then raise exception 'Source rotation lost manual metadata'; end if;
+ update public.channel_source_catalog set is_present=false where id=entry;
+ perform public.sync_connected_source_match_lines('darkbyte');
+ if (select is_active from public.stream_links where id=link) then raise exception 'Missing source stayed active'; end if;
+ update public.channel_source_catalog set is_present=true where id=entry;
+ perform public.sync_connected_source_match_lines('darkbyte');
+ if not (select is_active from public.stream_links where id=link) then raise exception 'Source recovery did not restore owned line'; end if;
+ if has_function_privilege('anon','public.add_connected_source_line_to_match(text,text,uuid)','execute') or has_function_privilege('authenticated','public.add_connected_source_line_to_match(text,text,uuid)','execute') then raise exception 'Unverified source match mutation'; end if;
+end $$;
+reset role;
+
 select 'Database security and compatibility checks passed' as result;
 rollback;
