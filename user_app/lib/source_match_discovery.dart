@@ -34,16 +34,6 @@ int compareSourceMatches(
   SourceMatch b, {
   required bool Function(SourceMatch) isLive,
 }) {
-  if (a['source'] == 'totalsportek' && b['source'] == 'totalsportek') {
-    final aLive = isLive(a), bLive = isLive(b);
-    if (aLive != bLive) return aLive ? -1 : 1;
-    // These are published countdowns, used only for ordering. They must not
-    // be turned into invented kickoff timestamps.
-    final ac = a['countdown_minutes'], bc = b['countdown_minutes'];
-    if (ac is num && bc is num && ac != bc) return ac.compareTo(bc);
-    if (ac is num && bc is! num) return -1;
-    if (bc is num && ac is! num) return 1;
-  }
   // Always use kickoff time first. Hot/live flags do not belong ahead of
   // earlier matches; otherwise a 02:30 hot fixture jumps above 00:30 fixtures.
   final at = sourceMatchKickoff(a), bt = sourceMatchKickoff(b);
