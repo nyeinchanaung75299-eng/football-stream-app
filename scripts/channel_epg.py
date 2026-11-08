@@ -34,13 +34,13 @@ FEEDS = [
      for code, country in [('IN1','IN'),('IN4','IN'),('IT1','IT'),('FR1','FR'),('BR1','BR'),
                            ('PT1','PT'),('AR1','AR'),('ES1','ES'),('DE1','DE'),('TH1','TH'),
                            ('MY1','MY'),('NL1','NL'),('AE1','AE'),('CZ1','CZ'),('SK1','SK'),
-                           ('PL1','PL'),('UK1','GB'),('US2','US')]]
+                           ('PL1','PL'),('UK1','GB'),('US2','US'),('AU1','AU'),('MX1','MX'),('BEIN1','QA')]]
 SOURCE_COUNTRIES = {'US2':'US','UK1':'GB','AU1':'AU','CZ1':'CZ','SK1':'SK','MY1':'MY',
                     'MX1':'MX','CA1':'CA','BR1':'BR','TVDANAS_BA':'BA'}
 # Existing operator bindings use these exact XMLTV station IDs already.
 # Publish their programme metadata too, so a cold regional API request does
 # not temporarily hide an already verified NBC/TNT channel.
-SAVED_FEEDS = {code:'share_'+code for code in ('US2','UK1','CZ1','SK1','MY1','BR1')}
+SAVED_FEEDS = {code:'share_'+code for code in ('US2','UK1','CZ1','SK1','MY1','BR1','AU1','MX1')}
 COUNTRY_LABELS = {'usa':'US','united states':'US','uk':'GB','united kingdom':'GB','australia':'AU',
                   'canada':'CA','malaysia':'MY','germany':'DE','italia':'IT','italy':'IT',
                   'portugal':'PT','spain':'ES','france':'FR','bangladesh':'BD','nepal':'NP',
@@ -93,7 +93,7 @@ def station_name(value):
                    **{'adsports'+str(n):'abudhabisports'+str(n) for n in range(1,7)},
                    **{'sonyten'+str(n):'sonysportsten'+str(n) for n in range(1,6)}}
     value = value.replace('ziggosports','ziggosport')
-    value = re.sub(r'^beinsports?(?:english|eng)(\d+)$',r'beinsports\1english',value)
+    value = re.sub(r'^bein(?:sports?)?(?:english|eng)(\d+)$',r'beinsports\1english',value)
     return equivalents.get(value,value)
 
 def country_hint(row):
@@ -155,7 +155,13 @@ def read_feed(spec, cache, now):
             if event!='end': continue
             if node.tag=='channel':
                 identity=node.get('id','')
-                channels[identity]={'id':identity,'names':[text(x.text) for x in node.findall('display-name') if x.text],
+                names=[text(x.text) for x in node.findall('display-name') if x.text]
+                # The provider distinguishes the English service from Arabic
+                # and French services in its exact published station ID.
+                english=re.fullmatch(r'beIN_SPORTS([123])_ENGLISH_Digital_Mono_EN\.bein',identity)
+                if feed=='share_BEIN1' and english:
+                    names.append('beIN Sports English '+english[1])
+                channels[identity]={'id':identity,'names':names,
                                     'feed':feed,'country':country,'programmes':[]}
                 node.clear()
             elif node.tag=='programme':
@@ -269,7 +275,7 @@ def main():
         else:continue
         audit.append({'id':channel['id'],'name':channel['name'],'epg_source':source or 'GH:'+selected['feed'] if selected else None,
                       'epg_id':selected['id'] if selected else None,'reason':reason})
-        if selected:output.append({'id':channel['id'],'name':channel['name'],'category':channel.get('category',''),
+        if selected:output.append({'id':channel['id'],'name':channel['name'],'epg_name':selected['names'][0],'category':channel.get('category',''),
                                   'matchedEPG':True,'region':selected['country'].lower(),'programmes':selected['programmes'],
                                   'epg_id':selected['id'],'epg_source':source or 'GH:'+selected['feed'],'verified_at':now.isoformat()})
     # Retain a still-fresh saved binding during a temporary provider outage.
