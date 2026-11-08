@@ -388,5 +388,68 @@ begin
 end $$;
 reset role;
 
+-- Legacy runtime-created guide/bot tables are represented in this disposable
+-- database as well, so their reference-remapping branches are exercised.
+create table if not exists public.nca_epg_auto_stream_links (
+ stream_link_id uuid primary key references public.stream_links(id) on delete cascade,
+ match_id uuid not null references public.matches(id),
+ channel_line_id uuid not null references public.channel_lines(id) on delete cascade,
+ created_at timestamptz not null default now(), unique(match_id,channel_line_id)
+);
+create table if not exists public.nca_epg_auto_match_channels (
+ match_id uuid not null references public.matches(id),channel_id uuid not null references public.channels(id) on delete cascade,
+ programme_title text,programme_start timestamptz,guide_updated_at timestamptz,last_verified_at timestamptz,
+ primary key(match_id,channel_id)
+);
+create table if not exists public.nca_bot_match_channels (
+ match_id uuid not null references public.matches(id),channel_id uuid not null references public.channels(id) on delete cascade,
+ source text not null,created_at timestamptz not null default now(),primary key(match_id,channel_id)
+);
+set local role service_role;
+do $$
+declare keeper uuid; alias_channel uuid; primary_line uuid; duplicate_line uuid; different_key uuid; different_header uuid;
+ entry text:='db:p1:channel:7777777777777777777777777777'; config jsonb; result jsonb; attached uuid;
+begin
+ insert into public.channels(name,category,epg_id,epg_source) values('Verified station','Sports','Verified.us','US2') returning id into keeper;
+ insert into public.channels(name,category) values('Alias station','Sports') returning id into alias_channel;
+ insert into public.channel_lines(channel_id,label,stream_type,stream_url,key_id,key_data)
+  values(keeper,'Original primary','dash','https://cdn.example.org/exact-full-set.mpd',repeat('c',32),repeat('d',32)) returning id into primary_line;
+ insert into public.channel_lines(channel_id,label,stream_type,stream_url,key_id,key_data)
+  values(alias_channel,'Duplicate','dash','https://cdn.example.org/exact-full-set.mpd',repeat('c',32),repeat('d',32)) returning id into duplicate_line;
+ insert into public.channel_lines(channel_id,label,stream_type,stream_url,key_id,key_data)
+  values(keeper,'Different key','dash','https://cdn.example.org/exact-full-set.mpd',repeat('c',32),repeat('f',32)) returning id into different_key;
+ insert into public.channel_lines(channel_id,label,stream_type,stream_url,referer,key_id,key_data)
+  values(keeper,'Different header','dash','https://cdn.example.org/exact-full-set.mpd','https://another.example/player',repeat('c',32),repeat('d',32)) returning id into different_header;
+ config:=jsonb_build_object('id','full-set-line','label','Source label','stream_type','dash','stream_url','https://cdn.example.org/exact-full-set.mpd','key_id',repeat('c',32),'key_data',repeat('d',32));
+ insert into public.channel_source_catalog(id,provider,kind,name,category,source_file,streams,stream_count,revision)
+  values(entry,1,'channel','Alias station','Sports','provider_1/channels.json',jsonb_build_array(config),1,'dedup-source');
+ insert into public.channel_source_links(entry_id,channel_id,line_map)
+  values(entry,alias_channel,jsonb_build_object('full-set-line',jsonb_build_object('line_id',duplicate_line,'shared',false)));
+ insert into public.stream_links(match_id,channel_id,channel_line_id,stream_url)
+  values('10000000-0000-0000-0000-000000000001',alias_channel,duplicate_line,'https://cdn.example.org/exact-full-set.mpd') returning id into attached;
+ insert into public.nca_epg_auto_stream_links(stream_link_id,match_id,channel_line_id)
+  values(attached,'10000000-0000-0000-0000-000000000001',duplicate_line);
+ insert into public.nca_epg_auto_match_channels(match_id,channel_id,programme_title,programme_start,guide_updated_at,last_verified_at)
+  values('10000000-0000-0000-0000-000000000001',alias_channel,'Verified fixture',now(),now(),now());
+ insert into public.nca_bot_match_channels(match_id,channel_id,source)
+  values('10000000-0000-0000-0000-000000000001',alias_channel,'manual');
+ perform public.deduplicate_exact_channel_lines();
+ if exists(select from public.channel_lines where id=duplicate_line) or exists(select from public.channels where id=alias_channel) then raise exception 'Exact duplicate remained'; end if;
+ if not exists(select from public.channel_lines where id=different_key) or not exists(select from public.channel_lines where id=different_header) then raise exception 'Different configurations were removed'; end if;
+ if not exists(select from public.stream_links where id=attached and channel_line_id=primary_line and channel_id=keeper) then raise exception 'Match reference broke during deduplication'; end if;
+ if not exists(select from public.nca_epg_auto_stream_links where stream_link_id=attached and channel_line_id=primary_line) or
+  not exists(select from public.nca_epg_auto_match_channels where channel_id=keeper and programme_title='Verified fixture') or
+  not exists(select from public.nca_bot_match_channels where channel_id=keeper and source='manual') then raise exception 'Guide or bot reference broke during deduplication'; end if;
+ if not exists(select from public.channel_source_links where entry_id=entry and channel_id=keeper and not owns_channel and (line_map->'full-set-line'->>'shared')::boolean) then raise exception 'Following source reference lost'; end if;
+ perform public.link_channel_source_entry(entry,null,true);
+ if (select count(*) from public.channel_lines where channel_id=keeper)<>3 then raise exception 'Source refresh recreated the duplicate'; end if;
+ -- A new source selection with the same complete configuration reuses the
+ -- saved channel and keeps its EPG/name instead of publishing another card.
+ delete from public.channel_source_links where entry_id=entry;
+ result:=public.link_channel_source_entry(entry);
+ if (result->>'channel_id')::uuid<>keeper or not exists(select from public.channels where id=keeper and name='Verified station' and epg_id='Verified.us') then raise exception 'Source import duplicated or overwrote the saved channel'; end if;
+end $$;
+reset role;
+
 select 'Database security and compatibility checks passed' as result;
 rollback;

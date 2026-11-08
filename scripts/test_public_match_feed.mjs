@@ -282,6 +282,7 @@ test('cold NBC guide does not wait for unrelated feeds and survives a later isol
  globalThis.fetch=async target=>{
   const u=new URL(target);
   if(u.pathname==='/rest/v1/channels')return Response.json([{id:'nbc-test',name:'NBC'}]);
+  if(u.hostname==='raw.githubusercontent.com')return Response.json({ok:true,updated_at:new Date().toISOString(),channels:[]});
   if(u.pathname==='/api/schedule')return Response.json(baseline);
   if(u.searchParams.get('source')==='US2')return Response.json({channels:[{
    id:'nbc-test',matchedEPG:true,region:'us',programmes:[{start:Date.parse('2026-11-07T17:30:00Z'),
@@ -301,4 +302,29 @@ test('cold NBC guide does not wait for unrelated feeds and survives a later isol
   assert.equal((await second.json()).channels[0].matchedEPG,true);
   await Promise.all(background);
  }finally{release();globalThis.fetch=original;globalThis.caches=originalCaches;}
+});
+
+test('GitHub EPG requires a fresh saved station binding and strips private source fields',async()=>{
+ const original=globalThis.fetch;let binding='Station1.in',old=false;
+ const channel={id:'imported-station',name:'Sports 1',epg_source:'GH:share_IN1'};
+ globalThis.fetch=async target=>{
+  const u=new URL(target);
+  if(u.pathname==='/rest/v1/channels')return Response.json([{...channel,epg_id:binding}]);
+  if(u.pathname==='/api/schedule')return Response.json({channels:[{...channel,matchedEPG:false,programmes:[]}]});
+  if(u.hostname==='raw.githubusercontent.com')return Response.json({ok:true,
+   updated_at:new Date(Date.now()-(old?36*3600000:0)).toISOString(),channels:[{
+    ...channel,epg_id:'Station1.in',matchedEPG:true,programmes:[{
+     start:Date.now()+60000,title:'Napoli vs Inter Milan',key_data:'never-publish-this',
+    }],
+   }]});
+  return Response.json({channels:[]});
+ };
+ const run=()=>worker.fetch(new Request('https://api.example/tv-schedule?date=2026-11-08'),env,{}).then(r=>r.json());
+ try{
+  const first=await run();assert.equal(first.channels[0].matchedEPG,true);
+  assert.equal(first.channels[0].programmes[0].title,'Napoli vs Inter Milan');
+  assert(!JSON.stringify(first).includes('never-publish-this'));
+  binding='AnotherStation.in';assert.equal((await run()).channels[0].matchedEPG,false);
+  binding='Station1.in';old=true;assert.equal((await run()).channels[0].matchedEPG,false);
+ }finally{globalThis.fetch=original;}
 });

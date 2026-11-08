@@ -596,7 +596,7 @@ async function loadChannelRows(env) {
   const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() || "";
   if (!base || !key) throw new Error("Channel catalog is not configured.");
     const url = new URL(base.replace(/\/+$/, "") + "/rest/v1/channels");
-    url.searchParams.set("select", "id,name,category,image_url,sort_order");
+    url.searchParams.set("select", "id,name,category,image_url,sort_order,epg_id,epg_source");
     url.searchParams.set("is_active", "eq.true");
     url.searchParams.set("order", "category.asc,sort_order.asc,name.asc,id.asc");
     url.searchParams.set("limit", "500");
@@ -648,9 +648,10 @@ async function handleTvSchedule(request, env, incoming, ctx) {
     // Cloudflare may limit concurrent connections to a single upstream host:
     // starting 18 optional lookups first previously starved this required
     // request and produced a 502 even though the primary guide was healthy.
-    const [{data}, catalog] = await Promise.all([
+    const [{data}, catalog, publishedEpg] = await Promise.all([
       fetchJsonWithTimeout(upstream, {headers: {Accept: "application/json"}}, METADATA_TIMEOUT_MS),
       loadChannelRows(env).catch(() => null),
+      loadPublishedChannelEpg(),
     ]);
     // The upstream guide may have an older catalog snapshot. Keep every
     // current saved channel, including newly imported lines with no EPG yet.
@@ -679,13 +680,25 @@ async function handleTvSchedule(request, env, incoming, ctx) {
       Promise.race([enrichment.settled, new Promise(resolve => setTimeout(resolve, cached ? 100 : 1100))]),
       cached ? Promise.resolve() : Promise.race([enrichment.essential, new Promise(resolve => setTimeout(resolve, 2600))]),
     ]);
+    const catalogById = new Map((catalog || []).map(row => [row.id, row]));
+    const verifiedPublished = publishedEpg && catalog !== null ? {
+      ...publishedEpg, channels: publishedEpg.channels.filter(row => {
+        const saved = catalogById.get(row.id);
+        const age = Date.now() - Date.parse(row.verified_at || publishedEpg.updated_at);
+        return Number.isFinite(age) && age >= -600000 && age <= 18*3600000 &&
+          saved?.epg_source?.startsWith('GH:') && saved.epg_source === row.epg_source && saved.epg_id === row.epg_id;
+      }),
+    } : null;
     const supplements = [
       ...(cached ? [{source:'cached-regional',ok:true,data:cached}] : []),
       ...enrichment.snapshot(),
+      ...(verifiedPublished ? [{source:'github-epg',ok:true,data:verifiedPublished}] : []),
     ];
     schedule = withCatalog(sanitizeTvSchedule(mergeTvScheduleSources(data, supplements), date, days));
     const complete = enrichment.settled.then(async results => {
       if (cache && results.some(result => result.ok && result.data.channels.some(channel => channel.matchedEPG && channel.programmes?.length))) {
+        // GitHub rows are checked against the current binding on every read;
+        // do not put those rows in the independent regional metadata cache.
         const full = withCatalog(sanitizeTvSchedule(mergeTvScheduleSources(data, results), date, days));
         await cache.put(cacheRequest, Response.json(full, {headers:{'Cache-Control':'public, max-age=180'}}));
       }
@@ -702,6 +715,18 @@ async function handleTvSchedule(request, env, incoming, ctx) {
       "Cache-Control": "no-store",
     });
   }
+}
+
+async function loadPublishedChannelEpg() {
+  try {
+    const {data} = await fetchJsonWithTimeout(
+      'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/channel-epg.json',
+      {headers:{Accept:'application/json'}}, 3000,
+    );
+    const age = Date.now() - Date.parse(data?.updated_at || '');
+    if (data?.ok !== true || !Array.isArray(data.channels) || !Number.isFinite(age) || age < -600000 || age > 18*3600000) return null;
+    return data;
+  } catch (_) { return null; }
 }
 
 // Every route is fixed and owned by the user's public match-guide deployment.
