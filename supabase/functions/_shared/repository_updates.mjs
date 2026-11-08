@@ -2,6 +2,13 @@ import {fetchRepositoryMpds,mpdIdentity} from './repository_mpd.mjs';
 import {probeChannelMedia} from './channel_media_probe.mjs';
 import {sourceHash} from './darkbyte_catalog.mjs';
 const config=row=>JSON.stringify([row.stream_url,row.referer||'',row.origin||'',row.key_id||'',row.key_data||'']);
+export function orderConfigurationProbes(imports){
+ // A pending key must not consume every hourly slot indefinitely. Check
+ // never-probed/oldest configurations first; prioritize DRM only on ties.
+ return [...imports].sort((a,b)=>
+  String(a.metadata?.last_config_probe||'').localeCompare(String(b.metadata?.last_config_probe||'')) ||
+  Number(b.channel_lines?.configuration_status==='requires_drm')-Number(a.channel_lines?.configuration_status==='requires_drm'));
+}
 export function publicRepositoryUpdate(row){
  const line=row.channel_lines||{},channel=line.channels||{},meta=row.metadata||{};
  return {repository:row.repository,line_id:line.id,label:line.label,channel_id:channel.id,name:channel.name,category:channel.category,
@@ -18,9 +25,7 @@ export async function repositoryChannelUpdates(imports,{fetcher=fetch,maxProbes=
  const entries=[...unique.values()],pairs=snapshot.entries.filter(r=>r.key_id&&r.key_data);
  let probed=0,repaired=0;
  const tasks=[];
- for(const saved of [...imports].sort((a,b)=>
-  Number(b.channel_lines?.configuration_status==='requires_drm')-Number(a.channel_lines?.configuration_status==='requires_drm') ||
-  String(a.metadata?.last_config_probe||'').localeCompare(String(b.metadata?.last_config_probe||'')))){
+ for(const saved of orderConfigurationProbes(imports)){
   const line=saved.channel_lines;if(!line)continue;
   let candidates=entries.filter(r=>r.repository===saved.repository&&r.source_file===saved.source_file&&mpdIdentity(r.stream_url)===mpdIdentity(line.stream_url));
   if(!candidates.length)candidates=entries.filter(r=>r.repository===saved.repository&&r.source_file===saved.source_file&&r.name.toLowerCase()===line.channels?.name?.toLowerCase());
