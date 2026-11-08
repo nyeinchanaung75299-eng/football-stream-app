@@ -104,6 +104,7 @@ jobs:
           HAD_WIDGET_TEST=false
           if [ -e test/widget_test.dart ]; then HAD_WIDGET_TEST=true; fi
           flutter create --platforms=android .
+          python3 ../scripts/configure_gradle_distribution.py android/gradle/wrapper/gradle-wrapper.properties
           # The generated counter test targets MyApp, which is not this app.
           # Keep any test that was already part of the checked-out project.
           if [ "$HAD_WIDGET_TEST" = false ]; then rm -f test/widget_test.dart; fi
@@ -236,6 +237,7 @@ jobs:
           HAD_WIDGET_TEST=false
           if [ -e test/widget_test.dart ]; then HAD_WIDGET_TEST=true; fi
           flutter create --platforms=android .
+          python3 ../scripts/configure_gradle_distribution.py android/gradle/wrapper/gradle-wrapper.properties
           if [ "$HAD_WIDGET_TEST" = false ]; then rm -f test/widget_test.dart; fi
 
       - name: Patch Viewer for Android 12 Media3

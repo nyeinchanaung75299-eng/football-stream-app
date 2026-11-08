@@ -69,6 +69,7 @@ jobs:
         working-directory: admin_app
         run: |
           flutter create --platforms=android .
+          python3 ../scripts/configure_gradle_distribution.py android/gradle/wrapper/gradle-wrapper.properties
           rm -f test/widget_test.dart
       - name: Install dependencies
         working-directory: admin_app
@@ -114,6 +115,7 @@ jobs:
         working-directory: user_app
         run: |
           flutter create --platforms=android .
+          python3 ../scripts/configure_gradle_distribution.py android/gradle/wrapper/gradle-wrapper.properties
           rm -f test/widget_test.dart
       - name: Install Viewer dependencies
         working-directory: user_app
