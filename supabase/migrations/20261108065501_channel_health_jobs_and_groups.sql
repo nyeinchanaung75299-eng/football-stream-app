@@ -51,7 +51,7 @@ language sql immutable set search_path='' as $$
  when p_name ~* 'motogp|formula|\mf1\M|motorsport' then 'Motorsports'
  when p_name ~* 'wwe|tna|fight|combat|boxing|bkfc' then 'Combat Sports'
  when p_name ~* 'golf|pga|dp tour' then 'Golf'
- when p_name ~* 'baseball|mlb' then 'Baseball'
+ when p_name ~* 'baseball|\mmlb\s*(network|tv)\M' then 'Baseball'
  when p_name ~* 'cricket|\mt10\M|\mnpl\M' then 'Cricket'
  when p_name ~* 'football|soccer|\svs\.?\s|paramount|laliga|milan tv|real madrid tv' then 'Football'
  when coalesce(p_category,'') !~* '^(sports?( 2)?|live events?|events / unverified|football|)$' then p_category

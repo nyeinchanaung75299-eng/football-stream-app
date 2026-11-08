@@ -26,6 +26,6 @@ class _ChannelPlaybackFrameState extends State<ChannelPlaybackFrame> {
     // This is our generated document, never provider HTML. A real origin is
     // required for browser encrypted-media APIs used by configured ClearKey.
     frame!.setAttribute('sandbox','allow-scripts allow-same-origin');frame!.setAttribute('allow','autoplay; encrypted-media; fullscreen');
-    frame!.style.width='100%';frame!.style.height='100%';frame!.style.border='0';frame!.srcdoc=widget.html;
+    frame!.style.width='100%';frame!.style.height='100%';frame!.style.border='0';frame!.srcdoc=widget.html.toJS;
   });
 }

@@ -307,8 +307,12 @@ async function checkChannelLine(
   admin: SupabaseClient,
   line: ChannelLineRow,
 ) {
-  const result = await probe(line.stream_url, line.referer, line.origin);
+  const before = await admin.rpc('channel_line_config_hash',{p_id:line.id});
+  const media = await probeChannelMedia(line);
+  const result = {health:media.health_status,latency:media.latency_ms,statusCode:media.http_status};
   const checkedAt = new Date().toISOString();
+  const after = await admin.rpc('channel_line_config_hash',{p_id:line.id});
+  if(before.error || after.error || before.data!==after.data)return {id:line.id,channel_id:line.channel_id,health_status:'unknown',detail:'Source changed during check'};
 
   await admin
     .from("channel_lines")
@@ -317,6 +321,7 @@ async function checkChannelLine(
       health_latency_ms: result.latency,
       health_http_status: result.statusCode,
       last_checked_at: checkedAt,
+      manifest_status:media.manifest_status,segment_status:media.segment_status,drm_status:media.drm_status,health_detail:media.detail,
     })
     .eq("id", line.id);
 
@@ -327,6 +332,7 @@ async function checkChannelLine(
     latency_ms: result.latency,
     http_status: result.statusCode,
     checked_at: checkedAt,
+    manifest_status:media.manifest_status,segment_status:media.segment_status,drm_status:media.drm_status,
   };
 }
 
