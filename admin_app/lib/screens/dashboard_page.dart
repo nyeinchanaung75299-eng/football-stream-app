@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../analytics_service.dart';
+import '../admin_update_service.dart';
 import '../widgets/theme_mode_button.dart';
 import 'channels_page.dart';
 import 'connected_channels_page.dart';
@@ -46,6 +47,11 @@ class _DashboardPageState extends State<DashboardPage> {
       appBar: AppBar(
         title: const Text('NCA Admin'),
         actions: [
+          IconButton(
+            tooltip: 'Check Admin APK update',
+            icon: const Icon(Icons.system_update_alt_rounded),
+            onPressed: () => AdminUpdateService.check(context),
+          ),
           const ThemeModeButton(),
           IconButton(
             tooltip: 'Logout',
