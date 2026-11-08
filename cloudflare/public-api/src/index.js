@@ -662,7 +662,9 @@ async function handleTvSchedule(request, env, incoming, ctx) {
         ...(byId.get(channel.id) || {matchedEPG:false,programmes:[]}), ...channel,
       }))};
     };
-    let schedule = sanitizeTvSchedule(data, date, days);
+    // Seed the guide with the current catalog before applying supplements.
+    // A recently added station may not exist in the upstream catalog yet.
+    const baseline = withCatalog(sanitizeTvSchedule(data, date, days));
     // The 18 optional regional feeds used to hold up every uncached guide
     // response for as long as 8.5 seconds. Give enrichment a short chance;
     // otherwise serve the verified baseline and finish the optional work in
@@ -695,12 +697,12 @@ async function handleTvSchedule(request, env, incoming, ctx) {
       ...enrichment.snapshot(),
       ...(verifiedPublished ? [{source:'github-epg',ok:true,data:verifiedPublished}] : []),
     ];
-    schedule = withCatalog(sanitizeTvSchedule(mergeTvScheduleSources(data, supplements), date, days));
+    const schedule = withCatalog(sanitizeTvSchedule(mergeTvScheduleSources(baseline, supplements), date, days));
     const complete = enrichment.settled.then(async results => {
       if (cache && results.some(result => result.ok && result.data.channels.some(channel => channel.matchedEPG && channel.programmes?.length))) {
         // GitHub rows are checked against the current binding on every read;
         // do not put those rows in the independent regional metadata cache.
-        const full = withCatalog(sanitizeTvSchedule(mergeTvScheduleSources(data, results), date, days));
+        const full = withCatalog(sanitizeTvSchedule(mergeTvScheduleSources(baseline, results), date, days));
         await cache.put(cacheRequest, Response.json(full, {headers:{'Cache-Control':'public, max-age=180'}}));
       }
     }).catch(() => {});
