@@ -10,8 +10,8 @@ create table if not exists public.channel_source_line_suppressions (
 alter table public.channel_source_line_suppressions enable row level security;
 revoke all on public.channel_source_line_suppressions from anon, authenticated;
 
-create or replace function public.remember_deleted_source_channel_line()
-returns trigger language plpgsql set search_path='' as $fn$
+create or replace function nca_monitor.remember_deleted_source_channel_line()
+returns trigger language plpgsql security definer set search_path='' as $fn$
 begin
   insert into public.channel_source_line_suppressions (entry_id,channel_id,source_line_id)
   select links.entry_id, old.channel_id, mapped.key
@@ -23,11 +23,14 @@ begin
   return old;
 end
 $fn$;
+-- A trigger needs elevated rights to write an operator's suppression record,
+-- but the helper is not a callable public Data API function.
+revoke all on function nca_monitor.remember_deleted_source_channel_line() from public, anon, authenticated;
 
 drop trigger if exists remember_deleted_source_channel_line on public.channel_lines;
 create trigger remember_deleted_source_channel_line
 after delete on public.channel_lines for each row
-execute function public.remember_deleted_source_channel_line();
+execute function nca_monitor.remember_deleted_source_channel_line();
 
 -- Recover previously deleted source lines that still appear in saved line_map.
 insert into public.channel_source_line_suppressions(entry_id,channel_id,source_line_id)
