@@ -263,9 +263,13 @@ class _MatchScheduleCard extends StatelessWidget {
     final league = englishKnownFootballName(
       match['league']?.toString() ?? 'Football', kind: 'league',
     );
-    final airings = guide?.airingsForMatch({
+    final normalizedMatch = {
       ...match, 'home_team': home, 'away_team': away,
-    }) ?? const <TvScheduleAiring>[];
+    };
+    final airings = guide?.airingsForMatch(normalizedMatch) ??
+        const <TvScheduleAiring>[];
+    final possibleAirings = guide?.possibleAiringsForMatch(normalizedMatch) ??
+        const <TvScheduleAiring>[];
     return FootballMatchGuideCard(
       league: league,
       match: '$home vs $away',
@@ -275,6 +279,14 @@ class _MatchScheduleCard extends StatelessWidget {
         for (final airing in airings)
           FootballGuideAiring(
             channel: airing.channel, when: airing.when, region: airing.region,
+            title: airing.title,
+          ),
+      ],
+      possibleAirings: [
+        for (final airing in possibleAirings)
+          FootballGuideAiring(
+            channel: airing.channel, when: airing.when, region: airing.region,
+            title: airing.title,
           ),
       ],
     );
