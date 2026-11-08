@@ -3,22 +3,20 @@ import 'package:football_viewer/source_match_discovery.dart';
 
 void main() {
   test('Leeds versus Tottenham is searchable by Spurs and Burmese nickname', () {
-    final match = <String, dynamic>{'source': 'totalsportek',
+    final match = <String, dynamic>{'source': 'soco',
       'home_team': 'Leeds United', 'away_team': 'Tottenham Hotspur'};
     for (final query in ['Leeds', 'Tottenham', 'Spurs', 'စပါး', 'Leeds Spurs']) {
       expect(filterSourceMatches([match], todayOnly: false, query: query), [match]);
     }
     expect(match['away_team'], 'Tottenham Hotspur');
   });
-  test('Totalsportek upcoming countdowns put an imminent match before a late low ID', () {
+  test('unverified countdowns never override real kickoff order', () {
     final rows = <SourceMatch>[
-      {'source': 'totalsportek', 'source_id': '1', 'countdown_minutes': 800},
-      {'source': 'totalsportek', 'source_id': '78932', 'countdown_minutes': 120},
-      {'source': 'totalsportek', 'source_id': '80000', 'is_live': true},
+      {'source': 'soco', 'source_id': 'future', 'match_time': '2026-11-11T19:00:00Z', 'countdown_minutes': 1},
+      {'source': 'soco', 'source_id': 'first', 'match_time': '2026-11-11T17:00:00Z'},
     ];
-    rows.sort((a,b) => compareSourceMatches(a,b,isLive:(m)=>m['is_live']==true));
-    expect(rows.map((m)=>m['source_id']), ['80000','78932','1']);
-    expect(rows.every((m)=>m['match_time']==null), isTrue);
+    rows.sort((a,b) => compareSourceMatches(a,b,isLive:(_)=>false));
+    expect(rows.map((m)=>m['source_id']), ['first','future']);
   });
   group('source stream availability', () {
     for (final source in ['soco', 'yyzb', 'arena']) {

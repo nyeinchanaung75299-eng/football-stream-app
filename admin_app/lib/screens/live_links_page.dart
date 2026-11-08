@@ -935,6 +935,21 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                             ),
                           ],
                         ),
+                        const SizedBox(height: 5),
+                        Text(
+                          'Link: ${url.trim().isNotEmpty ? 'FOUND' : 'MISSING'}'
+                          ' • HTTP: ${health == 'unknown' ? 'NOT CHECKED' : health == 'healthy' || health == 'slow' ? 'REACHABLE' : 'NOT REACHABLE'}'
+                          ' • Video: NOT VERIFIED',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: colors.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          'HTTP check cannot confirm decoded video. Open player to test.',
+                          style: TextStyle(fontSize: 10, color: colors.onSurfaceVariant),
+                        ),
                       ],
                     ),
                   ),

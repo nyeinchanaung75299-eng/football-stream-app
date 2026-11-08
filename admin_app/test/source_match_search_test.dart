@@ -12,30 +12,14 @@ void main() {
     expect(match['away_team'], 'Tottenham Hotspur');
   });
 
-  test('partial kickoff metadata never buries an imminent Totalsportek fixture', () {
-    final leeds = <String, dynamic>{'home_team': 'Leeds United',
-      'countdown_minutes': 75, 'match_time': null, 'anchors': []};
-    final bristol = <String, dynamic>{'home_team': 'Bristol City',
-      'countdown_minutes': 75, 'match_time': '2026-11-07T12:30:00Z'};
-    final clermont = <String, dynamic>{'home_team': 'Clermont',
-      'countdown_minutes': 105, 'match_time': '2026-11-07T13:00:00Z'};
-    final rows = [clermont, leeds, bristol];
-    rows.sort((a,b) => compareAdminSourceMatches(a,b,'totalsportek'));
-    expect(rows.map((row) => row['home_team']), ['Bristol City','Leeds United','Clermont']);
-    leeds['match_time'] = '2026-11-07T12:30:00Z';
-    rows.sort((a,b) => compareAdminSourceMatches(a,b,'totalsportek'));
-    expect(rows.map((row) => row['home_team']), ['Bristol City','Leeds United','Clermont']);
-  });
-
-  test('missing countdowns keep a stable order while timestamps arrive', () {
+  test('missing kickoff timestamps remain after scheduled fixtures', () {
     final rows = <Map<String,dynamic>>[
       {'home_team':'Z','match_time':'2026-11-07T12:00:00Z'},
       {'home_team':'A','match_time':'2026-11-07T13:00:00Z'},
       {'home_team':'M'},
     ];
-    rows.sort((a,b) => compareAdminSourceMatches(a,b,'totalsportek'));
-    expect(rows.map((row)=>row['home_team']), ['A','M','Z']);
     rows.sort((a,b) => compareAdminSourceMatches(a,b,'soco'));
     expect(rows.map((row)=>row['home_team']), ['Z','A','M']);
   });
+
 }

@@ -293,7 +293,16 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                           dense: true,
                           title: Text('${line['label'] ?? 'Line'} • ${line['stream_type'] ?? ''}'
                               '${line['configuration_status'] == 'requires_drm' ? ' • Needs DRM configuration' : ''}'),
-                          subtitle: Text('HTTP ${line['health_http_status'] ?? '—'} • Manifest ${line['manifest_status'] ?? 'not_tested'} • Segment ${line['segment_status'] ?? 'not_tested'}\nVideo ${line['playback_status'] ?? 'not_tested'}${line['playback_device']==null?'':' • ${line['playback_device']}'}\n${line['last_checked_at'] == null ? 'Not checked' : DateFormat('dd MMM, h:mm a').format(DateTime.parse(line['last_checked_at'].toString()).toLocal())}'),
+                          subtitle: Text(
+                            'Link: ${line['is_active'] == true ? 'SAVED' : 'DISABLED'}'
+                            ' • HTTP: ${line['last_checked_at'] == null ? 'NOT TESTED' : (line['health_http_status'] == null ? 'NO RESPONSE' : line['health_http_status'])}'
+                            '\nManifest: ${line['manifest_status'] ?? 'not_tested'}'
+                            ' • Segment: ${line['segment_status'] ?? 'not_tested'}'
+                            '\nVideo: ${line['playback_status'] == 'verified' ? 'DECODE VERIFIED' : line['playback_status'] == 'failed' ? 'FAILED ON DEVICE' : 'NOT VERIFIED'}'
+                            '${line['playback_device']==null?'':' • ${line['playback_device']}'}'
+                            '\n${line['last_checked_at'] == null ? 'HTTP not checked' : DateFormat('dd MMM, h:mm a').format(DateTime.parse(line['last_checked_at'].toString()).toLocal())}'
+                            '\nHTTP/manifest reachable does not prove video playback.'
+                          ),
                           trailing: IconButton(tooltip:line['configuration_status']=='requires_drm'?'Configure DRM':'Test Video',
                             icon:Icon(line['configuration_status']=='requires_drm'?Icons.settings:Icons.play_circle_outline),
                             onPressed:()async{

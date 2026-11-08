@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../analytics_service.dart';
 import '../football_english.dart';
@@ -127,7 +126,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
   static const _statusProbeConcurrency = 12;
   int _anchorStatusEpoch = 0;
   String? _extractingAnchorKey;
-  final _gettingWebsiteLine = ValueNotifier<String?>(null);
   Timer? _sourceRefreshTimer;
   bool _backgroundRefreshBusy = false;
   int _sourceLoadEpoch = 0;
@@ -167,7 +165,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         : 'soco';
     if(source=='arena')availableOnly=false;
     if (_isManualSource) _libraryFuture = _streamLibrary.list();
-    dayFilter = (source == 'fawa' || source == 'cola' || source == 'arena' || source == 'totalsportek' || _isManualSource)
+    dayFilter = (source == 'fawa' || source == 'cola' || source == 'arena' || _isManualSource)
         ? 'all'
         : 'today';
     _loadSoco();
@@ -182,7 +180,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
     _sourceLoadEpoch += 1;
     _sourceRefreshTimer?.cancel();
     _sourceSearch.dispose();
-    _gettingWebsiteLine.dispose();
     _playzServerName.dispose();
     _playzUrl.dispose();
     _playzReferer.dispose();
@@ -344,14 +341,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .where((row) => !_staleSourceMatch(row))
           .toList();
 
-      if (provider == 'totalsportek') {
-        final knownTimes = {for (final row in sourceMatches)
-          if (row['match_time'] != null) row['page_url']: row['match_time']};
-        for (final row in parsed) {
-          row['match_time'] ??= knownTimes[row['page_url']];
-        }
-      }
-
       parsed.sort((a, b) => compareAdminSourceMatches(a, b, provider));
 
       unawaited(
@@ -468,7 +457,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
       for (final anchor in anchors) {
         final key = _anchorKey(match, anchor, provider: provider);
-        if (_matchLooksLive(match) && provider != 'totalsportek') {
+        if (_matchLooksLive(match)) {
           // Paint known-live schedule rows immediately; no network round trip
           // is needed before the operator can see the red LIVE badge.
           _anchorStatuses[key] = 'live';
@@ -496,7 +485,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     await runBoundedStatusChecks(
       pending,
-      provider == 'totalsportek' ? 2 : _statusProbeConcurrency,
+      _statusProbeConcurrency,
       (item) async {
         if (!mounted ||
             source != provider ||
@@ -521,7 +510,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
               'schedule_id': match['schedule_id'],
               'page_url': anchor['page_url'] ?? match['page_url'],
               'status_only': true,
-              if (provider == 'totalsportek') 'metadata_only': true,
             },
           );
 
@@ -530,15 +518,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
             _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'unknown';
             return;
           }
-          if (provider == 'totalsportek') {
-            // A published kickoff is not evidence that a video line is ready.
-            if (DateTime.tryParse(data['match_time']?.toString() ?? '') != null) {
-              (item['match'] as Map)['match_time'] = data['match_time'];
-            }
-            _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'unknown';
-            return;
-          }
-
           final lineCount = (data['line_count'] as num?)?.toInt() ?? 0;
           _anchorLineCounts[key] = lineCount;
 
@@ -592,7 +571,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       });
     }
 
-    if (source == 'fawa' || source == 'cola' || source == 'totalsportek' || dayFilter == 'all') {
+    if (source == 'fawa' || source == 'cola' || dayFilter == 'all') {
       return rows.toList();
     }
 
@@ -726,10 +705,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
       final rows = data is Map ? data['lines'] : null;
       if (!current()) return;
-      if (provider == 'totalsportek' && data is Map &&
-          DateTime.tryParse(data['match_time']?.toString() ?? '') != null) {
-        match['match_time'] = data['match_time'];
-      }
       if (rows is! List) {
         throw const FormatException('No stream quality list returned.');
       }
@@ -738,14 +713,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .map((row) => Map<String, dynamic>.from(row as Map))
           .where((row) => (row['url'] ?? '').toString().trim().isNotEmpty)
           .toList();
-      final websitePlayers = data is Map && data['external_players'] is List
-          ? (data['external_players'] as List).whereType<Map>()
-              .map((row) => Map<String, dynamic>.from(row)).where((row) {
-                final uri = Uri.tryParse(row['url']?.toString() ?? '');
-                return uri?.scheme == 'https' && uri!.host.isNotEmpty && uri.userInfo.isEmpty;
-              }).toList()
-          : <Map<String, dynamic>>[];
-
       final statusKey = _anchorKey(match, anchor, provider: provider);
       final sourceIsLive = data is Map && _isLiveStatus(data['live_status']);
       final hasHealthy = lines.any((line) {
@@ -776,7 +743,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
 
       if (!current()) return;
-      if (lines.isEmpty && websitePlayers.isEmpty) {
+      if (lines.isEmpty) {
         // Only display a short, redacted source status returned by our
         // authenticated resolver. No signed URL or token is shown.
         final upstream = data is Map ? data['message']?.toString() ?? '' : '';
@@ -813,7 +780,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
         match: match,
         anchor: resolvedAnchor,
         lines: lines,
-        websitePlayers: websitePlayers,
         sourceLiveStatus: data is Map ? data['live_status'] : null,
       );
     } catch (e) {
@@ -833,52 +799,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
     }
   }
 
-  Future<void> _getWebsiteVideo(Map<String, dynamic> match,
-      Map<String, dynamic> anchor, Map<String, dynamic> player) async {
-    if (_gettingWebsiteLine.value != null) return;
-    _gettingWebsiteLine.value = player['url'].toString();
-    try {
-      final data = await FunctionGateway.invoke('soco-links', body: {
-        'source': 'totalsportek', 'action': 'streams', 'skip_probe': true,
-        'page_url': match['page_url'], 'player_url': player['url'],
-        'schedule_id': match['schedule_id'],
-      });
-      if (!mounted) return;
-      final lines = data is Map && data['lines'] is List
-          ? (data['lines'] as List).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList()
-          : <Map<String, dynamic>>[];
-      if (lines.isNotEmpty) {
-        await _showQualityPicker(match: match, anchor: {...anchor, 'nick_name': player['label']}, lines: lines);
-      } else {
-        await _websiteVideoUnavailable(player);
-      }
-    } catch (_) {
-      if (mounted) await _websiteVideoUnavailable(player);
-    } finally {
-      if (mounted) _gettingWebsiteLine.value = null;
-    }
-  }
-
-  Future<void> _websiteVideoUnavailable(Map<String, dynamic> player) => showDialog<void>(
-    context: context,
-    builder: (dialog) => AlertDialog(
-      title: Text(player['label']?.toString() ?? 'Website player'),
-      content: const Text('No direct video link is available from this player right now.'),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Close')),
-        TextButton(onPressed: () {
-          Navigator.pop(dialog);
-          launchUrl(Uri.parse(player['url'].toString()), mode: LaunchMode.platformDefault, webOnlyWindowName: '_blank');
-        }, child: const Text('Open original')),
-      ],
-    ),
-  );
-
   Future<void> _showQualityPicker({
     required Map<String, dynamic> match,
     required Map<String, dynamic> anchor,
     required List<Map<String, dynamic>> lines,
-    List<Map<String, dynamic>> websitePlayers = const [],
     dynamic sourceLiveStatus,
   }) async {
     final anchorName = (anchor['nick_name'] ?? 'Streamer').toString().trim();
@@ -1112,27 +1036,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     ),
                   );
                 }),
-                if (websitePlayers.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text('Website players (${websitePlayers.length})',
-                    style: const TextStyle(fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 4),
-                  ...websitePlayers.map((player) => ValueListenableBuilder<String?>(
-                    valueListenable: _gettingWebsiteLine,
-                    builder: (_, pending, __) => ListTile(
-                      dense: true, contentPadding: EdgeInsets.zero,
-                      title: Text(player['label']?.toString() ?? 'Website player'),
-                      subtitle: const Text('Get video link', style: TextStyle(fontSize: 11)),
-                      leading: pending == player['url']
-                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.play_circle_outline, size: 22),
-                      trailing: IconButton(tooltip: 'Open original', icon: const Icon(Icons.open_in_new, size: 19),
-                        onPressed: () => launchUrl(Uri.parse(player['url'].toString()),
-                          mode: LaunchMode.platformDefault, webOnlyWindowName: '_blank')),
-                      onTap: pending == null ? () => _getWebsiteVideo(match, anchor, player) : null,
-                    ),
-                  )),
-                ],
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
@@ -1859,8 +1762,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
         return 'ColaTV';
       case 'arena':
         return 'Arena Koora';
-      case 'totalsportek':
-        return 'Totalsportek';
       default:
         return 'Soco';
     }
@@ -1931,7 +1832,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       : '${visible.length} of ${sourceMatches.length} matches',
                     style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
                 ],
-                if (!_isManualSource && source != 'totalsportek' &&
+                if (!_isManualSource &&
                     source != 'yyzb' && source != 'arena')
                   SwitchListTile.adaptive(
                     value: availableOnly,
@@ -1947,7 +1848,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 const SizedBox(height: 4),
                 if (!_isManualSource &&
                     source != 'fawa' &&
-                    source != 'cola' && source != 'totalsportek')
+                    source != 'cola')
                   Row(
                     children: [
                       _dayButton('today', 'Today'),
@@ -2002,9 +1903,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                   final kickoff = DateTime.tryParse(
                     match['match_time']?.toString() ?? '',
                   )?.toLocal();
-                  final displayKickoff = source == 'totalsportek'
-                      ? kickoff?.toUtc().add(const Duration(hours: 6, minutes: 30))
-                      : kickoff;
+                  final displayKickoff = kickoff;
                   final anchors = List<Map<String, dynamic>>.from(
                     match['anchors'] ?? const [],
                   )..sort((a, b) {
@@ -2071,8 +1970,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                     : DateFormat(
                                         'dd MMM • h:mm a',
                                         'en_US',
-                                      ).format(displayKickoff) +
-                                        (source == 'totalsportek' ? ' MMT' : ''),
+                                      ).format(displayKickoff),
                             style: TextStyle(color: colors.onSurfaceVariant),
                           ),
                           const SizedBox(height: 12),
