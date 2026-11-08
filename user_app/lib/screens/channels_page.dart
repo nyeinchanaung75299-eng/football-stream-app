@@ -11,6 +11,7 @@ import '../native_player.dart';
 import '../network_endpoints.dart';
 import '../playback_routes.dart';
 import '../public_guide_cache.dart';
+import '../channel_match_search.dart';
 import '../widgets/premium_bottom_nav.dart';
 import 'home_page.dart';
 import 'source_browser_page.dart';
@@ -31,6 +32,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
   String selectedGroup = 'All';
   Map<String, int> groupPositions = const {};
   Map<String, String> nextFootball = const {};
+  Map<String, List<Map<String, dynamic>>> footballProgrammes = const {};
+  List<Map<String, dynamic>> matchChoices = const [];
+  String? selectedMatchId;
   Set<String> epgLinkedIds = const {};
   bool guideLoaded = false;
   final library = ChannelLibrary.instance;
@@ -41,6 +45,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
     super.initState();
     _loadGroupPositions();
     _loadChannelEpg();
+    _loadMatchChoices();
     library.load().then((_) { if (mounted) setState(() {}); });
   }
 
@@ -57,6 +62,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
         refresh: refresh,
       );
       final result = <String, String>{};
+      final football = <String, List<Map<String, dynamic>>>{};
       final linked = <String>{};
       for (final raw in (data['channels'] as List? ?? const [])) {
         if (raw is! Map || raw['matchedEPG'] != true) continue;
@@ -67,33 +73,42 @@ class _ChannelsPageState extends State<ChannelsPage> {
           if (item is! Map) continue;
           final title = (item['title'] ?? item['subtitle'] ?? '').toString();
           final extra = (item['description'] ?? '').toString();
-          final body = '$title $extra';
-          final versus = RegExp(r'\b(vs|v|versus)\b', caseSensitive: false).hasMatch(body);
-          final hostedFootball = RegExp(r'\blive\b',caseSensitive:false).hasMatch(body) &&
-              RegExp(r'\b(soccer|premier league|la liga|bundesliga|serie a|ligue 1|champions league)\b',caseSensitive:false).hasMatch(body) &&
-              RegExp(r'\b(host|hosts|hosting|face|faces|take on|takes on)\b',caseSensitive:false).hasMatch(body);
-          if (!versus && !hostedFootball) continue;
-          if (item['stream_ambiguous'] == true ||
-              RegExp(r'\b(replay|highlights?|recap|preview|repeat|classic|aflw?|australian rules|aussie rules|american football|nfl|nba|hockey|rugby|cricket|tennis|basketball|motorsport|esports|formula 1)\b',
-                  caseSensitive: false).hasMatch(body)) continue;
+          if (!currentFootballProgramme(item, now: now)) continue;
           final ms = (item['start'] as num?)?.toInt();
           if (ms == null) continue;
           final start = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
           if (start.isBefore(now.subtract(const Duration(hours: 3)))) continue;
           final label = title.isNotEmpty ? title : extra;
           final live = !start.isAfter(now);
-          result[id] = '${live ? 'LIVE' : 'NEXT'} • $label';
-          break;
+          result.putIfAbsent(id, () => '${live ? 'LIVE' : 'NEXT'} • $label');
+          football.putIfAbsent(id, () => []).add(Map<String, dynamic>.from(item));
         }
       }
       if (mounted && generation == _guideEpoch) setState(() {
         nextFootball = result;
+        footballProgrammes = football;
         epgLinkedIds = linked;
         guideLoaded = true;
       });
     } catch (_) {
       // Keep channel grid interactive when guide or relay is offline.
     }
+  }
+
+  Future<void> _loadMatchChoices() async {
+    try {
+      final data = await request('/matches');
+      final earliest = DateTime.now().toUtc().subtract(const Duration(hours: 4));
+      final matches = (data['matches'] as List? ?? const []).whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m)).where((m) {
+        final time = DateTime.tryParse('${m['kickoff_at'] ?? ''}');
+        return m['id'] != null && m['is_finished'] != true && time != null && !time.isBefore(earliest);
+      }).toList()..sort((a, b) => '${a['kickoff_at']}'.compareTo('${b['kickoff_at']}'));
+      if (mounted) setState(() {
+        matchChoices = matches;
+        if (!matches.any((m) => m['id'].toString() == selectedMatchId)) selectedMatchId = null;
+      });
+    } catch (_) { /* Channel and team search remain usable without fixtures. */ }
   }
 
   Future<void> _loadGroupPositions() async {
@@ -122,15 +137,11 @@ class _ChannelsPageState extends State<ChannelsPage> {
   }
 
   bool matchesSearch(Map<String, dynamic> row) {
-    String normalized(String value) => value
-        .toLowerCase()
-        .replaceAllMapped(RegExp(r'([a-z])([0-9])'), (m) => '${m[1]} ${m[2]}')
-        .replaceAll(RegExp(r'[\s_-]+'), ' ')
-        .trim();
-    final text = normalized('${row['name'] ?? ''} ${row['category'] ?? ''}');
-    return normalized(
-      search.text,
-    ).split(' ').where((s) => s.isNotEmpty).every(text.contains);
+    final programmes = footballProgrammes[row['id'].toString()] ?? const <Map<String, dynamic>>[];
+    if (!channelMatchesProgrammeQuery(row, programmes, search.text)) return false;
+    if (selectedMatchId == null) return true;
+    final match = matchChoices.where((m) => m['id'].toString() == selectedMatchId).firstOrNull;
+    return match != null && programmes.any((p) => programmeCoversMatch(p, match));
   }
 
   Future<Map<String, dynamic>> request(String path) async {
@@ -209,6 +220,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
     setState(() => catalog = load());
     _loadGroupPositions();
     _loadChannelEpg(refresh: true);
+    _loadMatchChoices();
     try {
       await catalog;
     } catch (_) {}
@@ -340,7 +352,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
             enableSuggestions: false,
             textInputAction: TextInputAction.search,
             decoration: InputDecoration(
-              hintText: 'Search channels',
+              hintText: 'Search channels, teams or matches',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: search.text.isEmpty
                   ? IconButton(
@@ -459,6 +471,25 @@ class _ChannelsPageState extends State<ChannelsPage> {
                         },
                       ),
                       const SizedBox(height: 8),
+                      if (matchChoices.isNotEmpty) ...[
+                        DropdownButtonFormField<String>(
+                          key: ValueKey('viewer-match-${selectedMatchId ?? 'all'}'),
+                          value: selectedMatchId ?? 'all', isExpanded: true,
+                          decoration: const InputDecoration(labelText: 'Match', isDense: true,
+                            prefixIcon: Icon(Icons.sports_soccer, size: 19), border: OutlineInputBorder()),
+                          items: [
+                            const DropdownMenuItem(value: 'all', child: Text('All matches', style: TextStyle(fontSize: 12))),
+                            for (final match in matchChoices) DropdownMenuItem(
+                              value: match['id'].toString(), child: Text('${match['home_team']} vs ${match['away_team']}',
+                                maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12))),
+                          ],
+                          onChanged: (value) => setState(() {
+                            selectedMatchId = value == 'all' ? null : value;
+                            selectedGroup = 'All'; libraryFilter = 'all'; search.clear();
+                          }),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       Align(
                         alignment: Alignment.centerLeft,
                         child: Text(

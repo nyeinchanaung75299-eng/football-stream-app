@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/channel_source_service.dart';
 import '../services/connected_channel_source.dart';
+import '../widgets/match_destination_sheet.dart';
 
 class ConnectedChannelsPage extends StatefulWidget {
   const ConnectedChannelsPage({super.key, this.sportsOnly = false});
@@ -74,6 +75,32 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
       if (selected != null && mounted) await add(row, channelId: selected);
     } catch (_) { notice('Could not load existing channels.'); }
   }
+  Future<void> addToMatch(Map<String, dynamic> row, Map line) async {
+    if (working) return;
+    try {
+      final rows = await Supabase.instance.client.from('matches')
+          .select('id,home_team,away_team,league,kickoff_at')
+          .eq('is_active', true).eq('is_finished', false).isFilter('deleted_at', null)
+          .gte('kickoff_at', DateTime.now().toUtc().subtract(const Duration(hours: 12)).toIso8601String())
+          .order('kickoff_at').limit(300).timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      if (rows.isEmpty) { notice('No active NCA matches. Add a match in Live Management first.'); return; }
+      final matchId = await showModalBottomSheet<String>(context: context,
+        showDragHandle: true, isScrollControlled: true, useSafeArea: true,
+        builder: (_) => MatchDestinationSheet(matches: List<Map<String, dynamic>>.from(rows)),
+      );
+      if (matchId == null || !mounted) return;
+      setState(() => working = true);
+      try {
+        final result = await service.request('add_match', {
+          'entry_id': row['id'], 'source_line_id': line['id'], 'match_id': matchId,
+        });
+        notice(result['already_exists'] == true ? 'This line is already on the match.' : 'Added to match. Source updates are enabled.');
+      } finally { if (mounted) setState(() => working = false); }
+    } catch (error) {
+      notice(error is StateError ? error.message.toString() : 'Could not add this source line to the match.');
+    }
+  }
   Future<void> details(Map<String, dynamic> row) async {
     try {
       final response = await service.request('details', {'entry_id': row['id']});
@@ -90,7 +117,10 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
             for (final line in lines) ListTile(contentPadding: EdgeInsets.zero,
               title: Text(line['label']?.toString() ?? 'Line'),
               subtitle: Text(line['stream_type']?.toString().toUpperCase() ?? 'AUTO'),
-              trailing: PopupMenuButton<String>(tooltip: 'Copy link or headers',
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (lines.length > 1) IconButton(tooltip: 'Add to Match', icon: const Icon(Icons.playlist_add),
+                  onPressed: working ? null : () { Navigator.pop(sheet); addToMatch(row, line); }),
+                PopupMenuButton<String>(tooltip: 'Copy link or headers',
                 icon: const Icon(Icons.copy),
                 itemBuilder: (_) => [
                   const PopupMenuItem(value: 'stream_url', child: Text('Copy video URL')),
@@ -98,8 +128,11 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
                   if (line['origin'] != null) const PopupMenuItem(value: 'origin', child: Text('Copy Origin')),
                 ],
                 onSelected: (field) => Clipboard.setData(ClipboardData(text: line[field]?.toString() ?? '')),
-              ),
+              )]),
             ),
+            if (lines.length == 1) FilledButton.tonalIcon(
+              icon: const Icon(Icons.playlist_add), label: const Text('Add to Match'),
+              onPressed: working ? null : () { Navigator.pop(sheet); addToMatch(row, lines.single); }),
             if (lines.isNotEmpty && row['connection'] == null) ...[
               const SizedBox(height: 8),
               FilledButton.icon(icon: const Icon(Icons.add), label: const Text('Add to My Channels'),
