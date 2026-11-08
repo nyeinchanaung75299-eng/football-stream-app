@@ -32,3 +32,4 @@ for migration in "$repo_root"/supabase/migrations/*.sql; do
   run_sql --single-transaction < "$migration"
 done
 run_sql < "$repo_root/scripts/test_database_security.sql"
+run_sql < "$repo_root/scripts/test_channel_station_names.sql"
