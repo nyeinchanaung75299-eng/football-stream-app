@@ -66,8 +66,8 @@ test('TV guide preserves saved EPG IDs even when regional programmes are pending
   assert.equal(channels.find(c=>c.id==='tsn3').epg_id,'TSN3.ca');
   assert.equal(channels.find(c=>c.id==='tsn3').epg_source,'IC_CA');
   assert.equal(channels.find(c=>c.id==='tsn3').matchedEPG,false);
-  assert.equal(channels.find(c=>c.id==='fancode').epg_id,'');
-  assert.equal(channels.find(c=>c.id==='fancode').epg_source,'');
+  assert.equal(channels.find(c=>c.id==='fancode').epg_id,null);
+  assert.equal(channels.find(c=>c.id==='fancode').epg_source,null);
   assert.equal(channels.find(c=>c.id==='tsn3').stream_url,undefined);
  } finally { globalThis.fetch = original; }
 });
