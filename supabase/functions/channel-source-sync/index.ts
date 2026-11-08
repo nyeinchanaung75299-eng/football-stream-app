@@ -8,7 +8,7 @@ import {repositoryChannelUpdates} from '../_shared/repository_updates.mjs';
 const cors={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization,apikey,content-type,x-client-info"};
 const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{...cors,"Cache-Control":"no-store"}});
 const stateColumns="id,enabled,revision,last_checked_at,last_success_at,status,entry_count";
-const check=async(query:any)=>{const {data,error}=await query;if(error)throw new Error("Channel source operation failed");return data;};
+const check=async(query:any)=>{const {data,error}=await query;if(error){const failure:any=new Error("Channel source operation failed");failure.code=error.code;throw failure;}return data;};
 function same(a:string,b:string){if(a.length!==b.length)return false;let n=0;for(let i=0;i<a.length;i++)n|=a.charCodeAt(i)^b.charCodeAt(i);return n===0;}
 async function access(req:Request,client:any){
  const pulse=req.headers.get("x-nca-channel-source-key");
@@ -41,7 +41,8 @@ async function synchronize(client:any,force:boolean,source:string){
    p_source:source,p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,
    p_complete:snapshot.complete,p_unchanged:snapshot.unchanged,
   }));
- }catch{
+ }catch(error){
+  console.error('Channel source sync failed',{source,code:(error as any)?.code||'source_fetch',reason:(error as Error)?.name});
   await client.from("channel_source_state").update({status:"unavailable",last_checked_at:new Date().toISOString(),
    lease_id:null,lease_until:null}).eq("id",source).eq("lease_id",begun.lease);
   throw new Error("The published channel source is unavailable. Saved channels were kept.");
@@ -69,7 +70,10 @@ export async function channelSourceRequest(req:Request,client:any){
    if([1,2,3,4,5,6].includes(Number(body.provider)))query=query.eq("provider",Number(body.provider));
    if(["channel","event","video","playlist"].includes(body.kind))query=query.eq("kind",body.kind);
    const search=String(body.query||"").trim().slice(0,120).replace(/[\\%_]/g,"\\$&");
-   if(search)query=query.ilike("name","%"+search+"%");
+   if(search)query=source==='repository'
+    ?query.or('name.ilike.'+JSON.stringify('%'+search+'%')+',event_meta->>league.ilike.'+JSON.stringify('%'+search+'%'))
+    :query.ilike("name","%"+search+"%");
+   if(source==='repository')query=query.order('event_meta->>kickoff_at',{ascending:true,nullsFirst:false});
    const {data,error,count}=await query.order("name").order("id").range(page*100,page*100+99);
    if(error)throw new Error("Catalog unavailable");
    const ids=(data||[]).map((row:any)=>row.id);

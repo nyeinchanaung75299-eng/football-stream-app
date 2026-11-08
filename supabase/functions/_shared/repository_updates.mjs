@@ -13,7 +13,7 @@ export async function repositoryChannelUpdates(imports,{fetcher=fetch,maxProbes=
  const tasks=[];
  for(const saved of [...imports].sort((a,b)=>
   Number(b.channel_lines?.configuration_status==='requires_drm')-Number(a.channel_lines?.configuration_status==='requires_drm') ||
-  String(a.metadata?.last_source_check||'').localeCompare(String(b.metadata?.last_source_check||'')))){
+  String(a.metadata?.last_config_probe||'').localeCompare(String(b.metadata?.last_config_probe||'')))){
   const line=saved.channel_lines;if(!line)continue;
   let candidates=entries.filter(r=>r.repository===saved.repository&&r.source_file===saved.source_file&&mpdIdentity(r.stream_url)===mpdIdentity(line.stream_url));
   if(!candidates.length)candidates=entries.filter(r=>r.repository===saved.repository&&r.source_file===saved.source_file&&r.name.toLowerCase()===line.channels?.name?.toLowerCase());
@@ -24,7 +24,7 @@ export async function repositoryChannelUpdates(imports,{fetcher=fetch,maxProbes=
  }
  let cursor=0;
  await Promise.all(Array.from({length:6},async()=>{while(cursor<tasks.length){const row=tasks[cursor++];
-  const check=await probeChannelMedia(row,{fetcher,includeKids:true});probed++;
+  const check=await probeChannelMedia(row,{fetcher,includeKids:true});probed++;row.probe_checked=true;
   if(check.manifest_status!=='valid')continue;
   if(check.drm_status==='missing_configuration'){
    const matching=pairs.filter(p=>check.manifest_kids?.includes(p.key_id.toLowerCase()));

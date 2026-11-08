@@ -4,7 +4,7 @@ import {mpdIdentity,MPD_REPOSITORIES} from './repository_mpd.mjs';
 import {englishFootballName} from './football_names.mjs';
 const clean=x=>String(x??'').replace(/<[^>]*>/g,' ').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim();
 const team=x=>englishFootballName(clean(x),'team');
-const key=x=>team(x).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+const key=x=>clean(x).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
 const football=/football|soccer|premier\s*league|bundesliga|serie\s*a|la\s*liga|ligue\s*1|champions\s*league|europa\s*league|eredivisie|efl|\bfa\s*cup\b/i;
 const otherSport=/cricket|badminton|tennis|basketball|volleyball|motogp|motorsport|formula|\bufc\b|boxing|\bnfl\b|\bnba\b|rugby|hockey|baseball/i;
 const logo=x=>publicSourceUrl(x,{httpsOnly:true})?.href||null;
@@ -35,6 +35,10 @@ function jsonEvents(value,out=[]){
 }
 export function parseRepositoryMatches(text,context){
  const rows=[];
+ // Some repositories intentionally publish a tiny HTML landing page in
+ // `finall`. It contains no native fixture data. Only accept that as empty
+ // after its contents have been verified against the pinned Git blob SHA.
+ if(context.publisher_blob_verified&&/^<(?:!doctype\s+html|html)\b/i.test(String(text).trimStart()))return rows;
  if(String(text).trimStart().startsWith('#EXTM3U')){
   let row;
   for(const raw of String(text).split(/\r?\n/)){
@@ -77,11 +81,12 @@ export function parseRepositoryMatches(text,context){
  return rows;
 }
 export async function mergeRepositoryMatches(rows,{now=Date.now()}={}){
- const grouped=new Map(),known=rows.filter(r=>r.football_proven&&r.kickoff_at);
+ const grouped=new Map(),known=new Map();
+ for(const row of rows)if(row.football_proven&&row.kickoff_at){const pair=key(row.home_team)+':'+key(row.away_team);const list=known.get(pair)||[];list.push(row);known.set(pair,list);}
  for(const row of rows){
-  if(!row.football_proven&&!known.some(r=>key(r.home_team)===key(row.home_team)&&key(r.away_team)===key(row.away_team)))continue;
   const home=key(row.home_team),away=key(row.away_team);if(!home||!away||home===away)continue;
-  const peers=known.filter(r=>key(r.home_team)===home&&key(r.away_team)===away);
+  const peers=known.get(home+':'+away)||[];
+  if(!row.football_proven&&!peers.length)continue;
   const dates=[...new Set(peers.map(r=>r.kickoff_at.slice(0,10)))];
   const kickoff=row.kickoff_at||(dates.length===1?peers[0].kickoff_at:null);
   if(kickoff&&(Date.parse(row.end_at||kickoff)+6*3600000<now||Date.parse(kickoff)>now+14*86400000))continue;
@@ -116,15 +121,18 @@ export async function fetchRepositoryMatches({fetcher=fetch,revision=null}={}){
    const path=item.path;
    if(item.type!=='blob')continue;
    const match=repo==='darkbyteprojects/iptv_png'?/^provider_[1-6]\/live_events\.json$/.test(path):repo==='Roshavarma/cfy'?path==='api/events.json':/^(?:hasill|finall(?:\.json)?|playlist_final\.json|(?:pl|pll)\/rama+a?2(?:\.json)?)$/.test(path);
-   if(match){if(item.size>3*1024*1024)throw Error('Repository fixture file exceeds budget');tasks.push({repository:repo,revision:revisions[i],source_file:path});}
+   if(match){if(item.size>3*1024*1024)throw Error('Repository fixture file exceeds budget');tasks.push({repository:repo,revision:revisions[i],source_file:path,blob_sha:item.sha});}
   }
   if(!tasks.length||tasks.length>50)throw Error('Invalid repository fixture list');
   let cursor=0;const parsed=new Array(tasks.length);
   await Promise.all(Array.from({length:5},async()=>{while(cursor<tasks.length){const i=cursor++,task=tasks[i];
    const response=await fetcher('https://raw.githubusercontent.com/'+task.repository+'/'+task.revision+'/'+task.source_file,{redirect:'error',signal:controller.signal});
    if(!response.ok){await response.body?.cancel();throw Error('Repository fixture file unavailable');}
-   const text=await response.text();if(text.length>3*1024*1024)throw Error('Repository fixture file too large');
-   parsed[i]=parseRepositoryMatches(text,task);
+   const bytes=new Uint8Array(await response.arrayBuffer());if(bytes.length>3*1024*1024)throw Error('Repository fixture file too large');
+   const header=new TextEncoder().encode('blob '+bytes.length+'\0'),blob=new Uint8Array(header.length+bytes.length);blob.set(header);blob.set(bytes,header.length);
+   const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-1',blob))].map(b=>b.toString(16).padStart(2,'0')).join('');
+   if(hash!==task.blob_sha)throw Error('Repository file did not match its published Git blob');
+   parsed[i]=parseRepositoryMatches(new TextDecoder().decode(bytes),{...task,publisher_blob_verified:true});
   }}));
   return {revision:digest,unchanged:false,entries:await mergeRepositoryMatches(parsed.flat()),complete:true};
  }finally{clearTimeout(timer);controller.abort();}

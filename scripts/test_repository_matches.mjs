@@ -21,3 +21,7 @@ test('M3U match data ignores tokenApi/code and reads an explicit WIB date withou
  const data=parseRepositoryMatches(`#EXTM3U\n#EXTINF:-1 group-title="Football",Napoli vs Inter Milan - Serie A (20:00 WIB * 08-11-2026)\nhttps://cdn.example.org/one.m3u8`,{repository:'rohmanabdu/lian'});
  assert.equal(data.length,1);assert.equal(data[0].away_team,'Inter Milan');assert.equal(data[0].kickoff_at,'2026-11-08T13:00:00.000Z');
 });
+test('only a verified publisher HTML landing page is an empty export; a network error page is not a deletion',()=>{
+ assert.deepEqual(parseRepositoryMatches('<!DOCTYPE HTML PUBLIC "test"><html></html>',{...context,publisher_blob_verified:true}),[]);
+ assert.throws(()=>parseRepositoryMatches('<html>gateway error</html>',context),/Invalid published/);
+});
