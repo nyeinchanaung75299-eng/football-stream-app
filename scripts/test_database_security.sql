@@ -459,6 +459,8 @@ begin
  if public.channel_group_name('beIN SPORTS 2','Sports')<>'beIN Sports' or
   public.channel_group_name('UFC TV - AQ','Sports')<>'UFC' or
   public.channel_group_name('PBS Travel','Documentaries')<>'Travel' then raise exception 'Channel grouping wrong'; end if;
+ if public.channel_group_name('FS 1 - AQ','Sports')<>'FOX Sports' or
+  public.channel_group_name('ICC TV','Sports')<>'Cricket' or public.channel_group_name('Server 1','Sports')<>'Extra Servers' then raise exception 'Known brands or anonymous slots were grouped incorrectly'; end if;
  insert into public.channels(name,category) values('beIN Sports 99','Sports') returning id into target;
  if (select category from public.channels where id=target)<>'beIN Sports' then raise exception 'New channel was not grouped'; end if;
  update public.channels set category='My custom group',category_locked=true where id=target;

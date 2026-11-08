@@ -11,7 +11,9 @@ export async function repositoryChannelUpdates(imports,{fetcher=fetch,maxProbes=
  const entries=[...unique.values()],pairs=snapshot.entries.filter(r=>r.key_id&&r.key_data);
  let probed=0,repaired=0;
  const tasks=[];
- for(const saved of [...imports].sort((a,b)=>String(a.metadata?.last_source_check||'').localeCompare(String(b.metadata?.last_source_check||'')))){
+ for(const saved of [...imports].sort((a,b)=>
+  Number(b.channel_lines?.configuration_status==='requires_drm')-Number(a.channel_lines?.configuration_status==='requires_drm') ||
+  String(a.metadata?.last_source_check||'').localeCompare(String(b.metadata?.last_source_check||'')))){
   const line=saved.channel_lines;if(!line)continue;
   let candidates=entries.filter(r=>r.repository===saved.repository&&r.source_file===saved.source_file&&mpdIdentity(r.stream_url)===mpdIdentity(line.stream_url));
   if(!candidates.length)candidates=entries.filter(r=>r.repository===saved.repository&&r.source_file===saved.source_file&&r.name.toLowerCase()===line.channels?.name?.toLowerCase());
