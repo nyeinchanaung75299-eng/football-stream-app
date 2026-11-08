@@ -728,7 +728,7 @@ async function handleTvSchedule(request, env, incoming, ctx) {
         const saved = catalogById.get(row.id);
         const age = Date.now() - Date.parse(row.verified_at || publishedEpg.updated_at);
         return Number.isFinite(age) && age >= -600000 && age <= 18*3600000 &&
-          (saved?.epg_source?.startsWith('GH:') || ['US2','UK1','CZ1','SK1','MY1','BR1'].includes(saved?.epg_source)) &&
+          (saved?.epg_source?.startsWith('GH:') || ['US2','UK1','CZ1','SK1','MY1','BR1','AU1','MX1'].includes(saved?.epg_source)) &&
           saved.epg_source === row.epg_source && saved.epg_id === row.epg_id;
       }),
     } : null;
