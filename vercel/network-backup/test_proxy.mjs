@@ -1,8 +1,34 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { GET as proxy } from './api/proxy.js';
+import { GET as logo } from './api/channel-logo.js';
 
 const origin = 'https://backup.example';
+
+test('team logos download from the fixed image host on Vercel without forwarding caller credentials', async () => {
+  await withFetch(async (url, init) => {
+    assert.equal(String(url), 'https://img.sofascore.com/api/v1/team/2964/image');
+    assert.equal(init.headers.Authorization, undefined);
+    assert.equal(init.redirect, 'error');
+    return new Response(Buffer.from('89504e470d0a1a0a', 'hex'), {headers:{'Content-Type':'image/png'}});
+  }, async () => {
+    const response=await logo(new Request(origin+'/api/channel-logo?team=2964&url=https://other.example', {headers:{Authorization:'Bearer fixture'}}));
+    assert.equal(response.status,200);
+    assert.equal(response.headers.get('Content-Type'),'image/png');
+    assert.equal(response.headers.get('Access-Control-Allow-Origin'),'*');
+    assert.equal((await response.arrayBuffer()).byteLength,8);
+  });
+});
+
+test('team logos reject arbitrary identifiers and non-image upstream content', async () => {
+  let calls=0;
+  await withFetch(async()=>{calls++;return new Response('<html>unavailable</html>');}, async()=>{
+    assert.equal((await logo(new Request(origin+'/api/channel-logo?team=https://other.example'))).status,404);
+    assert.equal(calls,0);
+    assert.equal((await logo(new Request(origin+'/api/channel-logo?team=2964'))).status,502);
+    assert.equal(calls,1);
+  });
+});
 
 test('Live 2 GET and POST routes replace Totalsportek without opening arbitrary providers', async () => {
   const calls=[];
