@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (source === "xoilac" || source === "camel" || source === "arena" || source === "totalsportek") {
+    if (source === "arena" || source === "totalsportek") {
       const payload = { ok: true, source, matches: await websiteMatches(source, { date: body.date }), generated_at: new Date().toISOString() };
       return json(payload);
     }
@@ -106,10 +106,10 @@ Deno.serve(async (req) => {
   }
 });
 
-function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "xoilac" | "camel" | "arena" | "sofascore" | "totalsportek" | null {
+function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "arena" | "sofascore" | "totalsportek" | null {
   const source = String(value ?? "").trim().toLowerCase();
   if (!source) return "soco";
-  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "xoilac" || source === "camel" || source === "arena" || source === "sofascore" || source === "totalsportek") {
+  if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "arena" || source === "sofascore" || source === "totalsportek") {
     return source;
   }
   return null;

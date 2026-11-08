@@ -297,15 +297,15 @@ test('Browser Run scanner proxy preserves Admin authentication',async()=>{
 });
 
 
-test('Xoilac and Camel1 metadata use the protected public backend', async () => {
+test('removed source aliases cannot reach a provider through the public proxy', async () => {
   const seen=[];
   await withFetch(async(url,init)=>{seen.push(String(url));return Response.json({ok:true,matches:[]});}, async()=>{
     for(const source of ['xoilac','camel']){
       const response=await proxy(new Request(origin+'/sources/'+source+'/matches'));
-      assert.equal(response.status,200);
-      assert.equal(seen.at(-1),worker+'/sources/'+source+'/matches');
+      assert.equal(response.status,404);
     }
   });
+  assert.equal(seen.length,0);
 });
 
 

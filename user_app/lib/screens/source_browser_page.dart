@@ -81,8 +81,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     'yyzb' => 'YYZB',
     'fawa' => 'Fawa',
     'cola' => 'ColaTV',
-    'xoilac' => 'Xoilac',
-    'camel' => 'Camel1',
     'totalsportek' => 'Totalsportek',
     _ => 'Soco',
   };
@@ -921,24 +919,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
   }
 
-  void _xoilacUnavailable(Map<String, dynamic> match) {
-    if (!mounted) return;
-    final page = Uri.tryParse(match['page_url']?.toString() ?? '');
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text(
-          'Xoilac is not providing a playable source right now.',
-        ),
-        action: page?.scheme == 'https' && page?.host == 'xoilaczcb.tv'
-            ? SnackBarAction(
-                label: 'Open Xoilac',
-                onPressed: () => NativePlayer.openExternalPage(page.toString()),
-              )
-            : null,
-      ),
-    );
-  }
-
   void _totalsportekUnavailable(
     Map<String, dynamic> match, {
     bool requestFailed = false,
@@ -1028,13 +1008,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   );
 
   Future<void> _openSourcePlayer(Map<String, dynamic> m) async {
-    if (source == 'camel') {
-      final target = Uri.tryParse(m['page_url']?.toString() ?? '');
-      if (target?.scheme == 'https' && target?.host == 'www.camel1.tv') {
-        NativePlayer.openExternalPage(target.toString());
-      }
-      return;
-    }
     if (_anchors(m).isEmpty) return;
     final generation = _sourceGeneration;
     final selectedSource = source;
@@ -1075,9 +1048,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           return operation.firstUsable;
         },
         onCancelled: operation.cancel,
-        onFailure: source == 'xoilac'
-            ? (_) => _xoilacUnavailable(m)
-            : source == 'totalsportek'
+        onFailure: source == 'totalsportek'
                 ? (_) {
                     if (m['selected_player_url'] != null) {
                       unawaited(_selectedPlayerUnavailable(m));
@@ -1117,10 +1088,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             return;
           }
           _totalsportekUnavailable(m);
-          return;
-        }
-        if (source == 'xoilac') {
-          _xoilacUnavailable(m);
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1366,13 +1333,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               slivers: [
-                if (source == 'camel')
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      child: Text('Watch on Camel1 • sign-in required'),
-                    ),
-                  ),
                 SliverToBoxAdapter(
                   child: SourceMatchFilters(
                     controller: _searchController,
@@ -1436,9 +1396,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                           timeZoneLabel: source == 'totalsportek' ? 'MMT' : '',
                           isLive: live,
                           canWatch: ready,
-                          actionLabel: source == 'camel'
-                              ? 'OPEN CAMEL1'
-                              : source == 'totalsportek'
+                          actionLabel: source == 'totalsportek'
                                   ? (ready ? 'CHECK LINES' : 'NOT READY')
                                   : source == 'soco'
                                   ? (ready
