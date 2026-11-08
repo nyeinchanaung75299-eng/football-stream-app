@@ -1,6 +1,6 @@
 // Read only the repository's published data. Never download its private
 // builders, execute provider JavaScript, or call token/license APIs.
-const API='https://api.github.com/repos/darkbyteprojects/iptv_png';
+import {readRepositoryTrees} from './repository_trees.mjs';
 const RAW='https://raw.githubusercontent.com/darkbyteprojects/iptv_png/';
 const clean=value=>String(value??'').replace(/<[^>]*>/g,' ').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim();
 const identity=value=>clean(value).normalize('NFKC').toLowerCase();
@@ -100,7 +100,7 @@ export async function readJson(target,{fetcher,signal,limit=3*1024*1024}){
  try{
   const response=await fetcher(target,{redirect:'manual',signal:AbortSignal.any([signal,controller.signal]),
    headers:{Accept:'application/json','User-Agent':'NCA-Public-Channel-Sync/1.0'}});
-  if(!response.ok){await response.body?.cancel().catch(()=>{});throw new Error('Published channel source unavailable.');}
+  if(!response.ok){await response.body?.cancel().catch(()=>{});throw Object.assign(new Error('Published channel source unavailable.'),{code:'source_http_'+response.status});}
   const reader=response.body?.getReader();if(!reader)throw new Error('Empty channel source.');
   const chunks=[];let size=0;
   try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;
@@ -114,10 +114,9 @@ export async function fetchDarkbyteCatalog({fetcher=fetch,revision=null}={}){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),28000);
  try{
   const options={fetcher,signal:controller.signal};
-  const branch=await readJson(API+'/branches/main',options);const sha=branch?.commit?.sha;
+  const [tree]=await readRepositoryTrees(['darkbyteprojects/iptv_png'],options);const sha=tree.sha;
   if(!/^[a-f\d]{40}$/.test(sha||''))throw new Error('Invalid source revision.');
   if(revision===sha)return {revision:sha,unchanged:true,entries:[],complete:true};
-  const tree=await readJson(API+'/git/trees/'+sha+'?recursive=1',options);
   if(tree?.truncated||!Array.isArray(tree?.tree))throw new Error('Incomplete channel source tree.');
   const paths=tree.tree.filter(item=>item.type==='blob'&&/^provider_[1-6]\/(?:[a-zA-Z0-9_-]+\.json|categories\/[a-zA-Z0-9_-]+\.json)$/.test(item.path))
    .map(item=>item.path).sort((a,b)=>Number(a.includes('/categories/'))-Number(b.includes('/categories/'))||a.localeCompare(b));

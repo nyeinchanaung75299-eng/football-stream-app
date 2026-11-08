@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {parseRepositoryMatches,mergeRepositoryMatches,repositoryKickoff} from '../supabase/functions/_shared/repository_matches.mjs';
-import {publicRepositoryUpdate} from '../supabase/functions/_shared/repository_updates.mjs';
+import {publicRepositoryUpdate,orderConfigurationProbes} from '../supabase/functions/_shared/repository_updates.mjs';
 const context={repository:'Roshavarma/cfy',source_file:'api/events.json'};
 const row={cat:'Football',eventInfo:{teamA:'Napoli',teamB:'Inter Milan',eventName:'Serie A',startTime:'2026/11/08 14:00:00 +0000',teamAFlag:'https://logos.example.org/napoli.png',teamBFlag:'https://logos.example.org/inter.png'},
  channels_data:[{title:'HD',link:'https://cdn.example.org/sport.mpd?token=a',api:'a'.repeat(32)+':'+ 'b'.repeat(32),type:1}]};
@@ -29,4 +29,15 @@ test('only a verified publisher HTML landing page is an empty export; a network 
 test('Admin import activity returns change field names without source URLs or key values',()=>{
  const row=publicRepositoryUpdate({repository:'test',metadata:{license_url:'https://private.example.org/license',changed_fields:['Key','https://private.example.org/source'],last_updated_at:'2026-11-08T00:00:00Z'},channel_lines:{id:'id',label:'HD',stream_url:'https://private.example.org/source',key_data:'private-key',channels:{name:'Sports'}}});
  assert.deepEqual(row.changed_fields,['Key']);assert(!JSON.stringify(row).includes('private.example'));assert(!JSON.stringify(row).includes('private-key'));
+});
+test('hourly probe limits cannot starve unverified lines behind repeatedly missing DRM keys',()=>{
+ const rows=Array.from({length:30},(_,i)=>({id:i,metadata:{},channel_lines:{configuration_status:i<14?'requires_drm':'unverified'}}));
+ const checked=new Set();
+ for(let run=1;run<=3;run++){
+  const batch=orderConfigurationProbes(rows).slice(0,12);
+  if(run===1)assert(batch.every(r=>r.channel_lines.configuration_status==='requires_drm'));
+  for(const row of batch){checked.add(row.id);row.metadata.last_config_probe=`2026-11-08T0${run}:00:00Z`;}
+ }
+ assert.equal(checked.size,30);
+ assert.equal(orderConfigurationProbes(rows)[0].metadata.last_config_probe,'2026-11-08T01:00:00Z');
 });

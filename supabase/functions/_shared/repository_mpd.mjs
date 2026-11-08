@@ -1,6 +1,7 @@
 // Parse published data only. Do not run repository builders, player scripts,
 // license servers or token endpoints. Credentials remain private Admin data.
 import {configuration,publicSourceUrl,sourceHash} from './darkbyte_catalog.mjs';
+import {readRepositoryTrees} from './repository_trees.mjs';
 
 export const MPD_REPOSITORIES = [
  'rohmanabdu/lian','rohmanabdu/deqiaa','darkbyteprojects/iptv_png','Roshavarma/cfy',
@@ -79,7 +80,7 @@ export async function uniqueMpdEntries(entries) {
 export async function fetchRepositoryMpds({fetcher=fetch,deduplicate=true}={}) {
  async function read(url,max=3*1024*1024) {
   const response=await fetcher(url,{redirect:'error',signal:AbortSignal.timeout(15000),headers:{Accept:'application/json','User-Agent':'NCA-Published-MPD-Import/1.0'}});
-  if(!response.ok)throw new Error('Published repository unavailable: HTTP '+response.status);
+  if(!response.ok)throw Object.assign(new Error('Published repository unavailable: HTTP '+response.status),{code:'repository_http_'+response.status});
   const reader=response.body.getReader();let n=0;const chunks=[];
   try{while(true){const {done,value}=await reader.read();if(done)break;n+=value.length;if(n>max)throw new Error('Repository data too large');chunks.push(value);}}
   finally{await reader.cancel().catch(()=>{});}
@@ -87,8 +88,9 @@ export async function fetchRepositoryMpds({fetcher=fetch,deduplicate=true}={}) {
   return new TextDecoder().decode(data);
  }
  const entries=[],revisions={},files=[];
- for(const repo of MPD_REPOSITORIES) {
-  const tree=JSON.parse(await read('https://api.github.com/repos/'+repo+'/git/trees/HEAD?recursive=1'));
+ const trees=await readRepositoryTrees(MPD_REPOSITORIES,{fetcher});
+ for(const [repoIndex,repo] of MPD_REPOSITORIES.entries()) {
+  const tree=trees[repoIndex];
   if(tree.truncated||!Array.isArray(tree.tree)||!/^[a-f\d]{40}$/.test(tree.sha||''))throw new Error('Incomplete repository tree');
   revisions[repo]=tree.sha;
   const paths=tree.tree.filter(x=>x.type==='blob'&&x.size<=3*1024*1024&&(

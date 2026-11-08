@@ -7,6 +7,8 @@ on:
     paths:
       - ".github/workflows/sync-public-feed.yml"
       - "scripts/sync_public_feed.py"
+      - "scripts/publish_repository_trees.mjs"
+      - "supabase/functions/_shared/repository_trees.mjs"
       - "supabase/functions/public-feed-lines/index.ts"
       - "user_app/lib/screens/home_page.dart"
       - "user_app/lib/screens/source_browser_page.dart"
@@ -50,6 +52,12 @@ jobs:
           data=json.load(open('/tmp/matches.json', encoding='utf-8'))
           print(f"mirror matches: {len(data)}")
           PY
+
+      - name: Refresh complete repository tree metadata
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/publish_repository_trees.mjs /tmp/repository-trees.json
 
       - name: Fetch source-list snapshots for VPN-off fallback
         run: |
@@ -159,6 +167,9 @@ jobs:
 
           mkdir -p public
           cp /tmp/matches.json public/matches.json
+          if [ -s /tmp/repository-trees.json ]; then
+            cp /tmp/repository-trees.json public/repository-trees.json
+          fi
 
           mkdir -p public/sources
           for source in soco yyzb fawa cola; do

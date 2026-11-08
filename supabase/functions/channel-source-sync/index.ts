@@ -32,8 +32,11 @@ async function synchronize(client:any,force:boolean,source:string){
    const imported=await check(client.from('channel_repository_imports').select('repository,source_file,metadata,channel_lines(stream_url,referer,origin,key_id,key_data,configuration_status,channels(name))').limit(5000));
    const snapshot=await repositoryChannelUpdates(imported);
    const result=await check(client.rpc('refresh_repository_channel_imports',{p_entries:snapshot.entries}));
+   // Verified rotations can make previously different saved lines identical.
+   // Reuse the existing ownership-aware merge so references keep working.
+   const merged=result.updated_lines>0?await check(client.rpc('deduplicate_exact_channel_lines')):{};
    await check(client.from('channel_source_state').update({revision:snapshot.revision,last_checked_at:new Date().toISOString(),last_success_at:new Date().toISOString(),status:'ok',entry_count:imported.length,lease_id:null,lease_until:null}).eq('id',source).eq('lease_id',begun.lease));
-   return {ok:true,...result,probed:snapshot.probed,repaired:snapshot.repaired};
+   return {ok:true,...result,...merged,probed:snapshot.probed,repaired:snapshot.repaired};
   }
   const channels=source==='livetv'?await check(client.from('channels').select('id,name,epg_id,epg_source,is_active').eq('is_active',true).limit(1000)):[];
   const snapshot=source==='repository'?await fetchRepositoryMatches({revision:begun.revision}):source==='livetv'?await fetchLiveTvSports({revision:force?null:begun.revision,channels}):await fetchDarkbyteCatalog({revision:begun.revision});
