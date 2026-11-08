@@ -130,11 +130,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   void didUpdateWidget(covariant SourceBrowserPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.source != widget.source) {
-      _kickoffEpoch++;
-      for (final client in _kickoffClients.toList()) { client.close(); }
-      _kickoffClients.clear();
-      _kickoffQueue.clear();
-      _kickoffQueued.clear();
       _lastSourcePoll = null;
       _cancelSourceOperation();
       _query = '';
@@ -1002,10 +997,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       );
 
       if (!current()) return;
-      if (picked == -1) {
-        await _showWebsitePlayers(m);
-        return;
-      }
       if (picked == null) return;
       publishedCount = operation.rows.length;
       await NativePlayer.open(
