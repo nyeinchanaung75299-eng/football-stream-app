@@ -175,6 +175,67 @@ void main() {
     expect(airings.single.channel, 'Canal 5');
   });
 
+  test('saved EPG binding stays linked while the regional guide is pending', () {
+    final guide = TvScheduleGuide.fromJson({'channels': [{
+      'id': 'ca-tsn3',
+      'name': 'CA - TSN 3',
+      'epg_id': 'TSN3.ca',
+      'epg_source': 'IC_CA',
+      'matchedEPG': false,
+      'programmes': [],
+    }, {
+      'id': 'fancode-1',
+      'name': 'FanCode 1 (NITRO)',
+      'matchedEPG': false,
+      'programmes': [],
+    }]});
+    expect(guide.channels.first.coverageAt(DateTime.utc(2026, 11, 9)),
+      'awaiting_guide');
+    expect(guide.channels.last.coverageAt(DateTime.utc(2026, 11, 9)),
+      'not_linked');
+  });
+
+  test('generic football programme is possible, never verified coverage', () {
+    final kickoff = DateTime.utc(2026, 11, 8, 20);
+    final guide = TvScheduleGuide.fromJson({'channels': [{
+      'id': 'tsn3', 'name': 'CA - TSN 3',
+      'epg_id': 'TSN3.ca', 'epg_source': 'IC_CA',
+      'matchedEPG': true,
+      'programmes': [{
+        'start': kickoff.subtract(const Duration(minutes: 10))
+            .millisecondsSinceEpoch,
+        'end': kickoff.add(const Duration(hours: 2))
+            .millisecondsSinceEpoch,
+        'title': 'Spanish Primera Division Soccer',
+      }],
+    }, {
+      'id': 'other', 'name': 'Other channel',
+      'matchedEPG': true,
+      'programmes': [{
+        'start': kickoff.millisecondsSinceEpoch,
+        'title': 'Valencia vs Osasuna',
+      }, {
+        'start': kickoff.add(const Duration(minutes: 10))
+            .millisecondsSinceEpoch,
+        'title': 'La Liga highlights',
+      }, {
+        'start': kickoff.add(const Duration(minutes: 5))
+            .millisecondsSinceEpoch,
+        'title': 'Live Cricket',
+      }],
+    }]});
+    final match = {
+      'kickoff_at': kickoff.toIso8601String(),
+      'home_team': 'Atletico Madrid',
+      'away_team': 'FC Barcelona',
+    };
+    expect(guide.airingsForMatch(match), isEmpty);
+    final possible = guide.possibleAiringsForMatch(match);
+    expect(possible, hasLength(1));
+    expect(possible.single.channel, 'CA - TSN 3');
+    expect(possible.single.title, 'Spanish Primera Division Soccer');
+  });
+
   test('TV guide loader uses the NCA relay and reads no playback fields', () async {
     final client = MockClient((request) async {
       expect(request.url.path, '/tv-schedule');
