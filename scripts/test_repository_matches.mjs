@@ -41,3 +41,24 @@ test('hourly probe limits cannot starve unverified lines behind repeatedly missi
  assert.equal(checked.size,30);
  assert.equal(orderConfigurationProbes(rows)[0].metadata.last_config_probe,'2026-11-08T01:00:00Z');
 });
+
+test('all four repositories merge Man Utd aliases without combining the women fixture',async()=>{
+ const repos=['rohmanabdu/lian','rohmanabdu/deqiaa','darkbyteprojects/iptv_png','Roshavarma/cfy'];
+ const base={home_team:'Man Utd',away_team:'Aston Villa',league:'Premier League',football_proven:true,kickoff_at:'2026-11-08T16:30:00.000Z'};
+ const rows=repos.map((repository,i)=>({...base,repository,home_team:i%2?'Manchester United':'Man Utd',
+  league:i===3?'LIVE EVENT':'Premier League',streams:[{stream_url:`https://cdn.example.org/line${i}.m3u8`,stream_type:'hls',label:'Line '+i}]}));
+ rows.push({...rows[2],league:"Women's Super League",kickoff_at:'2026-11-08T12:00:00.000Z'});
+ const result=await mergeRepositoryMatches(rows,{now:Date.parse('2026-11-08T16:00:00Z')});
+ assert.equal(result.length,2);
+ const men=result.find(r=>r.event_meta.league==='Premier League');
+ assert(men);assert.equal(men.name,'Manchester United vs Aston Villa');assert.equal(men.streams.length,4);
+ assert.deepEqual(new Set(men.event_meta.repositories),new Set(repos));
+ assert.equal(result.find(r=>r.event_meta.league==="Women's Super League").streams.length,1);
+});
+
+test('MPD lines with identical URL and key pair collapse regardless of provider labels and headers',async()=>{
+ const base=parseRepositoryMatches(JSON.stringify([row]),context)[0];
+ const duplicate={...base,repository:'darkbyteprojects/iptv_png',streams:base.streams.map(s=>({...s,label:'Different provider name',referer:'https://other.example.org/',origin:'https://other.example.org'}))};
+ const result=await mergeRepositoryMatches([base,duplicate],{now:Date.parse('2026-11-08T00:00:00Z')});
+ assert.equal(result.length,1);assert.equal(result[0].streams.length,1);
+});

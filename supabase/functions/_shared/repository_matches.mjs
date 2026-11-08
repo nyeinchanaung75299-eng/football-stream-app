@@ -4,8 +4,17 @@ import {readRepositoryTrees} from './repository_trees.mjs';
 import {mpdIdentity,MPD_REPOSITORIES} from './repository_mpd.mjs';
 import {englishFootballName} from './football_names.mjs';
 const clean=x=>String(x??'').replace(/<[^>]*>/g,' ').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim();
-const team=x=>englishFootballName(clean(x),'team');
 const key=x=>clean(x).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+const aliases=new Map(Object.entries({manutd:'Manchester United',manchesterutd:'Manchester United',manunited:'Manchester United',
+ mancity:'Manchester City',spurs:'Tottenham Hotspur',tottenham:'Tottenham Hotspur',psg:'Paris Saint-Germain',
+ intermilan:'Inter Milan',inter:'Inter Milan',bayernmunchen:'Bayern Munich',newcastleutd:'Newcastle United'}));
+const team=x=>{
+ const value=englishFootballName(clean(x),'team');
+ const suffix=value.match(/\s+(?:(?:Women|Ladies|U\d{1,2}|Reserves|II|B)\s*)+$/i)?.[0]||'';
+ const base=suffix?value.slice(0,-suffix.length):value;
+ return (aliases.get(key(base))||base)+suffix;
+};
+const competition=row=>/\bwomen(?:'s)?\b|\bladies\b|\bwsl\b|femenin|frauen|femminile/i.test([row.league,row.home_team,row.away_team].join(' '))?'women':'';
 const football=/football|soccer|premier\s*league|bundesliga|serie\s*a|la\s*liga|ligue\s*1|champions\s*league|europa\s*league|eredivisie|efl|\bfa\s*cup\b/i;
 const otherSport=/cricket|badminton|tennis|basketball|volleyball|motogp|motorsport|formula|\bufc\b|boxing|\bnfl\b|\bnba\b|rugby|hockey|baseball/i;
 const logo=x=>publicSourceUrl(x,{httpsOnly:true})?.href||null;
@@ -17,6 +26,8 @@ export function repositoryKickoff(value){
  const ms=Date.parse(text);return Number.isFinite(ms)?new Date(ms).toISOString():null;
 }
 export function repositoryLineIdentity(line){
+ if(line.stream_type==='dash')return JSON.stringify([mpdIdentity(line.stream_url),
+  (line.key_id||'').toLowerCase(),(line.key_data||'').toLowerCase()]);
  return JSON.stringify([mpdIdentity(line.stream_url),line.stream_type,line.referer||'',line.origin||'',
   (line.key_id||'').toLowerCase(),(line.key_data||'').toLowerCase(),line.drm_type||'',line.license_url||'']);
 }
@@ -82,24 +93,25 @@ export function parseRepositoryMatches(text,context){
  return rows;
 }
 export async function mergeRepositoryMatches(rows,{now=Date.now()}={}){
+ rows=rows.map(row=>({...row,home_team:team(row.home_team),away_team:team(row.away_team)}));
  const grouped=new Map(),known=new Map();
- for(const row of rows)if(row.football_proven&&row.kickoff_at){const pair=key(row.home_team)+':'+key(row.away_team);const list=known.get(pair)||[];list.push(row);known.set(pair,list);}
+ for(const row of rows)if(row.football_proven&&row.kickoff_at){const pair=key(row.home_team)+':'+key(row.away_team)+':'+competition(row);const list=known.get(pair)||[];list.push(row);known.set(pair,list);}
  for(const row of rows){
   const home=key(row.home_team),away=key(row.away_team);if(!home||!away||home===away)continue;
-  const peers=known.get(home+':'+away)||[];
+  const peers=known.get(home+':'+away+':'+competition(row))||[];
   if(!row.football_proven&&!peers.length)continue;
   const dates=[...new Set(peers.map(r=>r.kickoff_at.slice(0,10)))];
   const kickoff=row.kickoff_at||(dates.length===1?peers[0].kickoff_at:null);
   if(kickoff&&(Date.parse(row.end_at||kickoff)+6*3600000<now||Date.parse(kickoff)>now+14*86400000))continue;
   const date=kickoff?.slice(0,10)||'undated';
-  const id='repo:match:'+(await sourceHash(home+':'+away+':'+date)).slice(0,28);
+  const id='repo:match:'+(await sourceHash(home+':'+away+':'+date+(competition(row)?':'+competition(row):''))).slice(0,28);
   let entry=grouped.get(id);
   if(!entry){entry={id,provider:8,kind:'event',name:(row.home_team+' vs '+row.away_team).slice(0,120),category:'Football',
    source_file:'reviewed repository fixtures',image_url:null,streams:[],unsupported_count:0,
    event_meta:{home_team:row.home_team,away_team:row.away_team,home_logo_url:null,away_logo_url:null,kickoff_at:kickoff,league:row.league,repositories:[]}};grouped.set(id,entry);}
   const meta=entry.event_meta;
   meta.home_logo_url ||= row.home_logo_url;meta.away_logo_url ||= row.away_logo_url;
-  if(row.league&&row.league!=='Football')meta.league=row.league;
+  if(row.league&&row.league!=='Football'&&!/^live\s*events?$/i.test(row.league))meta.league=row.league;
   if(!meta.repositories.includes(row.repository))meta.repositories.push(row.repository);
   for(const line of row.streams){
    const identity=repositoryLineIdentity(line);
