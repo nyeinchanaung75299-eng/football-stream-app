@@ -1,4 +1,5 @@
 import importlib.util
+import gzip
 import pathlib
 import tempfile
 import unittest
@@ -38,6 +39,8 @@ class ChannelEpgTests(unittest.TestCase):
         self.assertEqual(epg.country_hint({'name':'Zee Cinema','category':'India'}),'IN')
         self.assertEqual(epg.station_name('CBS GOLAZO AQ'),'cbssportsgolazonetwork')
         self.assertEqual(epg.station_name('Eleven Sports 3 Poland'),'elevensports3')
+        self.assertEqual(epg.station_name('beIN ENGLISH 1'),epg.station_name('beIN Sports English 1'))
+        self.assertNotEqual(epg.station_name('beIN ENGLISH'),epg.station_name('beIN Sports English 1'))
 
     def test_stale_or_placeholder_programmes_do_not_create_a_fresh_binding(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -57,6 +60,25 @@ class ChannelEpgTests(unittest.TestCase):
         self.assertEqual(epg.saved_feed('US2'),'share_US2')
         self.assertEqual(epg.saved_feed('GH:share_US2'),'share_US2')
         self.assertEqual(epg.saved_feed('UK1'),'share_UK1')
+        self.assertEqual(epg.saved_feed('AU1'),'share_AU1')
+        self.assertEqual(epg.saved_feed('MX1'),'share_MX1')
         self.assertIsNone(epg.saved_feed('unknown'))
+
+    def test_bein_english_service_uses_only_the_numbered_published_english_station(self):
+        with tempfile.TemporaryDirectory() as folder:
+            data='<tv>'
+            for service in ('1_ENGLISH_Digital_Mono_EN','1_ENGLISH_Digital_Mono_AR','1_DIGITAL_Mono_EN'):
+                identity='beIN_SPORTS'+service+'.bein'
+                data+=f'<channel id="{identity}"><display-name>{identity[:-5]}</display-name></channel>'
+                data+=f'<programme channel="{identity}" start="20261108050000 +0000" stop="20261108080000 +0000"><title>Live football</title></programme>'
+            data+='</tv>'
+            with gzip.open(pathlib.Path(folder)/'share_BEIN1.xml.gz','wb') as output:output.write(data.encode())
+            rows=epg.read_feed(('share_BEIN1','https://example.invalid/guide.xml.gz','QA'),pathlib.Path(folder),datetime(2026,11,8,6,tzinfo=timezone.utc))
+            official,aliases=epg.official_directory(b'id,name,alt_names,country,closed,replaced_by\nbeINSportsEnglish1.qa,beIN Sports English 1,,QA,,\n')
+            index=epg.candidate_index(rows,official,aliases)
+            selected,_=epg.propose_binding({'name':'beIN ENGLISH 1'},index,official,aliases)
+            self.assertEqual(selected['id'],'beIN_SPORTS1_ENGLISH_Digital_Mono_EN.bein')
+            self.assertEqual(selected['names'][0],'beIN_SPORTS1_ENGLISH_Digital_Mono_EN')
+            self.assertIsNone(epg.propose_binding({'name':'beIN ENGLISH'},index,official,aliases)[0])
 
 if __name__=='__main__':unittest.main()

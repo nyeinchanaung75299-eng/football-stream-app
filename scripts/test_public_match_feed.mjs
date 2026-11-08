@@ -351,3 +351,25 @@ test('saved US2 NBC metadata is available even when the regional guide is cold',
   assert.equal((await run()).channels[0].matchedEPG,false);
  }finally{globalThis.fetch=original;}
 });
+
+test('Australian and Mexican saved guides keep their exact source and station identity during a provider outage',async()=>{
+ const original=globalThis.fetch;
+ let savedSource='AU1';
+ const row={id:'saved-au',name:'beIN Sports 1',epg_id:'beINSports1.au',epg_source:'AU1'};
+ globalThis.fetch=async target=>{
+  const u=new URL(target);
+  if(u.pathname==='/rest/v1/channels')return Response.json([{...row,epg_source:savedSource}]);
+  if(u.pathname==='/api/schedule')return Response.json({channels:[]});
+  if(u.hostname==='raw.githubusercontent.com')return Response.json({ok:true,updated_at:new Date().toISOString(),channels:[{
+   ...row,matchedEPG:true,programmes:[{start:Date.now(),title:'Live football'}],
+  }]});
+  throw Error('Regional feed unavailable');
+ };
+ const run=()=>worker.fetch(new Request('https://api.example/tv-schedule?date=2026-11-08'),env,{}).then(r=>r.json());
+ try{
+  assert.equal((await run()).channels[0].matchedEPG,true);
+  savedSource='MX1';assert.equal((await run()).channels[0].matchedEPG,false,'same station id on a different source must not inherit the guide');
+  row.epg_id='FOX.SPORTS.mx';row.epg_source='MX1';row.name='FOX SPORTS';
+  assert.equal((await run()).channels[0].matchedEPG,true);
+ }finally{globalThis.fetch=original;}
+});
