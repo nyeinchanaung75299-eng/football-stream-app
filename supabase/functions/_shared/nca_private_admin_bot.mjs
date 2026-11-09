@@ -508,11 +508,16 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     // Check a bounded, rotating subset; never return or send source URLs / DRM fields.
     let checked=0, probeErrors=0;
     { // Perform monitoring independently of alert subscriptions.
-      const lines=await database("channel_lines?select=id,channel_id,stream_url,referer,origin,health_status,last_checked_at"+
-        "&is_active=eq.true&order=last_checked_at.asc.nullsfirst&limit=12",env);
+      const lines=await database(
+        "channel_lines?select=id,channel_id,stream_url,referer,origin,"+
+        "telegram_probe_status,telegram_probe_http_status,"+
+        "telegram_probe_failure_streak,telegram_probe_checked_at,"+
+        "playback_status,last_playback_checked_at"+
+        "&is_active=eq.true&order=telegram_probe_checked_at.asc.nullsfirst&limit=12",env);
       const channelRows=await allChannels();
       const names=new Map(channelRows.filter(c=>c.is_active).map(c=>[c.id,c.name]));
-      // Bound concurrency: two batches of four probes, instead of eight sequential timeouts.
+      // Bound concurrency: three batches of four, never streaming the media.
+      // Independent of device playback and manifest/segment diagnostics.
       for(let offset=0;offset<lines.length;offset+=4){
         await Promise.allSettled(lines.slice(offset,offset+4).map(async line=>{
           if(!names.has(line.channel_id))return;
@@ -523,27 +528,46 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
               ...(line.origin?{"Origin":line.origin}:{}),
             },timeoutMs:4500});
             checked++;
+            // A missing HTTP response (timeout/network error) is inconclusive:
+            // it cannot prove that the Viewer cannot play the stream.
+            const reachability=probe.status==="failed" && !probe.httpStatus
+              ? "unknown" : probe.status;
+            const previousFailures=Math.min(3,Math.max(0,
+              Number(line.telegram_probe_failure_streak)||0));
+            const failureStreak=reachability==="failed"
+              ? Math.min(3,previousFailures+1) : 0;
+            const checkedAt=new Date().toISOString();
+            // Never overwrite health_status, health_http_status,
+            // last_checked_at, manifest, segment or playback state.
             await writeDb("channel_lines?id=eq."+line.id,"PATCH",{
-              health_status:probe.status,health_latency_ms:probe.latencyMs,
-              health_http_status:probe.httpStatus,
-              last_checked_at:new Date().toISOString(),
+              telegram_probe_status:reachability,
+              telegram_probe_http_status:probe.httpStatus,
+              telegram_probe_latency_ms:probe.latencyMs,
+              telegram_probe_failure_streak:failureStreak,
+              telegram_probe_checked_at:checkedAt,
             });
-            const failedNow=probe.status==="failed" && line.health_status!=="failed";
-            const restored= line.health_status==="failed" &&
-              (probe.status==="healthy"||probe.status==="slow");
+            // Alert only after two consecutive HTTP probe failures,
+            // not on a single failed request to a region-specific CDN.
+            const failedNow=reachability==="failed" && previousFailures===1;
+            const restored=previousFailures>=2 &&
+              (reachability==="healthy"||reachability==="slow");
             if(failedNow || restored){
               // Identify each actual transition by its previous check, rather
               // than once per day. Fail -> recover -> fail gets a fresh alert.
-              const key="health:"+line.id+":"+(failedNow?"failed":"recovered")+":"+
-                String(line.last_checked_at || "first");
+              const key="reachability:"+line.id+":"+
+                (failedNow?"failed":"recovered")+":"+
+                String(line.telegram_probe_checked_at || "first");
               for(const admin of prefs.filter(x=>x.monitor_enabled)){
                 try {
                   await notify(admin.chat_id,"health",key,
-                    (failedNow?"⚠️ NCA CHANNEL REACHABILITY ALERT":"✅ NCA CHANNEL RECOVERED")+
+                    (failedNow?"⚠️ NCA SERVER HTTP PROBE FAILED TWICE":"✅ NCA SERVER HTTP PROBE RECOVERED")+
                     "\n📺 "+text(names.get(line.channel_id),85)+
-                    "\nStatus: "+probe.status+" (first-chunk probe only)"+
-                    "\nLast check: "+new Date().toISOString()+
-                    "\n/health and /logs for details. Playback not verified.");
+                    "\nServer HTTP: "+reachability+" (first chunk only)"+
+                    "\nVideo: "+
+                      (line.playback_status==="verified"
+                        ? "previously verified on device" : "NOT VERIFIED by bot")+
+                    "\nLast check: "+checkedAt+
+                    "\nThe Viewer may still play on another network/VPN.");
                 } catch (_) { /* Keep monitoring other lines even if Telegram fails. */ }
               }
             }
@@ -617,18 +641,26 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
   async function health(env) {
     const [channels, lines] = await Promise.all([
       database("channels?select=id&is_active=eq.true&limit=250", env),
-      database("channel_lines?select=health_status&is_active=eq.true&limit=500", env),
+      database("channel_lines?select=health_status,telegram_probe_status,playback_status&is_active=eq.true&limit=500", env),
     ]);
     const counts = { healthy: 0, slow: 0, failed: 0, unknown: 0 };
+    const botProbes = { healthy: 0, slow: 0, failed: 0, unknown: 0 };
+    let videoVerified = 0;
     for (const row of lines) {
       const status = String(row.health_status || "unknown").toLowerCase();
+      const reachability = String(row.telegram_probe_status || "unknown").toLowerCase();
       counts[status in counts ? status : "unknown"]++;
+      botProbes[reachability in botProbes ? reachability : "unknown"]++;
+      if (row.playback_status === "verified") videoVerified++;
     }
     return "📊 NCA CHANNEL HEALTH\nActive channels: " + channels.length +
       "\nActive lines: " + lines.length + "\n🟢 Healthy lines: " + counts.healthy +
-      "\n🟡 Slow lines: " + counts.slow + "\n🔴 Failed lines: " + counts.failed +
-      "\n⚪ Unknown lines: " + counts.unknown +
-      "\n\nHealth indicates reachability, not guaranteed playback.";
+      "\n🟡 Slow lines: " + counts.slow + "\n🔴 Media probe FAILED: " + counts.failed +
+      "\n⚪ Media probe UNKNOWN: " + counts.unknown +
+      "\n🌐 Server HTTP probe FAILED: " + botProbes.failed +
+      "\n🌐 Server HTTP probe UNKNOWN: " + botProbes.unknown +
+      "\n▶️ Device video VERIFIED: " + videoVerified +
+      "\n\nBot HTTP checks do not prove or disprove video playback.";
   }
   async function builds() {
     const response = await fetcher("https://api.github.com/repos/nyeinchanaung75299-eng/football-stream-app/actions/runs?branch=main&per_page=20", {

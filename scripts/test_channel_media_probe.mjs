@@ -28,3 +28,23 @@ test('redirects to private hosts are rejected',async()=>{
  const result=await probeChannelMedia(line,{fetcher:async()=>new Response('',{status:302,headers:{Location:'http://127.0.0.1/admin'}})});
  assert.equal(result.health_status,'failed');
 });
+
+test('a temporary HTTP 504 is an inconclusive media probe, not a failed video',async()=>{
+ const result=await probeChannelMedia(line,{fetcher:async()=>new Response('Gateway timeout',{status:504})});
+ assert.equal(result.health_status,'unknown');
+ assert.equal(result.http_status,504);
+ assert.equal(result.manifest_status,'unavailable');
+ assert.equal(result.playback_status,undefined);
+});
+test('server network errors do not override previous decoded playback evidence',async()=>{
+ const result=await probeChannelMedia(line,{fetcher:async()=>{throw new Error('network unavailable');}});
+ assert.equal(result.health_status,'unknown');
+ assert.equal(result.http_status,0);
+ assert.equal(result.playback_status,undefined);
+});
+test('a missing media URL HTTP 404 still reports a failed media check, not video decode',async()=>{
+ const result=await probeChannelMedia(line,{fetcher:async()=>new Response('',{status:404})});
+ assert.equal(result.health_status,'failed');
+ assert.equal(result.http_status,404);
+ assert.equal(result.playback_status,undefined);
+});

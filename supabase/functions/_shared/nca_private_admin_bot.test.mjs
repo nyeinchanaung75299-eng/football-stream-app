@@ -128,7 +128,14 @@ test("cron keeps monitoring even if all stored subscribers are unauthorized",asy
     assert.equal(body.subscribers,0);
     assert.equal(body.skipped_subscribers,1);
     assert.equal(body.checked,1);
-    assert.ok(mock.calls.some(c=>c.method==="PATCH"&&c.url.includes("channel_lines?id=")));
+    const patchCall=mock.calls.find(c=>c.method==="PATCH"&&c.url.includes("channel_lines?id="));
+    assert.ok(patchCall);
+    assert.equal(patchCall.body.telegram_probe_status,"healthy");
+    assert.equal(patchCall.body.telegram_probe_failure_streak,0);
+    for(const forbidden of ["health_status","health_http_status","last_checked_at",
+      "manifest_status","segment_status","playback_status"]){
+      assert.equal(patchCall.body[forbidden],undefined);
+    }
   } finally{globalThis.fetch=oldFetch;}
 });
 
@@ -136,7 +143,9 @@ test("failed Telegram delivery releases alert dedupe claim for a later retry",as
   const key="a".repeat(64);
   const mock=createMock({
     key,prefs:[{chat_id:111,alert_enabled:true,monitor_enabled:true,football_enabled:false}],
-    lines:[{id:"line-a",channel_id:"channel-a",stream_url:"https://stream.test/master.m3u8",health_status:"healthy",last_checked_at:new Date().toISOString()}],
+    lines:[{id:"line-a",channel_id:"channel-a",stream_url:"https://stream.test/master.m3u8",
+      telegram_probe_status:"failed",telegram_probe_failure_streak:1,
+      telegram_probe_checked_at:new Date().toISOString()}],
     channels:[{id:"channel-a",name:"Sports",is_active:true}],
     messageFail:true,
   });
@@ -240,9 +249,9 @@ test("same-day failed/recovered/failed transitions generate distinct dedupe keys
     "2026-11-09T02:04:00.000Z",
   ];
   const cases=[
-    {before:"healthy",probe:500,now:times[0]},
-    {before:"failed",probe:200,now:times[1]},
-    {before:"healthy",probe:500,now:times[2]},
+    {before:1,probe:500,now:times[0]},
+    {before:2,probe:200,now:times[1]},
+    {before:1,probe:500,now:times[2]},
   ];
   const keys=[];
   const oldFetch=globalThis.fetch;
@@ -252,7 +261,9 @@ test("same-day failed/recovered/failed transitions generate distinct dedupe keys
         key,prefs:[{chat_id:111,alert_enabled:true,monitor_enabled:true,football_enabled:false}],
         lines:[{id:"line-x",channel_id:"channel-x",
           stream_url:"https://stream.test/master.m3u8",
-          health_status:entry.before,last_checked_at:entry.now}],
+          telegram_probe_status:entry.before===2?"failed":"healthy",
+          telegram_probe_failure_streak:entry.before,
+          telegram_probe_checked_at:entry.now}],
         channels:[{id:"channel-x",name:"Test channel",is_active:true}],
       });
       globalThis.fetch=async()=>new Response(
@@ -298,4 +309,64 @@ test("diagnostics shows last-24h delivery attempts without exposing private secr
   const reply=telegramCalls(mock.calls,"sendMessage")[0].body.text;
   assert.match(reply,/delivery attempts \(24h\): 0 sent, 0 failed/i);
   assert.doesNotMatch(reply,/test-admin-token|test-service-key|stream_url/);
+});
+
+test("server timeout or inaccessible network is inconclusive, not a video FAIL",async()=>{
+  const key="c".repeat(64);
+  const mock=createMock({
+    key,prefs:[{chat_id:111,alert_enabled:true,monitor_enabled:true,football_enabled:false}],
+    lines:[{id:"line-v",channel_id:"channel-v",stream_url:"https://stream.test/master.m3u8",
+      health_status:"healthy",playback_status:"verified",
+      telegram_probe_failure_streak:0,telegram_probe_status:"unknown"}],
+    channels:[{id:"channel-v",name:"Verified device stream",is_active:true}],
+  });
+  const oldFetch=globalThis.fetch;
+  globalThis.fetch=async()=>{throw new Error("simulated network timeout");};
+  try{
+    const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+    const response=await handler(pulseRequest(key));
+    assert.equal(response.status,200);
+    const patch=mock.calls.find(c=>c.method==="PATCH"&&c.url.includes("channel_lines?id="));
+    assert.equal(patch.body.telegram_probe_status,"unknown");
+    assert.equal(patch.body.telegram_probe_http_status,0);
+    assert.equal(patch.body.telegram_probe_failure_streak,0);
+    assert.equal(patch.body.health_status,undefined);
+    assert.equal(patch.body.playback_status,undefined);
+    assert.equal(telegramCalls(mock.calls,"sendMessage").length,0);
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test("one HTTP 500 does not send a video failure alert; next consecutive failure may warn",async()=>{
+  const key="c".repeat(64);
+  const mock=createMock({
+    key,prefs:[{chat_id:111,alert_enabled:true,monitor_enabled:true,football_enabled:false}],
+    lines:[{id:"line-v",channel_id:"channel-v",stream_url:"https://stream.test/master.m3u8",
+      health_status:"healthy",playback_status:"verified",
+      telegram_probe_failure_streak:0,telegram_probe_status:"healthy"}],
+    channels:[{id:"channel-v",name:"Verified device stream",is_active:true}],
+  });
+  const oldFetch=globalThis.fetch;
+  globalThis.fetch=async()=>new Response("temporary upstream 500",{status:500});
+  try{
+    const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+    assert.equal((await handler(pulseRequest(key))).status,200);
+    const patch=mock.calls.find(c=>c.method==="PATCH"&&c.url.includes("channel_lines?id="));
+    assert.equal(patch.body.telegram_probe_status,"failed");
+    assert.equal(patch.body.telegram_probe_failure_streak,1);
+    assert.equal(patch.body.health_status,undefined);
+    assert.equal(patch.body.playback_status,undefined);
+    assert.equal(telegramCalls(mock.calls,"sendMessage").length,0);
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test("admin /health reports server HTTP status independently of verified device video",async()=>{
+  const mock=createMock({lines:[{health_status:"failed",
+    telegram_probe_status:"unknown",playback_status:"verified",is_active:true}]});
+  const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+  assert.equal((await handler(request("/health"))).status,200);
+  const text=telegramCalls(mock.calls,"sendMessage")[0].body.text;
+  assert.match(text,/Media probe FAILED: 1/);
+  assert.match(text,/Server HTTP probe UNKNOWN: 1/);
+  assert.match(text,/Device video VERIFIED: 1/);
+  assert.doesNotMatch(text,/stream_url|test-service-key/);
 });

@@ -53,7 +53,7 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
     }
     final channels = await allRows('channels', 'id,name,category,is_active');
     final lines = await allRows('channel_lines',
-        'id,channel_id,label,stream_type,is_active,configuration_status,health_status,health_latency_ms,health_http_status,last_checked_at,manifest_status,segment_status,drm_status,playback_status,playback_device,last_playback_checked_at,health_detail');
+        'id,channel_id,label,stream_type,is_active,configuration_status,health_status,health_latency_ms,health_http_status,last_checked_at,manifest_status,segment_status,drm_status,playback_status,playback_device,last_playback_checked_at,health_detail,telegram_probe_status,telegram_probe_http_status,telegram_probe_checked_at');
     final byChannel = <String, List<Map<String, dynamic>>>{};
     for (final line in lines) {
       final id = line['channel_id']?.toString() ?? '';
@@ -187,7 +187,7 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
             child: Text(
-              '${data.length} CHANNELS • ${counts['reachable'] ?? 0} REACHABLE • ${counts['partial'] ?? 0} PARTIAL • ${counts['failed'] ?? 0} FAILED • ${counts['stale'] ?? 0} STALE',
+              '${data.length} CHANNELS • ${counts['reachable'] ?? 0} REACHABLE • ${counts['partial'] ?? 0} PARTIAL • ${counts['failed'] ?? 0} MEDIA CHECK FAILED • ${counts['stale'] ?? 0} STALE',
               style: Theme.of(context).textTheme.labelMedium,
             ),
           ),
@@ -247,7 +247,7 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                   DropdownMenuItem(value: 'reachable', child: Text('Reachable')),
                 DropdownMenuItem(value: 'stale', child: Text('Stale')),
                   DropdownMenuItem(value: 'slow', child: Text('Slow')),
-                  DropdownMenuItem(value: 'failed', child: Text('Failed')),
+                  DropdownMenuItem(value: 'failed', child: Text('Server check failed')),
                   DropdownMenuItem(value: 'partial', child: Text('Partial')),
                   DropdownMenuItem(value: 'unknown', child: Text('Unknown')),
                   DropdownMenuItem(value: 'drm', child: Text('Needs DRM')),
@@ -274,6 +274,14 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                 final channel = filtered[index];
                 final id = channel['id'].toString();
                 final status = channel['status'].toString();
+                final videoVerified = (channel['lines'] as List).any(
+                  (line) => line['playback_status'] == 'verified',
+                );
+                final statusLabel = status == 'failed'
+                    ? (videoVerified
+                        ? 'SERVER CHECK FAILED • DEVICE VIDEO VERIFIED'
+                        : 'SERVER CHECK FAILED • VIDEO NOT VERIFIED')
+                    : status.toUpperCase();
                 final checked = channel['checked_at'] as DateTime?;
                 final detail = checked == null ? 'Not checked'
                     : DateFormat('dd MMM, h:mm a').format(checked.toLocal());
@@ -285,7 +293,7 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                     title: Text(channel['name']?.toString() ?? 'Channel',
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: Text(
-                      '${channel['reachable_lines']}/${channel['line_count']} reachable • ${channel['failed_lines']} failed\n${status.toUpperCase()} • $detail',
+                      'ID ${id.substring(0, 8)} • ${channel['reachable_lines']}/${channel['line_count']} reachable • ${channel['failed_lines']} media check failed\n$statusLabel • $detail',
                     ),
                     children: [
                       for (final line in (channel['lines'] as List).cast<Map<String, dynamic>>())
@@ -296,12 +304,15 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                           subtitle: Text(
                             'Link: ${line['is_active'] == true ? 'SAVED' : 'DISABLED'}'
                             ' • HTTP: ${line['last_checked_at'] == null ? 'NOT TESTED' : (line['health_http_status'] == null ? 'NO RESPONSE' : line['health_http_status'])}'
+                            '\nMedia check: ${line['health_status'] ?? 'unknown'}'
+                            '\nBot HTTP probe: ${line['telegram_probe_status'] ?? 'unknown'}'
+                            ' (HTTP ${line['telegram_probe_http_status'] ?? '—'})'
                             '\nManifest: ${line['manifest_status'] ?? 'not_tested'}'
                             ' • Segment: ${line['segment_status'] ?? 'not_tested'}'
                             '\nVideo: ${line['playback_status'] == 'verified' ? 'DECODE VERIFIED' : line['playback_status'] == 'failed' ? 'FAILED ON DEVICE' : 'NOT VERIFIED'}'
                             '${line['playback_device']==null?'':' • ${line['playback_device']}'}'
                             '\n${line['last_checked_at'] == null ? 'HTTP not checked' : DateFormat('dd MMM, h:mm a').format(DateTime.parse(line['last_checked_at'].toString()).toLocal())}'
-                            '\nHTTP/manifest reachable does not prove video playback.'
+                            '\nA failed server HTTP probe does not prove device video failed.'
                           ),
                           trailing: IconButton(tooltip:line['configuration_status']=='requires_drm'?'Configure DRM':'Test Video',
                             icon:Icon(line['configuration_status']=='requires_drm'?Icons.settings:Icons.play_circle_outline),
