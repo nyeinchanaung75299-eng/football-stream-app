@@ -67,12 +67,17 @@ class _DashboardPageState extends State<DashboardPage> {
       if (!mounted || !_mutatingSections.contains(section)) return;
       // The editing route may have changed fixtures or channels. Evict only
       // dependent guide screens, never hold a deleted row in an Admin cache.
-      TvScheduleService.invalidateShared();
-      setState(() {
-        _guideRevision++;
-        _visitedTabs.removeAll({3, 4});
-      });
+      _invalidateGuidesAfterEdit();
     }));
+  }
+
+  void _invalidateGuidesAfterEdit() {
+    if (!mounted) return;
+    TvScheduleService.invalidateShared();
+    setState(() {
+      _guideRevision++;
+      _visitedTabs.removeAll({3, 4});
+    });
   }
 
   Widget _tabContent(int index, ColorScheme colors) => SafeArea(
@@ -80,7 +85,10 @@ class _DashboardPageState extends State<DashboardPage> {
     bottom: false,
     child: switch (index) {
       0 => _controls(context, colors),
-      1 => const StreamSourcePickerPage(embedded: true),
+      1 => StreamSourcePickerPage(
+        embedded: true,
+        onProviderClosed: _invalidateGuidesAfterEdit,
+      ),
       2 => _tools(context, colors),
       3 => TvSchedulesPage(
         key: ValueKey('admin-tv-$_guideRevision'),
