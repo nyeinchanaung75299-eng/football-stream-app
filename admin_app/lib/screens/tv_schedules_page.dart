@@ -11,9 +11,10 @@ import '../widgets/football_match_guide_card.dart';
 /// live/next match times, but adding a stream line does not belong in a TV
 /// schedule view.
 class TvSchedulesPage extends StatefulWidget {
-  const TvSchedulesPage({super.key, this.embedded = false});
+  const TvSchedulesPage({super.key, this.embedded = false, this.active = true});
 
   final bool embedded;
+  final bool active;
 
   @override
   State<TvSchedulesPage> createState() => _TvSchedulesPageState();
@@ -23,11 +24,22 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
   late Future<_ScheduleData> _schedule = _load();
   late Future<_GuideResult> _guide = _loadGuide();
   String _view = 'upcoming';
+  DateTime _lastRefreshAt = DateTime.now();
 
   void _refresh() => setState(() {
+        _lastRefreshAt = DateTime.now();
         _schedule = _load();
         _guide = _loadGuide(refresh: true);
       });
+
+  @override
+  void didUpdateWidget(covariant TvSchedulesPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active &&
+        DateTime.now().difference(_lastRefreshAt) >= const Duration(minutes: 2)) {
+      _refresh(); // FutureBuilder holds last good rows while fetching.
+    }
+  }
 
   // Matches are essential; optional EPG must never block showing fixtures.
   Future<_ScheduleData> _load() async =>
