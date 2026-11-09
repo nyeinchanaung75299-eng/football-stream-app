@@ -52,6 +52,27 @@ class ViewerTabCache {
   static _TabResult? _channels;
   static Future<List<Map<String, dynamic>>>? _channelsInFlight;
   static ViewerChannelsUiState channelUi = const ViewerChannelsUiState();
+  static DateTime? _groupFetchedAt;
+  static Map<String, int> _channelGroups = const {};
+  static DateTime? _matchesFetchedAt;
+  static List<Map<String, dynamic>> _channelMatches = const [];
+
+  static Map<String, int> get channelGroups => _channelGroups;
+  static List<Map<String, dynamic>> get channelMatches => _channelMatches;
+  static bool get channelGroupsFresh =>
+      _groupFetchedAt != null &&
+      DateTime.now().difference(_groupFetchedAt!) < channelTtl;
+  static bool get channelMatchesFresh =>
+      _matchesFetchedAt != null &&
+      DateTime.now().difference(_matchesFetchedAt!) < sourceTtl;
+  static void rememberChannelGroups(Map<String, int> groups) {
+    _channelGroups = groups;
+    _groupFetchedAt = DateTime.now();
+  }
+  static void rememberChannelMatches(List<Map<String, dynamic>> matches) {
+    _channelMatches = matches;
+    _matchesFetchedAt = DateTime.now();
+  }
 
   static List<Map<String, dynamic>>? sourceRows(String source) =>
       _sources[source]?.rows;
