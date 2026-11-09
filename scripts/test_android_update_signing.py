@@ -47,17 +47,35 @@ class AndroidUpdateGateTests(unittest.TestCase):
                 "build_number": 30739,
             }), encoding="utf-8")
 
-    def test_valid_single_signer(self):
-        self.assertEqual(signer_digest(
-            "Signer #1 certificate SHA-256 digest: " + SHA + "\n"), SHA)
-
-    def test_rejects_two_signers_or_bad_digest(self):
+    def test_valid_single_signer_legacy_and_build_tools_37(self):
+        old = "Signer #1 certificate SHA-256 digest: " + SHA + "\n"
+        v37_v2 = "V2 Signer: certificate SHA-256 digest: " + SHA + "\n"
+        v37_v3 = "V3.0 Signer: certificate SHA-256 digest: " + SHA + "\n"
+        rotated_sdk = (
+            "Signer (minSdkVersion=24, maxSdkVersion=32) certificate "
+            "SHA-256 digest: " + SHA + "\n"
+        )
         for output in [
-            "", "Signer #1 certificate SHA-256 digest: 1234\n",
+            old, v37_v2, v37_v3, rotated_sdk,
+            "Number of signers: 1\n" + v37_v2 + v37_v3,
+            "Number of signers: 1\n" + old + v37_v2,
+        ]:
+            with self.subTest(output=output):
+                self.assertEqual(signer_digest(output), SHA)
+
+    def test_rejects_two_signers_bad_digest_and_scheme_rotation(self):
+        samples = [
+            "",
+            "Signer #1 certificate SHA-256 digest: 1234\n",
             "Signer #2 certificate SHA-256 digest: " + SHA + "\n",
             "Signer #1 certificate SHA-256 digest: " + SHA + "\n" +
-            "Signer #2 certificate SHA-256 digest: " + SHA + "\n",
-        ]:
+                "Signer #2 certificate SHA-256 digest: " + SHA + "\n",
+            "Number of signers: 2\nV2 Signer: certificate SHA-256 digest: " + SHA,
+            "V2 Signer: certificate SHA-256 digest: " + SHA + "\n" +
+                "V3.0 Signer: certificate SHA-256 digest: " + "cd" * 32,
+            "V5 Signer: certificate SHA-256 digest: " + SHA,
+        ]
+        for output in samples:
             with self.subTest(output=output), self.assertRaises(IncompatibleUpdate):
                 signer_digest(output)
 

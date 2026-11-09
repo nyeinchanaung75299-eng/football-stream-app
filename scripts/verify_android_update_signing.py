@@ -69,16 +69,47 @@ def published_apk(feed_dir: Path, label: str) -> Path:
 
 
 def signer_digest(apksigner_output: str) -> str:
-    certs = re.findall(
-        r"^Signer #(\d+) certificate SHA-256 digest:\s*([0-9a-fA-F:]+)\s*$",
+    """Parse APK certificates in legacy and Build Tools 37+ output formats.
+
+    Newer apksigner versions report "V2 Signer: certificate SHA-256 digest:"
+    or "V3.0 Signer: certificate SHA-256 digest:" instead of "Signer #1".
+    Several signing schemes may report the SAME certificate, but changed
+    certificates, multiple signers and unknown formats must block an update.
+    """
+    expression = re.compile(
+        r"^\s*(?:"
+        r"Signer #(?P<number>\d+) certificate"
+        r"|V[1-4](?:\.\d+)? Signer: certificate"
+        r"|Signer \(minSdkVersion=\d+,\s*maxSdkVersion=\d+\) certificate"
+        r") SHA-256 digest:\s*(?P<digest>[0-9a-fA-F:]+)\s*$",
+        flags=re.IGNORECASE,
+    )
+    digests: set[str] = set()
+    matched = 0
+    for line in apksigner_output.splitlines():
+        if "certificate sha-256 digest:" not in line.lower():
+            continue
+        # Fail closed on any unfamiliar certificate signer notation.
+        match = expression.fullmatch(line)
+        if match is None:
+            raise IncompatibleUpdate("APK has an unrecognized certificate signer format")
+        number = match.group("number")
+        if number is not None and number != "1":
+            raise IncompatibleUpdate("APK must have exactly one recognized signing certificate")
+        digest = match.group("digest").replace(":", "").lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise IncompatibleUpdate("APK signing certificate SHA-256 is invalid")
+        matched += 1
+        digests.add(digest)
+
+    reported = re.findall(
+        r"^\s*Number of signers:\s*(\d+)\s*$",
         apksigner_output, flags=re.MULTILINE | re.IGNORECASE,
     )
-    if len(certs) != 1 or certs[0][0] != "1":
+    if (matched == 0 or len(digests) != 1 or
+            any(int(count) != 1 for count in reported)):
         raise IncompatibleUpdate("APK must have exactly one recognized signing certificate")
-    digest = certs[0][1].replace(":", "").lower()
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
-        raise IncompatibleUpdate("APK signing certificate SHA-256 is invalid")
-    return digest
+    return next(iter(digests))
 
 
 def package_identity(aapt_output: str) -> tuple[str, int]:
