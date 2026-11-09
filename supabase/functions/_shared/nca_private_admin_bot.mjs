@@ -657,6 +657,9 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       "\nActive lines: " + lines.length + "\n🟢 Healthy lines: " + counts.healthy +
       "\n🟡 Slow lines: " + counts.slow + "\n🔴 Media probe FAILED: " + counts.failed +
       "\n⚪ Media probe UNKNOWN: " + counts.unknown +
+      "\n🌐 Server HTTP probe FAILED: " + botProbes.failed +
+      "\n🌐 Server HTTP probe UNKNOWN: " + botProbes.unknown +
+      "\n▶️ Device video VERIFIED: " + videoVerified +
       "\n\nBot HTTP checks do not prove or disprove video playback.";
   }
   async function builds() {
