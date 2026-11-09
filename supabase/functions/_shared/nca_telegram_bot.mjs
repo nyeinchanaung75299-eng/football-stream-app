@@ -282,7 +282,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
         } else {
           responseText = "⚽ NCA FOOTBALL VIEWER\nChoose a tool below, or use the Telegram /commands menu.\n" +
             "/today /live /schedule /channels /reminders /unsubscribe /apk /build\n" +
-            "Match reminders are optional. /menu opens these buttons again.";
+            "Choose Remind me on a match for an optional kickoff reminder. /menu opens these buttons again.";
           keyboard = VIEWER_INLINE_MENU;
         }
       } else if (cmd === "/health" || cmd === "/status") {
