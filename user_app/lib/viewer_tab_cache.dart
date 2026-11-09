@@ -87,11 +87,15 @@ class ViewerTabCache {
       return next;
     });
     _sourceInFlight[source] = operation;
-    operation.whenComplete(() {
+    unawaited(operation.then<void>((_) {
       if (identical(_sourceInFlight[source], operation)) {
         _sourceInFlight.remove(source);
       }
-    }).catchError((Object _) {});
+    }, onError: (Object _, StackTrace __) {
+      if (identical(_sourceInFlight[source], operation)) {
+        _sourceInFlight.remove(source);
+      }
+    }));
     return operation;
   }
 
@@ -118,9 +122,11 @@ class ViewerTabCache {
       return next;
     });
     _channelsInFlight = operation;
-    operation.whenComplete(() {
+    unawaited(operation.then<void>((_) {
       if (identical(_channelsInFlight, operation)) _channelsInFlight = null;
-    }).catchError((Object _) {});
+    }, onError: (Object _, StackTrace __) {
+      if (identical(_channelsInFlight, operation)) _channelsInFlight = null;
+    }));
     return operation;
   }
 
