@@ -481,7 +481,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
         final activeGroup =
             groupCounts.containsKey(selectedGroup) ? selectedGroup : 'All';
         final groups = <String, List<Map<String, dynamic>>>{};
-        for (final row in snapshot.data!.where(matchesSearch)) {
+        for (final row in rows.where(matchesSearch)) {
           final id = row['id'].toString();
           if (libraryFilter == 'favorites' && !library.favorites.contains(id)) continue;
           if (libraryFilter == 'recent' && !library.recent.contains(id)) continue;
