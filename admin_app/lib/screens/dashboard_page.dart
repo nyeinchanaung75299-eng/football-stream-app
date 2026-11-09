@@ -85,9 +85,9 @@ class _DashboardPageState extends State<DashboardPage> {
           final section = switch (index) {
             0 => 'controls',
             1 => 'stream-sources',
-            2 => 'tv-schedule',
-            3 => 'my-channels',
-            _ => 'tools',
+            2 => 'tools',
+            3 => 'tv-schedule',
+            _ => 'my-channels',
           };
           AnalyticsService.capture(
             'admin section opened',
@@ -107,6 +107,11 @@ class _DashboardPageState extends State<DashboardPage> {
             label: 'Sources',
           ),
           NavigationDestination(
+            icon: Icon(Icons.grid_view_outlined),
+            selectedIcon: Icon(Icons.grid_view_rounded),
+            label: 'Tools',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.calendar_month_outlined),
             selectedIcon: Icon(Icons.calendar_month_rounded),
             label: 'TV Schedule',
@@ -116,11 +121,6 @@ class _DashboardPageState extends State<DashboardPage> {
             selectedIcon: Icon(Icons.tv_rounded),
             label: 'My Channels',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.grid_view_outlined),
-            selectedIcon: Icon(Icons.grid_view_rounded),
-            label: 'Tools',
-          ),
         ],
       ),
       // Do not use an eager IndexedStack here: My Channels and TV Schedule
@@ -129,9 +129,9 @@ class _DashboardPageState extends State<DashboardPage> {
       body: switch (_tab) {
         0 => _controls(context, colors),
         1 => const StreamSourcePickerPage(embedded: true),
-        2 => const TvSchedulesPage(embedded: true),
-        3 => const MyChannelsGuidePage(embedded: true),
-        _ => _tools(context, colors),
+        2 => _tools(context, colors),
+        3 => const TvSchedulesPage(embedded: true),
+        _ => const MyChannelsGuidePage(embedded: true),
       },
     );
   }
