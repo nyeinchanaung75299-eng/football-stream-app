@@ -25,7 +25,8 @@ function fixture({role="admin", tokenValid=true, botMatch=true, envOverrides={}}
       const isViewer = String(url).includes("viewer-token-fixture");
       return Response.json({ok:true,result:{username:botMatch?(isViewer?"NCAFootballViewer_bot":"NCAPrivate_bot"):"Unrelated_bot"}});
     }
-    if (method === "setWebhook") return Response.json({ok:true,result:true});
+    if (["setWebhook","setMyCommands","setChatMenuButton"].includes(method))
+      return Response.json({ok:true,result:true});
     if (method === "getWebhookInfo") return Response.json({ok:true,result:{url:
       "https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/" +
       (String(url).includes("viewer-token-fixture") ? "telegram-viewer" : "telegram-admin")}});
@@ -49,6 +50,16 @@ test("registers both BotFather usernames and webhook endpoints under verified Ad
   ]);
   const webhooks=f.calls.filter(c=>c.url.endsWith("/setWebhook"));
   assert.equal(webhooks.length,2);
+  const commands=f.calls.filter(c=>c.url.endsWith("/setMyCommands"));
+  assert.equal(commands.length,2);
+  const viewerCommands=JSON.parse(commands[0].body).commands;
+  const adminCommands=JSON.parse(commands[1].body).commands;
+  assert.ok(viewerCommands.some(c=>c.command==="apk"));
+  assert.ok(viewerCommands.some(c=>c.command==="menu"));
+  assert.ok(viewerCommands.some(c=>c.command==="reminders"));
+  assert.ok(adminCommands.some(c=>c.command==="apk_viewer"));
+  assert.ok(adminCommands.some(c=>c.command==="apk_admin"));
+  assert.equal(f.calls.filter(c=>c.url.endsWith("/setChatMenuButton")).length,2);
   const submitted=webhooks.map(c=>JSON.parse(c.body));
   assert.notEqual(submitted[0].secret_token,submitted[1].secret_token);
   assert.ok(webhooks.every(c=>c.method==="POST"));
