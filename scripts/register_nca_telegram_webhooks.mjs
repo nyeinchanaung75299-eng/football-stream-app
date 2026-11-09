@@ -1,3 +1,4 @@
+import { BOT_COMMANDS } from "../supabase/functions/_shared/telegram_bot_commands.mjs";
 // Register only after deploying both Supabase Edge Functions.
 // Set tokens and webhook secrets via your PRIVATE shell environment.
 // Never commit bot tokens, webhook secrets or the Telegram API URL with token.
@@ -28,7 +29,19 @@ for (const [label, path, tokenKey, secretKey] of settings) {
       process.exitCode = 1;
       continue;
     }
-    console.log(label + ": Telegram webhook registered for " + host + path);
+    for (const [method, body] of [
+      ["setMyCommands", { commands: BOT_COMMANDS[label.toLowerCase()], scope: { type: "default" } }],
+      ["setChatMenuButton", { menu_button: { type: "commands" } }],
+    ]) {
+      const menuResponse = await fetch("https://api.telegram.org/bot" + token + "/" + method, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const menuResult = await menuResponse.json();
+      if (!menuResponse.ok || menuResult.ok !== true || menuResult.result !== true)
+        throw new Error("Bot menu setup failed");
+    }
+    console.log(label + ": Telegram webhook and /commands menu registered.");
   } catch {
     console.error(label + ": Telegram API connection failed.");
     process.exitCode = 1;
