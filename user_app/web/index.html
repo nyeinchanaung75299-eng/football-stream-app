@@ -314,6 +314,120 @@
       display:none!important;
       pointer-events:none!important;
     }
+    /* Settings navigation and smaller ~1/3 compact typography/cards. Keep
+       accessible 34px tap areas while eliminating oversized text/boxes. */
+    #football-player-menu{width:min(335px,calc(100vw - 16px));max-height:min(72dvh,510px)}
+    #football-player-menu-header{
+      display:flex;align-items:center;gap:6px;padding:7px 9px 4px;
+    }
+    #football-player-menu-title{
+      flex:1 1 auto;min-width:0;padding:0;font-size:12px;
+      font-weight:700;line-height:1.3;letter-spacing:0.02em;
+    }
+    #football-player-menu-back,#football-player-menu-close{
+      flex:0 0 34px;width:34px;height:34px;border-radius:7px;
+      border:1px solid #474853;color:white;background:#242630;
+      font-size:16px;cursor:pointer;
+    }
+    #football-player-menu-items{max-height:min(61dvh,455px);padding:3px 7px 7px}
+    #football-player-menu.settings-open .football-menu-item{
+      min-height:36px;margin:3px 0;padding:5px 8px;
+      border-radius:8px;gap:5px;
+    }
+    #football-player-menu.settings-open .football-menu-item-label{
+      font-size:12px;font-weight:700;line-height:1.22;
+    }
+    #football-player-menu.settings-open .football-menu-item-sub{
+      font-size:10px;margin-top:1px;line-height:1.18;
+    }
+    #football-player-menu.settings-open .football-menu-item-badge{font-size:11px}
+    #football-player-menu.settings-open .nca-settings-tabs{
+      gap:3px;padding:3px 0 5px;
+    }
+    #football-player-menu.settings-open .nca-settings-tabs .football-control{
+      flex:1 1 0;min-width:0;min-height:34px;padding:0 3px;
+      font-size:10px;font-weight:700;line-height:1.1;
+    }
+    /* iPhone Safari: fullscreen belongs next to Rotate on the top toolbar,
+       never in a spare black box below the video. The volume/speaker UI
+       remains owned by Safari inside the video and must not be overlaid. */
+    #football-player-overlay.ios-native-mode #football-player-ios-fullscreen{
+      display:inline-flex!important;align-items:center;justify-content:center;
+      position:static;right:auto;bottom:auto;z-index:auto;
+      flex:0 0 38px;width:38px;height:36px;min-height:36px;
+      padding:5px;border:1px solid #393945;border-radius:7px;
+      background:#1e1e29;box-sizing:border-box;
+    }
+    #football-player-overlay.ios-native-mode #football-player-ios-fullscreen svg{
+      width:18px;height:18px;
+    }
+    #football-player-overlay:not(.ios-native-mode) #football-player-ios-fullscreen{
+      display:none!important;
+    }
+    #football-player-overlay.ios-native-mode #football-player-video{
+      height:100%!important;flex:1 1 auto;object-fit:contain;
+    }
+    #football-player-overlay.ios-native-mode #football-player-video-frame{
+      flex-direction:row;justify-content:center;
+    }
+    #football-player-overlay.ios-native-mode #football-player-topbar{
+      gap:4px;padding:4px 6px;flex-wrap:nowrap;
+    }
+    #football-player-overlay.ios-native-mode #football-player-title{
+      flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+    }
+    #football-player-overlay.ios-native-mode #football-player-quality{
+      flex:0 0 44px;min-width:44px;max-width:44px;width:44px;
+      height:36px;padding:0 3px;font-size:11px;
+    }
+    #football-player-overlay.ios-native-mode #football-player-fit,
+    #football-player-overlay.ios-native-mode #football-player-rotate{
+      flex:0 0 38px;min-width:38px;max-width:38px;
+      width:38px;height:36px;min-height:36px;max-height:36px;
+      position:static!important;top:auto!important;right:auto!important;
+      padding:0 3px;box-sizing:border-box;border-radius:7px;
+      background:#1e1e29;border:1px solid #393945;
+    }
+    #football-player-overlay.ios-native-mode #football-player-rotate svg{
+      width:19px;height:19px;
+    }
+    @media (orientation:portrait){
+      /* Avoid a giant black region before the player. Fit preserves aspect
+         ratio, so unused screen space can remain BELOW rather than above. */
+      #football-player-overlay.open{
+        justify-content:flex-start!important;
+      }
+      #football-player-overlay.ios-native-mode #football-player-video-wrap{
+        height:min(56.25vw,calc(100dvh - 100px));
+      }
+      #football-player-overlay.open:not(.ios-native-mode){
+        padding-top:0;justify-content:flex-start!important;
+      }
+      #football-player-overlay.ios-native-mode #football-player-topbar{
+        position:relative;top:auto;background:#15151e;
+      }
+    }
+    @media (orientation:landscape){
+      /* No dedicated black header strip above a landscape video. Auto-hide
+         the controls instead of reserving space for them. */
+      #football-player-overlay.open{justify-content:flex-start!important}
+      #football-player-overlay #football-player-topbar{
+        position:absolute!important;top:0;left:0;right:0;
+        min-height:44px;z-index:6;
+        background:linear-gradient(to bottom,rgba(0,0,0,.67),rgba(0,0,0,.09));
+      }
+      #football-player-overlay.ios-native-mode #football-player-video-wrap,
+      #football-player-overlay:not(.ios-native-mode) #football-player-video-wrap{
+        flex:1 1 auto;height:100%;min-height:0;
+      }
+      #football-player-overlay.ios-native-mode #football-player-topbar.controls-hidden,
+      #football-player-overlay:not(.ios-native-mode) #football-player-topbar.controls-hidden{
+        opacity:0!important;pointer-events:none!important;
+      }
+      #football-player-overlay.ios-native-mode #football-player-line-rail{
+        position:relative;bottom:auto;top:auto;flex:0 0 auto;
+      }
+    }
     /* Safari native fullscreen is owned by iOS; keep in-page controls
        outside the video so they never conflict with Apple transport UI. */
     #football-player-overlay.ios-native-mode #football-player-fit,
@@ -367,10 +481,17 @@
       <button id="football-player-quality" class="football-control" type="button" aria-label="Choose quality">Auto</button>
       <button id="football-player-fit" class="football-control" type="button">Fit</button>
       <button id="football-player-rotate" class="football-control" type="button" aria-label="Rotate video" title="Rotate video"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 11a9 9 0 1 0-2.7 6.4"></path><path d="M21 3v8h-8"></path></svg></button>
+      <button id="football-player-ios-fullscreen" class="football-control" type="button" aria-label="Enter fullscreen" title="Fullscreen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></svg>
+      </button>
       <button id="football-player-fullscreen" class="football-control" type="button">Fullscreen</button>
     </div>
-    <div id="football-player-menu" class="hidden" role="dialog" aria-modal="false">
-      <div id="football-player-menu-title"></div>
+    <div id="football-player-menu" class="hidden" role="dialog" aria-modal="false" aria-label="Player settings and options">
+      <div id="football-player-menu-header">
+        <button id="football-player-menu-back" type="button" aria-label="Back to previous settings">←</button>
+        <div id="football-player-menu-title"></div>
+        <button id="football-player-menu-close" type="button" aria-label="Close player settings">✕</button>
+      </div>
       <div id="football-player-menu-items"></div>
     </div>
     <div id="football-player-video-wrap">
@@ -386,9 +507,6 @@
             <button id="nca-player-settings" type="button" aria-label="Resolution, audio and speed">⚙</button>
           </div>
         </div>
-        <button id="football-player-ios-fullscreen" type="button" aria-label="Enter fullscreen" title="Fullscreen">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></svg>
-        </button>
       </div>
       <div id="football-player-message"></div>
     </div>
@@ -405,6 +523,9 @@
     const qualityButton=document.getElementById('football-player-quality');
     const menuPanel=document.getElementById('football-player-menu');
     const menuTitle=document.getElementById('football-player-menu-title');
+    const menuBackButton=document.getElementById('football-player-menu-back');
+    const menuCloseButton=document.getElementById('football-player-menu-close');
+    let settingsSection='video';
     const menuItems=document.getElementById('football-player-menu-items');
     const messageEl=document.getElementById('football-player-message');
     const closeButton=document.getElementById('football-player-close');
@@ -589,12 +710,12 @@
     function layoutIOSVideoFrame(){
       if(!overlay.classList.contains('ios-native-mode') || video.webkitDisplayingFullscreen)return;
       const width=videoWrap.clientWidth,height=videoWrap.clientHeight;
-      if(!width || height<=48)return;
+      if(!width || height<=0)return;
       const ratio=video.videoWidth>0 && video.videoHeight>0
         ? video.videoWidth/video.videoHeight : 16/9;
-      const pictureWidth=Math.min(width,(height-48)*ratio);
+      const pictureWidth=Math.min(width,height*ratio);
       videoFrame.style.width=pictureWidth+'px';
-      videoFrame.style.height=(pictureWidth/ratio+48)+'px';
+      videoFrame.style.height=(pictureWidth/ratio)+'px';
     }
 
     function layoutVideoFrame(){
@@ -947,6 +1068,7 @@
     }
 
     function closePlayerMenu(){
+      menuPanel.classList.remove('settings-open');
       menuPanel.classList.add('hidden');
       menuItems.innerHTML='';
       if(overlay.classList.contains('open'))revealControls();
@@ -1139,6 +1261,8 @@
       .forEach(type=>video.addEventListener(type,updatePlaybackControls));
 
     function openSettingsMenu(section='video'){
+      settingsSection=section;
+      menuPanel.classList.add('settings-open');
       revealControls();
       menuTitle.textContent='Player settings';menuItems.innerHTML='';
       const tabs=document.createElement('div');tabs.className='nca-settings-tabs';
@@ -1226,6 +1350,20 @@
       }
       menuPanel.classList.remove('hidden');
     }
+    // Back returns from Audio/Subtitles/Speed to the main Video settings.
+    // Close always returns to the still-playing video without restarting it.
+    menuBackButton.addEventListener('click',event=>{
+      event.stopPropagation();
+      if(menuPanel.classList.contains('settings-open') && settingsSection!=='video'){
+        openSettingsMenu('video');
+      }else{
+        closePlayerMenu();
+      }
+    });
+    menuCloseButton.addEventListener('click',event=>{
+      event.stopPropagation();
+      closePlayerMenu();
+    });
     settingsButton.addEventListener('click',event=>{
       event.stopPropagation();
       if(menuPanel.classList.contains('hidden'))openSettingsMenu('video');
