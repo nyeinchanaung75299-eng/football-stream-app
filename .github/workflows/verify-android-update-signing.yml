@@ -1,0 +1,27 @@
+name: Verify Android In-App Signing Safety
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/verify_android_update_signing.py'
+      - 'scripts/test_android_update_signing.py'
+      - '.github/workflows/build-apks.yml'
+      - '.github/workflows/verify-android-update-signing.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signing-gate-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check signing guard syntax
+        run: python3 -m py_compile scripts/verify_android_update_signing.py scripts/test_android_update_signing.py
+      - name: Test release integrity, certificate, package, and versionCode guards
+        run: python3 -m unittest discover -s scripts -p 'test_android_update_signing.py' -v
