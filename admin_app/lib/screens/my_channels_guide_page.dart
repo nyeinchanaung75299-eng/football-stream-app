@@ -260,7 +260,24 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
       },
     );
 
-    if (widget.embedded) return ColoredBox(color: FootballGuideColors.background, child: content);
+    if (widget.embedded) {
+      // Both guide tabs use a dark guide canvas even when the Admin app is
+      // in light mode. Scope text, icons and dropdown colors to that canvas
+      // so black-on-black labels never disappear.
+      return Theme(
+        data: ThemeData.dark(useMaterial3: true).copyWith(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: FootballGuideColors.mint,
+            brightness: Brightness.dark,
+            surface: FootballGuideColors.background,
+          ),
+        ),
+        child: ColoredBox(
+          color: FootballGuideColors.background,
+          child: content,
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: FootballGuideColors.background,
       appBar: AppBar(
