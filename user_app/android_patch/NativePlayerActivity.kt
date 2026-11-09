@@ -1068,11 +1068,13 @@ class NativePlayerActivity : Activity() {
         popup.menu.add(0, 7000, 0, "Video quality • ${forcedQualityLabel ?: "Auto"}")
         popup.menu.add(0, 7001, 1, "Audio tracks")
         popup.menu.add(0, 7002, 2, "Playback speed")
+        popup.menu.add(0, 7003, 3, "Subtitles")
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 7000 -> { showQualityMenu(); true }
                 7001 -> { showAudioMenu(); true }
                 7002 -> { showSpeedMenu(); true }
+                7003 -> { showSubtitleMenu(); true }
                 else -> false
             }
         }
@@ -1107,6 +1109,43 @@ class NativePlayerActivity : Activity() {
                 selector.parameters = selector.buildUponParameters()
                     .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
                     .setOverrideForType(override).build()
+                true
+            }
+        }
+        popup.show()
+    }
+
+    private fun showSubtitleMenu() {
+        val selector = trackSelector ?: return
+        val popup = PopupMenu(this, settingsButton)
+        val choices = mutableListOf<Pair<Tracks.Group, Int>>()
+        popup.menu.add(0, 7900, 0, "Subtitles • Off")
+        player?.currentTracks?.groups?.forEach { group ->
+            if (group.type != C.TRACK_TYPE_TEXT) return@forEach
+            for (i in 0 until group.length) {
+                if (!group.isTrackSupported(i)) continue
+                val format = group.getTrackFormat(i)
+                val language = format.language?.takeIf { it.isNotBlank() } ?: "Unknown"
+                val label = format.label?.takeIf { it.isNotBlank() } ?: language
+                choices.add(group to i)
+                popup.menu.add(0, 7900 + choices.size, choices.size, label)
+            }
+        }
+        popup.setOnMenuItemClickListener { item ->
+            if (item.itemId == 7900) {
+                selector.parameters = selector.buildUponParameters()
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                    .build()
+                true
+            } else {
+                val chosen = choices.getOrNull(item.itemId - 7901)
+                    ?: return@setOnMenuItemClickListener false
+                selector.parameters = selector.buildUponParameters()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .setOverrideForType(TrackSelectionOverride(chosen.first.mediaTrackGroup, chosen.second))
+                    .build()
                 true
             }
         }
