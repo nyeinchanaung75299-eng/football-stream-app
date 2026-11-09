@@ -232,6 +232,53 @@ test('viewer home keeps web player hidden until WATCH is explicitly requested', 
   assert.equal(h.overlay.attributes['aria-hidden'], 'true');
 });
 
+test('settings show accessible Back and Close; closing never stops video', async () => {
+  const h=createHarness({ios:false});
+  await h.open([source('hls','Live 2')]);
+  const panel=h.elements.get('football-player-menu');
+  const back=h.elements.get('football-player-menu-back');
+  const close=h.elements.get('football-player-menu-close');
+  assert.equal(h.video.paused,false);
+  h.elements.get('nca-player-settings').click();
+  assert.equal(panel.classList.contains('hidden'),false);
+  assert.equal(panel.classList.contains('settings-open'),true);
+  assert.equal(h.elements.get('football-player-menu-title').textContent,'Player settings');
+  const tabs=h.elements.get('football-player-menu-items').children[0];
+  tabs.children[1].click(); // Audio
+  assert.equal(panel.classList.contains('hidden'),false);
+  back.click(); // Back to primary Video settings
+  assert.equal(panel.classList.contains('hidden'),false);
+  const videoTabs=h.elements.get('football-player-menu-items').children[0];
+  assert.match(videoTabs.children[0].className,/selected/);
+  back.click(); // Back from top-level Settings returns to the video
+  assert.equal(panel.classList.contains('hidden'),true);
+  h.elements.get('nca-player-settings').click();
+  close.click();
+  assert.equal(panel.classList.contains('hidden'),true);
+  assert.equal(h.overlay.classList.contains('open'),true);
+  assert.equal(h.video.paused,false);
+});
+
+test('all Safari web players have fullscreen in header with Fit and Rotate', async () => {
+  const css=html.match(/<style id="nca-reference-player-style">([\s\S]*?)<\/style>/)?.[1]||'';
+  const header=html.slice(
+    html.indexOf('<div id="football-player-topbar">'),
+    html.indexOf('<div id="football-player-menu"')
+  );
+  const frame=html.slice(
+    html.indexOf('<div id="football-player-video-frame">'),
+    html.indexOf('<div id="football-player-custom-controls"')
+  );
+  assert.ok(header.indexOf('id="football-player-fit"')>=0);
+  assert.ok(header.indexOf('id="football-player-rotate"')>=0);
+  assert.ok(header.indexOf('id="football-player-ios-fullscreen"')>header.indexOf('id="football-player-rotate"'));
+  assert.doesNotMatch(frame,/id="football-player-ios-fullscreen"/);
+  assert.match(css,/#football-player-overlay\.ios-native-mode #football-player-video\{\s*height:100%!important/);
+  assert.match(css,/#football-player-overlay\.ios-native-mode #football-player-ios-fullscreen\{\s*display:inline-flex!important/);
+  assert.match(css,/#football-player-overlay\.open:not\(\.ios-native-mode\)\{\s*padding-top:0;justify-content:flex-start!important/);
+  assert.match(css,/#football-player-overlay\[aria-hidden="true"\]\{\s*display:none!important/);
+});
+
 test('top aligned portrait player uses Fit by default and cycles Fit Full Zoom only', async () => {
   const h = createHarness({ ios:false });
   const wrap=h.elements.get('football-player-video-wrap');
