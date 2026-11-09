@@ -247,7 +247,7 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                   DropdownMenuItem(value: 'reachable', child: Text('Reachable')),
                 DropdownMenuItem(value: 'stale', child: Text('Stale')),
                   DropdownMenuItem(value: 'slow', child: Text('Slow')),
-                  DropdownMenuItem(value: 'failed', child: Text('Failed')),
+                  DropdownMenuItem(value: 'failed', child: Text('Server check failed')),
                   DropdownMenuItem(value: 'partial', child: Text('Partial')),
                   DropdownMenuItem(value: 'unknown', child: Text('Unknown')),
                   DropdownMenuItem(value: 'drm', child: Text('Needs DRM')),
@@ -274,6 +274,14 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                 final channel = filtered[index];
                 final id = channel['id'].toString();
                 final status = channel['status'].toString();
+                final videoVerified = (channel['lines'] as List).any(
+                  (line) => line['playback_status'] == 'verified',
+                );
+                final statusLabel = status == 'failed'
+                    ? (videoVerified
+                        ? 'SERVER CHECK FAILED • DEVICE VIDEO VERIFIED'
+                        : 'SERVER CHECK FAILED • VIDEO NOT VERIFIED')
+                    : status.toUpperCase();
                 final checked = channel['checked_at'] as DateTime?;
                 final detail = checked == null ? 'Not checked'
                     : DateFormat('dd MMM, h:mm a').format(checked.toLocal());
@@ -285,7 +293,7 @@ class _ChannelHealthPageState extends State<ChannelHealthPage> {
                     title: Text(channel['name']?.toString() ?? 'Channel',
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: Text(
-                      '${channel['reachable_lines']}/${channel['line_count']} reachable • ${channel['failed_lines']} media check failed\n${status.toUpperCase()} • $detail',
+                      'ID ${id.substring(0, 8)} • ${channel['reachable_lines']}/${channel['line_count']} reachable • ${channel['failed_lines']} media check failed\n$statusLabel • $detail',
                     ),
                     children: [
                       for (final line in (channel['lines'] as List).cast<Map<String, dynamic>>())
