@@ -1,4 +1,5 @@
 // Telegram webhook registration. Only a verified NCA Supabase Admin can trigger it.
+import { BOT_COMMANDS } from "./telegram_bot_commands.mjs";
 // Secrets are read from the Edge Function's private environment, never from the client.
 const WEB_ORIGIN = "https://nyeinchanaung75299-eng.github.io";
 const PROJECT = "woggzixprvyjnfjzsglz";
@@ -95,6 +96,14 @@ export function createTelegramConnect(env, fetcher = fetch) {
           url, secret_token: env[target.secret],
           allowed_updates: ["message", "callback_query"],
           drop_pending_updates: false, max_connections: 4,
+        });
+        await telegram(env[target.token], "setMyCommands", {
+          commands: BOT_COMMANDS[target.label.toLowerCase()],
+          scope: { type: "default" },
+        });
+        // Ensure Telegram exposes its native commands button at the input bar.
+        await telegram(env[target.token], "setChatMenuButton", {
+          menu_button: { type: "commands" },
         });
         const status = await telegram(env[target.token], "getWebhookInfo");
         results.push({ bot: target.label, connected: status?.url === url });

@@ -17,6 +17,18 @@ The deployed bots require private credentials configured through your secret man
 - Channel options in Viewer include **Report broken line**, opening the Viewer bot to choose a line and confirm. Reports are visible in Admin **Health → flag icon** and private bot `/reports`.
 - Both webhooks lease `update_id` in server-only storage. Completed updates are acknowledged without repeating commands; failed deliveries can retry.
 
+## APK downloads and Telegram command menu
+
+- Viewer: `/start` or `/menu` opens inline Today, Live, Schedule, Channels, Reminders, Viewer APK, and Build buttons. `/apk` or `/download` sends the latest published **Viewer ARM64 APK** as a Telegram document in a private chat.
+- Private Admin (allowlisted Telegram user IDs only): `/apk` displays **Viewer APK** and **Admin APK** buttons. `/apk_viewer` and `/apk_admin` deliver the respective signed-release APK documents.
+- Native Telegram `/commands` menu at the message input bar is configured using `setMyCommands` and `setChatMenuButton` via the authenticated Admin **Connect Telegram Bots** action, or `scripts/register_nca_telegram_webhooks.mjs` on a trusted terminal. Simply deploying the Edge Functions does not set the BotFather command menu; rerun connection once after deploying.
+- APK content is downloaded only from the fixed public NCA GitHub **feed** release paths and checked against the published release manifest's exact URL, ARM64 ABI, byte length, SHA-256 and build metadata **before** being uploaded via Telegram multipart `sendDocument`. Sending `.apk` by URL is not reliably supported by the Telegram Bot API. 45 MiB maximum accepted by the bot as an extra margin below Telegram's 50 MB document upload limit.
+- Upload failure, stale/mismatched manifest or digest mismatch returns an error **without forwarding an unchecked file**. No tokens, stream keys or raw stream URLs appear in APK messages. The private Admin allowlist is enforced before fetching any APK; the Viewer accepts only private-chat APK delivery to avoid flooding groups.
+- **Important:** GitHub release signing must be stable. A SHA-verified newly published APK is not proof its Android signing certificate matches an older installed APK. If the certificates differ, Android will still reject an in-place update. Do not tell users to uninstall before protecting local app data.
+- Use the existing signing-gated publish workflow to update release manifests. Bot commands read already published APKs; they never build, sign, publish or deploy anything themselves. Repeated requests fetch and reupload release bytes and may consume bandwidth.
+
+**Validation before production:** run `node --test scripts/test_telegram_apk_delivery.mjs scripts/test_nca_telegram_bots.mjs scripts/test_telegram_connect.mjs supabase/functions/_shared/nca_private_admin_bot.test.mjs`, deploy `telegram-viewer`, `telegram-admin`, and `telegram-connect`, run the authenticated Connect Telegram Bots action, and manually check private `/apk`, `/apk_viewer`, `/apk_admin` (including Admin allowlist rejection) in real Telegram clients. Verify byte size/version and installation compatibility on a device using the existing signing certificate.
+
 ## Configure secrets in Supabase Dashboard
 
 Open Supabase Dashboard > project woggzixprvyjnfjzsglz > Edge Functions > Secrets. Add:
