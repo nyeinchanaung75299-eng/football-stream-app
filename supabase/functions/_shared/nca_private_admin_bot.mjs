@@ -1,5 +1,6 @@
 import { probeStreamFirstChunk } from "./stream_probe.mjs";
 import { withTelegramUpdateDedup } from './telegram_update_dedup.mjs';
+import { sendTelegramReleaseApk, ReleaseDeliveryError } from './telegram_apk_delivery.mjs';
 // NCA Telegram bots: private webhook commands backed by safe Supabase metadata.
 // NO stream URLs, key IDs, key data, DRM, service keys or session tokens in replies.
 export const VIEWER_SITE = "https://nyeinchanaung75299-eng.github.io/football-stream-app/";
@@ -11,6 +12,14 @@ export const ADMIN_INLINE_MENU = {
     [{text:"📺 Channels",callback_data:"/channels"},{text:"⚽ Fixtures",callback_data:"/matches"}],
     [{text:"📡 Monitoring",callback_data:"/monitor"},{text:"🔔 Alerts",callback_data:"/alerts"}],
     [{text:"🩺 Diagnostics",callback_data:"/diagnostics"},{text:"🧰 More tools",callback_data:"/tools"}],
+    [{text:"📦 APK Downloads",callback_data:"/apk"}],
+  ],
+};
+export const ADMIN_APK_MENU = {
+  inline_keyboard: [
+    [{ text: "📱 Viewer APK", callback_data: "/apk_viewer" },
+     { text: "🛡️ Admin APK", callback_data: "/apk_admin" }],
+    [{ text: "🏠 Main menu", callback_data: "/menu" }],
   ],
 };
 export const ADMIN_TOOLS_MENU = {
@@ -38,6 +47,7 @@ const ADMIN_BOTTOM_COMMANDS = {
   "📅 Channel–Match Schedule": "/broadcasts",
   "🔗 Match–Channel Mapping": "/mapmatch",
   "📺 All Channels": "/channels",
+  "📦 APK Downloads": "/apk",
   "🏠 Main Menu": "/start"
 };
 
@@ -763,7 +773,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       }
     }
     if (callback && callback.id) await telegram("answerCallbackQuery", token, { callback_query_id: callback.id });
-    let responseText, keyboard;
+    let responseText, keyboard, documentSent = false;
     try {
       if (mode === "viewer") {
         if (["/today", "/live", "/schedule"].includes(cmd)) {
@@ -795,6 +805,16 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       } else if (cmd === "/tools") {
         responseText="🧰 NCA ADMIN TOOLS\nChoose a function. /menu returns to the main menu.";
         keyboard=ADMIN_TOOLS_MENU;
+      } else if (cmd === "/apk" || cmd === "/downloads") {
+        responseText = "📦 NCA APK DOWNLOADS\nSelect the latest published, SHA-verified ARM64 release.\n" +
+          "A different Android signing certificate can still block an in-place update.";
+        keyboard = ADMIN_APK_MENU;
+      } else if (cmd === "/apk_viewer" || cmd === "/apk_admin") {
+        await sendTelegramReleaseApk({
+          kind: cmd === "/apk_admin" ? "admin" : "viewer",
+          chatId: chat.id, token, fetcher,
+        });
+        documentSent = true;
       } else if (cmd === "/testbot") {
         responseText=await testBot();
       } else if (cmd === "/diagnostics" || cmd === "/diag") {
@@ -900,9 +920,12 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       } else {
         responseText="Unknown command. Send /menu for compact NCA Admin controls.";
       }
-    } catch {
-      responseText = "NCA data is temporarily unavailable. Try again later.";
+    } catch (error) {
+      responseText = error instanceof ReleaseDeliveryError
+        ? "📦 APK delivery unavailable (" + error.code + "). No unverified file was sent. Try again later."
+        : "NCA data is temporarily unavailable. Try again later.";
     }
+    if (documentSent) return reply({ ok: true });
     if(callback && chat.id && message?.message_id) {
       try {
         await telegram("editMessageText",token,{
