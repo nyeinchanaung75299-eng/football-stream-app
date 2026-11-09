@@ -1,9 +1,20 @@
 import { withTelegramUpdateDedup } from './telegram_update_dedup.mjs';
 import { createViewerFeatures } from './viewer_bot_features.mjs';
+import { sendTelegramReleaseApk, ReleaseDeliveryError } from './telegram_apk_delivery.mjs';
 // NCA Telegram bots: private webhook commands backed by safe Supabase metadata.
 // NO stream URLs, key IDs, key data, DRM, service keys or session tokens in replies.
 export const VIEWER_SITE = "https://nyeinchanaung75299-eng.github.io/football-stream-app/";
 export const ADMIN_SITE = VIEWER_SITE + "admin/";
+// Inline navigation complements the native Telegram /commands menu.
+export const VIEWER_INLINE_MENU = {
+  inline_keyboard: [
+    [{ text: "⚽ Today", callback_data: "/today" }, { text: "🔴 Live", callback_data: "/live" }],
+    [{ text: "📅 Schedule", callback_data: "/schedule" }, { text: "📺 Channels", callback_data: "/channels" }],
+    [{ text: "🔔 My reminders", callback_data: "/reminders" }, { text: "📦 Viewer APK", callback_data: "/apk" }],
+    [{ text: "🛠️ Build status", callback_data: "/build" }],
+    [{ text: "Open Viewer", url: VIEWER_SITE }],
+  ],
+};
 
 const reply = (body, status = 200) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -244,7 +255,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       if (!allowed.has(String(from.id))) return reply({ ok: true });
     }
     if (callback && callback.id) await telegram("answerCallbackQuery", token, { callback_query_id: callback.id });
-    let responseText, keyboard;
+    let responseText, keyboard, documentSent = false;
     try {
       if (mode === "viewer") {
         const featureRaw=raw.replace(/^\/start\s+report_/, 'report:');
@@ -259,15 +270,20 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
           const rows = await channelList(env, false);
           responseText = "📺 NCA active channels: " + rows.length +
             "\nView EPG and authorized playback in the NCA website:\n" + VIEWER_SITE;
+        } else if (cmd === "/build") {
+          responseText = await builds();
+        } else if (cmd === "/apk" || cmd === "/download") {
+          if (chat.type !== "private" || String(chat.id) !== String(from.id)) {
+            responseText = "📦 Open a private chat with @NCAFootballViewer_bot and send /apk to receive the Viewer file.";
+          } else {
+            await sendTelegramReleaseApk({ kind: "viewer", chatId: chat.id, token, fetcher });
+            documentSent = true;
+          }
         } else {
-          responseText = "⚽ NCA Football Viewer\nUse /today /live /schedule /channels.\n" +
-            "Choose Remind me on a match for an optional kickoff reminder.\n/reminders to manage; /unsubscribe to cancel all.";
-          keyboard = { inline_keyboard: [
-            [{ text: "⚽ Today", callback_data: "/today" }, { text: "🔴 Live", callback_data: "/live" }],
-            [{ text: "📅 Schedule", callback_data: "/schedule" }],
-            [{ text: '🔔 My reminders', callback_data: '/reminders' }],
-            [{ text: "Open Viewer", url: VIEWER_SITE }],
-          ] };
+          responseText = "⚽ NCA FOOTBALL VIEWER\nChoose a tool below, or use the Telegram /commands menu.\n" +
+            "/today /live /schedule /channels /reminders /unsubscribe /apk /build\n" +
+            "Match reminders are optional. /menu opens these buttons again.";
+          keyboard = VIEWER_INLINE_MENU;
         }
       } else if (cmd === "/health" || cmd === "/status") {
         responseText = await health(env);
@@ -334,9 +350,12 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
           [{ text: "Open Admin", url: ADMIN_SITE }],
         ] };
       }
-    } catch {
-      responseText = "NCA data is temporarily unavailable. Try again later.";
+    } catch (error) {
+      responseText = error instanceof ReleaseDeliveryError
+        ? "📦 APK delivery unavailable (" + error.code + "). The bot did not send an unverified file. Try /apk again later."
+        : "NCA data is temporarily unavailable. Try again later.";
     }
+    if (documentSent) return reply({ ok: true });
     await telegram("sendMessage", token, {
       chat_id: chat.id, text: responseText.slice(0, 3900),
       disable_web_page_preview: true,
