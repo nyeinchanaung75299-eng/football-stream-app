@@ -12,9 +12,10 @@ import 'epg_discrepancies_page.dart';
 /// This tab is read-only. All catalog edits and deletes belong under
 /// Controls -> Channel Management. Replay programmes are filtered.
 class MyChannelsGuidePage extends StatefulWidget {
-  const MyChannelsGuidePage({super.key, this.embedded = false});
+  const MyChannelsGuidePage({super.key, this.embedded = false, this.active = true});
 
   final bool embedded;
+  final bool active;
 
   @override
   State<MyChannelsGuidePage> createState() => _MyChannelsGuidePageState();
@@ -24,6 +25,7 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
   late Future<TvScheduleGuide> _guide = _load();
   String selectedGroup = 'All';
   String epgFilter = 'all';
+  DateTime _lastRefreshAt = DateTime.now();
   Map<String, int> groupPositions = const {};
 
   @override
@@ -45,8 +47,18 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
       TvScheduleService().load(refresh: refresh);
 
   void _refresh() {
+    _lastRefreshAt = DateTime.now();
     setState(() => _guide = _load(refresh: true));
     _loadGroupPositions();
+  }
+
+  @override
+  void didUpdateWidget(covariant MyChannelsGuidePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active &&
+        DateTime.now().difference(_lastRefreshAt) >= const Duration(minutes: 2)) {
+      _refresh(); // Keep cached page visible while refreshing in the background.
+    }
   }
 
   @override
