@@ -177,7 +177,14 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final requestedSource = source;
     return ViewerTabCache.loadSource(
       requestedSource,
-      _loadMatches,
+      () async {
+        final rows = await _loadMatches();
+        if (!mounted || source != requestedSource) {
+          // A response from the old tab must never overwrite a new tab.
+          throw StateError('Source tab was changed during refresh');
+        }
+        return rows;
+      },
       force: true,
     );
   }
