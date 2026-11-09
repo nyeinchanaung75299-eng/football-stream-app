@@ -16,6 +16,7 @@ import '../widgets/premium_bottom_nav.dart';
 import 'home_page.dart';
 import 'source_browser_page.dart';
 import '../viewer_navigation.dart';
+import '../viewer_tab_cache.dart';
 
 class ChannelsPage extends StatefulWidget {
   const ChannelsPage({super.key});
@@ -28,7 +29,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
       PublicGuideCache<Map<String, dynamic>>();
   int _guideEpoch = 0;
   final search = TextEditingController();
-  late Future<List<Map<String, dynamic>>> catalog = load();
+  late Future<List<Map<String, dynamic>>> catalog;
+  List<Map<String, dynamic>>? _lastChannels;
+  late final ScrollController _channelScroll;
   bool opening = false;
   String selectedGroup = 'All';
   Map<String, int> groupPositions = const {};
@@ -44,9 +47,27 @@ class _ChannelsPageState extends State<ChannelsPage> {
   @override
   void initState() {
     super.initState();
-    _loadGroupPositions();
-    _loadChannelEpg();
-    _loadMatchChoices();
+    final ui = ViewerTabCache.channelUi;
+    selectedGroup = ui.group;
+    selectedMatchId = ui.matchId;
+    libraryFilter = ui.libraryFilter;
+    search.text = ui.search;
+    _channelScroll = ScrollController(initialScrollOffset: ui.scrollOffset);
+    _lastChannels = ViewerTabCache.channelRows;
+    // Show the last successful channel list immediately. A stale list stays
+    // visible while a refresh races the same Cloudflare/Vercel routes.
+    catalog = _lastChannels == null ? load() : Future.value(_lastChannels!);
+    if (_lastChannels != null && !ViewerTabCache.channelsFresh()) {
+      unawaited(refresh(silent: true));
+    }
+    // Channel logos are lazy Image widgets; fetch guide/fixture metadata
+    // only after the first channel frame can paint, never on Viewer startup.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_loadGroupPositions());
+      unawaited(_loadChannelEpg());
+      unawaited(_loadMatchChoices());
+    });
     library.load().then((_) { if (mounted) setState(() {}); });
   }
 
@@ -133,6 +154,14 @@ class _ChannelsPageState extends State<ChannelsPage> {
 
   @override
   void dispose() {
+    ViewerTabCache.channelUi = ViewerChannelsUiState(
+      search: search.text,
+      group: selectedGroup,
+      matchId: selectedMatchId,
+      libraryFilter: libraryFilter,
+      scrollOffset: _channelScroll.hasClients ? _channelScroll.offset : 0,
+    );
+    _channelScroll.dispose();
     search.dispose();
     super.dispose();
   }
@@ -207,24 +236,39 @@ class _ChannelsPageState extends State<ChannelsPage> {
     }
   }
 
-  Future<List<Map<String, dynamic>>> load() async {
-    final data = await request('/channels');
-    if (data['channels'] is! List)
-      throw const FormatException('Invalid channel catalog');
-    return (data['channels'] as List)
-        .whereType<Map>()
-        .map((row) => Map<String, dynamic>.from(row))
-        .toList();
+  Future<List<Map<String, dynamic>>> load({bool force = false}) async {
+    final rows = await ViewerTabCache.loadChannels(() async {
+      final data = await request('/channels');
+      if (data['channels'] is! List) {
+        throw const FormatException('Invalid channel catalog');
+      }
+      return (data['channels'] as List)
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
+    }, force: force);
+    if (mounted && !identical(_lastChannels, rows)) {
+      setState(() => _lastChannels = rows); // Includes successful empty [].
+    }
+    return rows;
   }
 
-  Future<void> refresh() async {
-    setState(() => catalog = load());
-    _loadGroupPositions();
-    _loadChannelEpg(refresh: true);
-    _loadMatchChoices();
+  Future<void> refresh({bool silent = false}) async {
+    if (!mounted) return;
+    final fresh = load(force: true);
+    setState(() => catalog = fresh);
+    unawaited(_loadGroupPositions());
+    unawaited(_loadChannelEpg(refresh: true));
+    unawaited(_loadMatchChoices());
     try {
-      await catalog;
-    } catch (_) {}
+      await fresh;
+    } catch (_) {
+      if (!silent && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Network unavailable. Showing saved channel list.'),
+        ));
+      }
+    }
   }
 
   Future<void> watch(Map<String, dynamic> channel) async {
@@ -295,6 +339,13 @@ class _ChannelsPageState extends State<ChannelsPage> {
   }
 
   void navigate(int index) {
+    ViewerTabCache.channelUi = ViewerChannelsUiState(
+      search: search.text,
+      group: selectedGroup,
+      matchId: selectedMatchId,
+      libraryFilter: libraryFilter,
+      scrollOffset: _channelScroll.hasClients ? _channelScroll.offset : 0,
+    );
     if (index == 6) {
       unawaited(refresh());
       return;
@@ -376,19 +427,21 @@ class _ChannelsPageState extends State<ChannelsPage> {
     body: FutureBuilder<List<Map<String, dynamic>>>(
       future: catalog,
       builder: (context, snapshot) {
-        if (!snapshot.hasData && !snapshot.hasError) {
+        final rows = snapshot.hasData ? snapshot.data : _lastChannels;
+        if (rows == null && !snapshot.hasError) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snapshot.hasError)
+        if (rows == null) {
           return Center(
             child: Text('Channel catalog unavailable: ${snapshot.error}'),
           );
+        }
         String groupOf(Map<String, dynamic> row) {
           final value = row['category']?.toString().trim() ?? '';
           return value.isEmpty ? 'Other' : value;
         }
         final groupCounts = <String, int>{};
-        for (final row in snapshot.data!) {
+        for (final row in rows) {
           final group = groupOf(row);
           groupCounts[group] = (groupCounts[group] ?? 0) + 1;
         }
@@ -430,6 +483,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
         return RefreshIndicator(
           onRefresh: refresh,
           child: CustomScrollView(
+            controller: _channelScroll,
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
