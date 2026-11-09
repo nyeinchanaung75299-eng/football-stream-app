@@ -71,6 +71,10 @@ class _HomePageState extends State<HomePage> {
   Timer? _feedRefresh;
   Timer? _streamWarmup;
   DateTime? _lastBackgroundPoll;
+  DateTime? _lastLiveSuccess;
+  bool get _liveNeedsRefresh => _lastLiveSuccess == null ||
+      DateTime.now().difference(_lastLiveSuccess!) >=
+          const Duration(seconds: 60);
   bool _openingPlayer = false;
   late Future<String> _versionLabel;
   late Future<String> _updateVersionLabel;
@@ -205,7 +209,10 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _feed = LiveFeedController(loadMatches);
+    _feed = LiveFeedController(_loadAndRememberMatches);
+    // The saved public match list paints before a slow VPN/DNS connection
+    // finishes; the real authoritative response then replaces it, even [].
+    unawaited(_restoreSavedLive());
     unawaited(_feed.refresh());
     _versionLabel = _loadVersionLabel();
     _updateVersionLabel = AppUpdateService.versionSummary();
@@ -807,6 +814,19 @@ class _HomePageState extends State<HomePage> {
     }).toList();
   }
 
+  Future<void> _restoreSavedLive() async {
+    final cached = await _loadAuthoritativeCache();
+    if (mounted && cached != null) {
+      _feed.seedIfMissing(cached.rows);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _loadAndRememberMatches() async {
+    final rows = await loadMatches();
+    _lastLiveSuccess = DateTime.now();
+    return rows;
+  }
+
   Future<List<Map<String, dynamic>>> loadMatches() async {
     final started = DateTime.now();
 
@@ -823,6 +843,7 @@ class _HomePageState extends State<HomePage> {
         ),
       );
       _scheduleWarmStreamLinks(rows);
+      unawaited(_saveAuthoritativeCache(rows)); // Empty [] is authoritative.
       return rows;
     }
 
@@ -1596,7 +1617,9 @@ class _HomePageState extends State<HomePage> {
             await Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const ChannelsPage()),
             );
-            if (mounted) await refresh(silent: true);
+            if (mounted && _liveNeedsRefresh) {
+              await refresh(silent: true);
+            }
             return;
           }
           final source = viewerSourceAt(index);
@@ -1605,7 +1628,9 @@ class _HomePageState extends State<HomePage> {
               builder: (_) => SourceBrowserPage(source: source),
             ),
           );
-          if (mounted) await refresh(silent: true);
+          if (mounted && _liveNeedsRefresh) {
+            await refresh(silent: true);
+          }
         },
       ),
     );
