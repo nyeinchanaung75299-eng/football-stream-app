@@ -6,6 +6,7 @@ import '../services/channel_group_order_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'channels_page.dart';
 import '../widgets/football_match_guide_card.dart';
+import 'epg_discrepancies_page.dart';
 
 /// Compact, schedule-first view of the Admin's TV channel guide.
 ///
@@ -424,7 +425,16 @@ class _ChannelScheduleCard extends StatelessWidget {
                     fontSize: 11)),
             ],
           )),
-          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Report wrong EPG for ${channel.name}',
+            icon: const Icon(Icons.report_problem_outlined, size: 20),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => EpgDiscrepanciesPage(initialChannelId: channel.id),
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
           Text(channel.hasGuide ? '● EPG' : 'NO EPG',
             style: TextStyle(
               color: channel.hasGuide
