@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { createTelegramHandler } from "../supabase/functions/_shared/nca_telegram_bot.mjs";
 
@@ -11,6 +12,8 @@ const env = {
   SUPABASE_URL: "https://supabase.example",
   SUPABASE_SERVICE_ROLE_KEY: "server-secret-never-send",
 };
+const viewerApk = new TextEncoder().encode("viewer-bot-apk-test-fixture");
+const viewerSha = createHash("sha256").update(viewerApk).digest("hex");
 const viewerMatch = {
   league: "Football League", home_team: "Team A", away_team: "Team B",
   kickoff_at: "2026-11-01T13:00:00Z", is_live: false,
@@ -40,9 +43,18 @@ function fixture(mode) {
   const fetcher = async (input, options = {}) => {
     const url = new URL(input);
     if (url.host === "api.telegram.org") {
-      const body = JSON.parse(options.body);
+      const body = options.body instanceof FormData ? options.body : JSON.parse(options.body);
       sent.push({ method: url.pathname.split("/").at(-1), body });
       return Response.json({ ok: true, result: { message_id: 1 } });
+    }
+    if (url.host === "raw.githubusercontent.com") {
+      if (url.pathname.endsWith("/latest.json")) return Response.json({
+        version_name: "9.8.0", build_number: 30739, abi: "arm64-v8a",
+        apk_url: "https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/releases/NCA-arm64-v8a-latest.apk",
+        sha256: viewerSha, size_bytes: viewerApk.byteLength,
+      });
+      if (url.pathname.endsWith("/NCA-arm64-v8a-latest.apk")) return new Response(viewerApk);
+      throw Error("Unexpected release path");
     }
     if (url.host === "api.github.com") {
       return Response.json({ workflow_runs: [{
@@ -157,4 +169,35 @@ test("Private Admin bot cannot be used in a group even by an approved user", asy
   assert.equal(response.status, 200);
   assert.equal(f.sent.length, 0);
   assert.equal(f.dbPaths.length, 0);
+});
+
+test("Viewer /menu has useful buttons including APK, reminders, channels and build", async () => {
+  const f = fixture("viewer");
+  const response = await f.handler(mkRequest("viewer", "/menu"));
+  assert.equal(response.status, 200);
+  const labels = f.sent.at(-1).body.reply_markup.inline_keyboard.flat().map(b => b.text);
+  assert.ok(labels.some(x => x.includes("Viewer APK")));
+  assert.ok(labels.some(x => x.includes("My reminders")));
+  assert.ok(labels.some(x => x.includes("Channels")));
+  assert.ok(labels.some(x => x.includes("Build")));
+});
+
+test("Viewer /apk sends verified ARM64 file to the private chat, not just an APK link", async () => {
+  const f = fixture("viewer");
+  const response = await f.handler(mkRequest("viewer", "/apk"));
+  assert.equal(response.status, 200);
+  assert.equal(f.sent.filter(x => x.method === "sendDocument").length, 1);
+  assert.equal(f.sent.filter(x => x.method === "sendMessage").length, 0);
+  const form = f.sent[0].body;
+  assert.ok(form instanceof FormData);
+  assert.equal(form.get("chat_id"), "4242");
+  assert.equal(form.get("document").name, "NCA-Viewer-arm64.apk");
+  assert.equal(form.get("document").size, viewerApk.byteLength);
+});
+
+test("Viewer /apk inline callback acknowledges button and sends verified document", async () => {
+  const f = fixture("viewer");
+  const response = await f.handler(mkRequest("viewer", "/apk", 4242, true, true));
+  assert.equal(response.status, 200);
+  assert.deepEqual(f.sent.map(x => x.method), ["answerCallbackQuery", "sendDocument"]);
 });
