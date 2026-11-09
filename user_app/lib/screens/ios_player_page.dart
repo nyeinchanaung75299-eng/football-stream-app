@@ -10,6 +10,7 @@ import '../analytics_service.dart';
 import '../native_playback_progress.dart';
 import '../playback_routes.dart';
 import '../widgets/player_server_rail.dart';
+import '../widgets/compact_stream_line_title.dart';
 
 /// Native iOS playback powered by libmpv/FFmpeg through package:media_kit.
 ///
@@ -601,7 +602,13 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
             final index = visible[position];
             final source = widget.sources[index];
             final selected = index == _selectedIndex;
-            final type = _sourceType(source).toUpperCase();
+            final type = _sourceType(source);
+            final name = compactStreamLineTitle(
+              label: _lineLabel(source, index),
+              streamType: type,
+              resolution: (source['resolution'] ?? '').toString(),
+              index: index,
+            );
             return ListTile(
               onTap: () => Navigator.of(sheetContext).pop(index),
               selected: selected,
@@ -614,13 +621,10 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
                     : Icons.play_circle_outline_rounded,
               ),
               title: Text(
-                _lineLabel(source, index),
+                name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-              subtitle: Text(
-                type == 'DASH' ? 'MPD • native iOS' : '$type • native iOS',
               ),
               trailing: selected
                   ? Icon(Icons.check_rounded, color: colors.primary)
