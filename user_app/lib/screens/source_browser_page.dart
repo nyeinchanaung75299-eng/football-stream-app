@@ -14,7 +14,7 @@ import 'channels_page.dart';
 import '../live_feed_controller.dart';
 import '../player_loading.dart';
 import '../source_line_loader.dart';
-import '../live2_line_status.dart';
+import '../widgets/compact_stream_line_title.dart';
 import '../source_match_discovery.dart';
 import '../football_english.dart';
 import '../viewer_navigation.dart';
@@ -934,69 +934,29 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (_, i) {
                         final x = sources[i];
-                        final label = x['label']?.toString().trim() ?? '';
-                        final type =
-                            x['streamType']?.toString().toUpperCase() ?? 'AUTO';
-                        final quality =
-                            x['resolution']?.toString().trim() ?? '';
-                        final health =
-                            x['healthStatus']?.toString().toLowerCase() ??
-                            'unknown';
-                        final lineStatus = Live2LineStatus.fromSource(x);
-                        final healthIcon = switch (health) {
-                          'healthy' => Icons.check_circle_rounded,
-                          'slow' => Icons.speed_rounded,
-                          'failed' => Icons.cloud_off_rounded,
-                          'dead' => Icons.cloud_off_rounded,
-                          _ => Icons.help_outline_rounded,
-                        };
+                        final label = compactStreamLineTitle(
+                          label: (x['label'] ?? '').toString(),
+                          resolution: (x['resolution'] ?? '').toString(),
+                          streamType: (x['streamType'] ?? 'auto').toString(),
+                          index: visibleIndices[i],
+                        );
                         return ListTile(
+                          dense: true,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(12),
                             side: BorderSide(
                               color: Theme.of(sheet).colorScheme.outlineVariant,
                             ),
                           ),
-                          leading: const Icon(Icons.live_tv_rounded),
+                          leading: const Icon(Icons.live_tv_rounded, size: 20),
                           title: Text(
-                            label.isEmpty
-                                ? 'Line ' + (i + 1).toString()
-                                : label,
+                            label,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                [quality, type, 'Source: ${lineStatus.provider}']
-                                    .where((part) => part.isNotEmpty)
-                                    .join(' • '),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                lineStatus.summary,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Theme.of(sheet).colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                              const Text(
-                                'HTTP response does not prove video playback.',
-                                style: TextStyle(fontSize: 10),
-                              ),
-                            ],
-                          ),
-                          trailing: Icon(
-                            healthIcon,
-                            color: health == 'healthy'
-                                ? Colors.green
-                                : health == 'slow'
-                                ? Colors.orange
-                                : (health == 'failed' || health == 'dead')
-                                ? Colors.redAccent
-                                : null,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                           onTap: () => Navigator.pop(sheet, visibleIndices[i]),
                         );
