@@ -23,6 +23,7 @@ class MyChannelsGuidePage extends StatefulWidget {
 
 class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
   late Future<TvScheduleGuide> _guide = _load();
+  TvScheduleGuide? _lastGuide;
   String selectedGroup = 'All';
   String epgFilter = 'all';
   DateTime _lastRefreshAt = DateTime.now();
@@ -43,8 +44,11 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
     }
   }
 
-  Future<TvScheduleGuide> _load({bool refresh = false}) =>
-      TvScheduleService().load(refresh: refresh);
+  Future<TvScheduleGuide> _load({bool refresh = false}) async {
+    final guide = await TvScheduleService().load(refresh: refresh);
+    _lastGuide = guide; // The last success survives an offline refresh.
+    return guide;
+  }
 
   void _refresh() {
     _lastRefreshAt = DateTime.now();
@@ -66,14 +70,15 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
     final content = FutureBuilder<TvScheduleGuide>(
       future: _guide,
       builder: (context, snapshot) {
-        if (snapshot.hasError) {
+        final guide = snapshot.data ?? _lastGuide;
+        if (guide == null && snapshot.hasError) {
           return _GuideRetry(onRetry: _refresh);
         }
-        if (!snapshot.hasData) {
+        if (guide == null) {
           return const Center(child: CircularProgressIndicator());
         }
-
-        final guide = snapshot.data!;
+        // Keep the last successful page while network refresh fails. A new
+        // successful empty guide, however, replaces it authoritatively.
         String categoryOf(TvScheduleChannel channel) =>
             channel.category.trim().isEmpty ? 'Other' : channel.category.trim();
         final counts = <String, int>{};
