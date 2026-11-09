@@ -75,9 +75,18 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(10000),
     });
-    if (!response.ok) throw new Error("Telegram API unavailable");
+    if (!response.ok) {
+      const error = new Error("Telegram API unavailable");
+      // Keep diagnostic codes, never the Telegram token or API response body.
+      error.code = "telegram_http_" + String(response.status);
+      throw error;
+    }
     const data = await response.json();
-    if (data.ok !== true) throw new Error("Telegram rejected message");
+    if (data.ok !== true) {
+      const error = new Error("Telegram rejected message");
+      error.code = "telegram_rejected";
+      throw error;
+    }
     return data;
   }
   async function database(path, env) {
@@ -241,6 +250,8 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     "\nAlerts: "+(p?.alert_enabled?"ON":"OFF")+
     "\nStream monitoring: "+(p?.monitor_enabled?"ON":"OFF")+
     "\nFootball events: "+(p?.football_enabled?"ON":"OFF")+
+    (p && !p.alert_enabled && (p.monitor_enabled || p.football_enabled)
+      ? "\n⚠️ Alerts are OFF: monitoring and football notifications are paused." : "")+
     "\n\n/subscribe enables all; /unsubscribe disables all.\n" +
     "/alerts on|off  /monitor on|off  /football on|off";
   }
@@ -457,6 +468,18 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     // Continue checking channel health when no one can receive a notification.
     // Never bypass the private-admin allowlist just to make subscriber count nonzero.
     const skippedSubscribers=stored.length-prefs.length;
+    const recordDelivery=async(chatId,kind,key,outcome,errorCode=null)=>{
+      // Audit must never alter successful delivery or suppress a retry.
+      // Only sanitized outcome codes are stored; never raw error text.
+      try {
+        await writeDb("nca_bot_delivery_attempts","POST",{
+          chat_id:chatId,kind,event_key:key.slice(0,240),outcome,
+          error_code:errorCode,
+        });
+      } catch (_) {
+        console.warn("NCA Telegram delivery outcome could not be audited");
+      }
+    };
     const notify=async(chatId,kind,key,message)=>{
       const existing=await database("nca_bot_alert_state?select=event_key&chat_id=eq."+chatId+
         "&event_key=eq."+encodeURIComponent(key)+"&limit=1",env);
@@ -467,7 +490,12 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       try {
         await telegram("sendMessage",env.TG_ADMIN_BOT_TOKEN,{chat_id:chatId,
           text:message.slice(0,3500),disable_web_page_preview:true});
+        await recordDelivery(chatId,kind,key,"sent");
       } catch (error) {
+        const safeCode = typeof error?.code === "string" &&
+          /^telegram_(http_[45][0-9]{2}|rejected)$/.test(error.code)
+          ? error.code : "telegram_send_failed";
+        await recordDelivery(chatId,kind,key,"failed",safeCode);
         // Release the dedupe claim if delivery failed, so the next pulse retries.
         // Telegram timeouts can be ambiguous; notifications are at-least-once.
         try {
@@ -478,10 +506,10 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       }
     };
     // Check a bounded, rotating subset; never return or send source URLs / DRM fields.
-    let checked=0;
+    let checked=0, probeErrors=0;
     { // Perform monitoring independently of alert subscriptions.
       const lines=await database("channel_lines?select=id,channel_id,stream_url,referer,origin,health_status,last_checked_at"+
-        "&is_active=eq.true&order=last_checked_at.asc.nullsfirst&limit=8",env);
+        "&is_active=eq.true&order=last_checked_at.asc.nullsfirst&limit=12",env);
       const channelRows=await allChannels();
       const names=new Map(channelRows.filter(c=>c.is_active).map(c=>[c.id,c.name]));
       // Bound concurrency: two batches of four probes, instead of eight sequential timeouts.
@@ -503,9 +531,11 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
             const failedNow=probe.status==="failed" && line.health_status!=="failed";
             const restored= line.health_status==="failed" &&
               (probe.status==="healthy"||probe.status==="slow");
-            if((failedNow || restored) && line.last_checked_at){
+            if(failedNow || restored){
+              // Identify each actual transition by its previous check, rather
+              // than once per day. Fail -> recover -> fail gets a fresh alert.
               const key="health:"+line.id+":"+(failedNow?"failed":"recovered")+":"+
-                new Date().toISOString().slice(0,10);
+                String(line.last_checked_at || "first");
               for(const admin of prefs.filter(x=>x.monitor_enabled)){
                 try {
                   await notify(admin.chat_id,"health",key,
@@ -517,7 +547,10 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
                 } catch (_) { /* Keep monitoring other lines even if Telegram fails. */ }
               }
             }
-          }catch{ /* Isolate failures per channel, never expose URL or private headers. */ }
+          }catch{
+            // Do not leak stream URLs or request headers to logs.
+            probeErrors++;
+          }
         }));
       }
     }
@@ -578,7 +611,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       }
     }
     return {ok:true,subscribers:prefs.length,configured_subscribers:stored.length,
-      skipped_subscribers:skippedSubscribers,checked};
+      skipped_subscribers:skippedSubscribers,checked,probe_errors:probeErrors};
   }
 
   async function health(env) {
@@ -610,9 +643,14 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       text(r.conclusion || r.status, 25) + "\n" + text(r.html_url, 190)).join("\n\n");
   }
   async function diagnostics(chatId){
-    const [prefs,lines,stored]=await Promise.all([
+    const [prefs,lines,stored,deliveries]=await Promise.all([
       getPrefs(chatId),lineStatuses(),
       database("nca_bot_preferences?select=chat_id,alert_enabled&alert_enabled=eq.true&limit=50",env),
+      database("nca_bot_delivery_attempts?select=outcome,error_code,created_at"+
+        "&chat_id=eq."+chatId+
+        "&created_at=gte."+encodeURIComponent(
+          new Date(clock().getTime()-24*3600000).toISOString())+
+        "&order=created_at.desc&limit=200",env),
     ]);
     const allowlist=new Set((env.TG_ADMIN_USER_IDS||"").split(",").map(s=>s.trim()).filter(Boolean));
     const eligible=stored.filter(x=>allowlist.has(String(x.chat_id)));
@@ -621,6 +659,10 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
       "Alert subscriptions: "+stored.length+" configured, "+eligible.length+" authorized\n"+
       "Your alerts: "+(prefs?.alert_enabled?"ON":"OFF")+"\n"+
       "Recently checked lines (30m): "+recent+"/"+lines.filter(l=>l.is_active).length+"\n"+
+      "Your delivery attempts (24h): "+
+        deliveries.filter(d=>d.outcome==="sent").length+" sent, "+
+        deliveries.filter(d=>d.outcome==="failed").length+" failed"+
+        (deliveries.length===200?" (latest 200)":"")+"\n"+
       (stored.length && !eligible.length?
         "⚠️ Subscription / TG_ADMIN_USER_IDS allowlist mismatch. Check the server secret; do not share IDs or tokens in chat.\n":"")+
       "Use /testbot to verify the Telegram API and webhook.\n"+
@@ -757,7 +799,11 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
         const arg=raw.split(/\s+/)[1]?.toLowerCase();
         if(arg==="on"||arg==="off"){
           const col=cmd==="/alerts"?"alert_enabled":cmd==="/monitor"?"monitor_enabled":"football_enabled";
-          await setPrefs(chat.id,{[col]:arg==="on"});
+          // Turning a notification category ON must also enable the master
+          // alerts switch; /alerts off remains an explicit global pause.
+          const changes={[col]:arg==="on"};
+          if(arg==="on" && col!=="alert_enabled")changes.alert_enabled=true;
+          await setPrefs(chat.id,changes);
           await audit(chat.id,from.id,col+"_"+arg);
         }
         responseText=prefsText(await getPrefs(chat.id));
