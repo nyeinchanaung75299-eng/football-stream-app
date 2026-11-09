@@ -92,6 +92,9 @@ jobs:
       - name: Check native source session races
         run: java scripts/test_native_source_sessions.java
 
+      - name: Verify in-app signing continuity gate tests
+        run: python3 -m unittest discover -s scripts -p 'test_android_update_signing.py' -v
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -233,6 +236,7 @@ jobs:
           echo "NCA_ADMIN_APK_SIZE=$(stat -c%s /tmp/NCA-admin-arm64-v8a-latest.apk)" >> "$GITHUB_ENV"
 
       - name: Upload Admin APKs
+        if: ${{ env.NCA_ADMIN_SIGNING_READY == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: NCA-Admin-V9.8-Release-APKs
@@ -440,16 +444,18 @@ jobs:
           echo "NCA_APK_SIZE=$APK_SIZE" >> "$GITHUB_ENV"
 
       - name: Upload Viewer APKs
+        if: ${{ env.NCA_SIGNING_READY == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: NCA-V9.8-Release-APKs
           path: user_app/build/app/outputs/flutter-apk/*-release.apk
 
-      # A routine push, or a manual Build with the default unchecked input,
-      # must never publish to the in-app updater. Only main + explicit opt-in
-      # + successful stable signing may replace the public release manifest.
+      # Routine pushes and unchecked manual builds never publish an update.
+      # Both apps must be stably signed, and both signing certificates, package
+      # names, and versionCodes must be compatible with the published feed.
+      # An unsigned/debug-signed fallback is never distributed as an update.
       - name: Publish in-app updater release
-        if: ${{ env.NCA_SIGNING_READY == 'true' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-update]'))) }}
+        if: ${{ env.NCA_SIGNING_READY == 'true' && env.NCA_ADMIN_SIGNING_READY == 'true' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-update]'))) }}
         run: |
           set -e
           git config user.name "github-actions[bot]"
@@ -460,6 +466,19 @@ jobs:
           git worktree add --detach /tmp/nca-feed origin/feed
           cd /tmp/nca-feed
           git switch -C feed origin/feed
+
+          # Check the published APK files before replacing them. The feed is the
+          # signing baseline for users installing the current Telegram APK.
+          # Any changed cert/package or non-increasing versionCode BLOCKS release.
+          ANDROID_BUILD_TOOLS="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "${ANDROID_BUILD_TOOLS}/apksigner"
+          test -x "${ANDROID_BUILD_TOOLS}/aapt"
+          python3 "${GITHUB_WORKSPACE}/scripts/verify_android_update_signing.py" \
+            --feed-dir "$PWD/public/releases" \
+            --viewer-apk /tmp/NCA-arm64-v8a-latest.apk \
+            --admin-apk /tmp/NCA-admin-arm64-v8a-latest.apk \
+            --apksigner "${ANDROID_BUILD_TOOLS}/apksigner" \
+            --aapt "${ANDROID_BUILD_TOOLS}/aapt"
 
           mkdir -p public/releases
           cp /tmp/NCA-arm64-v8a-latest.apk public/releases/NCA-arm64-v8a-latest.apk
@@ -520,7 +539,7 @@ jobs:
           exit 1
 
       - name: Refresh GitHub Pages release files
-        if: ${{ env.NCA_SIGNING_READY == 'true' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-update]'))) }}
+        if: ${{ env.NCA_SIGNING_READY == 'true' && env.NCA_ADMIN_SIGNING_READY == 'true' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_update == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-update]'))) }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy-web.yml --ref "${GITHUB_REF_NAME}"
