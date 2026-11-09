@@ -647,10 +647,7 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
 
   @override
   void dispose() {
-    if (_portraitChannel)
-      unawaited(
-        SystemChrome.setPreferredOrientations(DeviceOrientation.values),
-      );
+    unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
     _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     widget.sourceUpdates?.removeListener(_onSourcesUpdated);
@@ -668,9 +665,6 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final visibleLines = visiblePlaybackIndices(widget.sources);
-
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
