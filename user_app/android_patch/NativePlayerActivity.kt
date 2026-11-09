@@ -501,60 +501,51 @@ class NativePlayerActivity : Activity() {
         fun layoutPlayer() {
             if (root.width <= 0 || root.height <= 0) return
             val landscape = root.width > root.height
+            val hasLines = visibleServerIndices().size > 1
+            val railHeight = if (hasLines) dp(50) else 0
+            val headerHeight = dp(46)
             val portraitHeight = (root.width * 9f / 16f).toInt()
-                .coerceAtMost((root.height - dp(68)).coerceAtLeast(dp(120)))
+                .coerceAtMost((root.height - headerHeight - railHeight).coerceAtLeast(dp(120)))
+            val offset = if (landscape) 0 else
+                ((root.height - headerHeight - portraitHeight - railHeight) / 2).coerceAtLeast(0)
+            topBar.layoutParams = (topBar.layoutParams as FrameLayout.LayoutParams).apply {
+                gravity = Gravity.TOP
+                topMargin = offset
+            }
+            topBar.visibility = View.VISIBLE
             videoHost.layoutParams = (videoHost.layoutParams as FrameLayout.LayoutParams).apply {
                 width = ViewGroup.LayoutParams.MATCH_PARENT
-                height = if (landscape) ViewGroup.LayoutParams.MATCH_PARENT else portraitHeight
+                height = if (landscape) (root.height - headerHeight - railHeight).coerceAtLeast(dp(120))
+                    else portraitHeight
                 gravity = Gravity.TOP
-                topMargin = if (landscape) 0 else dp(54)
+                topMargin = offset + headerHeight
             }
             serverRailScroll.layoutParams =
                 (serverRailScroll.layoutParams as FrameLayout.LayoutParams).apply {
                     gravity = Gravity.TOP
-                    topMargin = if (landscape) dp(52) else dp(54) + portraitHeight + dp(6)
+                    topMargin = if (landscape) root.height - railHeight
+                        else offset + headerHeight + portraitHeight
                 }
+            serverRailScroll.visibility = if (hasLines) View.VISIBLE else View.GONE
         }
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> layoutPlayer() }
         root.post { layoutPlayer(); applyDisplayMode() }
         renderServerRail()
 
-        // Keep Server / Quality / Back completely hidden until the USER taps.
-        // Media3 can briefly report its controller as visible during startup on
-        // some Android/OEM builds, so controller visibility alone is not enough.
-        var userRequestedControls = false
-
+        // Transport controls are small and anchored at the picture bottom.
+        // Touching the video toggles them; source line chips stay below video.
         playerView.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_UP) {
-                userRequestedControls = true
+                compactControls.visibility =
+                    if (compactControls.visibility == View.VISIBLE) View.GONE else View.VISIBLE
             }
-            false
+            true
         }
-
-        playerView.setControllerVisibilityListener(
-            PlayerView.ControllerVisibilityListener { visibility ->
-                if (visibility == View.VISIBLE && userRequestedControls) {
-                    topBar.visibility = View.VISIBLE
-                    settingsButton.visibility = View.VISIBLE
-                    serverRailScroll.visibility = if (visibleServerIndices().size == 1) View.GONE else View.VISIBLE
-                } else {
-                    topBar.visibility = if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) View.VISIBLE else View.GONE
-                    settingsButton.visibility = View.GONE
-                    serverRailScroll.visibility = View.GONE
-                }
-
-                if (visibility != View.VISIBLE) {
-                    userRequestedControls = false
-                }
-            }
-        )
-
-        // Force a clean video surface on entry. Controls appear on the first tap.
         playerView.post {
-            playerView.hideController()
-            topBar.visibility = if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) View.VISIBLE else View.GONE
-            settingsButton.visibility = View.GONE
-            serverRailScroll.visibility = View.GONE
+            topBar.visibility = View.VISIBLE
+            compactControls.visibility = View.GONE
+            serverRailScroll.visibility =
+                if (visibleServerIndices().size > 1) View.VISIBLE else View.GONE
         }
 
         statusText = TextView(this).apply {
@@ -585,6 +576,29 @@ class NativePlayerActivity : Activity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) safeHideSystemBars()
+    }
+
+    private fun updateCompactControls() {
+        if (!::compactControls.isInitialized) return
+        val exo = player ?: return
+        compactPlay.text = if (exo.isPlaying) "Ⅱ" else "▶"
+        val duration = exo.duration
+        val position = exo.currentPosition.coerceAtLeast(0)
+        fun time(milliseconds: Long): String {
+            val seconds = milliseconds.coerceAtLeast(0) / 1000
+            return if (seconds >= 3600) String.format(
+                Locale.US, "%d:%02d:%02d", seconds / 3600, (seconds / 60) % 60, seconds % 60
+            ) else String.format(Locale.US, "%d:%02d", seconds / 60, seconds % 60)
+        }
+        if (duration == C.TIME_UNSET || duration <= 0) {
+            compactTime.text = "● LIVE"
+            compactSeek.isEnabled = false
+            compactSeek.progress = 0
+        } else {
+            compactTime.text = "${time(position)} / ${time(duration)}"
+            compactSeek.isEnabled = true
+            compactSeek.progress = ((position * 1000L) / duration).toInt().coerceIn(0, 1000)
+        }
     }
 
     private fun playServer(index: Int, recoveringSameLine: Boolean = false) {
