@@ -216,15 +216,12 @@ const failures = h => h.events.filter(event => event.name === 'playback line fai
 test('viewer home keeps web player hidden until WATCH is explicitly requested', async () => {
   // Regression: portrait @media once set display:flex even when .open was absent.
   // It obscured the entire Flutter home on a cold Chrome/Safari page load.
-  const css = html.match(/<style id="nca-reference-player-style">([\\s\\S]*?)<\\/style>/)?.[1] || '';
+  const css=html.match(/<style id="nca-reference-player-style">([\s\S]*?)<\/style>/)?.[1]||'';
   assert.match(html, /id="football-player-overlay" aria-hidden="true"/);
-  assert.match(html, /#football-player-overlay\\{display:none;/);
-  assert.match(css,
-    /#football-player-overlay\\.open:not\\(\\.ios-native-mode\\)\\s*\\{\\s*display:flex/);
-  assert.match(css,
-    /#football-player-overlay\\[aria-hidden="true"\\]\\s*\\{\\s*display:none!important/);
-  assert.doesNotMatch(css,
-    /#football-player-overlay:not\\(\\.ios-native-mode\\)\\s*\\{\\s*display:flex/);
+  assert.match(html, /#football-player-overlay\{display:none;/);
+  assert.match(css, /#football-player-overlay\.open:not\(\.ios-native-mode\)\s*\{\s*display:flex/);
+  assert.match(css, /#football-player-overlay\[aria-hidden="true"\]\s*\{\s*display:none!important/);
+  assert.doesNotMatch(css, /#football-player-overlay:not\(\.ios-native-mode\)\s*\{\s*display:flex/);
   const h = createHarness({ ios: false });
   assert.equal(h.overlay.classList.contains('open'), false);
   await h.open([source('hls')]);
