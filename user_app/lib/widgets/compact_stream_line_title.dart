@@ -11,11 +11,11 @@ String compactStreamLineTitle({
 }) {
   final raw = label.trim();
   final unsafe = raw.length > 120 ||
-      RegExp(r'https?://|(?i:authorization|token|referer|keydata|keyid)\\s*[:=]')
+      RegExp(r'https?://|(?i:authorization|token|referer|keydata|keyid)\s*[:=]')
           .hasMatch(raw);
   var title = raw.isEmpty || unsafe ? 'Line ${index + 1}' : raw;
   final quality = resolution.trim();
-  if (RegExp(r'^(?:\\d{3,4}p|hd|sd|fhd|uhd|4k)$', caseSensitive: false)
+  if (RegExp(r'^(?:\d{3,4}p|hd|sd|fhd|uhd|4k)$', caseSensitive: false)
           .hasMatch(quality) &&
       !title.toLowerCase().contains(quality.toLowerCase())) {
     title = '$title • $quality';
@@ -28,7 +28,7 @@ String compactStreamLineTitle({
     _ => '',
   };
   if (type.isNotEmpty &&
-      !RegExp('\\\\b' + type + '\\\\b', caseSensitive: false).hasMatch(title)) {
+      !RegExp('\\b' + type + '\\b', caseSensitive: false).hasMatch(title)) {
     title = '$title ($type)';
   }
   return title;
