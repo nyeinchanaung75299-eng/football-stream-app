@@ -12,10 +12,16 @@ import 'app_update_installer.dart';
 class AdminUpdateService {
   static bool _checking = false;
   static bool _downloading = false;
+  static bool _checkedAtStartup = false;
+
+  // The GitHub Pages URL is not the published Admin manifest. Read the
+  // canonical feed-branch file directly; avoid the former 404 first attempt.
   static const _manifestUrls = [
-    'https://nyeinchanaung75299-eng.github.io/football-stream-app/releases/admin-latest.json',
     'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/releases/admin-latest.json',
   ];
+
+  @visibleForTesting
+  static List<String> get manifestUrls => _manifestUrls;
   static const _apkPath = '/nyeinchanaung75299-eng/football-stream-app/feed/public/releases/NCA-admin-arm64-v8a-latest.apk';
 
   @visibleForTesting
@@ -32,15 +38,16 @@ class AdminUpdateService {
         RegExp(r'^[0-9a-f]{64}$').hasMatch(digest);
   }
 
-  static Future<void> check(BuildContext context) async {
+  static Future<void> check(BuildContext context, {bool automatic = false}) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
-      if (context.mounted) {
+      if (!automatic && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Admin APK updates are available on Android only.')));
       }
       return;
     }
-    if (_checking) return;
+    if (_checking || _downloading || (automatic && _checkedAtStartup)) return;
+    if (automatic) _checkedAtStartup = true;
     _checking = true;
     try {
       final info = await PackageInfo.fromPlatform();
@@ -62,16 +69,22 @@ class AdminUpdateService {
       }
       if (!context.mounted) return;
       if (release == null) {
-        _notice(context, 'No Admin update is published yet, or the release feed is unavailable.');
+        if (!automatic) {
+          _notice(context, 'No Admin update is published yet, or the release feed is unavailable.');
+        }
         return;
       }
       if (!validAdminRelease(release)) {
-        _notice(context, 'Admin update manifest is invalid. No APK was installed.');
+        if (!automatic) {
+          _notice(context, 'Admin update manifest is invalid. No APK was installed.');
+        }
         return;
       }
       final nextBuild = int.tryParse(release['build_number']?.toString() ?? '') ?? 0;
       if (nextBuild <= installed) {
-        _notice(context, 'NCA Admin is up to date (build ${info.buildNumber}).');
+        if (!automatic) {
+          _notice(context, 'NCA Admin is up to date (build ${info.buildNumber}).');
+        }
         return;
       }
       final version = (release['version_name'] ?? 'new version').toString();
@@ -126,7 +139,9 @@ class AdminUpdateService {
         _downloading = false;
       }
     } catch (_) {
-      if (context.mounted) _notice(context, 'Could not check Admin updates. Try again later.');
+      if (!automatic && context.mounted) {
+        _notice(context, 'Could not check Admin updates. Try again later.');
+      }
     } finally {
       _checking = false;
     }

@@ -16,6 +16,8 @@ import 'stream_source_picker_page.dart';
 import 'tv_schedules_page.dart';
 import 'telegram_setup_page.dart';
 import 'repository_matches_page.dart';
+import 'epg_discrepancies_page.dart';
+import 'suppressed_source_lines_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -26,6 +28,18 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   int _tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        // No background polling: once when Admin opens, plus the manual button.
+        // An update still requires explicit confirmation to install.
+        AdminUpdateService.check(context, automatic: true);
+      }
+    });
+  }
 
   void open(BuildContext context, Widget page, String section) {
     AnalyticsService.capture(
@@ -203,6 +217,20 @@ class _DashboardPageState extends State<DashboardPage> {
         title: 'LiveTV Sports',
         iconColor: const Color(0xFF54E6C1),
         onTap: () => open(context, const ConnectedChannelsPage(sportsOnly: true), 'livetv-sports'),
+      ),
+      const SizedBox(height: 8),
+      _ActionCard(
+        icon: Icons.restore_rounded,
+        title: 'Deleted source lines • Allow again',
+        iconColor: const Color(0xFF6099FF),
+        onTap: () => open(context, const SuppressedSourceLinesPage(), 'deleted-source-lines'),
+      ),
+      const SizedBox(height: 8),
+      _ActionCard(
+        icon: Icons.report_problem_outlined,
+        title: 'EPG mismatch reports',
+        iconColor: const Color(0xFFF59E0B),
+        onTap: () => open(context, const EpgDiscrepanciesPage(), 'epg-discrepancies'),
       ),
       const SizedBox(height: 12),
       Text(
