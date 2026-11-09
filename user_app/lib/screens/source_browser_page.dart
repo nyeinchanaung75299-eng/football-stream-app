@@ -167,7 +167,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       query: _query,
       league: _league,
       todayOnly: _todayOnly,
-      scrollOffset: _listScroll.hasClients ? _listScroll.offset : 0,
+      scrollOffset: _listScroll.hasClients
+          ? _listScroll.offset
+          : ViewerTabCache.sourceUi(tab ?? source).scrollOffset,
     ));
   }
 
