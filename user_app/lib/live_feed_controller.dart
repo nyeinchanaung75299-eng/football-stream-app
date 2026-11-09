@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 /// Preserve successful data during refreshes and temporary network failures.
 /// An empty successful response still replaces the previous data.
 class LiveFeedController<T> extends ChangeNotifier {
-  LiveFeedController(this.load);
+  LiveFeedController(this.load, {T? initialData}) : _data = initialData;
 
   final Future<T> Function() load;
   T? _data;
@@ -17,6 +17,14 @@ class LiveFeedController<T> extends ChangeNotifier {
   Object? get error => _error;
   bool get hasData => _data != null;
   bool get loading => _loading;
+
+  /// Paint a persisted snapshot without waiting for the current API request.
+  /// Never replace an authoritative successful response, even an empty list.
+  void seedIfMissing(T snapshot) {
+    if (_disposed || _data != null) return;
+    _data = snapshot;
+    notifyListeners();
+  }
 
   Future<void> refresh() {
     if (_disposed) return Future<void>.value();
