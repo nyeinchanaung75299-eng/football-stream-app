@@ -24,7 +24,7 @@ void main() {
           .toList();
       expect(
         destinations.map((destination) => destination.label),
-      ['Controls', 'Sources', 'TV Schedule', 'My Channels', 'Health'],
+      ['Controls', 'Sources', 'TV Schedule', 'My Channels', 'Tools'],
       );
       expect(find.text('Stream Detector'), findsNothing);
       expect(find.text('Pick Big Matches'), findsOneWidget);
@@ -43,6 +43,36 @@ void main() {
       await tester.tap(find.text('Controls'));
       await tester.pumpAndSettle();
       expect(find.text('Pick Big Matches'), findsOneWidget);
+      expect(find.text('Upload Live'), findsOneWidget);
+      expect(find.text('Upload Live Links'), findsOneWidget);
+      expect(find.text('Edit & Delete Live'), findsOneWidget);
+      expect(find.text('Upload Channels'), findsOneWidget);
+      expect(find.text('Edit & Delete Channels'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Channel Health'),
+        160,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Channel Health'), findsOneWidget);
+      // Moved tools must no longer be duplicated in Controls.
+      expect(find.text('Connect Telegram Bots'), findsNothing);
+
+      await tester.tap(find.text('Tools').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Repository Matches'), findsOneWidget);
+      expect(find.text('DarkByte Channels'), findsOneWidget);
+      expect(find.text('LiveTV Sports'), findsOneWidget);
+      expect(find.text('Deleted source lines • Allow again'), findsOneWidget);
+      expect(find.text('EPG mismatch reports'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Connect Telegram Bots'),
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Connect Telegram Bots'), findsOneWidget);
+      expect(find.text('Channel Health'), findsNothing);
+      // Tools should only rearrange navigation, not invoke any network sync.
+      expect(requests, 0);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },
