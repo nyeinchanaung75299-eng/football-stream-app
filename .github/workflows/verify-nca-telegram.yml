@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'supabase/functions/_shared/nca_telegram_bot.mjs'
+      - 'supabase/functions/_shared/telegram_apk_delivery.mjs'
+      - 'supabase/functions/_shared/telegram_bot_commands.mjs'
+      - 'scripts/test_telegram_apk_delivery.mjs'
       - 'supabase/functions/_shared/nca_private_admin_bot.mjs'
       - 'supabase/functions/_shared/nca_private_admin_bot.test.mjs'
       - 'supabase/migrations/20261109090000_admin_bot_delivery_audit_and_pulse.sql'
@@ -36,8 +39,10 @@ jobs:
           node-version: '24'
       - name: Verify bot security and webhook behavior
         run: |
+          node --check supabase/functions/_shared/telegram_apk_delivery.mjs
+          node --check supabase/functions/_shared/telegram_bot_commands.mjs
           node --check supabase/functions/_shared/nca_telegram_bot.mjs
           node --check supabase/functions/_shared/nca_private_admin_bot.mjs
           node --check scripts/register_nca_telegram_webhooks.mjs
           node --check supabase/functions/_shared/telegram_connect.mjs
-          node --test scripts/test_nca_telegram_bots.mjs scripts/test_telegram_connect.mjs scripts/test_viewer_tools.mjs supabase/functions/_shared/nca_private_admin_bot.test.mjs
+          node --test scripts/test_nca_telegram_bots.mjs scripts/test_telegram_apk_delivery.mjs scripts/test_telegram_connect.mjs scripts/test_viewer_tools.mjs supabase/functions/_shared/nca_private_admin_bot.test.mjs
