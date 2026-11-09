@@ -24,7 +24,7 @@ void main() {
           .toList();
       expect(
         destinations.map((destination) => destination.label),
-      ['Controls', 'Sources', 'TV Schedule', 'My Channels', 'Tools'],
+      ['Controls', 'Sources', 'Tools', 'TV Schedule', 'My Channels'],
       );
       expect(find.text('Stream Detector'), findsNothing);
       expect(find.text('Pick Big Matches'), findsOneWidget);
