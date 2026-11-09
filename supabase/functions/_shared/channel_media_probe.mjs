@@ -65,7 +65,13 @@ export async function probeChannelMedia(line,{fetcher=fetch,timeoutMs=12000,incl
   result.detail=result.drm_status==='missing_configuration'?'Manifest reachable; DRM configuration needed':segment?'Manifest and media bytes reachable; video decode not tested':'Manifest valid; segment address needs player resolution';
  }catch(error){
   result.http_status=result.http_status||error.http||0;
-  result.health_status=[401,403,405,429].includes(error.http)?'unknown':'failed';
+  // A server-side timeout, connection refusal, access restriction or
+  // temporary upstream/CDN 5xx can happen while the same feed plays on a
+  // device/network. Record an inconclusive media check, not a dead video.
+  const transientHttp=[401,403,405,408,425,429,500,502,503,504].includes(error.http);
+  result.health_status=controller.signal.aborted || transientHttp ||
+    (!error.http && result.manifest_status!=='invalid')
+    ? 'unknown' : 'failed';
   if(result.manifest_status==='not_tested')result.manifest_status='unavailable';
   result.detail=controller.signal.aborted?'Media check timed out':error.http?'Upstream HTTP '+error.http:result.manifest_status==='invalid'?'Response is not a media manifest':'Media or segment unavailable';
  }finally{clearTimeout(timer);controller.abort();result.latency_ms=Date.now()-started;}
