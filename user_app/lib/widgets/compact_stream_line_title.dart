@@ -11,7 +11,7 @@ String compactStreamLineTitle({
 }) {
   final raw = label.trim();
   final unsafe = raw.length > 120 ||
-      RegExp(r'https?://|(?i:authorization|token|referer|keydata|keyid)\s*[:=]')
+      RegExp(r'https?://|(?:authorization|token|referer|keydata|keyid)\s*[:=]', caseSensitive: false)
           .hasMatch(raw);
   var title = raw.isEmpty || unsafe ? 'Line ${index + 1}' : raw;
   final quality = resolution.trim();
