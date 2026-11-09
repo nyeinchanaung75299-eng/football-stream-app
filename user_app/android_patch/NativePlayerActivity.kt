@@ -21,6 +21,7 @@ import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
+import android.widget.SeekBar
 import android.widget.TextView
 import androidx.media3.common.C
 import androidx.media3.common.AudioAttributes
@@ -130,6 +131,10 @@ class NativePlayerActivity : Activity() {
     private lateinit var serverRail: LinearLayout
     private lateinit var serverRailScroll: HorizontalScrollView
     private lateinit var statusText: TextView
+    private lateinit var compactControls: LinearLayout
+    private lateinit var compactPlay: TextView
+    private lateinit var compactTime: TextView
+    private lateinit var compactSeek: SeekBar
     private lateinit var displayModeButton: TextView
     private var displayMode = 0 // 0=Fit, 1=Full, 2=Zoom
 
@@ -275,9 +280,9 @@ class NativePlayerActivity : Activity() {
         playerView = PlayerView(this).apply {
             setBackgroundColor(Color.BLACK)
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-            useController = true
-            controllerAutoShow = false
-            controllerShowTimeoutMs = 5000
+            // Native Media3 default controls are oversized and show unwanted
+            // Previous / Next buttons. Use one slim, accessible transport row.
+            useController = false
         }
         // The player controls and progress/time belong to the VIDEO box, not
         // the bottom of an otherwise empty portrait phone screen.
@@ -362,13 +367,6 @@ class NativePlayerActivity : Activity() {
             LinearLayout.LayoutParams(0, dp(42), 1f)
         )
         topBar.addView(
-            serverButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                dp(42)
-            )
-        )
-        topBar.addView(
             displayModeButton,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -414,8 +412,92 @@ class NativePlayerActivity : Activity() {
             visibility = View.GONE
             setOnClickListener { showPlaybackSettings() }
         }
-        videoHost.addView(settingsButton, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.END)
-            .apply { bottomMargin = dp(8); marginEnd = dp(8) })
+        // One compact bottom transport row. Line switching belongs OUTSIDE
+        // videoHost in serverRailScroll; no Previous/Next server shortcuts.
+        compactControls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(5), 0, dp(5), 0)
+            setBackgroundColor(Color.argb(48, 0, 0, 0))
+            visibility = View.GONE
+        }
+        fun transportButton(label: String, description: String): TextView =
+            TextView(this).apply {
+                text = label
+                contentDescription = description
+                textSize = 12f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                setPadding(0, 0, 0, 0)
+                background = null
+            }
+        val rewind = transportButton("↶5", "Back 5 seconds").apply {
+            setOnClickListener {
+                val exo = player ?: return@setOnClickListener
+                exo.seekTo((exo.currentPosition - 5000L).coerceAtLeast(0L))
+                updateCompactControls()
+            }
+        }
+        compactPlay = transportButton("Ⅱ", "Play or pause").apply {
+            textSize = 16f
+            setOnClickListener {
+                val exo = player ?: return@setOnClickListener
+                if (exo.isPlaying) exo.pause() else exo.play()
+                updateCompactControls()
+            }
+        }
+        val forward = transportButton("15↷", "Forward 15 seconds").apply {
+            setOnClickListener {
+                val exo = player ?: return@setOnClickListener
+                val max = exo.duration
+                val target = exo.currentPosition + 15000L
+                exo.seekTo(if (max != C.TIME_UNSET && max > 0) target.coerceAtMost(max) else target)
+                updateCompactControls()
+            }
+        }
+        compactTime = transportButton("LIVE", "Playback time").apply {
+            textSize = 10f
+            setSingleLine(true)
+        }
+        compactSeek = SeekBar(this).apply {
+            max = 1000
+            progress = 0
+            contentDescription = "Seek video"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {}
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    val exo = player ?: return
+                    val duration = exo.duration
+                    if (duration != C.TIME_UNSET && duration > 0) {
+                        exo.seekTo(duration * progress / 1000L)
+                    }
+                }
+            })
+        }
+        settingsButton = overlayButton("⚙").apply {
+            textSize = 18f
+            visibility = View.VISIBLE
+            contentDescription = "Resolution audio and playback speed"
+            setOnClickListener { showPlaybackSettings() }
+        }
+        for (view in listOf(rewind, compactPlay, forward)) {
+            compactControls.addView(view, LinearLayout.LayoutParams(dp(36), dp(36)))
+        }
+        compactControls.addView(compactTime, LinearLayout.LayoutParams(dp(88), dp(36)))
+        compactControls.addView(compactSeek, LinearLayout.LayoutParams(0, dp(36), 1f))
+        compactControls.addView(settingsButton, LinearLayout.LayoutParams(dp(36), dp(36)))
+        videoHost.addView(compactControls, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(38), Gravity.BOTTOM
+        ))
+        val ticker = object : Runnable {
+            override fun run() {
+                if (isFinishing || isDestroyed) return
+                updateCompactControls()
+                playerView.postDelayed(this, 450L)
+            }
+        }
+        playerView.post(ticker)
         fun layoutPlayer() {
             if (root.width <= 0 || root.height <= 0) return
             val landscape = root.width > root.height
