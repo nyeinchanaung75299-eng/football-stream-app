@@ -286,10 +286,12 @@ test('in-player controls show progress/time and Settings video audio speed tabs'
   assert.equal(h.elements.get('nca-player-time').textContent,'2:00 / 1:00:00');
   h.elements.get('nca-player-settings').click();
   const tabs=h.elements.get('football-player-menu-items').children[0];
-  assert.equal(tabs.children.length,3);
+  assert.equal(tabs.children.length,4);
   tabs.children[1].click();
   assert.equal(h.elements.get('football-player-menu-title').textContent,'Player settings');
   tabs.children[2].click();
+  assert.equal(h.elements.get('football-player-menu-items').children.length>=2,true);
+  h.elements.get('football-player-menu-items').children[0].children[3].click();
   assert.equal(h.elements.get('football-player-menu-items').children.length,7);
   h.elements.get('football-player-menu-items').children[4].click();
   assert.equal(h.elements.get('football-player-menu').classList.contains('hidden'),true);
