@@ -6,9 +6,11 @@ import 'soco_import_page.dart';
 /// Source selection lives in its own bottom navigation destination so source
 /// providers do not crowd the live-management controls.
 class StreamSourcePickerPage extends StatelessWidget {
-  const StreamSourcePickerPage({super.key, this.embedded = false});
+  const StreamSourcePickerPage({super.key, this.embedded = false, this.onProviderClosed});
 
   final bool embedded;
+  /// Only invalidate guide data after returning from a source editing route.
+  final VoidCallback? onProviderClosed;
 
   static const _sources = <_SourceOption>[
     _SourceOption('soco', 'Soco', Icons.sports_soccer_rounded),
@@ -18,17 +20,18 @@ class StreamSourcePickerPage extends StatelessWidget {
     _SourceOption('arena', 'Arena Koora', Icons.stadium_rounded),
   ];
 
-  void _open(BuildContext context, _SourceOption source) {
+  Future<void> _open(BuildContext context, _SourceOption source) async {
     AnalyticsService.capture(
       'admin source provider opened',
       properties: {'source': source.id, 'entry': 'source_picker'},
     );
-    Navigator.of(context).push<void>(
+    await Navigator.of(context).push<void>(
       MaterialPageRoute(
         settings: RouteSettings(name: '/admin/stream-sources/${source.id}'),
         builder: (_) => SocoImportPage(initialSource: source.id),
       ),
     );
+    if (context.mounted) onProviderClosed?.call();
   }
 
   @override
