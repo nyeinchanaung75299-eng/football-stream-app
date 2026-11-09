@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createTelegramHandler, ADMIN_INLINE_MENU } from "./nca_private_admin_bot.mjs";
 
+const mockApk = new TextEncoder().encode("admin-bot-apk-fixture");
+const mockSha = createHash("sha256").update(mockApk).digest("hex");
+const releaseBase = "https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/releases/";
 const botEnv = (allowlist = "111") => ({
   TG_ADMIN_BOT_TOKEN: "test-admin-token",
   TG_ADMIN_WEBHOOK_SECRET: "test-secret",
@@ -25,8 +28,19 @@ function createMock({prefs=[],lines=[],channels=[],matches=[],messageFail=false,
   const calls=[];
   const fetcher=async(url,options={})=>{
     const href=String(url);
-    const body=options.body?JSON.parse(options.body):{};
+    const body=options.body instanceof FormData ? options.body
+      : options.body ? JSON.parse(options.body) : {};
     calls.push({url:href,method:options.method||"GET",body});
+    if(href.startsWith(releaseBase)){
+      const isAdmin=href.endsWith("admin-latest.json") || href.endsWith("NCA-admin-arm64-v8a-latest.apk");
+      if(href.endsWith(".json")) return Response.json({
+        ...(isAdmin?{app:"nca_admin"}:{}),
+        version_name:isAdmin?"2.5.3":"9.8.0",build_number:30739,
+        abi:"arm64-v8a",sha256:mockSha,size_bytes:mockApk.byteLength,
+        apk_url:releaseBase+(isAdmin?"NCA-admin-arm64-v8a-latest.apk":"NCA-arm64-v8a-latest.apk"),
+      });
+      return new Response(mockApk);
+    }
     if(href.includes("api.telegram.org/bot")){
       const method=href.split("/").pop();
       if(method==="sendMessage" && messageFail)
@@ -369,4 +383,35 @@ test("admin /health reports server HTTP status independently of verified device 
   assert.match(text,/Server HTTP probe UNKNOWN: 1/);
   assert.match(text,/Device video VERIFIED: 1/);
   assert.doesNotMatch(text,/stream_url|test-service-key/);
+});
+
+test("Admin /apk shows Viewer and Admin download choices", async () => {
+  const mock=createMock();
+  const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+  assert.equal((await handler(request("/apk"))).status,200);
+  const options=telegramCalls(mock.calls,"sendMessage").at(-1).body.reply_markup.inline_keyboard.flat();
+  assert.ok(options.some(b=>b.callback_data==="/apk_viewer"));
+  assert.ok(options.some(b=>b.callback_data==="/apk_admin"));
+});
+
+test("Allowlisted Admin can send both real APK file types; callback does not edit after upload", async () => {
+  for(const [command,name] of [["/apk_viewer","NCA-Viewer-arm64.apk"],["/apk_admin","NCA-Admin-arm64.apk"]]){
+    const mock=createMock();
+    const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+    assert.equal((await handler(request(command,true))).status,200);
+    assert.equal(telegramCalls(mock.calls,"answerCallbackQuery").length,1);
+    assert.equal(telegramCalls(mock.calls,"editMessageText").length,0);
+    const files=telegramCalls(mock.calls,"sendDocument");
+    assert.equal(files.length,1);
+    assert.equal(files[0].body.get("document").name,name);
+    assert.equal(files[0].body.get("chat_id"),"111");
+  }
+});
+
+test("Unpaired user cannot access any private Admin APK, and no release is fetched", async () => {
+  const mock=createMock();
+  const handler=createTelegramHandler({mode:"admin",env:botEnv("222"),fetcher:mock.fetcher});
+  assert.equal((await handler(request("/apk_admin"))).status,200);
+  assert.equal(telegramCalls(mock.calls,"sendDocument").length,0);
+  assert.equal(mock.calls.some(c=>c.url.startsWith(releaseBase)),false);
 });
