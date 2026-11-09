@@ -187,12 +187,17 @@ class IOSCompactPlayerControls extends StatelessWidget {
             'Play or pause',
             () => unawaited(player.playOrPause()),
           ),
-          _control(Icons.forward_15_rounded, 'Forward 15 seconds', () {
+          SizedBox(width: 34, height: 34, child: TextButton(
+            style: TextButton.styleFrom(padding: EdgeInsets.zero, foregroundColor: Colors.white),
+            onPressed: () {
             final target = player.state.position + const Duration(seconds: 15);
             final duration = player.state.duration;
             unawaited(player.seek(duration > Duration.zero && target > duration
                 ? duration : target));
-          }),
+            },
+            child: const Text('15s', style: TextStyle(
+                fontSize: 11, fontWeight: FontWeight.w600)),
+          )),
           StreamBuilder<Duration>(
             stream: player.stream.position,
             initialData: player.state.position,
