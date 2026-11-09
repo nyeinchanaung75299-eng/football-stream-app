@@ -21,6 +21,7 @@ import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
+import android.widget.SeekBar
 import android.widget.TextView
 import androidx.media3.common.C
 import androidx.media3.common.AudioAttributes
@@ -130,6 +131,10 @@ class NativePlayerActivity : Activity() {
     private lateinit var serverRail: LinearLayout
     private lateinit var serverRailScroll: HorizontalScrollView
     private lateinit var statusText: TextView
+    private lateinit var compactControls: LinearLayout
+    private lateinit var compactPlay: TextView
+    private lateinit var compactTime: TextView
+    private lateinit var compactSeek: SeekBar
     private lateinit var displayModeButton: TextView
     private var displayMode = 0 // 0=Fit, 1=Full, 2=Zoom
 
@@ -275,9 +280,9 @@ class NativePlayerActivity : Activity() {
         playerView = PlayerView(this).apply {
             setBackgroundColor(Color.BLACK)
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-            useController = true
-            controllerAutoShow = false
-            controllerShowTimeoutMs = 5000
+            // Native Media3 default controls are oversized and show unwanted
+            // Previous / Next buttons. Use one slim, accessible transport row.
+            useController = false
         }
         // The player controls and progress/time belong to the VIDEO box, not
         // the bottom of an otherwise empty portrait phone screen.
@@ -362,13 +367,6 @@ class NativePlayerActivity : Activity() {
             LinearLayout.LayoutParams(0, dp(42), 1f)
         )
         topBar.addView(
-            serverButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                dp(42)
-            )
-        )
-        topBar.addView(
             displayModeButton,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -414,65 +412,140 @@ class NativePlayerActivity : Activity() {
             visibility = View.GONE
             setOnClickListener { showPlaybackSettings() }
         }
-        videoHost.addView(settingsButton, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.END)
-            .apply { bottomMargin = dp(8); marginEnd = dp(8) })
+        // One compact bottom transport row. Line switching belongs OUTSIDE
+        // videoHost in serverRailScroll; no Previous/Next server shortcuts.
+        compactControls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(5), 0, dp(5), 0)
+            setBackgroundColor(Color.argb(48, 0, 0, 0))
+            visibility = View.GONE
+        }
+        fun transportButton(label: String, description: String): TextView =
+            TextView(this).apply {
+                text = label
+                contentDescription = description
+                textSize = 12f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                setPadding(0, 0, 0, 0)
+                background = null
+            }
+        val rewind = transportButton("↶5", "Back 5 seconds").apply {
+            setOnClickListener {
+                val exo = player ?: return@setOnClickListener
+                exo.seekTo((exo.currentPosition - 5000L).coerceAtLeast(0L))
+                updateCompactControls()
+            }
+        }
+        compactPlay = transportButton("Ⅱ", "Play or pause").apply {
+            textSize = 16f
+            setOnClickListener {
+                val exo = player ?: return@setOnClickListener
+                if (exo.isPlaying) exo.pause() else exo.play()
+                updateCompactControls()
+            }
+        }
+        val forward = transportButton("15↷", "Forward 15 seconds").apply {
+            setOnClickListener {
+                val exo = player ?: return@setOnClickListener
+                val max = exo.duration
+                val target = exo.currentPosition + 15000L
+                exo.seekTo(if (max != C.TIME_UNSET && max > 0) target.coerceAtMost(max) else target)
+                updateCompactControls()
+            }
+        }
+        compactTime = transportButton("LIVE", "Playback time").apply {
+            textSize = 10f
+            setSingleLine(true)
+        }
+        compactSeek = SeekBar(this).apply {
+            max = 1000
+            progress = 0
+            contentDescription = "Seek video"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {}
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    val exo = player ?: return
+                    val duration = exo.duration
+                    if (duration != C.TIME_UNSET && duration > 0) {
+                        exo.seekTo(duration * progress / 1000L)
+                    }
+                }
+            })
+        }
+        settingsButton = overlayButton("⚙").apply {
+            textSize = 18f
+            visibility = View.VISIBLE
+            contentDescription = "Resolution audio and playback speed"
+            setOnClickListener { showPlaybackSettings() }
+        }
+        for (view in listOf(rewind, compactPlay, forward)) {
+            compactControls.addView(view, LinearLayout.LayoutParams(dp(36), dp(36)))
+        }
+        compactControls.addView(compactTime, LinearLayout.LayoutParams(dp(88), dp(36)))
+        compactControls.addView(compactSeek, LinearLayout.LayoutParams(0, dp(36), 1f))
+        compactControls.addView(settingsButton, LinearLayout.LayoutParams(dp(36), dp(36)))
+        videoHost.addView(compactControls, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(38), Gravity.BOTTOM
+        ))
+        val ticker = object : Runnable {
+            override fun run() {
+                if (isFinishing || isDestroyed) return
+                updateCompactControls()
+                playerView.postDelayed(this, 450L)
+            }
+        }
+        playerView.post(ticker)
         fun layoutPlayer() {
             if (root.width <= 0 || root.height <= 0) return
             val landscape = root.width > root.height
+            val hasLines = visibleServerIndices().size > 1
+            val railHeight = if (hasLines) dp(50) else 0
+            val headerHeight = dp(46)
             val portraitHeight = (root.width * 9f / 16f).toInt()
-                .coerceAtMost((root.height - dp(68)).coerceAtLeast(dp(120)))
+                .coerceAtMost((root.height - headerHeight - railHeight).coerceAtLeast(dp(120)))
+            val offset = if (landscape) 0 else
+                ((root.height - headerHeight - portraitHeight - railHeight) / 2).coerceAtLeast(0)
+            topBar.layoutParams = (topBar.layoutParams as FrameLayout.LayoutParams).apply {
+                gravity = Gravity.TOP
+                topMargin = offset
+            }
+            topBar.visibility = View.VISIBLE
             videoHost.layoutParams = (videoHost.layoutParams as FrameLayout.LayoutParams).apply {
                 width = ViewGroup.LayoutParams.MATCH_PARENT
-                height = if (landscape) ViewGroup.LayoutParams.MATCH_PARENT else portraitHeight
+                height = if (landscape) (root.height - headerHeight - railHeight).coerceAtLeast(dp(120))
+                    else portraitHeight
                 gravity = Gravity.TOP
-                topMargin = if (landscape) 0 else dp(54)
+                topMargin = offset + headerHeight
             }
             serverRailScroll.layoutParams =
                 (serverRailScroll.layoutParams as FrameLayout.LayoutParams).apply {
                     gravity = Gravity.TOP
-                    topMargin = if (landscape) dp(52) else dp(54) + portraitHeight + dp(6)
+                    topMargin = if (landscape) root.height - railHeight
+                        else offset + headerHeight + portraitHeight
                 }
+            serverRailScroll.visibility = if (hasLines) View.VISIBLE else View.GONE
         }
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> layoutPlayer() }
         root.post { layoutPlayer(); applyDisplayMode() }
         renderServerRail()
 
-        // Keep Server / Quality / Back completely hidden until the USER taps.
-        // Media3 can briefly report its controller as visible during startup on
-        // some Android/OEM builds, so controller visibility alone is not enough.
-        var userRequestedControls = false
-
+        // Transport controls are small and anchored at the picture bottom.
+        // Touching the video toggles them; source line chips stay below video.
         playerView.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_UP) {
-                userRequestedControls = true
+                compactControls.visibility =
+                    if (compactControls.visibility == View.VISIBLE) View.GONE else View.VISIBLE
             }
-            false
+            true
         }
-
-        playerView.setControllerVisibilityListener(
-            PlayerView.ControllerVisibilityListener { visibility ->
-                if (visibility == View.VISIBLE && userRequestedControls) {
-                    topBar.visibility = View.VISIBLE
-                    settingsButton.visibility = View.VISIBLE
-                    serverRailScroll.visibility = if (visibleServerIndices().size == 1) View.GONE else View.VISIBLE
-                } else {
-                    topBar.visibility = if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) View.VISIBLE else View.GONE
-                    settingsButton.visibility = View.GONE
-                    serverRailScroll.visibility = View.GONE
-                }
-
-                if (visibility != View.VISIBLE) {
-                    userRequestedControls = false
-                }
-            }
-        )
-
-        // Force a clean video surface on entry. Controls appear on the first tap.
         playerView.post {
-            playerView.hideController()
-            topBar.visibility = if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) View.VISIBLE else View.GONE
-            settingsButton.visibility = View.GONE
-            serverRailScroll.visibility = View.GONE
+            topBar.visibility = View.VISIBLE
+            compactControls.visibility = View.GONE
+            serverRailScroll.visibility =
+                if (visibleServerIndices().size > 1) View.VISIBLE else View.GONE
         }
 
         statusText = TextView(this).apply {
@@ -503,6 +576,29 @@ class NativePlayerActivity : Activity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) safeHideSystemBars()
+    }
+
+    private fun updateCompactControls() {
+        if (!::compactControls.isInitialized) return
+        val exo = player ?: return
+        compactPlay.text = if (exo.isPlaying) "Ⅱ" else "▶"
+        val duration = exo.duration
+        val position = exo.currentPosition.coerceAtLeast(0)
+        fun time(milliseconds: Long): String {
+            val seconds = milliseconds.coerceAtLeast(0) / 1000
+            return if (seconds >= 3600) String.format(
+                Locale.US, "%d:%02d:%02d", seconds / 3600, (seconds / 60) % 60, seconds % 60
+            ) else String.format(Locale.US, "%d:%02d", seconds / 60, seconds % 60)
+        }
+        if (duration == C.TIME_UNSET || duration <= 0) {
+            compactTime.text = "● LIVE"
+            compactSeek.isEnabled = false
+            compactSeek.progress = 0
+        } else {
+            compactTime.text = "${time(position)} / ${time(duration)}"
+            compactSeek.isEnabled = true
+            compactSeek.progress = ((position * 1000L) / duration).toInt().coerceIn(0, 1000)
+        }
     }
 
     private fun playServer(index: Int, recoveringSameLine: Boolean = false) {
@@ -972,11 +1068,13 @@ class NativePlayerActivity : Activity() {
         popup.menu.add(0, 7000, 0, "Video quality • ${forcedQualityLabel ?: "Auto"}")
         popup.menu.add(0, 7001, 1, "Audio tracks")
         popup.menu.add(0, 7002, 2, "Playback speed")
+        popup.menu.add(0, 7003, 3, "Subtitles")
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 7000 -> { showQualityMenu(); true }
                 7001 -> { showAudioMenu(); true }
                 7002 -> { showSpeedMenu(); true }
+                7003 -> { showSubtitleMenu(); true }
                 else -> false
             }
         }
@@ -1011,6 +1109,43 @@ class NativePlayerActivity : Activity() {
                 selector.parameters = selector.buildUponParameters()
                     .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
                     .setOverrideForType(override).build()
+                true
+            }
+        }
+        popup.show()
+    }
+
+    private fun showSubtitleMenu() {
+        val selector = trackSelector ?: return
+        val popup = PopupMenu(this, settingsButton)
+        val choices = mutableListOf<Pair<Tracks.Group, Int>>()
+        popup.menu.add(0, 7900, 0, "Subtitles • Off")
+        player?.currentTracks?.groups?.forEach { group ->
+            if (group.type != C.TRACK_TYPE_TEXT) return@forEach
+            for (i in 0 until group.length) {
+                if (!group.isTrackSupported(i)) continue
+                val format = group.getTrackFormat(i)
+                val language = format.language?.takeIf { it.isNotBlank() } ?: "Unknown"
+                val label = format.label?.takeIf { it.isNotBlank() } ?: language
+                choices.add(group to i)
+                popup.menu.add(0, 7900 + choices.size, choices.size, label)
+            }
+        }
+        popup.setOnMenuItemClickListener { item ->
+            if (item.itemId == 7900) {
+                selector.parameters = selector.buildUponParameters()
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                    .build()
+                true
+            } else {
+                val chosen = choices.getOrNull(item.itemId - 7901)
+                    ?: return@setOnMenuItemClickListener false
+                selector.parameters = selector.buildUponParameters()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .setOverrideForType(TrackSelectionOverride(chosen.first.mediaTrackGroup, chosen.second))
+                    .build()
                 true
             }
         }

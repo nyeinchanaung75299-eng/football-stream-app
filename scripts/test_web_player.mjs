@@ -240,15 +240,27 @@ test('compact player toolbar and bottom controls show de-duplicated provider lin
   assert.doesNotMatch(playerScript,/rotateButton\.textContent\s*=/);
   assert.match(css,/#football-player-title\{[^}]*-webkit-line-clamp:2/);
   assert.match(css,/#football-player-server\{display:none!important\}/);
-  assert.match(css,/\.nca-transport\{[^}]*margin-top:auto;/);
-  assert.match(css,/\.nca-transport button\{[^}]*width:40px/);
-  assert.match(css,/#nca-play-pause\{[^}]*width:42px/);
+  assert.match(css,/#football-player-overlay:not\(\.ios-native-mode\) \.nca-playback-footer/);
+  assert.match(html,/id="nca-skip-back"[^>]*Back 5 seconds/);
+  assert.match(html,/id="nca-skip-next"[^>]*Forward 15 seconds/);
+  assert.doesNotMatch(html,/id="nca-previous-line"/);
+  assert.doesNotMatch(html,/id="nca-next-line"/);
   const h=createHarness({ios:false});
   await h.open([source('hls','ColaTV · ColaTV · Main')]);
   const chip=h.elements.get('football-player-line-items').children[0];
   assert.match(chip.innerHTML,/ColaTV · Main/);
   assert.doesNotMatch(chip.innerHTML,/ColaTV · ColaTV/);
   assert.equal(h.elements.get('football-player-title').textContent,'Test match');
+});
+
+test('compact player seek buttons move 5 seconds back and 15 seconds forward',async()=>{
+  const h=createHarness({ios:false});
+  await h.open([source('mp4','Direct')]);
+  h.video.duration=3600;h.video.currentTime=60;
+  h.elements.get('nca-skip-back').click();
+  assert.equal(h.video.currentTime,55);
+  h.elements.get('nca-skip-next').click();
+  assert.equal(h.video.currentTime,70);
 });
 
 test('four original ColaTV lines remain four visible entries while protected relays stay internal',async()=>{
@@ -274,10 +286,12 @@ test('in-player controls show progress/time and Settings video audio speed tabs'
   assert.equal(h.elements.get('nca-player-time').textContent,'2:00 / 1:00:00');
   h.elements.get('nca-player-settings').click();
   const tabs=h.elements.get('football-player-menu-items').children[0];
-  assert.equal(tabs.children.length,3);
+  assert.equal(tabs.children.length,4);
   tabs.children[1].click();
   assert.equal(h.elements.get('football-player-menu-title').textContent,'Player settings');
   tabs.children[2].click();
+  assert.equal(h.elements.get('football-player-menu-items').children.length>=2,true);
+  h.elements.get('football-player-menu-items').children[0].children[3].click();
   assert.equal(h.elements.get('football-player-menu-items').children.length,7);
   h.elements.get('football-player-menu-items').children[4].click();
   assert.equal(h.elements.get('football-player-menu').classList.contains('hidden'),true);

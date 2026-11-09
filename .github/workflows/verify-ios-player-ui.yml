@@ -1,0 +1,41 @@
+name: Verify iOS Native Viewer Player
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'user_app/lib/screens/ios_player_page.dart'
+      - 'user_app/lib/widgets/ios_compact_player_controls.dart'
+      - 'user_app/lib/widgets/compact_stream_line_title.dart'
+      - 'user_app/lib/native_player_io.dart'
+      - 'user_app/pubspec.yaml'
+      - 'user_app/assets/embedded_player.html'
+      - 'user_app/web/index.html'
+      - '.github/workflows/verify-ios-player-ui.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-simulator:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Verify shared embedded web player
+        run: |
+          python3 scripts/generate_embedded_player.py --check
+          node scripts/test_web_player.mjs
+      - name: Compile native iOS viewer player for simulator
+        working-directory: user_app
+        run: |
+          HAD_WIDGET_TEST=false
+          if [ -e test/widget_test.dart ]; then HAD_WIDGET_TEST=true; fi
+          flutter create --platforms=ios .
+          if [ "$HAD_WIDGET_TEST" = false ]; then rm -f test/widget_test.dart; fi
+          flutter pub get
+          flutter build ios --simulator --debug --no-codesign

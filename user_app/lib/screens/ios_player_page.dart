@@ -10,6 +10,8 @@ import '../analytics_service.dart';
 import '../native_playback_progress.dart';
 import '../playback_routes.dart';
 import '../widgets/player_server_rail.dart';
+import '../widgets/compact_stream_line_title.dart';
+import '../widgets/ios_compact_player_controls.dart';
 
 /// Native iOS playback powered by libmpv/FFmpeg through package:media_kit.
 ///
@@ -61,6 +63,11 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
   bool _foreground = true;
   bool _userPaused = false;
   bool _landscape = false;
+  BoxFit _fitMode = BoxFit.contain;
+  double _userPlaybackRate = 1.0;
+  bool _controlsVisible = true;
+  String get _fitLabel => _fitMode == BoxFit.contain ? 'Fit'
+      : _fitMode == BoxFit.fill ? 'Full' : 'Zoom';
   bool get _portraitChannel =>
       widget.sources.isNotEmpty &&
       widget.sources.first['portraitStart'] == true;
@@ -121,7 +128,7 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
           _syncProgressSuspension();
         }
         if (value) {
-          unawaited(_player.setRate(1.0));
+          unawaited(_player.setRate(_userPlaybackRate));
         }
         if (mounted) {
           setState(() => _playing = value);
@@ -173,8 +180,8 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
     _subscriptions.add(
       _player.stream.rate.listen((rate) {
         // A live stream must never drift into visibly slow playback.
-        if (!_disposed && (rate - 1.0).abs() > 0.005) {
-          unawaited(_player.setRate(1.0));
+        if (!_disposed && (rate - _userPlaybackRate).abs() > 0.005) {
+          unawaited(_player.setRate(_userPlaybackRate));
         }
       }),
     );
@@ -601,7 +608,13 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
             final index = visible[position];
             final source = widget.sources[index];
             final selected = index == _selectedIndex;
-            final type = _sourceType(source).toUpperCase();
+            final type = _sourceType(source);
+            final name = compactStreamLineTitle(
+              label: _lineLabel(source, index),
+              streamType: type,
+              resolution: (source['resolution'] ?? '').toString(),
+              index: index,
+            );
             return ListTile(
               onTap: () => Navigator.of(sheetContext).pop(index),
               selected: selected,
@@ -614,13 +627,10 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
                     : Icons.play_circle_outline_rounded,
               ),
               title: Text(
-                _lineLabel(source, index),
+                name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-              subtitle: Text(
-                type == 'DASH' ? 'MPD • native iOS' : '$type • native iOS',
               ),
               trailing: selected
                   ? Icon(Icons.check_rounded, color: colors.primary)
@@ -637,10 +647,7 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
 
   @override
   void dispose() {
-    if (_portraitChannel)
-      unawaited(
-        SystemChrome.setPreferredOrientations(DeviceOrientation.values),
-      );
+    unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
     _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     widget.sourceUpdates?.removeListener(_onSourcesUpdated);
@@ -658,9 +665,6 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final visibleLines = visiblePlaybackIndices(widget.sources);
-
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -681,8 +685,15 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
           ),
         ),
         actions: [
-          if (_portraitChannel)
-            IconButton(
+          TextButton(
+            onPressed: () => setState(() {
+              _fitMode = _fitMode == BoxFit.contain ? BoxFit.fill
+                  : _fitMode == BoxFit.fill ? BoxFit.cover : BoxFit.contain;
+            }),
+            child: Text(_fitLabel, style: const TextStyle(
+              color: Colors.white, fontSize: 12)),
+          ),
+          IconButton(
               tooltip: 'Rotate video',
               icon: const Icon(Icons.screen_rotation),
               onPressed: () {
@@ -699,24 +710,19 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
                 );
               },
             ),
-          if (visibleLines.length > 1)
-            IconButton(
-              tooltip: 'Choose line',
-              onPressed: _pickLine,
-              icon: Icon(Icons.dns_rounded, size: 18, color: colors.primary),
-            ),
           const SizedBox(width: 4),
         ],
       ),
       body: SafeArea(
         top: false,
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Flexible(
               fit: FlexFit.loose,
               child: Align(
                 heightFactor: 1,
-                alignment: Alignment.topCenter,
+                alignment: Alignment.center,
                 child: AspectRatio(
                   aspectRatio: MediaQuery.orientationOf(context) == Orientation.portrait
                       ? 16 / 9
@@ -729,12 +735,30 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
                       controller: _videoController,
                       // Preserve the source aspect ratio. Full-bleed stretch
                       // can make faces and pitch markings look distorted.
-                      fit: BoxFit.contain,
+                      fit: _fitMode,
                       fill: Colors.black,
-                      controls: AdaptiveVideoControls,
+                      controls: NoVideoControls,
                       wakelock: true,
                       pauseUponEnteringBackgroundMode: true,
                       resumeUponEnteringForegroundMode: false,
+                    ),
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: () => setState(() =>
+                        _controlsVisible = !_controlsVisible),
+                    ),
+                  ),
+                  if (_controlsVisible)
+                    Positioned(
+                      left: 0, right: 0, bottom: 0,
+                      child: IOSCompactPlayerControls(
+                        player: _player,
+                        playing: _playing,
+                        rate: _userPlaybackRate,
+                        onRateChanged: (rate) =>
+                            setState(() => _userPlaybackRate = rate),
+                      ),
                     ),
                   if (_opening || _buffering)
                     IgnorePointer(

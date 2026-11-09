@@ -210,6 +210,84 @@
       #football-player-overlay:not(.ios-native-mode) #football-player-rotate{display:inline-flex!important}
       #football-player-overlay:not(.ios-native-mode) #football-player-line-rail{top:44px;bottom:auto;max-height:54px}
     }
+    /* NCA compact player UI v2 */
+    /* Live/Live2/Soco/YYZB/ColaTV/Fawa/Channels share this one player. */
+    #football-player-custom-controls{
+      justify-content:flex-end!important;
+      background:transparent!important;
+    }
+    #football-player-overlay:not(.ios-native-mode) .nca-playback-footer{
+      display:flex;align-items:center;gap:clamp(2px,.6vw,8px);
+      box-sizing:border-box;width:100%;min-height:34px;
+      padding:2px clamp(4px,1vw,12px);
+      background:linear-gradient(transparent,rgba(0,0,0,.24));
+      backdrop-filter:none;
+    }
+    #football-player-overlay:not(.ios-native-mode) .nca-playback-footer button{
+      flex:0 0 35px;min-width:35px;min-height:35px;
+      width:35px;height:35px;padding:0;background:transparent;border:0;
+      color:#fff;font-size:13px;font-weight:650;line-height:1;
+    }
+    #football-player-overlay:not(.ios-native-mode) #nca-play-pause{
+      flex:0 0 35px;width:35px;height:35px;background:transparent;
+      color:#fff;font-size:18px;border:0;border-radius:50%;
+    }
+    #football-player-overlay:not(.ios-native-mode) #nca-play-pause::before{display:none}
+    #football-player-overlay:not(.ios-native-mode) #nca-player-time{
+      flex:0 0 auto;max-width:110px;font-size:10px;font-weight:600;
+      color:#f5f5f5;white-space:nowrap;
+    }
+    #football-player-overlay:not(.ios-native-mode) #nca-player-progress{
+      flex:1 1 auto;min-width:26px;height:3px;margin:0 3px;
+      padding:0;accent-color:#47e59e;
+    }
+    #football-player-overlay:not(.ios-native-mode) #football-player-line-rail{
+      position:relative;top:auto;bottom:auto;flex:0 0 auto;
+      min-height:0;border-top:0;background:#101018;padding:4px 8px;
+    }
+    #football-player-overlay:not(.ios-native-mode) #football-player-line-rail.hidden{
+      display:none!important;
+    }
+    #football-player-overlay:not(.ios-native-mode) .football-line-chip-meta{
+      display:none!important;
+    }
+    #football-player-overlay:not(.ios-native-mode) .football-line-chip-label{
+      max-width:180px;font-size:11px;line-height:1.2;
+    }
+    @media (orientation:portrait) {
+      #football-player-overlay:not(.ios-native-mode) {
+        display:flex;flex-direction:column;justify-content:center;
+      }
+      #football-player-overlay:not(.ios-native-mode) #football-player-topbar{
+        position:relative;top:auto;min-height:44px;flex:0 0 auto;
+        background:#15151e;
+      }
+      #football-player-overlay:not(.ios-native-mode) #football-player-video-wrap{
+        flex:0 0 auto;height:min(56.25vw,calc(100dvh - 150px));
+      }
+    }
+    @media (orientation:landscape) {
+      #football-player-overlay:not(.ios-native-mode) #football-player-topbar{
+        position:relative;top:auto;left:auto;right:auto;
+        flex:0 0 auto;min-height:42px;
+      }
+      #football-player-overlay:not(.ios-native-mode) #football-player-title{
+        display:-webkit-box!important;
+      }
+      #football-player-overlay:not(.ios-native-mode) #football-player-line-rail{
+        position:relative;top:auto;bottom:auto;left:auto;right:auto;
+        flex:0 0 auto;max-height:52px;z-index:5;background:#101018;
+      }
+      #football-player-overlay:not(.ios-native-mode) #football-player-video-wrap{
+        flex:1 1 auto;min-height:0;height:auto;width:100%;
+      }
+    }
+    /* Safari native fullscreen is owned by iOS; keep in-page controls
+       outside the video so they never conflict with Apple transport UI. */
+    #football-player-overlay.ios-native-mode #football-player-fit,
+    #football-player-overlay.ios-native-mode #football-player-rotate{
+      display:inline-flex!important;align-items:center;justify-content:center;
+    }
   </style>
 </head>
 <body>
@@ -231,17 +309,13 @@
       <div id="football-player-video-frame">
         <video id="football-player-video" class="nca-custom-fullscreen" controls controlslist="nodownload nofullscreen noremoteplayback" disablepictureinpicture playsinline webkit-playsinline preload="auto"></video>
         <div id="football-player-custom-controls" class="controls-hidden" aria-label="Playback controls">
-          <div class="nca-transport">
-            <button id="nca-previous-line" type="button" aria-label="Previous original line">|◀</button>
-            <button id="nca-skip-back" type="button" aria-label="Back 10 seconds">↶10</button>
-            <button id="nca-play-pause" type="button" aria-label="Play or pause">Ⅱ</button>
-            <button id="nca-skip-next" type="button" aria-label="Forward 10 seconds">10↷</button>
-            <button id="nca-next-line" type="button" aria-label="Next original line">▶|</button>
-          </div>
           <div class="nca-playback-footer">
+            <button id="nca-skip-back" type="button" aria-label="Back 5 seconds">↶5</button>
+            <button id="nca-play-pause" type="button" aria-label="Play or pause">Ⅱ</button>
+            <button id="nca-skip-next" type="button" aria-label="Forward 15 seconds">15↷</button>
             <span id="nca-player-time">LIVE</span>
             <input id="nca-player-progress" type="range" min="0" max="1000" value="0" aria-label="Seek video" />
-            <button id="nca-player-settings" type="button" aria-label="Quality audio and speed">⚙</button>
+            <button id="nca-player-settings" type="button" aria-label="Resolution, audio and speed">⚙</button>
           </div>
         </div>
         <button id="football-player-ios-fullscreen" type="button" aria-label="Enter fullscreen" title="Fullscreen">
@@ -843,7 +917,7 @@
     function renderLineRail(){
       lineItems.innerHTML='';
       const visible=visibleLineEntries();
-      const singleChannel=visible.length===1&&visible[0].source?.portraitStart===true;
+      const singleChannel=visible.length<=1;
       lineRail.classList.toggle('hidden',visible.length===0||singleChannel);
       serverButton.style.display=singleChannel?'none':'';
       visible.forEach(({source,index})=>{
@@ -852,6 +926,10 @@
         const label=safeLineLabel(source,index);
         const resolution=safeLineResolution(source);
         const type=sourceType(source).toUpperCase();
+        const displayLabel=label+
+          (resolution && !label.toLowerCase().includes(resolution.toLowerCase())?' • '+resolution:'')+
+          (['HLS','DASH','MP4','FLV'].includes(type) &&
+           !new RegExp('\\b'+type+'\\b','i').test(label)?' ('+type+')':'');
         item.type='button';
         item.className='football-line-chip'+(selected?' current':'');
         item.setAttribute('role','listitem');
@@ -860,10 +938,7 @@
         item.innerHTML=
           '<span class="football-line-chip-mark" aria-hidden="true">✓</span>'+
           '<span class="football-line-chip-copy">'+
-          '<span class="football-line-chip-label">'+escapeHtml(label)+'</span>'+
-          '<span class="football-line-chip-meta">'+escapeHtml(
-            [resolution,type].filter(Boolean).join(' • ')
-          )+'</span></span>';
+          '<span class="football-line-chip-label">'+escapeHtml(displayLabel)+'</span></span>';
         item.addEventListener('click',()=>{
           revealControls();
           capturePlayerEvent('playback line selected',{
@@ -974,21 +1049,13 @@
       playPauseButton.textContent=video.paused?'▶':'Ⅱ';
       playPauseButton.setAttribute('aria-label',video.paused?'Play':'Pause');
     }
-    function stepVisibleLine(delta){
-      const options=visibleLineEntries().map(x=>x.index);
-      const at=options.indexOf(displayLineIndex()),next=options[at+delta];
-      if(next===undefined)return;
-      revealControls();loadSource(next,true);
-    }
-    document.getElementById('nca-previous-line').addEventListener('click',()=>stepVisibleLine(-1));
-    document.getElementById('nca-next-line').addEventListener('click',()=>stepVisibleLine(1));
     document.getElementById('nca-skip-back').addEventListener('click',()=>{
-      try{video.currentTime=Math.max(0,(Number(video.currentTime)||0)-10)}catch(_){}
+      try{video.currentTime=Math.max(0,(Number(video.currentTime)||0)-5)}catch(_){}
       updatePlaybackControls();revealControls();
     });
     document.getElementById('nca-skip-next').addEventListener('click',()=>{
       const at=Number(video.currentTime)||0,d=Number(video.duration);
-      try{video.currentTime=Number.isFinite(d)&&d>0?Math.min(d,at+10):at+10}catch(_){}
+      try{video.currentTime=Number.isFinite(d)&&d>0?Math.min(d,at+15):at+15}catch(_){}
       updatePlaybackControls();revealControls();
     });
     playPauseButton.addEventListener('click',()=>{
@@ -1007,7 +1074,7 @@
       revealControls();
       menuTitle.textContent='Player settings';menuItems.innerHTML='';
       const tabs=document.createElement('div');tabs.className='nca-settings-tabs';
-      for(const [key,label] of [['video','VIDEO'],['audio','AUDIO'],['speed','SPEED']]){
+      for(const [key,label] of [['video','VIDEO'],['audio','AUDIO'],['subtitles','SUBTITLES'],['speed','SPEED']]){
         const tab=document.createElement('button');
         tab.type='button';tab.className='football-control'+(key===section?' selected':'');
         tab.textContent=label;tab.addEventListener('click',()=>openSettingsMenu(key));tabs.appendChild(tab);
@@ -1058,6 +1125,29 @@
             if(typeof shakaPlayer?.selectAudioLanguage==='function')shakaPlayer.selectAudioLanguage(lang);
             else if(shakaPlayer){const t=currentTracks.find(v=>v.language===lang);if(t)shakaPlayer.selectVariantTrack(t,true)}
             if(video.dataset)video.dataset.audioLanguage=lang;
+          });
+        }
+      }else if(section==='subtitles'){
+        const nativeTracks=video.textTracks;
+        const shakaTracks=typeof shakaPlayer?.getTextTracks==='function'
+          ? shakaPlayer.getTextTracks() : [];
+        choice('Off','Disable subtitles',true,()=>{
+          if(nativeTracks)for(let i=0;i<nativeTracks.length;i++)nativeTracks[i].mode='disabled';
+          if(typeof shakaPlayer?.setTextTrackVisibility==='function')
+            shakaPlayer.setTextTrackVisibility(false);
+        });
+        if(nativeTracks)for(let i=0;i<nativeTracks.length;i++){
+          const id=i,track=nativeTracks[i],label=track.label||track.language||'Subtitles '+(i+1);
+          choice(label,'Caption track',track.mode==='showing',()=>{
+            for(let j=0;j<nativeTracks.length;j++)nativeTracks[j].mode=j===id?'showing':'disabled';
+          });
+        }
+        for(const track of shakaTracks){
+          const label=track.label||track.language||'Subtitle track';
+          choice(label,'Subtitle track',false,()=>{
+            if(typeof shakaPlayer?.selectTextTrack==='function')shakaPlayer.selectTextTrack(track);
+            if(typeof shakaPlayer?.setTextTrackVisibility==='function')
+              shakaPlayer.setTextTrackVisibility(true);
           });
         }
       }else{

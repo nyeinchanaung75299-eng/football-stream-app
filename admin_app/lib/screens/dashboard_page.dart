@@ -58,7 +58,7 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(
+      appBar: _tab == 0 ? AppBar(
         title: const Text('NCA Admin'),
         actions: [
           IconButton(
@@ -77,7 +77,7 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
           const SizedBox(width: 6),
         ],
-      ),
+      ) : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (index) {
@@ -126,13 +126,19 @@ class _DashboardPageState extends State<DashboardPage> {
       // Do not use an eager IndexedStack here: My Channels and TV Schedule
       // both read Admin data and must not make a request until the user opens
       // the matching bottom tab.
-      body: switch (_tab) {
+      // Other tabs own their own headings. Avoid repeating global actions and
+      // keep the guide content below the system status bar.
+      body: SafeArea(
+        top: _tab != 0,
+        bottom: false,
+        child: switch (_tab) {
         0 => _controls(context, colors),
         1 => const StreamSourcePickerPage(embedded: true),
         2 => _tools(context, colors),
         3 => const TvSchedulesPage(embedded: true),
         _ => const MyChannelsGuidePage(embedded: true),
-      },
+        },
+      ),
     );
   }
 

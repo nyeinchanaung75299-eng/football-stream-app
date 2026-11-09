@@ -437,66 +437,104 @@ class _ChannelsPageState extends State<ChannelsPage> {
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 5),
                   child: Column(
                     children: [
-                      DropdownButtonFormField<String>(
-                        key: ValueKey('viewer-group-$activeGroup'),
-                        value: activeGroup,
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Channel group',
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                        items: [
-                          DropdownMenuItem(
-                            value: 'All',
-                            child: Text(
-                              'All Channels (${snapshot.data!.length})',
+                      // Compact channel and match filters share one row,
+                      // rather than pushing the channel grid farther down.
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              key: ValueKey('viewer-group-$activeGroup'),
+                              value: activeGroup,
+                              isExpanded: true,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context).colorScheme.onSurface,
+                              ),
+                              decoration: const InputDecoration(
+                                labelText: 'Channel group',
+                                labelStyle: TextStyle(fontSize: 11),
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 10,
+                                ),
+                              ),
+                              items: [
+                                const DropdownMenuItem(
+                                  value: 'All',
+                                  child: Text('All Channels',
+                                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 12)),
+                                ),
+                                for (final group in availableGroups)
+                                  DropdownMenuItem(
+                                    value: group,
+                                    child: Text(
+                                      '$group (${groupCounts[group]})',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                              ],
+                              onChanged: (value) {
+                                if (value != null) {
+                                  setState(() => selectedGroup = value);
+                                }
+                              },
                             ),
                           ),
-                          for (final group in availableGroups)
-                            DropdownMenuItem(
-                              value: group,
-                              child: Text('$group (${groupCounts[group]})'),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              key: ValueKey('viewer-match-${selectedMatchId ?? 'all'}'),
+                              value: matchChoices.any((match) =>
+                                  match['id'].toString() == selectedMatchId)
+                                  ? selectedMatchId
+                                  : 'all',
+                              isExpanded: true,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context).colorScheme.onSurface,
+                              ),
+                              decoration: const InputDecoration(
+                                labelText: 'Match',
+                                labelStyle: TextStyle(fontSize: 11),
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 10,
+                                ),
+                              ),
+                              items: [
+                                const DropdownMenuItem(
+                                  value: 'all',
+                                  child: Text('All matches',
+                                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 12)),
+                                ),
+                                for (final match in matchChoices)
+                                  DropdownMenuItem(
+                                    value: match['id'].toString(),
+                                    child: Text(
+                                      '${match['home_team']} vs ${match['away_team']}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                              ],
+                              onChanged: matchChoices.isEmpty ? null : (value) =>
+                                  setState(() {
+                                selectedMatchId = value == 'all' ? null : value;
+                                selectedGroup = 'All';
+                                libraryFilter = 'all';
+                                search.clear();
+                              }),
                             ),
+                          ),
                         ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => selectedGroup = value);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                      if (matchChoices.isNotEmpty) ...[
-                        DropdownButtonFormField<String>(
-                          key: ValueKey('viewer-match-${selectedMatchId ?? 'all'}'),
-                          value: selectedMatchId ?? 'all', isExpanded: true,
-                          decoration: const InputDecoration(labelText: 'Match', isDense: true,
-                            prefixIcon: Icon(Icons.sports_soccer, size: 19), border: OutlineInputBorder()),
-                          items: [
-                            const DropdownMenuItem(value: 'all', child: Text('All matches', style: TextStyle(fontSize: 12))),
-                            for (final match in matchChoices) DropdownMenuItem(
-                              value: match['id'].toString(), child: Text('${match['home_team']} vs ${match['away_team']}',
-                                maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12))),
-                          ],
-                          onChanged: (value) => setState(() {
-                            selectedMatchId = value == 'all' ? null : value;
-                            selectedGroup = 'All'; libraryFilter = 'all'; search.clear();
-                          }),
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          guideLoaded
-                              ? '${snapshot.data!.length} channels • ${epgLinkedIds.length} with EPG • ${nextFootball.length} with live/next football'
-                              : '${snapshot.data!.length} channels • TV guide loading or unavailable',
-                          style: const TextStyle(
-                            color: Color(0xFF54E6C1),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
                       ),
                       const SizedBox(height: 8),
                       if (guideLoaded && (search.text.trim().isNotEmpty || selectedMatchId!=null))

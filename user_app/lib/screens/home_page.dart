@@ -20,6 +20,7 @@ import 'network_diagnostics_page.dart';
 import '../widgets/theme_mode_button.dart';
 import '../widgets/premium_bottom_nav.dart';
 import '../widgets/premium_match_card.dart';
+import '../widgets/compact_stream_line_title.dart';
 import '../app_update_service.dart';
 import '../live_feed_controller.dart';
 import '../player_loading.dart';
@@ -1253,178 +1254,41 @@ class _HomePageState extends State<HomePage> {
                       itemBuilder: (context, index) {
                         final sourceIndex = visibleIndices[index];
                         final source = nativeSources[sourceIndex];
-                        final rawLabel = (source['label'] ?? '')
-                            .toString()
-                            .trim();
-                        final label = rawLabel.isEmpty
-                            ? 'Line ${index + 1}'
-                            : rawLabel;
-                        final type = (source['streamType'] ?? 'auto')
-                            .toString()
-                            .toLowerCase();
-                        final resolution = (source['resolution'] ?? '')
-                            .toString()
-                            .trim();
-                        final health = (source['healthStatus'] ?? 'unknown')
-                            .toString()
-                            .toLowerCase();
                         final blocked = (source['blockedReason'] ?? '')
-                            .toString()
-                            .trim()
-                            .isNotEmpty;
-                        final hasKey =
-                            (source['keyId']?.toString().trim().isNotEmpty ??
-                                false) &&
-                            (source['keyData']?.toString().trim().isNotEmpty ??
-                                false);
-
-                        String detail;
-                        IconData icon;
-                        if (blocked) {
-                          detail = 'KEYED DASH • Viewer blocked • add HLS/non-DRM backup';
-                          icon = Icons.lock_rounded;
-                        } else if (type == 'hls' || type == 'm3u8') {
-                          detail = 'Recommended • iPhone & Android';
-                          icon = Icons.workspace_premium_rounded;
-                        } else if (type == 'dash' || type == 'mpd') {
-                          detail = hasKey
-                              ? 'DASH • Adaptive • ClearKey'
-                              : 'DASH • Adaptive quality';
-                          icon = Icons.high_quality_rounded;
-                        } else if (type == 'mp4') {
-                          detail = 'Direct video • High compatibility';
-                          icon = Icons.play_circle_fill_rounded;
-                        } else if (type == 'flv') {
-                          detail = 'Legacy live • Android preferred';
-                          icon = Icons.live_tv_rounded;
-                        } else {
-                          detail = 'Auto • Direct stream';
-                          icon = Icons.auto_awesome_rounded;
-                        }
-
-                        if (resolution.isNotEmpty &&
-                            !label.toLowerCase().contains(
-                              resolution.toLowerCase(),
-                            )) {
-                          detail = '$resolution • $detail';
-                        }
-
-                        final statusText = blocked
-                            ? 'BLOCKED'
-                            : switch (health) {
-                                'healthy' => 'READY',
-                                'slow' => 'SLOW',
-                                'failed' => 'CHECK',
-                                _ => 'AUTO',
-                              };
-                        final statusColor = blocked
-                            ? colors.error
-                            : switch (health) {
-                                'healthy' => colors.primary,
-                                'slow' => Colors.orange,
-                                'failed' => colors.error,
-                                _ => colors.onSurfaceVariant,
-                              };
-
+                            .toString().trim().isNotEmpty;
+                        final lineName = compactStreamLineTitle(
+                          label: (source['label'] ?? '').toString(),
+                          resolution: (source['resolution'] ?? '').toString(),
+                          streamType: (source['streamType'] ?? 'auto').toString(),
+                          index: sourceIndex,
+                        );
                         return Material(
                           color: colors.surface,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
+                            borderRadius: BorderRadius.circular(12),
                             side: BorderSide(
-                              color: colors.outlineVariant.withValues(
-                                alpha: .55,
-                              ),
+                              color: colors.outlineVariant.withValues(alpha: .55),
                             ),
                           ),
                           clipBehavior: Clip.antiAlias,
-                          child: InkWell(
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 1,
+                            ),
                             onTap: blocked
                                 ? null
                                 : () => Navigator.pop(sheetContext, sourceIndex),
-                            child: Padding(
-                              padding: const EdgeInsets.all(13),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 46,
-                                    height: 46,
-                                    decoration: BoxDecoration(
-                                      color: colors.primaryContainer.withValues(
-                                        alpha: .72,
-                                      ),
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Icon(
-                                      icon,
-                                      color: colors.onPrimaryContainer,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                label,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  fontSize: 15,
-                                                  fontWeight: FontWeight.w900,
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                    vertical: 4,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: statusColor.withValues(
-                                                  alpha: .10,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(999),
-                                              ),
-                                              child: Text(
-                                                statusText,
-                                                style: TextStyle(
-                                                  color: statusColor,
-                                                  fontSize: 9.5,
-                                                  fontWeight: FontWeight.w900,
-                                                  letterSpacing: .5,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          detail,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: colors.onSurfaceVariant,
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Icon(
-                                    Icons.play_arrow_rounded,
-                                    color: colors.primary,
-                                  ),
-                                ],
+                            leading: Icon(blocked
+                                ? Icons.lock_outline_rounded
+                                : Icons.live_tv_rounded, size: 20),
+                            title: Text(
+                              lineName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),

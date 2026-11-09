@@ -4,15 +4,13 @@ import 'package:intl/intl.dart';
 import '../services/tv_schedule_service.dart';
 import '../services/channel_group_order_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'channels_page.dart';
 import '../widgets/football_match_guide_card.dart';
 import 'epg_discrepancies_page.dart';
 
 /// Compact, schedule-first view of the Admin's TV channel guide.
 ///
-/// Catalog editing stays available through the small manage button, while the
-/// default view intentionally shows only live and next match times. Replay
-/// programmes are filtered in [TvScheduleGuide].
+/// This tab is read-only. All catalog edits and deletes belong under
+/// Controls -> Channel Management. Replay programmes are filtered.
 class MyChannelsGuidePage extends StatefulWidget {
   const MyChannelsGuidePage({super.key, this.embedded = false});
 
@@ -49,13 +47,6 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
   void _refresh() {
     setState(() => _guide = _load(refresh: true));
     _loadGroupPositions();
-  }
-
-  Future<void> _openManager() async {
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(builder: (_) => const ChannelsPage()),
-    );
-    if (mounted) _refresh();
   }
 
   @override
@@ -120,7 +111,6 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
               if (widget.embedded)
                 _GuideHeader(
                   onRefresh: _refresh,
-                  onManage: _openManager,
                 ),
               if (widget.embedded) const SizedBox(height: 10),
               DropdownButtonFormField<String>(
@@ -270,7 +260,24 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
       },
     );
 
-    if (widget.embedded) return ColoredBox(color: FootballGuideColors.background, child: content);
+    if (widget.embedded) {
+      // Both guide tabs use a dark guide canvas even when the Admin app is
+      // in light mode. Scope text, icons and dropdown colors to that canvas
+      // so black-on-black labels never disappear.
+      return Theme(
+        data: ThemeData.dark(useMaterial3: true).copyWith(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: FootballGuideColors.mint,
+            brightness: Brightness.dark,
+            surface: FootballGuideColors.background,
+          ),
+        ),
+        child: ColoredBox(
+          color: FootballGuideColors.background,
+          child: content,
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: FootballGuideColors.background,
       appBar: AppBar(
@@ -280,11 +287,6 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
             tooltip: 'Refresh channel guide',
             onPressed: _refresh,
             icon: const Icon(Icons.refresh_rounded),
-          ),
-          IconButton(
-            tooltip: 'Manage channels',
-            onPressed: _openManager,
-            icon: const Icon(Icons.edit_note_rounded),
           ),
         ],
       ),
@@ -320,10 +322,9 @@ class _GuideStat extends StatelessWidget {
 }
 
 class _GuideHeader extends StatelessWidget {
-  const _GuideHeader({required this.onRefresh, required this.onManage});
+  const _GuideHeader({required this.onRefresh});
 
   final VoidCallback onRefresh;
-  final VoidCallback onManage;
 
   @override
   Widget build(BuildContext context) {
@@ -352,11 +353,6 @@ class _GuideHeader extends StatelessWidget {
           tooltip: 'Refresh channel guide',
           onPressed: onRefresh,
           icon: const Icon(Icons.refresh_rounded),
-        ),
-        IconButton(
-          tooltip: 'Manage channels',
-          onPressed: onManage,
-          icon: const Icon(Icons.edit_note_rounded),
         ),
       ],
     );

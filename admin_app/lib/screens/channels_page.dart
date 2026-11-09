@@ -1,10 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/channel_source_service.dart';
-import '../services/function_gateway.dart';
 import '../services/channel_group_order_service.dart';
 import 'channel_group_order_page.dart';
 import '../widgets/channel_search_field.dart';
@@ -157,16 +155,42 @@ class _ChannelsPageState extends State<ChannelsPage> {
     _loadGroupPositions();
   }
 
-  Future<void> _openLineHealth(Map<String, dynamic> channel) async {
-    await showModalBottomSheet<void>(
+  Future<void> deleteChannel(Map<String, dynamic> channel) async {
+    if (addingChannelId != null) return;
+    final id = channel['id']?.toString();
+    if (id == null || id.isEmpty) return;
+    final name = channel['name']?.toString() ?? 'this channel';
+    final confirmed = await showDialog<bool>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => _ChannelLineHealthSheet(
-        channelId: channel['id'].toString(),
-        channelName: channel['name']?.toString() ?? 'Channel',
+      builder: (dialog) => AlertDialog(
+        title: const Text('Delete TV channel?'),
+        content: Text('Delete "$name" and its stream lines? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: const Text('CANCEL'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: const Text('DELETE'),
+          ),
+        ],
       ),
     );
+    if (confirmed != true || !mounted) return;
+    setState(() => addingChannelId = id);
+    try {
+      await Supabase.instance.client.from('channels').delete().eq('id', id);
+      if (mounted) refresh();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not delete channel. Please retry.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => addingChannelId = null);
+    }
   }
 
   Future<void> edit([Map<String, dynamic>? channel]) async {
@@ -366,8 +390,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
                               onSelected: (action) {
                                 if (action == 'match') {
                                   addToMatch(row);
-                                } else if (action == 'health') {
-                                  _openLineHealth(row);
+                                } else if (action == 'delete') {
+                                  deleteChannel(row);
                                 } else {
                                   edit(row);
                                 }
@@ -382,8 +406,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
                                   child: Text('Edit channel'),
                                 ),
                                 PopupMenuItem(
-                                  value: 'health',
-                                  child: Text('Check line health'),
+                                  value: 'delete',
+                                  child: Text('Delete Channel'),
                                 ),
                               ],
                             ),
@@ -649,40 +673,6 @@ class _ChannelEditorState extends State<_ChannelEditor> {
     }
   }
 
-  Future<void> deleteChannel() async {
-    final id = widget.channel?['id']?.toString();
-    if (id == null || saving) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialog) => AlertDialog(
-        title: const Text('Delete TV channel?'),
-        content: const Text(
-          'This removes the channel and its lines. This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialog).pop(false),
-            child: const Text('CANCEL'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialog).pop(true),
-            child: const Text('DELETE'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    setState(() => saving = true);
-    try {
-      await Supabase.instance.client.from('channels').delete().eq('id', id);
-      if (mounted) Navigator.of(context).pop(true);
-    } catch (_) {
-      if (mounted) notice('Could not delete channel. Please retry.');
-    } finally {
-      if (mounted) setState(() => saving = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -777,230 +767,8 @@ class _ChannelEditorState extends State<_ChannelEditor> {
                 onPressed: saving || loadFailed ? null : save,
                 child: Text(saving ? 'SAVING…' : 'SAVE CHANNEL'),
               ),
-              if (widget.channel != null) ...[
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: saving ? null : deleteChannel,
-                  icon: const Icon(Icons.delete_outline_rounded),
-                  label: const Text('DELETE CHANNEL'),
-                ),
-              ],
+
             ],
           ),
   );
-}
-
-/// Admin-only operational view. It queries and displays only probe metadata,
-/// never the channel URL, referer, origin, or any key material.
-class _ChannelLineHealthSheet extends StatefulWidget {
-  const _ChannelLineHealthSheet({
-    required this.channelId,
-    required this.channelName,
-  });
-
-  final String channelId;
-  final String channelName;
-
-  @override
-  State<_ChannelLineHealthSheet> createState() => _ChannelLineHealthSheetState();
-}
-
-class _ChannelLineHealthSheetState extends State<_ChannelLineHealthSheet> {
-  late Future<List<Map<String, dynamic>>> _lines = _load();
-  String? _checkingLineId;
-  bool _checkingAll = false;
-
-  Future<List<Map<String, dynamic>>> _load() async {
-    final rows = await Supabase.instance.client
-        .from('channel_lines')
-        .select(
-          'id,label,stream_type,is_active,configuration_status,health_status,health_latency_ms,last_checked_at',
-        )
-        .eq('channel_id', widget.channelId)
-        .order('sort_order')
-        .timeout(const Duration(seconds: 10));
-    return List<Map<String, dynamic>>.from(rows);
-  }
-
-  void _refresh() {
-    if (mounted) setState(() => _lines = _load());
-  }
-
-  void _message(String value) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value)));
-    }
-  }
-
-  Future<void> _checkLine(String id) async {
-    if (_checkingAll || _checkingLineId != null) return;
-    setState(() => _checkingLineId = id);
-    try {
-      await FunctionGateway.invoke('stream-health', body: {'channel_line_id': id})
-          .timeout(const Duration(seconds: 15));
-      _refresh();
-    } catch (_) {
-      _message('Could not check this line. Please retry.');
-    } finally {
-      if (mounted) setState(() => _checkingLineId = null);
-    }
-  }
-
-  Future<void> _checkAll() async {
-    if (_checkingAll || _checkingLineId != null) return;
-    setState(() => _checkingAll = true);
-    try {
-      await FunctionGateway.invoke('stream-health', body: {'channel_id': widget.channelId})
-          .timeout(const Duration(seconds: 35));
-      _refresh();
-    } catch (_) {
-      _message('Could not check channel lines. Please retry.');
-    } finally {
-      if (mounted) setState(() => _checkingAll = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => FractionallySizedBox(
-        heightFactor: .78,
-        child: Scaffold(
-          appBar: AppBar(
-            title: Text('${widget.channelName} health'),
-            actions: [
-              IconButton(
-                tooltip: 'Refresh line health',
-                onPressed: _checkingAll || _checkingLineId != null ? null : _refresh,
-                icon: const Icon(Icons.refresh_rounded),
-              ),
-            ],
-          ),
-          body: FutureBuilder<List<Map<String, dynamic>>>(
-            future: _lines,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Center(
-                  child: FilledButton.icon(
-                    onPressed: _refresh,
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: const Text('RETRY'),
-                  ),
-                );
-              }
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final lines = snapshot.data!;
-              if (lines.isEmpty) {
-                return const Center(child: Text('No channel lines yet.'));
-              }
-              return Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: _checkingAll ? null : _checkAll,
-                        icon: _checkingAll
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.health_and_safety_outlined),
-                        label: Text(_checkingAll ? 'CHECKING…' : 'CHECK ALL LINES'),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
-                      itemCount: lines.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final line = lines[index];
-                        final id = line['id'].toString();
-                        final checking = _checkingLineId == id;
-                        return Card(
-                          margin: EdgeInsets.zero,
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.fromLTRB(14, 7, 8, 7),
-                            leading: _HealthIcon(
-                              status: line['health_status']?.toString() ?? 'unknown',
-                            ),
-                            title: Text(
-                              line['label']?.toString().trim().isNotEmpty == true
-                                  ? line['label'].toString()
-                                  : 'Line ${index + 1}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontWeight: FontWeight.w800),
-                            ),
-                            subtitle: Text(
-                              _healthDetails(line),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            trailing: OutlinedButton(
-                              onPressed: checking || _checkingAll || line['is_active'] != true
-                                  ? null
-                                  : () => _checkLine(id),
-                              child: checking
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
-                                    )
-                                  : const Text('CHECK'),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      );
-}
-
-class _HealthIcon extends StatelessWidget {
-  const _HealthIcon({required this.status});
-
-  final String status;
-
-  @override
-  Widget build(BuildContext context) {
-    final normalized = status.toLowerCase();
-    final color = switch (normalized) {
-      'healthy' => Colors.green,
-      'slow' => Colors.orange,
-      'failed' => Theme.of(context).colorScheme.error,
-      _ => Theme.of(context).colorScheme.onSurfaceVariant,
-    };
-    final icon = switch (normalized) {
-      'healthy' => Icons.check_circle_rounded,
-      'slow' => Icons.timelapse_rounded,
-      'failed' => Icons.error_outline_rounded,
-      _ => Icons.help_outline_rounded,
-    };
-    return Icon(icon, color: color);
-  }
-}
-
-String _healthDetails(Map<String, dynamic> line) {
-  final status = (line['health_status']?.toString() ?? 'unknown').toUpperCase();
-  final latency = (line['health_latency_ms'] as num?)?.toInt();
-  final checked = DateTime.tryParse(line['last_checked_at']?.toString() ?? '')
-      ?.toLocal();
-  final parts = <String>[
-    status,
-    if (line['configuration_status'] == 'requires_drm') 'NEEDS DRM CONFIGURATION',
-    if (latency != null) '${latency}ms',
-    if (checked != null) DateFormat('dd MMM, h:mm a', 'en_US').format(checked),
-    if (line['is_active'] != true) 'INACTIVE',
-  ];
-  return parts.join(' • ');
 }
