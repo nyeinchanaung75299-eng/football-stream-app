@@ -27,6 +27,18 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   int _tab = 0;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        // No background polling: once when Admin opens, plus the manual button.
+        // An update still requires explicit confirmation to install.
+        AdminUpdateService.check(context, automatic: true);
+      }
+    });
+  }
+
   void open(BuildContext context, Widget page, String section) {
     AnalyticsService.capture(
       'admin section opened',
