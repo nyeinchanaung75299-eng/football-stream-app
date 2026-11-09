@@ -69,8 +69,9 @@ export async function probeChannelMedia(line,{fetcher=fetch,timeoutMs=12000,incl
   // temporary upstream/CDN 5xx can happen while the same feed plays on a
   // device/network. Record an inconclusive media check, not a dead video.
   const transientHttp=[401,403,405,408,425,429,500,502,503,504].includes(error.http);
-  result.health_status=controller.signal.aborted || transientHttp ||
-    (!error.http && result.manifest_status!=='invalid')
+  const unsafeAddress=/^(Invalid media address|Invalid media redirect|Too many media redirects)$/.test(String(error?.message||''));
+  result.health_status=!unsafeAddress && (controller.signal.aborted || transientHttp ||
+    (!error.http && result.manifest_status!=='invalid'))
     ? 'unknown' : 'failed';
   if(result.manifest_status==='not_tested')result.manifest_status='unavailable';
   result.detail=controller.signal.aborted?'Media check timed out':error.http?'Upstream HTTP '+error.http:result.manifest_status==='invalid'?'Response is not a media manifest':'Media or segment unavailable';
