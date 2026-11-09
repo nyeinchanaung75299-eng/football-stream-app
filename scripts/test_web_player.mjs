@@ -213,6 +213,25 @@ const tests = [];
 function test(name, run) { tests.push({ name, run }); }
 const failures = h => h.events.filter(event => event.name === 'playback line failed');
 
+test('viewer home keeps web player hidden until WATCH is explicitly requested', async () => {
+  // Regression: portrait @media once set display:flex even when .open was absent.
+  // It obscured the entire Flutter home on a cold Chrome/Safari page load.
+  const css=html.match(/<style id="nca-reference-player-style">([\s\S]*?)<\/style>/)?.[1]||'';
+  assert.match(html, /id="football-player-overlay" aria-hidden="true"/);
+  assert.match(html, /#football-player-overlay\{display:none;/);
+  assert.match(css, /#football-player-overlay\.open:not\(\.ios-native-mode\)\s*\{\s*display:flex/);
+  assert.match(css, /#football-player-overlay\[aria-hidden="true"\]\s*\{\s*display:none!important/);
+  assert.doesNotMatch(css, /#football-player-overlay:not\(\.ios-native-mode\)\s*\{\s*display:flex/);
+  const h = createHarness({ ios: false });
+  assert.equal(h.overlay.classList.contains('open'), false);
+  await h.open([source('hls')]);
+  assert.equal(h.overlay.classList.contains('open'), true);
+  assert.equal(h.overlay.attributes['aria-hidden'], 'false');
+  await h.close();
+  assert.equal(h.overlay.classList.contains('open'), false);
+  assert.equal(h.overlay.attributes['aria-hidden'], 'true');
+});
+
 test('top aligned portrait player uses Fit by default and cycles Fit Full Zoom only', async () => {
   const h = createHarness({ ios:false });
   const wrap=h.elements.get('football-player-video-wrap');

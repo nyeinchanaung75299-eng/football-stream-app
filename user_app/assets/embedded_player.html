@@ -255,7 +255,7 @@
       max-width:180px;font-size:11px;line-height:1.2;
     }
     @media (orientation:portrait) {
-      #football-player-overlay:not(.ios-native-mode) {
+      #football-player-overlay.open:not(.ios-native-mode) {
         display:flex;flex-direction:column;justify-content:center;
       }
       #football-player-overlay:not(.ios-native-mode) #football-player-topbar{
@@ -281,6 +281,14 @@
       #football-player-overlay:not(.ios-native-mode) #football-player-video-wrap{
         flex:1 1 auto;min-height:0;height:auto;width:100%;
       }
+    }
+    /* Critical: the player is not a page. On a cold viewer-web load it
+       must stay hidden until an explicit WATCH/line click calls
+       openFootballPlayer() and sets aria-hidden="false". Media queries
+       must never override this invariant. */
+    #football-player-overlay[aria-hidden="true"]{
+      display:none!important;
+      pointer-events:none!important;
     }
     /* Safari native fullscreen is owned by iOS; keep in-page controls
        outside the video so they never conflict with Apple transport UI. */
