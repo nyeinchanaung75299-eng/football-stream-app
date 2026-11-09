@@ -641,18 +641,23 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
   async function health(env) {
     const [channels, lines] = await Promise.all([
       database("channels?select=id&is_active=eq.true&limit=250", env),
-      database("channel_lines?select=health_status&is_active=eq.true&limit=500", env),
+      database("channel_lines?select=health_status,telegram_probe_status,playback_status&is_active=eq.true&limit=500", env),
     ]);
     const counts = { healthy: 0, slow: 0, failed: 0, unknown: 0 };
+    const botProbes = { healthy: 0, slow: 0, failed: 0, unknown: 0 };
+    let videoVerified = 0;
     for (const row of lines) {
       const status = String(row.health_status || "unknown").toLowerCase();
+      const reachability = String(row.telegram_probe_status || "unknown").toLowerCase();
       counts[status in counts ? status : "unknown"]++;
+      botProbes[reachability in botProbes ? reachability : "unknown"]++;
+      if (row.playback_status === "verified") videoVerified++;
     }
     return "📊 NCA CHANNEL HEALTH\nActive channels: " + channels.length +
       "\nActive lines: " + lines.length + "\n🟢 Healthy lines: " + counts.healthy +
-      "\n🟡 Slow lines: " + counts.slow + "\n🔴 Failed lines: " + counts.failed +
-      "\n⚪ Unknown lines: " + counts.unknown +
-      "\n\nHealth indicates reachability, not guaranteed playback.";
+      "\n🟡 Slow lines: " + counts.slow + "\n🔴 Media probe FAILED: " + counts.failed +
+      "\n⚪ Media probe UNKNOWN: " + counts.unknown +
+      "\n\nBot HTTP checks do not prove or disprove video playback.";
   }
   async function builds() {
     const response = await fetcher("https://api.github.com/repos/nyeinchanaung75299-eng/football-stream-app/actions/runs?branch=main&per_page=20", {
