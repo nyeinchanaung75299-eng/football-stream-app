@@ -261,8 +261,14 @@ test('settings show accessible Back and Close; closing never stops video', async
 
 test('all Safari web players have fullscreen in header with Fit and Rotate', async () => {
   const css=html.match(/<style id="nca-reference-player-style">([\s\S]*?)<\/style>/)?.[1]||'';
-  const header=html.match(/<div id="football-player-topbar">([\s\S]*?)<\/div>/)?.[1]||'';
-  const frame=html.match(/<div id="football-player-video-frame">([\s\S]*?)<\/div>/)?.[1]||'';
+  const header=html.slice(
+    html.indexOf('<div id="football-player-topbar">'),
+    html.indexOf('<div id="football-player-menu"')
+  );
+  const frame=html.slice(
+    html.indexOf('<div id="football-player-video-frame">'),
+    html.indexOf('<div id="football-player-custom-controls"')
+  );
   assert.ok(header.indexOf('id="football-player-fit"')>=0);
   assert.ok(header.indexOf('id="football-player-rotate"')>=0);
   assert.ok(header.indexOf('id="football-player-ios-fullscreen"')>header.indexOf('id="football-player-rotate"'));
