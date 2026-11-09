@@ -54,19 +54,23 @@ class _ChannelsPageState extends State<ChannelsPage> {
     search.text = ui.search;
     _channelScroll = ScrollController(initialScrollOffset: ui.scrollOffset);
     _lastChannels = ViewerTabCache.channelRows;
+    groupPositions = ViewerTabCache.channelGroups;
+    matchChoices = ViewerTabCache.channelMatches;
     // Show the last successful channel list immediately. A stale list stays
     // visible while a refresh races the same Cloudflare/Vercel routes.
     catalog = _lastChannels == null ? load() : Future.value(_lastChannels!);
-    if (_lastChannels != null && !ViewerTabCache.channelsFresh()) {
+    final refreshStale = _lastChannels != null && !ViewerTabCache.channelsFresh();
+    if (refreshStale) {
       unawaited(refresh(silent: true));
     }
     // Channel logos are lazy Image widgets; fetch guide/fixture metadata
     // only after the first channel frame can paint, never on Viewer startup.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      unawaited(_loadGroupPositions());
+      if (refreshStale) return; // refresh() already started all three.
+      if (!ViewerTabCache.channelGroupsFresh) unawaited(_loadGroupPositions());
       unawaited(_loadChannelEpg());
-      unawaited(_loadMatchChoices());
+      if (!ViewerTabCache.channelMatchesFresh) unawaited(_loadMatchChoices());
     });
     library.load().then((_) { if (mounted) setState(() {}); });
   }
@@ -117,7 +121,11 @@ class _ChannelsPageState extends State<ChannelsPage> {
     }
   }
 
-  Future<void> _loadMatchChoices() async {
+  Future<void> _loadMatchChoices({bool force = false}) async {
+    if (!force && ViewerTabCache.channelMatchesFresh) {
+      if (mounted) setState(() => matchChoices = ViewerTabCache.channelMatches);
+      return;
+    }
     try {
       final data = await request('/matches');
       final earliest = DateTime.now().toUtc().subtract(const Duration(hours: 4));
@@ -126,6 +134,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
         final time = DateTime.tryParse('${m['kickoff_at'] ?? ''}');
         return m['id'] != null && m['is_finished'] != true && time != null && !time.isBefore(earliest);
       }).toList()..sort((a, b) => '${a['kickoff_at']}'.compareTo('${b['kickoff_at']}'));
+      ViewerTabCache.rememberChannelMatches(matches);
       if (mounted) setState(() {
         matchChoices = matches;
         if (!matches.any((m) => m['id'].toString() == selectedMatchId)) selectedMatchId = null;
@@ -133,7 +142,11 @@ class _ChannelsPageState extends State<ChannelsPage> {
     } catch (_) { /* Channel and team search remain usable without fixtures. */ }
   }
 
-  Future<void> _loadGroupPositions() async {
+  Future<void> _loadGroupPositions({bool force = false}) async {
+    if (!force && ViewerTabCache.channelGroupsFresh) {
+      if (mounted) setState(() => groupPositions = ViewerTabCache.channelGroups);
+      return;
+    }
     try {
       // Read public category metadata through the resolved Supabase relay.
       // If that relay is unavailable, the channel catalog still works.
@@ -146,6 +159,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
         for (final row in rows)
           row['category'].toString(): (row['position'] as num).toInt(),
       };
+      ViewerTabCache.rememberChannelGroups(positions);
       if (mounted) setState(() => groupPositions = positions);
     } catch (_) {
       // Keep default category order when its metadata can't be loaded.
@@ -159,7 +173,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
       group: selectedGroup,
       matchId: selectedMatchId,
       libraryFilter: libraryFilter,
-      scrollOffset: _channelScroll.hasClients ? _channelScroll.offset : 0,
+      scrollOffset: _channelScroll.hasClients
+          ? _channelScroll.offset
+          : ViewerTabCache.channelUi.scrollOffset,
     );
     _channelScroll.dispose();
     search.dispose();
@@ -257,9 +273,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
     if (!mounted) return;
     final fresh = load(force: true);
     setState(() => catalog = fresh);
-    unawaited(_loadGroupPositions());
+    unawaited(_loadGroupPositions(force: true));
     unawaited(_loadChannelEpg(refresh: true));
-    unawaited(_loadMatchChoices());
+    unawaited(_loadMatchChoices(force: true));
     try {
       await fresh;
     } catch (_) {
@@ -344,7 +360,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
       group: selectedGroup,
       matchId: selectedMatchId,
       libraryFilter: libraryFilter,
-      scrollOffset: _channelScroll.hasClients ? _channelScroll.offset : 0,
+      scrollOffset: _channelScroll.hasClients
+          ? _channelScroll.offset
+          : ViewerTabCache.channelUi.scrollOffset,
     );
     if (index == 6) {
       unawaited(refresh());
