@@ -14,6 +14,7 @@ import 'channels_page.dart';
 import '../live_feed_controller.dart';
 import '../player_loading.dart';
 import '../source_line_loader.dart';
+import '../live2_line_status.dart';
 import '../source_match_discovery.dart';
 import '../football_english.dart';
 import '../viewer_navigation.dart';
@@ -688,6 +689,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             'is_active': true,
             'priority': row['priority'] ?? 100,
             'health_status': row['health_status'] ?? 'unknown',
+            'health_http_status': row['health_http_status'],
+            'playback_status': row['playback_status'],
           };
         })
         .where((x) => (x['stream_url']?.toString() ?? '').isNotEmpty)
@@ -785,6 +788,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                 'keyData': (x['key_data'] ?? '').toString(),
                 'resolution': (x['resolution'] ?? '').toString(),
                 'healthStatus': (x['health_status'] ?? 'unknown').toString(),
+                'healthHttpStatus': x['health_http_status'],
+                'playbackStatus': x['playback_status'],
                 'priority': (x['priority'] as num?)?.toInt() ?? 100,
               },
             )
@@ -937,13 +942,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                         final health =
                             x['healthStatus']?.toString().toLowerCase() ??
                             'unknown';
-                        final healthLabel = switch (health) {
-                          'healthy' => 'READY',
-                          'slow' => 'SLOW',
-                          'failed' => 'OFFLINE',
-                          'dead' => 'OFFLINE',
-                          _ => 'UNKNOWN',
-                        };
+                        final lineStatus = Live2LineStatus.fromSource(x);
                         final healthIcon = switch (health) {
                           'healthy' => Icons.check_circle_rounded,
                           'slow' => Icons.speed_rounded,
@@ -967,12 +966,27 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
-                          subtitle: Text(
-                            [
-                              quality,
-                              type,
-                              healthLabel,
-                            ].where((x) => x.isNotEmpty).join(' • '),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                [quality, type, 'Source: ${lineStatus.provider}']
+                                    .where((part) => part.isNotEmpty)
+                                    .join(' • '),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                lineStatus.summary,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Theme.of(sheet).colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const Text(
+                                'HTTP response does not prove video playback.',
+                                style: TextStyle(fontSize: 10),
+                              ),
+                            ],
                           ),
                           trailing: Icon(
                             healthIcon,
