@@ -1062,8 +1062,13 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Bottom navigation is the only provider label; no duplicate page title.
-      body: AnimatedBuilder(
+      // Keep the source search/filter header below the Android status bar,
+      // including when the app uses edge-to-edge system navigation.
+      // The Channels tab already gets this inset from its AppBar.
+      body: SafeArea(
+        top: true,
+        bottom: false,
+        child: AnimatedBuilder(
         animation: _feed,
         builder: (_, _) {
           if (_feed.loading && !_feed.hasData) {
@@ -1187,6 +1192,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             ),
           );
         },
+        ),
       ),
       bottomNavigationBar: PremiumBottomNav(
         selectedIndex: navIndex,
