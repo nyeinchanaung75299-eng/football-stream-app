@@ -41,6 +41,9 @@ function createMock({prefs=[],lines=[],channels=[],matches=[],messageFail=false,
       return Response.json([{secret_sha256:createHash("sha256").update(key).digest("hex")}]);
     if(href.includes("nca_bot_preferences?"))
       return Response.json(prefs);
+    if(href.includes("nca_bot_delivery_attempts?") &&
+       (options.method||"GET")==="GET")
+      return Response.json([]);
     if(href.includes("channel_lines?") && (options.method||"GET")==="GET")
       return Response.json(lines);
     if(href.includes("channels?") && (options.method||"GET")==="GET")
@@ -145,6 +148,12 @@ test("failed Telegram delivery releases alert dedupe claim for a later retry",as
     assert.equal(result.status,200);
     assert.ok(mock.calls.some(c=>c.method==="POST"&&c.url.includes("nca_bot_alert_state?")));
     assert.ok(mock.calls.some(c=>c.method==="DELETE"&&c.url.includes("nca_bot_alert_state?")));
+    const audit=mock.calls.find(c=>c.method==="POST" &&
+      c.url.endsWith("/nca_bot_delivery_attempts"));
+    assert.equal(audit?.body.outcome,"failed");
+    assert.equal(audit?.body.error_code,"telegram_http_429");
+    assert.equal(audit?.body.kind,"health");
+    assert.doesNotMatch(JSON.stringify(audit.body),/stream\.test|test-admin-token|test-service-key/);
   } finally{globalThis.fetch=oldFetch;}
 });
 
@@ -200,4 +209,93 @@ test("ordinary upcoming matches do not trigger featured-only preflight",async()=
   const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
   assert.equal((await handler(pulseRequest(key))).status,200);
   assert.equal(telegramCalls(mock.calls,"sendMessage").length,0);
+});
+
+test("/monitor on automatically enables alerts, while /alerts off remains a master pause",async()=>{
+  const mock=createMock({prefs:[{
+    chat_id:111,alert_enabled:false,monitor_enabled:false,football_enabled:false,
+  }]});
+  const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+  assert.equal((await handler(request("/monitor on"))).status,200);
+  const setMonitor=mock.calls.find(c=>c.method==="POST" &&
+    c.url.includes("nca_bot_preferences?"));
+  assert.equal(setMonitor.body.monitor_enabled,true);
+  assert.equal(setMonitor.body.alert_enabled,true);
+  assert.equal((await handler(request("/football on"))).status,200);
+  const actions=mock.calls.filter(c=>c.method==="POST" &&
+    c.url.includes("nca_bot_preferences?"));
+  assert.equal(actions[1].body.football_enabled,true);
+  assert.equal(actions[1].body.alert_enabled,true);
+  assert.equal((await handler(request("/alerts off"))).status,200);
+  const off=mock.calls.filter(c=>c.method==="POST" &&
+    c.url.includes("nca_bot_preferences?")).at(-1);
+  assert.equal(off.body.alert_enabled,false);
+});
+
+test("same-day failed/recovered/failed transitions generate distinct dedupe keys",async()=>{
+  const key="b".repeat(64);
+  const times=[
+    "2026-11-09T02:00:00.000Z",
+    "2026-11-09T02:02:00.000Z",
+    "2026-11-09T02:04:00.000Z",
+  ];
+  const cases=[
+    {before:"healthy",probe:500,now:times[0]},
+    {before:"failed",probe:200,now:times[1]},
+    {before:"healthy",probe:500,now:times[2]},
+  ];
+  const keys=[];
+  const oldFetch=globalThis.fetch;
+  try{
+    for(const entry of cases){
+      const mock=createMock({
+        key,prefs:[{chat_id:111,alert_enabled:true,monitor_enabled:true,football_enabled:false}],
+        lines:[{id:"line-x",channel_id:"channel-x",
+          stream_url:"https://stream.test/master.m3u8",
+          health_status:entry.before,last_checked_at:entry.now}],
+        channels:[{id:"channel-x",name:"Test channel",is_active:true}],
+      });
+      globalThis.fetch=async()=>new Response(
+        entry.probe===200 ? "#EXTM3U\n" : "unavailable",
+        {status:entry.probe},
+      );
+      const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+      const response=await handler(pulseRequest(key));
+      assert.equal(response.status,200);
+      const state=mock.calls.find(c=>c.method==="POST"&&
+        c.url.includes("nca_bot_alert_state?"));
+      assert.ok(state,"each real health transition should attempt an alert");
+      keys.push(state.body.event_key);
+      const audit=mock.calls.find(c=>c.method==="POST"&&
+        c.url.endsWith("/nca_bot_delivery_attempts"));
+      assert.equal(audit?.body.outcome,"sent");
+      assert.equal(audit?.body.kind,"health");
+    }
+    assert.equal(new Set(keys).size,3);
+    assert.match(keys[0],/failed/);
+    assert.match(keys[1],/recovered/);
+    assert.match(keys[2],/failed/);
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test("the Admin health probe batch is bounded to 12 oldest lines",async()=>{
+  const key="a".repeat(64),mock=createMock({key});
+  const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+  const response=await handler(pulseRequest(key));
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).probe_errors,0);
+  const query=mock.calls.find(c=>c.url.includes("/channel_lines?") &&
+    c.method==="GET");
+  assert.match(query?.url||"",/limit=12/);
+});
+
+test("diagnostics shows last-24h delivery attempts without exposing private secrets",async()=>{
+  const mock=createMock({prefs:[{
+    chat_id:111,alert_enabled:true,monitor_enabled:true,football_enabled:false,
+  }]});
+  const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+  assert.equal((await handler(request("/diagnostics"))).status,200);
+  const reply=telegramCalls(mock.calls,"sendMessage")[0].body.text;
+  assert.match(reply,/delivery attempts \(24h\): 0 sent, 0 failed/i);
+  assert.doesNotMatch(reply,/test-admin-token|test-service-key|stream_url/);
 });
