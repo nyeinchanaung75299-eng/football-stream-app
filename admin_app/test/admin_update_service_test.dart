@@ -2,6 +2,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:football_admin/admin_update_service.dart';
 
 void main() {
+  test('Admin update manifest uses the published feed directly, not 404 Pages', () {
+    expect(AdminUpdateService.manifestUrls, hasLength(1));
+    expect(AdminUpdateService.manifestUrls.single,
+      'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
+      'football-stream-app/feed/public/releases/admin-latest.json');
+  });
+
   const sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   const apk = 'https://raw.githubusercontent.com/nyeinchanaung75299-eng/'
       'football-stream-app/feed/public/releases/NCA-admin-arm64-v8a-latest.apk';
