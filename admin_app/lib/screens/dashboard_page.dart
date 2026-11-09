@@ -85,9 +85,9 @@ class _DashboardPageState extends State<DashboardPage> {
           final section = switch (index) {
             0 => 'controls',
             1 => 'stream-sources',
-            2 => 'tv-schedule',
-            3 => 'my-channels',
-            _ => 'channel-health',
+            2 => 'tools',
+            3 => 'tv-schedule',
+            _ => 'my-channels',
           };
           AnalyticsService.capture(
             'admin section opened',
@@ -107,6 +107,11 @@ class _DashboardPageState extends State<DashboardPage> {
             label: 'Sources',
           ),
           NavigationDestination(
+            icon: Icon(Icons.grid_view_outlined),
+            selectedIcon: Icon(Icons.grid_view_rounded),
+            label: 'Tools',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.calendar_month_outlined),
             selectedIcon: Icon(Icons.calendar_month_rounded),
             label: 'TV Schedule',
@@ -116,11 +121,6 @@ class _DashboardPageState extends State<DashboardPage> {
             selectedIcon: Icon(Icons.tv_rounded),
             label: 'My Channels',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.health_and_safety_outlined),
-            selectedIcon: Icon(Icons.health_and_safety_rounded),
-            label: 'Health',
-          ),
         ],
       ),
       // Do not use an eager IndexedStack here: My Channels and TV Schedule
@@ -129,9 +129,9 @@ class _DashboardPageState extends State<DashboardPage> {
       body: switch (_tab) {
         0 => _controls(context, colors),
         1 => const StreamSourcePickerPage(embedded: true),
-        2 => const TvSchedulesPage(embedded: true),
-        3 => const MyChannelsGuidePage(embedded: true),
-        _ => const ChannelHealthPage(embedded: true),
+        2 => _tools(context, colors),
+        3 => const TvSchedulesPage(embedded: true),
+        _ => const MyChannelsGuidePage(embedded: true),
       },
     );
   }
@@ -177,14 +177,6 @@ class _DashboardPageState extends State<DashboardPage> {
       const SizedBox(height: 8),
       const SizedBox(height: 12),
       Text(
-        'Repository Sources',
-        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(icon: Icons.sports_soccer_rounded, title: 'Repository Matches', iconColor: colors.primary,
-        onTap: () => open(context, const RepositoryMatchesPage(), 'repository-matches')),
-      const SizedBox(height: 16),
-      Text(
         'Channel Management',
         style: Theme.of(context).textTheme.titleLarge?.copyWith(
           fontWeight: FontWeight.w900,
@@ -203,6 +195,36 @@ class _DashboardPageState extends State<DashboardPage> {
         title: 'Edit & Delete Channels',
         iconColor: const Color(0xFF6099FF),
         onTap: () => open(context, const ChannelsPage(), 'channel-management'),
+      ),
+      const SizedBox(height: 8),
+      _ActionCard(
+        icon: Icons.health_and_safety_outlined,
+        title: 'Channel Health',
+        iconColor: const Color(0xFF10B981),
+        onTap: () => open(context, const ChannelHealthPage(), 'channel-health'),
+      ),
+    ],
+  );
+
+  Widget _tools(BuildContext context, ColorScheme colors) => ListView(
+    key: const PageStorageKey('admin-tools'),
+    padding: const EdgeInsets.fromLTRB(12, 14, 12, 22),
+    children: [
+      Text(
+        'Tools',
+        style: Theme.of(context).textTheme.headlineSmall
+            ?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -.4),
+      ),
+      const SizedBox(height: 12),
+      _ActionCard(
+        icon: Icons.sports_soccer_rounded,
+        title: 'Repository Matches',
+        iconColor: colors.primary,
+        onTap: () => open(
+          context,
+          const RepositoryMatchesPage(),
+          'repository-matches',
+        ),
       ),
       const SizedBox(height: 8),
       _ActionCard(
@@ -231,13 +253,6 @@ class _DashboardPageState extends State<DashboardPage> {
         title: 'EPG mismatch reports',
         iconColor: const Color(0xFFF59E0B),
         onTap: () => open(context, const EpgDiscrepanciesPage(), 'epg-discrepancies'),
-      ),
-      const SizedBox(height: 12),
-      Text(
-        'Telegram Integration',
-        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.w900,
-        ),
       ),
       const SizedBox(height: 8),
       _ActionCard(
