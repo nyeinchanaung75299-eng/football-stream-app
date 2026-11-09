@@ -1074,7 +1074,7 @@
       revealControls();
       menuTitle.textContent='Player settings';menuItems.innerHTML='';
       const tabs=document.createElement('div');tabs.className='nca-settings-tabs';
-      for(const [key,label] of [['video','VIDEO'],['audio','AUDIO'],['speed','SPEED']]){
+      for(const [key,label] of [['video','VIDEO'],['audio','AUDIO'],['subtitles','SUBTITLES'],['speed','SPEED']]){
         const tab=document.createElement('button');
         tab.type='button';tab.className='football-control'+(key===section?' selected':'');
         tab.textContent=label;tab.addEventListener('click',()=>openSettingsMenu(key));tabs.appendChild(tab);
@@ -1125,6 +1125,29 @@
             if(typeof shakaPlayer?.selectAudioLanguage==='function')shakaPlayer.selectAudioLanguage(lang);
             else if(shakaPlayer){const t=currentTracks.find(v=>v.language===lang);if(t)shakaPlayer.selectVariantTrack(t,true)}
             if(video.dataset)video.dataset.audioLanguage=lang;
+          });
+        }
+      }else if(section==='subtitles'){
+        const nativeTracks=video.textTracks;
+        const shakaTracks=typeof shakaPlayer?.getTextTracks==='function'
+          ? shakaPlayer.getTextTracks() : [];
+        choice('Off','Disable subtitles',true,()=>{
+          if(nativeTracks)for(let i=0;i<nativeTracks.length;i++)nativeTracks[i].mode='disabled';
+          if(typeof shakaPlayer?.setTextTrackVisibility==='function')
+            shakaPlayer.setTextTrackVisibility(false);
+        });
+        if(nativeTracks)for(let i=0;i<nativeTracks.length;i++){
+          const id=i,track=nativeTracks[i],label=track.label||track.language||'Subtitles '+(i+1);
+          choice(label,'Caption track',track.mode==='showing',()=>{
+            for(let j=0;j<nativeTracks.length;j++)nativeTracks[j].mode=j===id?'showing':'disabled';
+          });
+        }
+        for(const track of shakaTracks){
+          const label=track.label||track.language||'Subtitle track';
+          choice(label,'Subtitle track',false,()=>{
+            if(typeof shakaPlayer?.selectTextTrack==='function')shakaPlayer.selectTextTrack(track);
+            if(typeof shakaPlayer?.setTextTrackVisibility==='function')
+              shakaPlayer.setTextTrackVisibility(true);
           });
         }
       }else{
