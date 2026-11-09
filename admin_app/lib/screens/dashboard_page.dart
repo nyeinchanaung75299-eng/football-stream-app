@@ -12,6 +12,7 @@ import 'fixture_import_page.dart';
 import 'live_links_page.dart';
 import 'live_upload_page.dart';
 import 'my_channels_guide_page.dart';
+import '../services/tv_schedule_service.dart';
 import 'stream_source_picker_page.dart';
 import 'tv_schedules_page.dart';
 import 'telegram_setup_page.dart';
@@ -28,6 +29,16 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   int _tab = 0;
+  // Tabs are mounted only when first visited, then retained for instant
+  // re-entry. This dashboard is keyed to the verified Admin user/session.
+  final Set<int> _visitedTabs = {0};
+  int _guideRevision = 0;
+  static const _mutatingSections = <String>{
+    'manual-match', 'stream-servers', 'matches-scores',
+    'upload-channels', 'channel-management', 'channel-health',
+    'connected-channels', 'livetv-sports', 'deleted-source-lines',
+    'epg-discrepancies', 'stream-sources',
+  };
 
   @override
   void initState() {
@@ -46,13 +57,42 @@ class _DashboardPageState extends State<DashboardPage> {
       'admin section opened',
       properties: {'section': section},
     );
-    Navigator.of(context).push(
+    unawaited(Navigator.of(context).push<void>(
       MaterialPageRoute(
         settings: RouteSettings(name: '/admin/$section'),
         builder: (_) => page,
       ),
-    );
+    ).then((_) {
+      if (!mounted || !_mutatingSections.contains(section)) return;
+      // The editing route may have changed fixtures or channels. Evict only
+      // dependent guide screens, never hold a deleted row in an Admin cache.
+      TvScheduleService.invalidateShared();
+      setState(() {
+        _guideRevision++;
+        _visitedTabs.removeAll({3, 4});
+      });
+    }));
   }
+
+  Widget _tabContent(int index, ColorScheme colors) => SafeArea(
+    top: index != 0,
+    bottom: false,
+    child: switch (index) {
+      0 => _controls(context, colors),
+      1 => const StreamSourcePickerPage(embedded: true),
+      2 => _tools(context, colors),
+      3 => TvSchedulesPage(
+        key: ValueKey('admin-tv-$_guideRevision'),
+        embedded: true,
+        active: _tab == 3,
+      ),
+      _ => MyChannelsGuidePage(
+        key: ValueKey('admin-channels-$_guideRevision'),
+        embedded: true,
+        active: _tab == 4,
+      ),
+    },
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -72,6 +112,12 @@ class _DashboardPageState extends State<DashboardPage> {
             onPressed: () async {
               await AnalyticsService.capture('admin logout');
               await Supabase.instance.client.auth.signOut();
+              // The old private widget tree is destroyed by AuthGate on
+              // sign-out; clear the session-scoped tab registry as well.
+              if (mounted) setState(() {
+                _visitedTabs.clear();
+                _tab = 0;
+              });
             },
             icon: const Icon(Icons.logout_rounded),
           ),
@@ -93,7 +139,10 @@ class _DashboardPageState extends State<DashboardPage> {
             'admin section opened',
             properties: {'section': section, 'entry': 'bottom_navigation'},
           );
-          setState(() => _tab = index);
+          setState(() {
+            _tab = index;
+            _visitedTabs.add(index);
+          });
         },
         destinations: const [
           NavigationDestination(
@@ -123,21 +172,22 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
         ],
       ),
-      // Do not use an eager IndexedStack here: My Channels and TV Schedule
-      // both read Admin data and must not make a request until the user opens
-      // the matching bottom tab.
-      // Other tabs own their own headings. Avoid repeating global actions and
-      // keep the guide content below the system status bar.
-      body: SafeArea(
-        top: _tab != 0,
-        bottom: false,
-        child: switch (_tab) {
-        0 => _controls(context, colors),
-        1 => const StreamSourcePickerPage(embedded: true),
-        2 => _tools(context, colors),
-        3 => const TvSchedulesPage(embedded: true),
-        _ => const MyChannelsGuidePage(embedded: true),
-        },
+      // Lazy Offstage: never mount unseen tabs, retain successful data,
+      // dropdowns, scroll offsets and form state for every visited tab.
+      // Using a normal eager IndexedStack here would fetch private Admin
+      // guides before an authorized user explicitly enters those tabs.
+      body: Stack(
+        children: [
+          for (final index in (_visitedTabs.toList()..sort()))
+            Offstage(
+              key: ValueKey('admin-tab-$index'),
+              offstage: index != _tab,
+              child: TickerMode(
+                enabled: index == _tab,
+                child: _tabContent(index, colors),
+              ),
+            ),
+        ],
       ),
     );
   }
