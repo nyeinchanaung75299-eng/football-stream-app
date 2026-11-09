@@ -267,15 +267,19 @@
       }
     }
     @media (orientation:landscape) {
+      #football-player-overlay:not(.ios-native-mode) #football-player-topbar{
+        position:relative;top:auto;left:auto;right:auto;
+        flex:0 0 auto;min-height:42px;
+      }
       #football-player-overlay:not(.ios-native-mode) #football-player-title{
         display:-webkit-box!important;
       }
       #football-player-overlay:not(.ios-native-mode) #football-player-line-rail{
-        position:absolute;top:auto;bottom:0;left:0;right:0;
-        z-index:5;background:#101018;
+        position:relative;top:auto;bottom:auto;left:auto;right:auto;
+        flex:0 0 auto;max-height:52px;z-index:5;background:#101018;
       }
       #football-player-overlay:not(.ios-native-mode) #football-player-video-wrap{
-        height:100%;width:100%;
+        flex:1 1 auto;min-height:0;height:auto;width:100%;
       }
     }
     /* Safari native fullscreen is owned by iOS; keep in-page controls
