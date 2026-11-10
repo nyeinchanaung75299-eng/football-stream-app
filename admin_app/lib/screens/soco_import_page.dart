@@ -780,7 +780,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'page_url': anchor['page_url'] ?? match['page_url'],
           // Cola URLs are checked before the operator can import them.
           // Other rotating providers keep the fast metadata-only path.
-          'skip_probe': provider != 'cola',
+          'skip_probe': provider != 'cola' && !_isExperimentalSource,
         },
       );
 
@@ -1986,9 +1986,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     ),
                   ),
                 ...visible.map((match) {
-                  final kickoff = DateTime.tryParse(
+                  final parsedKickoff = DateTime.tryParse(
                     match['match_time']?.toString() ?? '',
-                  )?.toLocal();
+                  );
+                  final kickoff = _isExperimentalSource && parsedKickoff != null
+                      ? parsedKickoff.toUtc().add(const Duration(hours: 6, minutes: 30))
+                      : parsedKickoff?.toLocal();
                   final displayKickoff = kickoff;
                   final anchors = List<Map<String, dynamic>>.from(
                     match['anchors'] ?? const [],
