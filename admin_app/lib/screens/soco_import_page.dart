@@ -1836,7 +1836,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       body: RefreshIndicator(
         onRefresh: _loadSoco,
         child: ListView(
-          controller: _sourceScroll,
+          controller: kIsWeb ? _sourceScroll : null,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
           children: [
                 if (_isManualSource) _manualSourceCard(colors),
