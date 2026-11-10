@@ -8,7 +8,7 @@ import {tmpdir} from 'node:os';
 import {join, resolve, extname} from 'node:path';
 import {gzipSync} from 'node:zlib';
 
-const [beforeDir, afterDir] = process.argv.slice(2).map(resolve);
+const [beforeDir, afterDir] = process.argv.slice(2).map(path => resolve(path));
 if (!beforeDir || !afterDir) throw new Error('Expected BEFORE_DIR AFTER_DIR');
 const mime = {'.html':'text/html','.js':'text/javascript','.wasm':'application/wasm',
   '.json':'application/json','.otf':'font/otf','.ttf':'font/ttf',
