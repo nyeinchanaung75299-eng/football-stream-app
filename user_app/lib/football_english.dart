@@ -1,6 +1,14 @@
 // Canonical Chinese aliases mirror the verified football_names.mjs source names.
 // Display text never changes source IDs, room URLs, match time or import identity.
 const _footballAliases = <String, String>{
+  // Verified names visible in the 10-Nov YYZB screenshot. Keep this
+  // mapping conservative: unknown team names must not be invented.
+  "蒙古超": "Mongolian Premier League",
+  "蒙超": "Mongolian Premier League",
+  "德仁FC": "Deren FC",
+  "乌兰巴托FC": "Ulaanbaatar FC",
+  "葡U23": "Portugal U23 League",
+  "葡萄牙U23": "Portugal U23 League",
   // Known Allsvenskan clubs from the YYZB source catalogue.
   "哥德堡盖斯": "GAIS Gothenburg",
   "索尔纳": "AIK Solna",
