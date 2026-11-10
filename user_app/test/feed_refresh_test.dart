@@ -53,9 +53,15 @@ void main() {
           expect(hosts.first, 'nca-network-backup-test.vercel.app');
           expect(hosts, contains('nca-network-backup-test.vercel.app'));
           hosts.clear();
-          // Source cache revalidates after TTL, not on every tab revisit.
-          await tester.pump(Duration(seconds: sourceTab ? 121 : 61));
-          await tester.pumpAndSettle();
+          // Live retains 60-second polling. Source tabs honor the 75-second
+          // cache TTL, but an explicit user Refresh must always fetch.
+          if (sourceTab) {
+            await tester.tap(find.byTooltip('Refresh matches'));
+            await tester.pumpAndSettle();
+          } else {
+            await tester.pump(const Duration(seconds: 61));
+            await tester.pumpAndSettle();
+          }
           expect(hosts.first, 'nca-network-backup-test.vercel.app',
               reason: 'Refresh should reuse the last verified API route.');
           expect(hosts, isNot(contains('football-api.nyeinchanaung.us.ci')));
@@ -94,8 +100,13 @@ void main() {
             await tester.pumpAndSettle();
             expect(find.text('Team Alpha'), findsOneWidget);
             fail = true;
-            await tester.pump(Duration(seconds: sourceTab ? 121 : 60));
-            await tester.pumpAndSettle();
+            if (sourceTab) {
+              await tester.tap(find.byTooltip('Refresh matches'));
+              await tester.pumpAndSettle();
+            } else {
+              await tester.pump(const Duration(seconds: 60));
+              await tester.pumpAndSettle();
+            }
             expect(find.text('Team Alpha'), findsOneWidget);
             await tester.pumpWidget(const SizedBox());
           },
@@ -130,8 +141,13 @@ void main() {
             await tester.pumpAndSettle();
             expect(find.text('Team Alpha'), findsOneWidget);
             empty = true;
-            await tester.pump(Duration(seconds: sourceTab ? 121 : 60));
-            await tester.pumpAndSettle();
+            if (sourceTab) {
+              await tester.tap(find.byTooltip('Refresh matches'));
+              await tester.pumpAndSettle();
+            } else {
+              await tester.pump(const Duration(seconds: 60));
+              await tester.pumpAndSettle();
+            }
             expect(find.text('Team Alpha'), findsNothing);
             await tester.pumpWidget(const SizedBox());
           },
