@@ -135,6 +135,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   Timer? _sourceRefreshTimer;
   bool _backgroundRefreshBusy = false;
   int _sourceLoadEpoch = 0;
+  late final int _sourceSessionGeneration;
   bool _addingLine = false;
   bool _savingLibrary = false;
   String? _deletingLibraryId;
@@ -152,6 +153,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   void initState() {
     super.initState();
     _streamLibrary = StreamLibraryService(Supabase.instance.client);
+    _sourceSessionGeneration = AdminWebSourceCache.sessionGeneration;
     targetMatchId = widget.initialMatchId;
     if (widget.initialReferer != null) {
       _playzReferer.text = widget.initialReferer!;
@@ -198,7 +200,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
   void dispose() {
     _sourceLoadEpoch += 1;
     _sourceRefreshTimer?.cancel();
-    if (kIsWeb && !_isManualSource) {
+    if (kIsWeb && !_isManualSource &&
+        _sourceSessionGeneration == AdminWebSourceCache.sessionGeneration &&
+        Supabase.instance.client.auth.currentSession != null) {
       AdminWebSourceCache.saveUi(source, AdminSourceUiState(
         query: _sourceQuery,
         dayFilter: dayFilter,
@@ -220,7 +224,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
   Future<void> _refreshSourceInBackground() async {
     if (!mounted || _isManualSource || loading || _backgroundRefreshBusy)
       return;
-    if (kIsWeb && AdminWebSourceCache.fresh(source)) return;
+    if (kIsWeb &&
+        (AdminWebSourceCache.sessionGeneration != _sourceSessionGeneration ||
+         Supabase.instance.client.auth.currentSession == null ||
+         AdminWebSourceCache.fresh(source))) return;
     final state = WidgetsBinding.instance.lifecycleState;
     if (_extractingAnchorKey != null ||
         (state != null && state != AppLifecycleState.resumed) ||
@@ -330,8 +337,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
       return;
     }
     final epoch = ++_sourceLoadEpoch;
-    bool current() =>
-        mounted && source == provider && epoch == _sourceLoadEpoch;
+    final sessionGeneration = AdminWebSourceCache.sessionGeneration;
+    bool current() => mounted && source == provider &&
+        epoch == _sourceLoadEpoch &&
+        (!kIsWeb ||
+         (sessionGeneration == _sourceSessionGeneration &&
+          sessionGeneration == AdminWebSourceCache.sessionGeneration &&
+          Supabase.instance.client.auth.currentSession != null));
     if (!silent) {
       setState(() {
         loading = true;
