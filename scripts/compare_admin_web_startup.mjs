@@ -73,7 +73,7 @@ function call(method,params={}) {
   });
 }
 let measuring=false,received=[];
-const install=\`(() => {
+const install=`(() => {
   window.__ncaFirstFrameAt = 0;
   const mark=()=>{if(!window.__ncaFirstFrameAt)window.__ncaFirstFrameAt=performance.now()};
   window.addEventListener('flutter-first-frame',mark,{once:true});
@@ -85,7 +85,7 @@ const install=\`(() => {
     });
     observer.observe(document.body,{subtree:true,childList:true});
   },{once:true});
-})();\`;
+})();`;
 async function evaluate(expression) {
   const r=await call('Runtime.evaluate',{expression,returnByValue:true});
   return r.result?.value;
