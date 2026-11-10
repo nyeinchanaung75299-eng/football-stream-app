@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
+import android.graphics.drawable.ClipDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -128,6 +130,11 @@ class NativePlayerActivity : Activity() {
     private var player: ExoPlayer? = null
     private var trackSelector: DefaultTrackSelector? = null
     private lateinit var playerView: PlayerView
+    private lateinit var videoHost: FrameLayout
+    private lateinit var topBar: LinearLayout
+    private var controlsVisible = true
+    private var controlsHideRunnable: Runnable? = null
+    private val controlsHideDelayMs = 7000L
     private lateinit var qualityButton: TextView
     private lateinit var settingsButton: TextView
     private lateinit var serverButton: TextView
@@ -295,14 +302,14 @@ class NativePlayerActivity : Activity() {
         }
         // The player controls and progress/time belong to the VIDEO box, not
         // the bottom of an otherwise empty portrait phone screen.
-        val videoHost = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        videoHost = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         videoHost.addView(playerView,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(videoHost, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
             Gravity.TOP or Gravity.CENTER_HORIZONTAL))
 
-        val topBar = LinearLayout(this).apply {
+        topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(7), dp(4), dp(7), dp(4))
@@ -358,7 +365,7 @@ class NativePlayerActivity : Activity() {
             contentDescription = "Original aspect ratio; tap for Full"
             textSize = 11f
             setPadding(dp(2), 0, dp(2), 0)
-            setOnClickListener { toggleDisplayMode() }
+            setOnClickListener { toggleDisplayMode(); setControlsVisible(true) }
         }
 
         val rotateButton = overlayButton("↻").apply {
@@ -368,6 +375,7 @@ class NativePlayerActivity : Activity() {
                 intent.putExtra("nca_landscape", landscape)
                 requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                     else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                setControlsVisible(true)
             }
         }
         if (visibleServerIndices().size == 1) serverButton.visibility = View.GONE
@@ -398,11 +406,11 @@ class NativePlayerActivity : Activity() {
         serverRail = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(5), dp(12), dp(5))
+            setPadding(dp(7), dp(2), dp(7), dp(2))
         }
         serverRailScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
-            setBackgroundColor(Color.rgb(16, 16, 24))
+            setBackgroundColor(Color.TRANSPARENT)
             addView(
                 serverRail,
                 FrameLayout.LayoutParams(
@@ -412,12 +420,15 @@ class NativePlayerActivity : Activity() {
             )
             visibility = View.GONE
         }
-        root.addView(
+        // Rail belongs INSIDE the picture, above the transport controls:
+        // hiding it cannot leave a black strip or reduce fullscreen video.
+        videoHost.addView(
             serverRailScroll,
-            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50), Gravity.TOP)
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(45), Gravity.BOTTOM).apply {
+                bottomMargin = dp(36)
+            }
         )
-        // One compact bottom transport row. Line switching belongs OUTSIDE
-        // videoHost in serverRailScroll; no Previous/Next server shortcuts.
+        // One compact transport row. No Previous/Next server shortcuts.
         compactControls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -440,6 +451,7 @@ class NativePlayerActivity : Activity() {
                 val exo = player ?: return@setOnClickListener
                 exo.seekTo((exo.currentPosition - 5000L).coerceAtLeast(0L))
                 updateCompactControls()
+                setControlsVisible(true)
             }
         }
         compactPlay = transportButton("Ⅱ", "Play or pause").apply {
@@ -448,6 +460,7 @@ class NativePlayerActivity : Activity() {
                 val exo = player ?: return@setOnClickListener
                 if (exo.isPlaying) exo.pause() else exo.play()
                 updateCompactControls()
+                setControlsVisible(true)
             }
         }
         val forward = transportButton("15↷", "Forward 15 seconds").apply {
@@ -457,6 +470,7 @@ class NativePlayerActivity : Activity() {
                 val target = exo.currentPosition + 15000L
                 exo.seekTo(if (max != C.TIME_UNSET && max > 0) target.coerceAtMost(max) else target)
                 updateCompactControls()
+                setControlsVisible(true)
             }
         }
         compactTime = transportButton("LIVE", "Playback time").apply {
@@ -469,19 +483,43 @@ class NativePlayerActivity : Activity() {
         compactSeek = SeekBar(this).apply {
             max = 1000
             progress = 0
-            progressTintList = ColorStateList.valueOf(Color.rgb(71, 229, 158))
-            thumbTintList = ColorStateList.valueOf(Color.rgb(71, 229, 158))
-            progressBackgroundTintList = ColorStateList.valueOf(Color.rgb(112, 119, 115))
+            // A 3dp line + 10dp thumb, never a huge green filled rectangle.
+            val track = GradientDrawable().apply {
+                cornerRadius = dp(2).toFloat()
+                setSize(dp(100), dp(3))
+                setColor(Color.rgb(98, 105, 103))
+            }
+            val filledTrack = GradientDrawable().apply {
+                cornerRadius = dp(2).toFloat()
+                setSize(dp(100), dp(3))
+                setColor(Color.rgb(71, 229, 158))
+            }
+            progressDrawable = LayerDrawable(arrayOf(
+                track, ClipDrawable(filledTrack, Gravity.LEFT, ClipDrawable.HORIZONTAL)
+            )).apply {
+                setId(0, android.R.id.background)
+                setId(1, android.R.id.progress)
+            }
+            thumb = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setSize(dp(10), dp(10))
+                setColor(Color.WHITE)
+            }
+            splitTrack = false
+            setPadding(dp(2), 0, dp(2), 0)
             contentDescription = "Seek video"
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {}
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                    controlsHideRunnable?.let { playerView.removeCallbacks(it) }
+                }
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                    val exo = player ?: return
-                    val duration = exo.duration
-                    if (duration != C.TIME_UNSET && duration > 0) {
+                    val exo = player
+                    val duration = exo?.duration ?: C.TIME_UNSET
+                    if (exo != null && duration != C.TIME_UNSET && duration > 0) {
                         exo.seekTo(duration * progress / 1000L)
                     }
+                    setControlsVisible(true)
                 }
             })
         }
@@ -490,7 +528,7 @@ class NativePlayerActivity : Activity() {
             background = null
             visibility = View.VISIBLE
             contentDescription = "Resolution audio and playback speed"
-            setOnClickListener { showPlaybackSettings() }
+            setOnClickListener { showPlaybackSettings(); setControlsVisible(true) }
         }
         for (view in listOf(rewind, compactPlay, forward)) {
             compactControls.addView(view, LinearLayout.LayoutParams(dp(35), dp(35)))
@@ -514,60 +552,53 @@ class NativePlayerActivity : Activity() {
             if (root.width <= 0 || root.height <= 0) return
             val landscape = root.width > root.height
             val hasLines = visibleServerIndices().size > 1
-            val railHeight = if (hasLines) dp(50) else 0
-            val headerHeight = dp(44)
             val portraitHeight = (root.width * 9f / 16f).toInt()
-                .coerceAtMost((root.height - headerHeight - railHeight).coerceAtLeast(dp(120)))
-            // Web reference: portrait player begins at TOP. Empty space belongs
-            // below the video. Landscape header overlays, not pushes, video.
+                .coerceAtMost(root.height.coerceAtLeast(dp(120)))
+            // Both orientation modes paint picture TOP; topbar and rail are
+            // overlays. Neither reserves black layout space when hidden.
             topBar.layoutParams = (topBar.layoutParams as FrameLayout.LayoutParams).apply {
                 gravity = Gravity.TOP
                 topMargin = 0
             }
-            topBar.background = if (landscape) GradientDrawable(
+            topBar.background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(Color.argb(190, 0, 0, 0), Color.argb(25, 0, 0, 0))
-            ) else GradientDrawable().apply { setColor(Color.rgb(21, 21, 30)) }
-            topBar.visibility = View.VISIBLE
+                intArrayOf(Color.argb(192, 0, 0, 0), Color.argb(24, 0, 0, 0))
+            )
+            topBar.visibility = if (controlsVisible) View.VISIBLE else View.GONE
             videoHost.layoutParams = (videoHost.layoutParams as FrameLayout.LayoutParams).apply {
                 width = ViewGroup.LayoutParams.MATCH_PARENT
-                height = if (landscape) (root.height - railHeight).coerceAtLeast(dp(120))
-                    else portraitHeight
+                height = if (landscape) root.height else portraitHeight
                 gravity = Gravity.TOP
-                topMargin = if (landscape) 0 else headerHeight
+                topMargin = 0
             }
             serverRailScroll.layoutParams =
                 (serverRailScroll.layoutParams as FrameLayout.LayoutParams).apply {
-                    gravity = Gravity.TOP
-                    topMargin = if (landscape) root.height - railHeight
-                        else headerHeight + portraitHeight
+                    width = ViewGroup.LayoutParams.MATCH_PARENT
+                    height = dp(45)
+                    gravity = Gravity.BOTTOM
+                    bottomMargin = dp(36)
                 }
-            serverRailScroll.visibility = if (hasLines) View.VISIBLE else View.GONE
+            serverRailScroll.visibility = if (hasLines && controlsVisible) View.VISIBLE else View.GONE
             if (::settingsPanel.isInitialized) positionSettingsPanel(root, landscape)
         }
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> layoutPlayer() }
         root.post { layoutPlayer(); applyDisplayMode() }
         renderServerRail()
 
-        // Transport controls are small and anchored at the picture bottom.
-        // Touching the video toggles them; source line chips stay below video.
+        // Single tap: show ALL controls, second tap: hide ALL immediately.
+        // Without another touch, every overlay fades out after exactly 7s.
         playerView.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_UP) {
                 if (::settingsPanel.isInitialized && settingsPanel.visibility == View.VISIBLE) {
                     closeSettingsMenu()
+                    setControlsVisible(true)
                 } else {
-                    compactControls.visibility =
-                        if (compactControls.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                    setControlsVisible(!controlsVisible)
                 }
             }
             true
         }
-        playerView.post {
-            topBar.visibility = View.VISIBLE
-            compactControls.visibility = View.GONE
-            serverRailScroll.visibility =
-                if (visibleServerIndices().size > 1) View.VISIBLE else View.GONE
-        }
+        playerView.post { setControlsVisible(true) }
 
         statusText = TextView(this).apply {
             setTextColor(Color.WHITE)
