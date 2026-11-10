@@ -1,5 +1,4 @@
-import { websiteMatches, websiteStreams } from "../_shared/website_sources.mjs";
-import { experimentalMatches, experimentalStreams, isExperimentalFootballSource } from "../_shared/experimental_football_sources.mjs";
+import { websiteMatches, websiteStreams, experimentalMatches, experimentalStreams, isExperimentalFootballSource } from "../_shared/website_sources.mjs";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
