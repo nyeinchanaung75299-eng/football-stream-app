@@ -165,7 +165,16 @@ try{
   })+'\n');
 }finally{
   try{ws?.close()}catch(_){}
-  if(chrome)chrome.kill('SIGTERM');
+  if (chrome) {
+    if (chrome.exitCode === null) chrome.kill('SIGTERM');
+    await new Promise(r => {
+      if (chrome.exitCode !== null) return r();
+      const deadline = setTimeout(r, 2500);
+      chrome.once('exit', () => { clearTimeout(deadline); r(); });
+    });
+  }
   for(const server of servers)await new Promise(r=>server.close(r));
-  await rm(userData,{recursive:true,force:true});
+  // Chrome child processes can still touch a profile briefly after SIGTERM.
+  // Cleanup must not change the validity of completed measurements.
+  await rm(userData,{recursive:true,force:true}).catch(() => {});
 }
