@@ -2059,10 +2059,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                 : displayKickoff == null
                                     ? (match['time_label']?.toString().trim().isNotEmpty == true
                                         ? match['time_label'].toString() : 'Unknown time')
-                                    : DateFormat(
-                                        'dd MMM • h:mm a',
-                                        'en_US',
-                                      ).format(displayKickoff),
+                                    : '${DateFormat('dd MMM • h:mm a', 'en_US').format(displayKickoff)}'
+                                      '${_isExperimentalSource ? ' MMT' : ''}'
+                                      '${match['kickoff_estimated'] == true ? ' • ESTIMATED' : ''}',
                             style: TextStyle(color: colors.onSurfaceVariant),
                           ),
                           ],
