@@ -21,6 +21,7 @@ void main() {
       // Same upcoming fixture shape as the verified legacy YYZB room tests.
       final start = DateTime(now.year, now.month, now.day, 23, 59)
           .toUtc().toIso8601String();
+      final requests = <String>[];
       final current = <String, dynamic>{
         'source_id': 'fixture-42',
         'home_team': '帕德博恩',
@@ -41,8 +42,10 @@ void main() {
         ));
         await tester.pumpAndSettle();
         final cachedRows = ViewerTabCache.sourceRows('yyzb');
+        final visibleText = tester.widgetList<Text>(find.byType(Text))
+            .map((w) => w.data).whereType<String>().join(' | ');
         expect(cachedRows, isNotNull,
-            reason: 'YYZB network response did not reach the tab cache');
+            reason: 'Source API calls: $requests | visible: $visibleText');
         expect(cachedRows, hasLength(1),
             reason: 'Expected one watchable match from the mock API');
         expect(cachedRows!.first['home_team'], 'SC Paderborn 07');
@@ -60,6 +63,7 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();
       }, () => MockClient((request) async {
+        requests.add(request.url.path);
         if (request.url.path.endsWith('/matches')) {
           return http.Response(jsonEncode({'matches': [current]}), 200);
         }
