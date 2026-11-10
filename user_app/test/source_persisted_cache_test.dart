@@ -40,6 +40,12 @@ void main() {
           home: SourceBrowserPage(source: 'yyzb'),
         ));
         await tester.pumpAndSettle();
+        final cachedRows = ViewerTabCache.sourceRows('yyzb');
+        expect(cachedRows, isNotNull,
+            reason: 'YYZB network response did not reach the tab cache');
+        expect(cachedRows, hasLength(1),
+            reason: 'Expected one watchable match from the mock API');
+        expect(cachedRows!.first['home_team'], 'SC Paderborn 07');
         expect(find.text('SC Paderborn 07'), findsOneWidget);
         expect(find.text('VfB Stuttgart'), findsOneWidget);
         final prefs = await SharedPreferences.getInstance();
