@@ -7,7 +7,9 @@ const web = readFileSync('user_app/web/index.html','utf8');
 const embedded = readFileSync('user_app/assets/embedded_player.html','utf8');
 
 test('Android portrait player is top-aligned and landscape header overlays picture', () => {
-  assert.match(native, /topMargin = if \(landscape\) 0 else headerHeight/);
+  assert.match(native, /height = if \(landscape\) root.height else portraitHeight/);
+  assert.match(native, /videoHost\.addView\(\s*serverRailScroll/);
+  assert.match(native, /bottomMargin = dp\(36\)/);
   assert.match(native, /topMargin = 0/);
   assert.doesNotMatch(native, /\(root\.height - headerHeight - portraitHeight - railHeight\) \/ 2/);
   assert.match(native, /val portraitHeight = \(root\.width \* 9f \/ 16f\)/);
@@ -48,4 +50,47 @@ test('Web Fit Full Zoom button is compact, while iOS maintains its own sizing', 
   assert.match(web, /font-size:11px;font-weight:700/);
   assert.match(embedded, /Compact Fit \/ Full \/ Zoom selector/);
   assert.match(web, /#football-player-overlay\.ios-native-mode #football-player-fit,/);
+});
+
+test('seven-second native UI auto-hide toggles all controls and respects settings', () => {
+  assert.match(native, /controlsHideDelayMs = 7000L/);
+  assert.match(native, /setControlsVisible\(!controlsVisible\)/);
+  assert.match(native, /serverRailScroll\.visibility =\s*if \(visible && visibleServerIndices\(\)\.size > 1\)/);
+  assert.match(native, /topBar\.visibility = if \(visible\)/);
+  assert.match(native, /compactControls\.visibility = if \(visible\)/);
+  assert.match(native, /settingsPanel\.visibility != View\.VISIBLE/);
+  assert.match(native, /clearControlsHideTimer\(\)/);
+});
+
+test('native lines use no TV icon, separate 1080p/HLS/DASH/FLV tags and a slim progress track', () => {
+  assert.match(native, /private fun safeLineFormat/);
+  for(const type of ['HLS','DASH','FLV','MP4']) assert.ok(native.includes('"'+type+'"'));
+  assert.match(native, /textSize = 10f/);
+  assert.match(native, /textSize = 9f/);
+  assert.match(native, /chip\.addView\(meta/);
+  assert.match(native, /showServerMenu\(this\)/);
+  assert.doesNotMatch(native, /📺/);
+  assert.match(native, /LayerDrawable\(arrayOf/);
+  assert.match(native, /ClipDrawable\(filledTrack/);
+  assert.match(native, /setSize\(dp\(100\), dp\(3\)\)/);
+  assert.doesNotMatch(native, /thumbTintList = ColorStateList\.valueOf\(Color\.rgb\(71, 229, 158\)\)/);
+});
+
+test('Web and embedded variants show overlay-only lines with no reserved rail strip', () => {
+  for(const html of [web,embedded]) {
+    assert.match(html, /<!-- Inside the picture: hiding lines must not reserve a black strip/);
+    assert.match(html, /#football-player-video-wrap > #football-player-line-rail/);
+    assert.match(html, /controlsTimer=setTimeout\(hideControls,7000\)/);
+    assert.match(html, /football-line-chip-format/);
+    assert.match(html, /function hideControls/);
+    assert.match(html, /setTimeout\(hideControls,7000\)/);
+  }
+});
+
+const workflow=readFileSync('.github/workflows/build-apks.yml','utf8');
+test('Viewer and Admin release version codes are above older installed build 32748', () => {
+  const matches=[...workflow.matchAll(/BUILD_NUMBER=\$\(\(40000 \+ GITHUB_RUN_NUMBER\)\)/g)];
+  assert.equal(matches.length,2);
+  assert.ok(40000+1>32748);
+  assert.match(workflow,/verify_android_update_signing\.py/);
 });
