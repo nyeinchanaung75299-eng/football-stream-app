@@ -52,3 +52,40 @@ test("No HLS/DASH lines are invented when a page contains no media URL", async (
   assert.deepEqual(data.lines, []);
   assert.equal(data.ready, false);
 });
+
+test("Fresh 03:02:50 countdown converts to an estimated UTC kickoff and Myanmar local time", async () => {
+  // Nov 11 05:17 MMT = Nov 10 22:47 UTC.
+  const observedAt = Date.parse("2026-11-10T22:47:00Z");
+  const data = await experimentalMatches("crichd", {
+    now: () => observedAt,
+    fetcher: pages({
+      "https://crichd.pk/sports/soccer-streams":
+        '<a href="/event/arsenal-vs-liverpool"><span>Starts in: 03:02:50</span> Arsenal Liverpool</a>',
+    }),
+  });
+  assert.equal(data.results, 1);
+  assert.equal(data.matches[0].match_time, "2026-11-11T01:49:50.000Z");
+  assert.equal(data.matches[0].kickoff_estimated, true);
+  assert.equal(data.matches[0].verified_kickoff, false);
+  assert.equal(data.matches[0].kickoff_source, "countdown");
+  // 01:49:50 UTC + 06:30 = 08:19:50 Myanmar time.
+  assert.equal(data.diagnostics.estimated_countdown_count, 1);
+});
+
+test("Stale HTTP countdown cannot invent a football kickoff", async () => {
+  const observedAt = Date.parse("2026-11-10T22:47:00Z");
+  const data = await experimentalMatches("crichd", {
+    now: () => observedAt,
+    fetcher: async (url) => ({
+      ok: true, status: 200,
+      headers: {get: (key) => key === "content-type" ? "text/html"
+        : key === "age" ? "200" : null},
+      text: async () => String(url).includes("/event/")
+        ? "<html></html>"
+        : '<a href="/event/arsenal-vs-liverpool"><span>Starts in: 03:02:50</span> Arsenal Liverpool</a>',
+    }),
+  });
+  assert.equal(data.results, 1);
+  assert.equal(data.matches[0].match_time, null);
+  assert.equal(data.diagnostics.estimated_countdown_count, 0);
+});
