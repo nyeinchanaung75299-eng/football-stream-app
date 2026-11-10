@@ -67,7 +67,7 @@ jobs:
         run: |
           flutter create --platforms=web .
           flutter pub get
-          flutter test --platform chrome test/admin_web_source_cache_test.dart
+          flutter test --platform chrome test/admin_web_source_cache_test.dart test/admin_private_route_guard_test.dart
           flutter build web --release --base-href "/football-stream-app/admin/" --pwa-strategy=none --no-web-resources-cdn
           python3 ../scripts/stamp_flutter_web_cache.py build/web candidate-web
 
