@@ -18,6 +18,7 @@ import '../widgets/compact_stream_line_title.dart';
 import '../source_match_discovery.dart';
 import '../football_english.dart';
 import '../viewer_navigation.dart';
+import '../viewer_tab_cache.dart';
 import '../repository_logo.dart';
 import '../widgets/premium_bottom_nav.dart';
 import '../widgets/premium_match_card.dart';
@@ -53,7 +54,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       ).trim() ==
       '1';
 
-  late final LiveFeedController<List<Map<String, dynamic>>> _feed;
+  late LiveFeedController<List<Map<String, dynamic>>> _feed;
+  late ScrollController _listScroll;
   Timer? _sourceRefreshTimer;
   DateTime? _lastSourcePoll;
   bool _openingPlayer = false;
@@ -106,9 +108,17 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     super.initState();
     // YYZB evening rooms can cross local midnight. Its website lists those
     // rooms together, so a local-calendar Today filter must not hide them.
-    _todayOnly = false;
-    _feed = LiveFeedController(_loadMatches);
-    unawaited(_feed.refresh());
+    final ui = ViewerTabCache.sourceUi(source);
+    _query = ui.query;
+    _league = ui.league;
+    _todayOnly = ui.todayOnly;
+    _searchController.text = ui.query;
+    _listScroll = ScrollController(initialScrollOffset: ui.scrollOffset);
+    _feed = LiveFeedController(_loadRemembered,
+        initialData: ViewerTabCache.sourceRows(source));
+    if (!ViewerTabCache.sourceFresh(source)) {
+      unawaited(_feed.refresh());
+    }
     _sourceRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       final state = WidgetsBinding.instance.lifecycleState;
       if (mounted &&
@@ -117,6 +127,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           ModalRoute.of(context)?.isCurrent != false) {
         final live = _feed.data?.any(_live) ?? false;
         final now = DateTime.now();
+        if (ViewerTabCache.sourceFresh(source)) return;
         if (!live && _lastSourcePoll != null &&
             now.difference(_lastSourcePoll!) < const Duration(minutes: 2)) {
           return;
@@ -131,14 +142,51 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   void didUpdateWidget(covariant SourceBrowserPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.source != widget.source) {
+      _rememberUi(oldWidget.source.toLowerCase());
       _lastSourcePoll = null;
       _cancelSourceOperation();
-      _query = '';
-      _searchController.clear();
-      _league = null;
-      _todayOnly = false;
-      unawaited(_feed.refresh());
+      final previousFeed = _feed;
+      final ui = ViewerTabCache.sourceUi(source);
+      _query = ui.query;
+      _searchController.text = ui.query;
+      _league = ui.league;
+      _todayOnly = ui.todayOnly;
+      _listScroll.dispose();
+      _listScroll = ScrollController(initialScrollOffset: ui.scrollOffset);
+      _feed = LiveFeedController(_loadRemembered,
+          initialData: ViewerTabCache.sourceRows(source));
+      previousFeed.dispose();
+      if (!ViewerTabCache.sourceFresh(source)) {
+        unawaited(_feed.refresh());
+      }
     }
+  }
+
+  void _rememberUi([String? tab]) {
+    ViewerTabCache.saveSourceUi(tab ?? source, ViewerSourceUiState(
+      query: _query,
+      league: _league,
+      todayOnly: _todayOnly,
+      scrollOffset: _listScroll.hasClients
+          ? _listScroll.offset
+          : ViewerTabCache.sourceUi(tab ?? source).scrollOffset,
+    ));
+  }
+
+  Future<List<Map<String, dynamic>>> _loadRemembered() {
+    final requestedSource = source;
+    return ViewerTabCache.loadSource(
+      requestedSource,
+      () async {
+        final rows = await _loadMatches();
+        if (source != requestedSource) {
+          // A response from the old tab must never overwrite a new tab.
+          throw StateError('Source tab was changed during refresh');
+        }
+        return rows;
+      },
+      force: true,
+    );
   }
 
   void _cancelSourceOperation() {
@@ -149,7 +197,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
   @override
   void dispose() {
+    _rememberUi();
     _cancelSourceOperation();
+    _listScroll.dispose();
     _searchController.dispose();
     _sourceRefreshTimer?.cancel();
     _feed.dispose();
@@ -999,6 +1049,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   }
 
   void _select(int index) {
+    _rememberUi();
     if (index == navIndex) {
       unawaited(_refresh());
       return;
@@ -1075,9 +1126,18 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           return RefreshIndicator(
             onRefresh: _refresh,
             child: CustomScrollView(
+              controller: _listScroll,
               physics: const AlwaysScrollableScrollPhysics(),
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               slivers: [
+                if (_feed.error != null && _feed.hasData)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(12, 5, 12, 3),
+                      child: Text('Offline • showing last available results',
+                        style: TextStyle(fontSize: 11)),
+                    ),
+                  ),
                 SliverToBoxAdapter(
                   child: SourceMatchFilters(
                     controller: _searchController,

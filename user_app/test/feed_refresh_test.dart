@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:football_viewer/viewer_tab_cache.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -20,6 +21,7 @@ const match = <String, dynamic>{
 
 void main() {
   setUp(() {
+    ViewerTabCache.clearForTesting();
     rememberVerifiedPublicApiBase('https://nca-network-backup-test.vercel.app');
     SharedPreferences.setMockInitialValues({});
     PackageInfo.setMockInitialValues(
@@ -51,8 +53,15 @@ void main() {
           expect(hosts.first, 'nca-network-backup-test.vercel.app');
           expect(hosts, contains('nca-network-backup-test.vercel.app'));
           hosts.clear();
-          await tester.pump(const Duration(seconds: 61));
-          await tester.pumpAndSettle();
+          // Live retains 60-second polling. Source tabs honor the 75-second
+          // cache TTL, but an explicit user Refresh must always fetch.
+          if (sourceTab) {
+            await tester.tap(find.byTooltip('Refresh matches'));
+            await tester.pumpAndSettle();
+          } else {
+            await tester.pump(const Duration(seconds: 61));
+            await tester.pumpAndSettle();
+          }
           expect(hosts.first, 'nca-network-backup-test.vercel.app',
               reason: 'Refresh should reuse the last verified API route.');
           expect(hosts, isNot(contains('football-api.nyeinchanaung.us.ci')));
@@ -91,8 +100,13 @@ void main() {
             await tester.pumpAndSettle();
             expect(find.text('Team Alpha'), findsOneWidget);
             fail = true;
-            await tester.pump(const Duration(seconds: 60));
-            await tester.pumpAndSettle();
+            if (sourceTab) {
+              await tester.tap(find.byTooltip('Refresh matches'));
+              await tester.pumpAndSettle();
+            } else {
+              await tester.pump(const Duration(seconds: 60));
+              await tester.pumpAndSettle();
+            }
             expect(find.text('Team Alpha'), findsOneWidget);
             await tester.pumpWidget(const SizedBox());
           },
@@ -127,8 +141,13 @@ void main() {
             await tester.pumpAndSettle();
             expect(find.text('Team Alpha'), findsOneWidget);
             empty = true;
-            await tester.pump(const Duration(seconds: 60));
-            await tester.pumpAndSettle();
+            if (sourceTab) {
+              await tester.tap(find.byTooltip('Refresh matches'));
+              await tester.pumpAndSettle();
+            } else {
+              await tester.pump(const Duration(seconds: 60));
+              await tester.pumpAndSettle();
+            }
             expect(find.text('Team Alpha'), findsNothing);
             await tester.pumpWidget(const SizedBox());
           },

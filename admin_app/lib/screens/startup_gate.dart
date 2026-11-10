@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'login_page.dart';
 
 /// Show a visible, retryable startup state before the authenticated Admin UI.
 class StartupGate extends StatefulWidget {
@@ -60,6 +61,12 @@ class _StartupGateState extends State<StartupGate> {
           if (snapshot.connectionState == ConnectionState.done &&
               !snapshot.hasError) {
             return widget.child;
+          }
+          // Show the login screen before Dashboard data or Auth checks start.
+          // The form is non-interactive until Supabase restores its session.
+          // AuthGate still strictly verifies Admin role before mounting UI.
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const LoginPage(connecting: true);
           }
           return Scaffold(
               body: Center(

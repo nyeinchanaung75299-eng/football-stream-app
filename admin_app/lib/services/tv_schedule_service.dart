@@ -356,6 +356,16 @@ class TvScheduleService {
   static const guideDays = 3;
   static const _sharedTtl = Duration(minutes: 2);
 
+  /// Called on Admin editing route exit so a saved/deleted match or channel
+  /// can never reappear from the old shared guide when entering a tab again.
+  /// Do not clear public guide metadata on an ordinary tab switch.
+  static void invalidateShared() {
+    _sharedGeneration++;
+    _sharedGuide = null;
+    _sharedDate = null;
+    _sharedLoadedAt = null;
+  }
+
   Future<TvScheduleGuide> load({DateTime? now, bool refresh = false}) {
     final date = _yangonDate(now ?? DateTime.now());
     if (_httpClient != null || _apiBases != null || now != null) {

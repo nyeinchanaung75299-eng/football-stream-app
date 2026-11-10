@@ -6,7 +6,10 @@ import '../analytics_service.dart';
 import '../widgets/theme_mode_button.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({super.key, this.connecting = false});
+
+  /// The first-frame login shell is disabled until Auth SDK setup finishes.
+  final bool connecting;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -27,7 +30,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> login() async {
-    if (loading) return;
+    if (loading || widget.connecting) return;
     if (email.text.trim().isEmpty || password.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter your admin email and password.')),
@@ -158,9 +161,17 @@ class _LoginPageState extends State<LoginPage> {
                               color: colors.onSurfaceVariant,
                             ),
                           ),
+                          if (widget.connecting) ...[
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Connecting…',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ],
                           const SizedBox(height: 28),
                           TextField(
                             controller: email,
+                            enabled: !widget.connecting,
                             keyboardType: TextInputType.emailAddress,
                             textInputAction: TextInputAction.next,
                             decoration: const InputDecoration(
@@ -171,6 +182,7 @@ class _LoginPageState extends State<LoginPage> {
                           const SizedBox(height: 14),
                           TextField(
                             controller: password,
+                            enabled: !widget.connecting,
                             obscureText: hidePassword,
                             onSubmitted: (_) => loading ? null : login(),
                             decoration: InputDecoration(
@@ -193,7 +205,7 @@ class _LoginPageState extends State<LoginPage> {
                           SizedBox(
                             width: double.infinity,
                             child: FilledButton.icon(
-                              onPressed: loading ? null : login,
+                              onPressed: (loading || widget.connecting) ? null : login,
                               icon: loading
                                   ? const SizedBox(
                                       width: 18,
@@ -204,7 +216,7 @@ class _LoginPageState extends State<LoginPage> {
                                     )
                                   : const Icon(Icons.login_rounded),
                               label: Text(
-                                loading ? 'SIGNING IN...' : 'SIGN IN',
+                                widget.connecting ? 'CONNECTING...' : loading ? 'SIGNING IN...' : 'SIGN IN',
                               ),
                             ),
                           ),

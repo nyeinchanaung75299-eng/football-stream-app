@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:football_viewer/viewer_tab_cache.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -49,7 +50,10 @@ List<Map<String, dynamic>> _fixtures() {
 }
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    ViewerTabCache.clearForTesting();
+    SharedPreferences.setMockInitialValues({});
+  });
 
   testWidgets('Live 2 lists repository fixtures without depending on main Live or inventing kickoff times', (tester) async {
     await http.runWithClient(() async {

@@ -72,7 +72,7 @@ class _AuthGateState extends State<AuthGate> {
             }
 
             if (accessSnapshot.data == _AdminAccess.allowed) {
-              return const DashboardPage();
+              return DashboardPage(key: ValueKey('admin-session-$userId'));
             }
 
             final lookupFailed =

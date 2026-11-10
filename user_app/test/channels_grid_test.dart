@@ -1,12 +1,15 @@
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:football_viewer/viewer_tab_cache.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:football_viewer/screens/channels_page.dart';
 
 void main() {
+  setUp(ViewerTabCache.clearForTesting);
+
   testWidgets(
     'search finds channels beyond the initial viewport without refetching',
     (tester) async {
