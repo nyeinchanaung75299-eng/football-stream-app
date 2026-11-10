@@ -161,6 +161,13 @@ class _LoginPageState extends State<LoginPage> {
                               color: colors.onSurfaceVariant,
                             ),
                           ),
+                          if (widget.connecting) ...[
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Connecting…',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ],
                           const SizedBox(height: 28),
                           TextField(
                             controller: email,
