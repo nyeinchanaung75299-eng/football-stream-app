@@ -628,7 +628,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                                   padding: const EdgeInsets.only(right: 8),
                                   child: ChoiceChip(
                                     label: Text(group == 'All'
-                                        ? 'All (${snapshot.data!.length})'
+                                        ? 'All (${rows.length})'
                                         : '$group (${groupCounts[group]})'),
                                     selected: activeGroup == group,
                                     onSelected: (_) =>
