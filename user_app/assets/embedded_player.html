@@ -399,6 +399,8 @@
     #football-player-overlay #football-player-video-wrap #nca-player-progress::-webkit-slider-thumb{
       width:11px;height:11px;margin-top:-4px;
     }
+    /* Chooser/settings always paint above line chips and dim overlays. */
+    #football-player-overlay #football-player-menu{z-index:12!important}
     /* A tap should never leave an invisible topbar intercepting the picture. */
     /* iPhone Safari: fullscreen belongs next to Rotate on the top toolbar,
        never in a spare black box below the video. The volume/speaker UI
