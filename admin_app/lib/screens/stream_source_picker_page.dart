@@ -35,7 +35,9 @@ class StreamSourcePickerPage extends StatelessWidget {
         ),
       ),
     );
-    // Opening and closing a provider is read-only; do not invalidate guides.
+    // Preserve the previous native behavior. On Web, browsing is read-only
+    // and only a confirmed successful import invalidates dependent guides.
+    if (!kIsWeb && context.mounted) onSourceMutated?.call();
   }
 
   @override
