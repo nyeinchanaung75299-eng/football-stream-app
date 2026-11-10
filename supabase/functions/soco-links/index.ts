@@ -95,9 +95,16 @@ Deno.serve(async (req) => {
       // Experimental website access is admin-only. Viewer public mode cannot
       // issue third-party HTML fetches or use the resolver as a proxy.
       if (viewerPublic) return json({ error: "Admin access required." }, 403);
-      return json(action === "streams"
-        ? await experimentalStreams(source, body)
-        : await experimentalMatches(source));
+      if (action !== "streams") return json(await experimentalMatches(source));
+      const resolved = await experimentalStreams(source, body);
+      if (body.status_only === true || body.status_only === "true") return json(resolved);
+      const checked = await probeLines(resolved.lines ?? [], skipProbeRequested(body));
+      const lines = checked.filter((line: any) =>
+        ["healthy", "slow"].includes(String(line.health_status)));
+      return json({ ...resolved, lines, line_count: lines.length,
+        ready: lines.length > 0,
+        message: lines.length ? resolved.message :
+          "No verified playable HLS/DASH line. No access protections were bypassed." });
     }
 
     if (source === "arena") {
