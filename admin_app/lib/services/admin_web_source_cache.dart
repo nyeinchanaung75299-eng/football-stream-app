@@ -30,6 +30,9 @@ class AdminWebSourceCache {
   static const ttl = Duration(minutes: 5);
   static String? _userId;
   static int _sessionEpoch = 0;
+  // Captured by mounted source widgets to reject post-logout responses and
+  // avoid saving old form state into the next account's cache.
+  static int get sessionGeneration => _sessionEpoch;
   static final Map<String, _SourceSnapshot> _entries = {};
   static final Map<String, Future<List<Map<String, dynamic>>>> _inFlight = {};
   static final Map<String, AdminSourceUiState> _ui = {};

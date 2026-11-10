@@ -1,27 +1,42 @@
 // Controlled same-runner before/after Flutter Web startup measurements.
-// Usage: node scripts/compare_admin_web_startup.mjs BASE_ADMIN_DIR NEW_ADMIN_DIR
+// Usage: NCA_WEB_BASE_PATH=/football-stream-app/admin/ node scripts/compare_admin_web_startup.mjs BEFORE_DIR AFTER_DIR
+// By default, takes 10 paired cold/warm samples per build. Reports P50/P95.
 // No production credentials, backend writes, or native APK builds.
 import {createServer} from 'node:http';
-import {readFile, mkdtemp, rm} from 'node:fs/promises';
+import {readFile, writeFile, mkdtemp, rm} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join, resolve, extname} from 'node:path';
 import {gzipSync} from 'node:zlib';
 
-const [beforeDir, afterDir] = process.argv.slice(2).map(path => resolve(path));
-if (!beforeDir || !afterDir) throw new Error('Expected BEFORE_DIR AFTER_DIR');
+const directories = process.argv.slice(2);
+if (directories.length !== 2) throw new Error('Expected BEFORE_DIR AFTER_DIR');
+const [beforeDir, afterDir] = directories.map(path => resolve(path));
+const basePath = process.env.NCA_WEB_BASE_PATH || '/football-stream-app/admin/';
+if (!basePath.startsWith('/') || !basePath.endsWith('/')) {
+  throw new Error('NCA_WEB_BASE_PATH must be an absolute path ending in /');
+}
+const samplesPerBuild = Number(process.env.NCA_BENCHMARK_SAMPLES || 10);
+if (!Number.isInteger(samplesPerBuild) || samplesPerBuild < 5 || samplesPerBuild > 30) {
+  throw new Error('NCA_BENCHMARK_SAMPLES must be an integer from 5 to 30');
+}
 const mime = {'.html':'text/html','.js':'text/javascript','.wasm':'application/wasm',
   '.json':'application/json','.otf':'font/otf','.ttf':'font/ttf',
   '.png':'image/png','.webp':'image/webp','.svg':'image/svg+xml'};
 const delay = ms => new Promise(r=>setTimeout(r,ms));
-const median = a => {const x=[...a].sort((v,w)=>v-w);return x[Math.floor(x.length/2)]};
+const percentile = (values, fraction) => {
+  const sorted = [...values].sort((a,b)=>a-b);
+  if (!sorted.length) return null;
+  const rank = (sorted.length - 1) * fraction;
+  const lower = Math.floor(rank), upper = Math.ceil(rank);
+  return Math.round(sorted[lower] + (sorted[upper]-sorted[lower])*(rank-lower));
+};
 function serve(directory, port) {
   const server=createServer(async(req,res)=>{
     try {
       const u=new URL(req.url,'http://localhost');
-      const root='/football-stream-app/admin/';
-      if(!u.pathname.startsWith(root)){res.writeHead(404);res.end();return}
-      let name=decodeURIComponent(u.pathname.slice(root.length)) || 'index.html';
+      if(!u.pathname.startsWith(basePath)){res.writeHead(404);res.end();return}
+      let name=decodeURIComponent(u.pathname.slice(basePath.length)) || 'index.html';
       if(name.endsWith('/'))name+='index.html';
       if(name.split('/').includes('..'))throw new Error('Invalid path');
       const bytes=await readFile(join(directory,name));
@@ -78,13 +93,8 @@ const install=`(() => {
   const mark=()=>{if(!window.__ncaFirstFrameAt)window.__ncaFirstFrameAt=performance.now()};
   window.addEventListener('flutter-first-frame',mark,{once:true});
   document.addEventListener('flutter-first-frame',mark,{once:true});
-  document.addEventListener('DOMContentLoaded',()=>{
-    const observer=new MutationObserver(()=>{
-      const v=document.querySelector('flutter-view');
-      if(v && v.children.length){mark();observer.disconnect()}
-    });
-    observer.observe(document.body,{subtree:true,childList:true});
-  },{once:true});
+  // Do not use flutter-view DOM mutations as first-frame proxies:
+  // the element can have children well before Flutter paints its first frame.
 })();`;
 async function evaluate(expression) {
   const r=await call('Runtime.evaluate',{expression,returnByValue:true});
@@ -104,6 +114,9 @@ async function measure(url,clearCache) {
   }
   await delay(300);
   measuring=false;
+  if (firstFrameMs === null) {
+    throw new Error('flutter-first-frame event not observed: refusing an invalid startup comparison');
+  }
   const assets=received.filter(x=>!x.url.includes('/api/'));
   const sum=matcher=>assets.filter(x=>matcher.test(new URL(x.url).pathname))
     .reduce((p,x)=>p+x.bytes,0);
@@ -137,12 +150,15 @@ try{
     downloadThroughput:1024*1024,uploadThroughput:1024*1024,
   });
   const output={conditions:'Chromium headless, local gzip static host, 8 Mbps, 40ms simulated latency',
-    before:[],after:[]};
+    basePath, samplesPerBuild, before:[],after:[]};
   for(const [index,key] of ['before','after'].entries()){
-    const url='http://127.0.0.1:'+ports[index]+'/football-stream-app/admin/';
-    for(let i=0;i<3;i++){
-      const cold=await measure(url+'?cold='+i,true);
-      const warm=await measure(url+'?warm='+i,false);
+    const url='http://127.0.0.1:'+ports[index]+basePath;
+    for(let i=0;i<samplesPerBuild;i++){
+      // Paired navigations use the same document URL. Only the cold run
+      // clears the browser cache; the warm run reuses the downloaded assets.
+      const sampleUrl=url+'?sample='+i;
+      const cold=await measure(sampleUrl,true);
+      const warm=await measure(sampleUrl,false);
       output[key].push({cold,warm});
       process.stdout.write(key+' sample '+(i+1)+': '+JSON.stringify({cold,warm})+'\n');
     }
@@ -156,13 +172,21 @@ try{
       for(const metric of ['firstFrameMs','mainJsBytes','canvasWasmBytes',
           'bootstrapBytes','totalAssetBytes','assetRequests']){
         const values=samples.map(x=>x[state][metric]).filter(x=>x!==null);
-        result[key][state][metric]=values.length?median(values):null;
+        result[key][state][metric]={
+          count: values.length,
+          p50: percentile(values,0.50),
+          p95: percentile(values,0.95),
+        };
       }
     }
   }
-  process.stdout.write('STARTUP_COMPARISON='+JSON.stringify({
-    conditions:output.conditions,...result,
-  })+'\n');
+  const comparison={conditions:output.conditions,basePath,samplesPerBuild,...result,
+    rawSamples:{before:output.before,after:output.after}};
+  if (process.env.NCA_BENCHMARK_OUTPUT) {
+    await writeFile(process.env.NCA_BENCHMARK_OUTPUT,
+      JSON.stringify(comparison,null,2)+'\n');
+  }
+  process.stdout.write('STARTUP_COMPARISON='+JSON.stringify(comparison)+'\n');
 }finally{
   try{ws?.close()}catch(_){}
   if (chrome) {
