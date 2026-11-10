@@ -71,6 +71,25 @@ void main() {
     expect(AdminWebSourceCache.ui('yyzb').query, isEmpty);
   });
 
+  test('Web: logout then same-user login rejects prior session results', () async {
+    AdminWebSourceCache.bindUser('admin-a');
+    final originalGeneration = AdminWebSourceCache.sessionGeneration;
+    final pendingResult = Completer<List<Map<String, dynamic>>>();
+    final pending = AdminWebSourceCache.load(
+      'soco', () => pendingResult.future, force: true);
+
+    AdminWebSourceCache.bindUser(null);
+    AdminWebSourceCache.bindUser('admin-a');
+    if (kIsWeb) {
+      expect(AdminWebSourceCache.sessionGeneration,
+          greaterThan(originalGeneration));
+    }
+
+    pendingResult.complete([{'id': 'previous-session-private-row'}]);
+    await pending;
+    expect(AdminWebSourceCache.rows('soco'), isNull);
+  });
+
   test('Web: an old account in-flight request cannot populate next user cache',
       () async {
     AdminWebSourceCache.bindUser('admin-a');
