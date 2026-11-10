@@ -24,10 +24,10 @@ test("CricHD event slug can resolve a confirmed UTC kickoff", async () => {
   assert.equal(data.diagnostics.confirmed_kickoff_count, 1);
 });
 
-test("No kickoff is inferred from a blog publish timestamp or countdown", async () => {
+test("No kickoff is inferred from an article publication timestamp alone", async () => {
   const data = await experimentalMatches("crichd", {fetcher: pages({
     "https://crichd.pk/sports/soccer-streams": '<a href="/event/arsenal-vs-liverpool">Arsenal Liverpool</a>',
-    "https://crichd.pk/event/arsenal-vs-liverpool": '<meta name="datePublished" content="2026-11-10T15:00:00Z">Starts in 03:20:00',
+    "https://crichd.pk/event/arsenal-vs-liverpool": '<meta name="datePublished" content="2026-11-10T15:00:00Z">No published kickoff',
   })});
   assert.equal(data.matches.length, 1);
   assert.equal(data.matches[0].match_time, null);
