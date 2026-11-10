@@ -351,7 +351,7 @@ class NativePlayerActivity : Activity() {
         qualityButton = overlayButton("Auto").apply {
             textSize = 14f
             setPadding(dp(12), 0, dp(12), 0)
-            setOnClickListener { showQualityMenu() }
+            setOnClickListener { openSettingsMenu("video") }
         }
 
         displayModeButton = overlayButton("Fit").apply {
