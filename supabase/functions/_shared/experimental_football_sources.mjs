@@ -6,7 +6,7 @@ export const experimentalFootballSites = Object.freeze({
   xoilac:    { label: "Xoilac TV",        home: "https://xoilacls.tv/",                        host: "xoilacls.tv" },
   livetv:    { label: "LiveTV",           home: "https://livetv.li/soccer",                   host: "livetv.li" },
   rojadirecta:{label: "Rojadirecta",     home: "https://en.rojadirectaes.org/live-football", host: "rojadirectaes.org" },
-  crichd:    { label: "CricHD",           home: "https://crichd.pk/",                         host: "crichd.pk" },
+  crichd:    { label: "CricHD",           home: "https://crichd.pk/sports/soccer-streams",                         host: "crichd.pk" },
   roxie:     { label: "RoxieStreams",     home: "https://roxiestreams.su/soccer",             host: "roxiestreams.su" },
   vipbox:    { label: "VIPBox",           home: "https://www.vipboxtv.st/football-stream",    host: "vipboxtv.st" },
   viprow:    { label: "VIPRow",           home: "https://www.viprow.lc/sports-football-online",host: "viprow.lc" },
@@ -157,6 +157,10 @@ export async function experimentalMatches(source, {fetcher = fetch} = {}) {
     const href = hit[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
     const page = href && allowedPageUrl(href.replace(/&amp;/gi, "&"), site);
     if (!page || page === site.home || candidates.has(page)) continue;
+    // Multi-sport home pages cannot be trusted as football catalogs.
+    // Skip them unless the published link itself identifies football.
+    if (["ppv", "livextv", "streamfree"].includes(source) &&
+        !/\b(?:soccer|football)\b/i.test(page)) continue;
     const teams = teamsFromLink(page, hit[2]);
     if (!teams) continue;
     // The timestamp must be inside this anchor or immediately preceding it,
