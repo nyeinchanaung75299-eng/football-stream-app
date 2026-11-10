@@ -332,6 +332,76 @@
       box-sizing:border-box;padding:0 2px;border-radius:7px;
       font-size:11px;font-weight:700;line-height:1.1;
     }
+
+    /* Shared Web/Android UI contract. Both controls and line chips float ON
+       the picture; nothing below the video reserves a line-rail strip. */
+    #football-player-overlay.open #football-player-topbar{
+      position:absolute!important;top:0!important;left:0!important;right:0!important;
+      z-index:8!important;min-height:42px;flex:0 0 auto;
+      background:linear-gradient(to bottom,rgba(0,0,0,.78),rgba(0,0,0,.12))!important;
+    }
+    #football-player-overlay.open #football-player-topbar.controls-hidden{
+      opacity:0!important;pointer-events:none!important;visibility:hidden!important;
+    }
+    #football-player-overlay #football-player-video-wrap{
+      position:relative!important;justify-content:flex-start!important;align-items:flex-start!important;
+    }
+    #football-player-overlay #football-player-video-wrap > #football-player-line-rail{
+      position:absolute!important;left:0!important;right:0!important;
+      top:auto!important;bottom:41px!important;z-index:7!important;
+      flex:none!important;min-height:0!important;height:auto!important;
+      max-height:72px!important;box-sizing:border-box!important;
+      padding:4px 8px!important;border:0!important;
+      background:linear-gradient(to top,rgba(0,0,0,.4),rgba(0,0,0,.03))!important;
+      transform:none!important;overflow-x:auto!important;overflow-y:hidden!important;
+      opacity:1;pointer-events:auto;transition:opacity .18s ease,transform .18s ease;
+    }
+    #football-player-overlay #football-player-video-wrap > #football-player-line-rail.hidden{
+      display:none!important;
+    }
+    #football-player-overlay #football-player-video-wrap > #football-player-line-rail.controls-hidden{
+      opacity:0!important;pointer-events:none!important;
+      visibility:hidden!important;transform:translateY(5px)!important;
+    }
+    #football-player-overlay #football-player-video-wrap .football-line-chip{
+      min-height:38px;max-width:162px;min-width:110px;
+      box-sizing:border-box;padding:4px 7px;gap:0;
+      background:rgba(20,24,24,.9);border-radius:9px;
+    }
+    #football-player-overlay #football-player-video-wrap .football-line-chip.current{
+      background:rgba(16,54,38,.92);border-color:#38d88a;
+    }
+    #football-player-overlay #football-player-video-wrap .football-line-chip-label{
+      display:block;max-width:145px;overflow:hidden;text-overflow:ellipsis;
+      white-space:nowrap;font-size:10px;font-weight:650;line-height:1.2;
+    }
+    #football-player-overlay #football-player-video-wrap .football-line-chip-meta{
+      display:flex!important;align-items:center;gap:5px;
+      margin-top:3px;font-size:9px;font-weight:600;color:#c6d0cb;
+    }
+    #football-player-overlay .football-line-chip-format{
+      display:inline-flex;align-items:center;justify-content:center;
+      border-radius:6px;padding:1px 5px;font-size:9px;line-height:1.2;
+      background:#22594a;color:#e3fff3;font-weight:700;
+    }
+    #football-player-overlay .football-line-chip-format.dash{background:#20577a}
+    #football-player-overlay .football-line-chip-format.flv{background:#693276}
+    #football-player-overlay .football-line-chip-format.mp4{background:#454b5b}
+    #football-player-overlay #football-player-video-wrap #football-player-custom-controls{
+      z-index:6; /* The selected line row is just above the seek controls. */
+    }
+    #football-player-overlay #football-player-video-wrap #nca-player-progress{
+      height:3px;min-height:3px;max-height:3px;accent-color:#47e59e;
+    }
+    #football-player-overlay #football-player-video-wrap #nca-player-progress::-webkit-slider-runnable-track{
+      height:3px;border-radius:4px;
+    }
+    #football-player-overlay #football-player-video-wrap #nca-player-progress::-webkit-slider-thumb{
+      width:11px;height:11px;margin-top:-4px;
+    }
+    /* Chooser/settings always paint above line chips and dim overlays. */
+    #football-player-overlay #football-player-menu{z-index:12!important}
+    /* A tap should never leave an invisible topbar intercepting the picture. */
     /* iPhone Safari: fullscreen belongs next to Rotate on the top toolbar,
        never in a spare black box below the video. The volume/speaker UI
        remains owned by Safari inside the video and must not be overlaid. */
@@ -457,9 +527,10 @@
         </div>
       </div>
       <div id="football-player-message"></div>
-    </div>
-    <div id="football-player-line-rail" aria-label="Stream lines">
-      <div id="football-player-line-items" role="list"></div>
+      <!-- Inside the picture: hiding lines must not reserve a black strip. -->
+      <div id="football-player-line-rail" aria-label="Stream lines">
+        <div id="football-player-line-items" role="list"></div>
+      </div>
     </div>
   </div>
   <script>
@@ -650,7 +721,7 @@
       lineRail.classList.remove('controls-hidden');
       customControls.classList.remove('controls-hidden');
       if(controlsTimer)clearTimeout(controlsTimer);
-      controlsTimer=setTimeout(hideControls,5000);
+      controlsTimer=setTimeout(hideControls,7000);
     }
 
     function showMessage(text){messageEl.textContent=text||'';messageEl.style.display=text?'block':'none'}
@@ -1064,10 +1135,10 @@
         const label=safeLineLabel(source,index);
         const resolution=safeLineResolution(source);
         const type=sourceType(source).toUpperCase();
-        const displayLabel=label+
-          (resolution && !label.toLowerCase().includes(resolution.toLowerCase())?' • '+resolution:'')+
-          (['HLS','DASH','MP4','FLV'].includes(type) &&
-           !new RegExp('\\b'+type+'\\b','i').test(label)?' ('+type+')':'');
+        // Keep provider names small and truncated; always expose format
+        // and resolution separately, including on 16+ horizontal lines.
+        const shownResolution=resolution || '';
+        const shownType=['HLS','DASH','MP4','FLV'].includes(type)?type:'';
         item.type='button';
         item.className='football-line-chip'+(selected?' current':'');
         item.setAttribute('role','listitem');
@@ -1076,7 +1147,11 @@
         item.innerHTML=
           '<span class="football-line-chip-mark" aria-hidden="true">✓</span>'+
           '<span class="football-line-chip-copy">'+
-          '<span class="football-line-chip-label">'+escapeHtml(displayLabel)+'</span></span>';
+          '<span class="football-line-chip-label">'+escapeHtml(label)+'</span>'+
+          '<span class="football-line-chip-meta">'+
+          (shownResolution?'<span>'+escapeHtml(shownResolution)+'</span>':'')+
+          (shownType?'<span class="football-line-chip-format '+shownType.toLowerCase()+'">'+shownType+'</span>':'')+
+          '</span></span>';
         item.addEventListener('click',()=>{
           revealControls();
           capturePlayerEvent('playback line selected',{
@@ -1652,13 +1727,34 @@
       overlay.setAttribute('aria-hidden','true');
       await destroyPlayback();
     });
-    overlay.addEventListener('pointermove',()=>{
-      // Desktop: moving the cursor over controls refreshes their idle timer.
-      if(overlay.classList.contains('open')&&!isIOS())revealControls();
+    overlay.addEventListener('pointermove',event=>{
+      // Touch movement must NOT force visible controls after a tap hides them.
+      if(overlay.classList.contains('open') &&
+         (event.pointerType==='mouse' || !event.pointerType) && !isIOS())
+        revealControls();
     });
     overlay.addEventListener('pointerup',event=>{
       if(event.target===video||event.target===videoWrap||event.target===videoFrame){
-        closePlayerMenu();
+        if(!menuPanel.classList.contains('hidden')) {
+          closePlayerMenu(); // Settings/chooser is a deliberate, pinned action.
+          return;
+        }
+        const bar=document.getElementById('football-player-topbar');
+        if(bar.classList.contains('controls-hidden')) revealControls();
+        else {
+          if(controlsTimer)clearTimeout(controlsTimer);
+          controlsTimer=null;
+          hideControls();
+        }
+      }
+    });
+    overlay.addEventListener('click',event=>{
+      // Interacting with a control restarts the idle timer.
+      const id=event.target?.id||'';
+      if(overlay.classList.contains('open') &&
+         id && id!=='football-player-video' &&
+         id!=='football-player-video-wrap' &&
+         id!=='football-player-video-frame') {
         revealControls();
       }
     });

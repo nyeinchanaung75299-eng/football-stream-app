@@ -363,51 +363,87 @@ test('in-player controls show progress/time and Settings video audio speed tabs'
   assert.equal(h.elements.get('football-player-menu').classList.contains('hidden'),true);
 });
 
-test('fullscreen line rail floats over the picture and auto-hides after five seconds', async () => {
-  const railCss = html.match(/#football-player-line-rail\{([^}]+)\}/)?.[1] || '';
-  assert.match(railCss, /position:absolute/);
-  assert.doesNotMatch(railCss, /flex:0 0 auto/);
-  assert.match(html, /#football-player-line-rail\.controls-hidden\{opacity:0;transform:translateY\(100%\);pointer-events:none\}/);
+test('server rail is inside the video, tap toggles everything, and idle hides at seven seconds', async () => {
+  const opening = html.indexOf('<div id="football-player-video-wrap">');
+  const railInVideo = html.indexOf('<div id="football-player-line-rail"', opening);
+  const endOfVideo = html.indexOf('</div>\n  </div>\n  <script>', opening);
+  assert.ok(railInVideo > opening && railInVideo < endOfVideo,
+    'The line rail must not occupy a separate black strip');
+  assert.match(html, /#football-player-video-wrap > #football-player-line-rail/);
+  assert.match(html, /bottom:41px!important/);
+  assert.match(html, /controlsTimer=setTimeout\(hideControls,7000\)/);
 
   const h = createHarness({ ios:false });
   const rail = h.elements.get('football-player-line-rail');
   const topbar = h.elements.get('football-player-topbar');
-  await h.open([source('hls'), source('hls','Backup')]);
+  const footer = h.elements.get('football-player-custom-controls');
+  await h.open([source('hls','Primary'), source('dash','Backup')]);
   h.elements.get('football-player-fullscreen').click();
   await flush();
   assert.equal(h.document.fullscreenElement, h.overlay);
   assert.equal(rail.classList.contains('controls-hidden'), false);
-  await h.tick(4999);
+  await h.tick(6999);
   assert.equal(rail.classList.contains('controls-hidden'), false);
   await h.tick(1);
-  assert.equal(rail.classList.contains('controls-hidden'), true);
-  assert.equal(topbar.classList.contains('controls-hidden'), true);
+  for (const el of [rail, topbar, footer])
+    assert.equal(el.classList.contains('controls-hidden'), true);
 
-  h.overlay.emit('pointerup', { target:h.video });
-  assert.equal(rail.classList.contains('controls-hidden'), false, 'tap shows line controls');
-  assert.equal(topbar.classList.contains('controls-hidden'), false);
-  await h.tick(5000);
+  h.overlay.emit('pointerup', { target:h.video, pointerType:'touch' });
+  for (const el of [rail, topbar, footer])
+    assert.equal(el.classList.contains('controls-hidden'), false);
+  h.overlay.emit('pointerup', { target:h.video, pointerType:'touch' });
+  for (const el of [rail, topbar, footer])
+    assert.equal(el.classList.contains('controls-hidden'), true,
+      'Second tap hides all overlays immediately');
+  h.overlay.emit('pointerup', { target:h.video, pointerType:'touch' });
+  await h.tick(7000);
   assert.equal(rail.classList.contains('controls-hidden'), true);
-  h.overlay.emit('pointermove');
-  assert.equal(rail.classList.contains('controls-hidden'), false, 'mouse motion can show controls');
+
+  h.overlay.emit('pointermove', {pointerType:'mouse'});
+  assert.equal(rail.classList.contains('controls-hidden'), false);
   await h.close();
-  assert.equal(h.overlay.classList.contains('open'), false);
 });
 
-test('server chooser remains interactive while open, then restarts five-second hide timer', async () => {
+test('line chooser and settings stay visible while open, then restart seven-second timer', async () => {
   const h = createHarness({ ios:false });
   await h.open([source('hls'), source('hls','Backup')]);
   const rail = h.elements.get('football-player-line-rail');
   const server = h.elements.get('football-player-server');
   server.click();
-  await h.tick(6000);
+  await h.tick(8000);
   assert.equal(h.elements.get('football-player-menu').classList.contains('hidden'), false);
   assert.equal(rail.classList.contains('controls-hidden'), false);
   server.click();
-  await h.tick(4999);
+  await h.tick(6999);
   assert.equal(rail.classList.contains('controls-hidden'), false);
   await h.tick(1);
   assert.equal(rail.classList.contains('controls-hidden'), true);
+
+  h.overlay.emit('pointerup', {target:h.video});
+  h.elements.get('nca-player-settings').click();
+  await h.tick(8000);
+  assert.equal(h.elements.get('football-player-menu').classList.contains('hidden'),false);
+  assert.equal(rail.classList.contains('controls-hidden'),false);
+  h.elements.get('football-player-menu-close').click();
+  await h.tick(7000);
+  assert.equal(rail.classList.contains('controls-hidden'),true);
+});
+
+test('stream chips show compact names and separate resolution + HLS/DASH/FLV badges without TV icons', async () => {
+  const h = createHarness({ios:false});
+  await h.open([
+    {...source('hls','beIN Sports En Español HD'),resolution:'1080p'},
+    {...source('dash','TNT Sports 1 HD · Server 1'),resolution:'720p'},
+    {...source('flv','TNT Sports 2 HD'),resolution:'1080p'}
+  ]);
+  const rail = h.elements.get('football-player-line-items');
+  assert.equal(rail.children.length, 3);
+  for (const [i,format] of ['HLS','DASH','FLV'].entries()) {
+    assert.match(rail.children[i].innerHTML, new RegExp(format));
+    assert.match(rail.children[i].innerHTML,/football-line-chip-meta/);
+    assert.doesNotMatch(rail.children[i].innerHTML,/📺|class="tv-icon"/);
+  }
+  assert.match(rail.children[1].innerHTML,/720p/);
 });
 
 test('single channel starts upright without a line chooser and rotates only on tap', async () => {
