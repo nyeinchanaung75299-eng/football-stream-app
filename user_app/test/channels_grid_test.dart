@@ -5,10 +5,14 @@ import 'package:football_viewer/viewer_tab_cache.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:football_viewer/screens/channels_page.dart';
 
 void main() {
-  setUp(ViewerTabCache.clearForTesting);
+  setUp(() {
+    ViewerTabCache.clearForTesting();
+    SharedPreferences.setMockInitialValues({});
+  });
 
   testWidgets(
     'search finds channels beyond the initial viewport without refetching',
@@ -60,6 +64,75 @@ void main() {
       );
     },
   );
+
+  testWidgets('cached Channels catalog survives Safari reload and API outage',
+      (tester) async {
+    const title = 'beIN Sports Test';
+    const channelId = '00000000-0000-0000-0000-000000000011';
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home: ChannelsPage()));
+      await tester.pumpAndSettle();
+      expect(find.text(title), findsOneWidget);
+      final prefs = await SharedPreferences.getInstance();
+      final snapshot = prefs.getString('viewer_public_channel_catalog_v2');
+      expect(snapshot, isNotNull);
+      expect(snapshot, contains(title));
+      expect(snapshot, isNot(contains('private-key')));
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    }, () => MockClient((request) async {
+      if (request.url.path == '/channels') {
+        return http.Response(jsonEncode({
+          'ok': true,
+          'channels': [{
+            'id': channelId,
+            'name': title,
+            'category': 'Sport',
+            'image_url': '',
+            'key_data': 'private-key',
+          }],
+        }), 200);
+      }
+      return http.Response(jsonEncode({'ok': true, 'channels': [],
+        'matches': []}), 200);
+    }));
+
+    ViewerTabCache.clearForTesting(); // Memory lost; disk survives.
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home: ChannelsPage()));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(find.text(title), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, () => MockClient((_) async => http.Response('{}', 503)));
+  });
+
+  testWidgets('channel stream network failure offers safe Retry, not raw URL',
+      (tester) async {
+    const channelId = '00000000-0000-0000-0000-000000000012';
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home: ChannelsPage()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Offline Channel'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Channel connection failed'), findsOneWidget);
+      expect(find.text('RETRY'), findsOneWidget);
+      expect(find.textContaining('Channel service unavailable'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, () => MockClient((request) async {
+      if (request.url.path.endsWith('/streams')) {
+        return http.Response('private-server-token', 503);
+      }
+      if (request.url.path == '/channels') {
+        return http.Response(jsonEncode({'ok': true, 'channels': [{
+          'id': channelId, 'name': 'Offline Channel', 'category': 'Sport',
+        }]}), 200);
+      }
+      return http.Response(jsonEncode({
+        'ok': true, 'channels': [], 'matches': [],
+      }), 200);
+    }));
+  });
 
   testWidgets(
     'channel logo opens the first protected video directly in portrait',

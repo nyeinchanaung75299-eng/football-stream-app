@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../channel_library.dart';
@@ -27,6 +28,8 @@ class ChannelsPage extends StatefulWidget {
 class _ChannelsPageState extends State<ChannelsPage> {
   static final PublicGuideCache<Map<String, dynamic>> _guideCache =
       PublicGuideCache<Map<String, dynamic>>();
+  static const _savedCatalogKey = 'viewer_public_channel_catalog_v2';
+  static const _savedCatalogAge = Duration(hours: 24);
   int _guideEpoch = 0;
   final search = TextEditingController();
   late Future<List<Map<String, dynamic>>> catalog;
@@ -62,6 +65,11 @@ class _ChannelsPageState extends State<ChannelsPage> {
     final refreshStale = _lastChannels != null && !ViewerTabCache.channelsFresh();
     if (refreshStale) {
       unawaited(refresh(silent: true));
+    }
+    if (_lastChannels == null) {
+      // Safari may discard the Flutter app's in-memory cache on reload.
+      // Paint a recent public catalogue while the live routes revalidate.
+      unawaited(_restoreSavedCatalog());
     }
     // Channel logos are lazy Image widgets; fetch guide/fixture metadata
     // only after the first channel frame can paint, never on Viewer startup.
@@ -190,7 +198,10 @@ class _ChannelsPageState extends State<ChannelsPage> {
     return match != null && programmes.any((p) => programmeCoversMatch(p, match));
   }
 
-  Future<Map<String, dynamic>> request(String path) async {
+  Future<Map<String, dynamic>> request(
+    String path, {
+    Duration timeout = const Duration(seconds: 7),
+  }) async {
     final bases = publicApiBases();
     final result = Completer<Map<String, dynamic>>();
     Object? lastError;
@@ -208,7 +219,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                 Uri.parse('$base$path'),
                 headers: const {'Accept': 'application/json'},
               )
-              .timeout(const Duration(seconds: 7));
+              .timeout(timeout);
           if (response.statusCode != 200) {
             throw StateError('HTTP ${response.statusCode}');
           }
@@ -252,6 +263,50 @@ class _ChannelsPageState extends State<ChannelsPage> {
     }
   }
 
+  Future<void> _saveChannelCatalog(List<Map<String, dynamic>> rows) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_savedCatalogKey, jsonEncode({
+        'saved_at': DateTime.now().toUtc().toIso8601String(),
+        // Persist public listing fields only: never store signed stream URLs,
+        // authorization, DRM keys or other secrets in browser preferences.
+        'channels': [
+          for (final row in rows)
+            {
+              'id': row['id'],
+              'name': row['name'],
+              'category': row['category'],
+              'image_url': row['image_url'],
+            },
+        ],
+      }));
+    } catch (_) {
+      // Cache is optional and must never block browsing or playback.
+    }
+  }
+
+  Future<void> _restoreSavedCatalog() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_savedCatalogKey);
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map || decoded['channels'] is! List) return;
+      final saved = DateTime.tryParse(decoded['saved_at']?.toString() ?? '');
+      if (saved == null || DateTime.now().toUtc().difference(saved.toUtc()) >
+          _savedCatalogAge) return;
+      final rows = (decoded['channels'] as List)
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+      if (!mounted || _lastChannels != null) return;
+      ViewerTabCache.seedStaleChannelsIfMissing(rows);
+      setState(() => _lastChannels = rows);
+    } catch (_) {
+      // Missing/corrupt or expired snapshots are treated as cache misses.
+    }
+  }
+
   Future<List<Map<String, dynamic>>> load({bool force = false}) async {
     final rows = await ViewerTabCache.loadChannels(() async {
       final data = await request('/channels');
@@ -263,6 +318,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
           .map((row) => Map<String, dynamic>.from(row))
           .toList();
     }, force: force);
+    unawaited(_saveChannelCatalog(rows)); // Even [] invalidates old results.
     if (mounted && !identical(_lastChannels, rows)) {
       setState(() => _lastChannels = rows); // Includes successful empty [].
     }
@@ -294,7 +350,13 @@ class _ChannelsPageState extends State<ChannelsPage> {
     if (!RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)) return;
     setState(() => opening = true);
     try {
-      final data = await request('/channels/$id/streams');
+      // A stream-link request often needs an upstream service after the
+      // metadata API replies. Give each verified route a bounded extra window
+      // while the existing Vercel/Cloudflare hedges are still active.
+      final data = await request(
+        '/channels/$id/streams',
+        timeout: const Duration(seconds: 12),
+      );
       if (data['streams'] is! List)
         throw const FormatException('Invalid channel lines');
       final lines = (data['streams'] as List)
@@ -344,11 +406,21 @@ class _ChannelsPageState extends State<ChannelsPage> {
         title: channel['name']?.toString() ?? 'Channel',
         matchId: id,
       );
-    } catch (error) {
-      if (mounted)
+    } catch (_) {
+      if (mounted) {
+        // Do not expose upstream URLs, auth tokens or internal error strings.
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open channel: $error')),
+          SnackBar(
+            content: const Text(
+              'Channel connection failed. Check the network and retry.',
+            ),
+            action: SnackBarAction(
+              label: 'RETRY',
+              onPressed: () => unawaited(watch(channel)),
+            ),
+          ),
         );
+      }
     } finally {
       if (mounted) setState(() => opening = false);
     }
