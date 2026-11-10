@@ -80,6 +80,14 @@ jobs:
         run: |
           flutter analyze --no-fatal-infos
           flutter test
+      - name: Verify Web-only Admin source cache in Chrome
+        if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[admin-web-only]') }}
+        working-directory: admin_app
+        run: |
+          CHROME_BIN="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$CHROME_BIN"
+          CHROME_EXECUTABLE="$CHROME_BIN" flutter test --platform chrome test/admin_web_source_cache_test.dart
+
       - name: Generate Admin Web platform
         working-directory: admin_app
         run: flutter create --platforms=web .
