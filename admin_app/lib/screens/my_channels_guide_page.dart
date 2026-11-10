@@ -133,7 +133,7 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
                   onRefresh: _refresh,
                 ),
               if (widget.embedded) const SizedBox(height: 10),
-              if (kIsWeb && snapshot.hasError && _lastGuide != null) ...[
+              if (snapshot.hasError && _lastGuide != null) ...[
                 Card(
                   color: Theme.of(context).colorScheme.errorContainer,
                   child: ListTile(
