@@ -156,6 +156,32 @@ class _SocoImportPageState extends State<SocoImportPage> {
   String source = 'soco';
   String dayFilter = 'today';
   String? errorText;
+  String? _experimentalEmptyReason;
+
+  String? _explainExperimentalResponse(dynamic data) {
+    if (data is! Map || data['diagnostics'] is! Map) return null;
+    final diagnostics = data['diagnostics'] as Map;
+    final found = (diagnostics['candidate_count'] as num?)?.toInt() ?? 0;
+    final confirmed = (diagnostics['confirmed_kickoff_count'] as num?)?.toInt() ?? 0;
+    final estimated = (diagnostics['estimated_countdown_count'] as num?)?.toInt() ?? 0;
+    if (found > 0) {
+      return '$found football fixture(s) found • $confirmed timed, $estimated estimated from fresh countdown. '
+          'A source page does not guarantee a working video stream.';
+    }
+    return switch (diagnostics['content_state']?.toString()) {
+      'browser_render_or_unsupported_markup' =>
+        'No fixture data found in public HTML or embedded JSON. '
+        'This site may load matches through browser JavaScript; a permitted '
+        'public data endpoint is needed. No video stream is verified.',
+      'no_recognized_football_fixtures' =>
+        'Public JSON was found, but no valid football fixture with a '
+        'same-site event URL was recognized. Check this provider format.',
+      'empty_page' =>
+        'This provider returned no recognizable football events.',
+      _ => 'No verified football event was returned by this provider.',
+    };
+  }
+
   final _sourceSearch = TextEditingController();
   late final ScrollController _sourceScroll;
   String _sourceQuery = '';
@@ -379,6 +405,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     }
 
     try {
+      String? loadDiagnostic;
       final parsed = await AdminWebSourceCache.load(provider, () async {
       dynamic data;
       if (!_enableNoVpnFallback) {
@@ -401,6 +428,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
       }
 
       final rows = validateSourceMatchRows(data, provider);
+      if (_experimentalSourceNames.containsKey(provider)) {
+        loadDiagnostic = _explainExperimentalResponse(data);
+      }
 
       final parsed = rows
           .map((row) => englishSourceMatch(row, provider))
@@ -423,7 +453,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (!current()) return;
       // A one-minute background catalog refresh must not reset all streamer
       // statuses and trigger an identical network probe storm.
-      if (silent && jsonEncode(sourceMatches) == jsonEncode(parsed)) {
+      if (silent && jsonEncode(sourceMatches) == jsonEncode(parsed) &&
+          _experimentalEmptyReason == loadDiagnostic) {
         // Keep the catalog without repainting. Only TTL-expired statuses
         // are rechecked; unchanged results never trigger a full probe storm.
         unawaited(
@@ -439,6 +470,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       };
       setState(() {
         sourceMatches = parsed;
+        _experimentalEmptyReason = loadDiagnostic;
         _anchorStatuses.removeWhere((key, _) => !currentKeys.contains(key));
         _anchorLineCounts.removeWhere((key, _) => !currentKeys.contains(key));
         _anchorStatusCheckedAt.removeWhere(
@@ -1980,7 +2012,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       child: Text(
                         _sourceQuery.trim().isEmpty
                             ? (_isExperimentalSource
-                                ? 'No verified football event links could be read from this website. The site may use JavaScript-only fixtures, block requests, or have no current matches. Source playback is not confirmed.'
+                                ? (_experimentalEmptyReason ?? 'No recognized football match data was returned by the website.')
                                 : 'No football matches in this source section.')
                             : 'No matches found. Clear search to see all fixtures.',
                       ),
