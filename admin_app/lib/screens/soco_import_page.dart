@@ -103,7 +103,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
   bool get _isManualSource => source == 'playz';
   bool get _currentSession => !kIsWeb ||
       (_sourceSessionGeneration == AdminWebSourceCache.sessionGeneration &&
-       Supabase.instance.client.auth.currentSession != null);
+       _sourceSessionUserId != null &&
+       Supabase.instance.client.auth.currentSession?.user.id ==
+           _sourceSessionUserId);
 
   static const _pagesMirrorBase =
       'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources';
@@ -139,6 +141,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   bool _backgroundRefreshBusy = false;
   int _sourceLoadEpoch = 0;
   late final int _sourceSessionGeneration;
+  late final String? _sourceSessionUserId;
   bool _addingLine = false;
   bool _savingLibrary = false;
   String? _deletingLibraryId;
@@ -157,6 +160,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     super.initState();
     _streamLibrary = StreamLibraryService(Supabase.instance.client);
     _sourceSessionGeneration = AdminWebSourceCache.sessionGeneration;
+    _sourceSessionUserId = Supabase.instance.client.auth.currentSession?.user.id;
     targetMatchId = widget.initialMatchId;
     if (widget.initialReferer != null) {
       _playzReferer.text = widget.initialReferer!;
@@ -203,9 +207,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   void dispose() {
     _sourceLoadEpoch += 1;
     _sourceRefreshTimer?.cancel();
-    if (kIsWeb && !_isManualSource &&
-        _sourceSessionGeneration == AdminWebSourceCache.sessionGeneration &&
-        Supabase.instance.client.auth.currentSession != null) {
+    if (kIsWeb && !_isManualSource && _currentSession) {
       AdminWebSourceCache.saveUi(source, AdminSourceUiState(
         query: _sourceQuery,
         dayFilter: dayFilter,
@@ -228,9 +230,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     if (!mounted || _isManualSource || loading || _backgroundRefreshBusy)
       return;
     if (kIsWeb &&
-        (AdminWebSourceCache.sessionGeneration != _sourceSessionGeneration ||
-         Supabase.instance.client.auth.currentSession == null ||
-         AdminWebSourceCache.fresh(source))) return;
+        (!_currentSession || AdminWebSourceCache.fresh(source))) return;
     final state = WidgetsBinding.instance.lifecycleState;
     if (_extractingAnchorKey != null ||
         (state != null && state != AppLifecycleState.resumed) ||
@@ -344,9 +344,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     bool current() => mounted && source == provider &&
         epoch == _sourceLoadEpoch &&
         (!kIsWeb ||
-         (sessionGeneration == _sourceSessionGeneration &&
-          sessionGeneration == AdminWebSourceCache.sessionGeneration &&
-          Supabase.instance.client.auth.currentSession != null));
+         (sessionGeneration == _sourceSessionGeneration && _currentSession));
     if (!silent) {
       setState(() {
         loading = true;
