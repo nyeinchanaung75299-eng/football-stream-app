@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'dashboard_page.dart';
+import '../services/admin_web_source_cache.dart';
+import '../services/tv_schedule_service.dart';
 import 'login_page.dart';
 
 enum _AdminAccess { allowed, denied, failed }
@@ -15,7 +18,18 @@ class AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<AuthGate> {
   String? _checkedUserId;
+  String? _cacheBoundUser;
   Future<_AdminAccess>? _accessFuture;
+
+  // Account switch, explicit logout and expired sessions always drop the
+  // private in-memory provider cache and shared guide, including in-flight
+  // results that might otherwise leak into another Admin's tab.
+  void _bindWebCache(String? userId) {
+    if (!kIsWeb || _cacheBoundUser == userId) return;
+    _cacheBoundUser = userId;
+    AdminWebSourceCache.bindUser(userId);
+    TvScheduleService.invalidateShared();
+  }
 
   Future<_AdminAccess> _checkAccess(String userId) async {
     try {
@@ -54,12 +68,14 @@ class _AuthGateState extends State<AuthGate> {
       builder: (context, snapshot) {
         final session = Supabase.instance.client.auth.currentSession;
         if (session == null) {
+          _bindWebCache(null);
           _checkedUserId = null;
           _accessFuture = null;
           return const LoginPage();
         }
 
         final userId = session.user.id;
+        _bindWebCache(userId);
         _ensureCheck(userId);
 
         return FutureBuilder<_AdminAccess>(
