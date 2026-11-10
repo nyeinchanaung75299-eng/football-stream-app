@@ -416,12 +416,6 @@ class NativePlayerActivity : Activity() {
             serverRailScroll,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50), Gravity.TOP)
         )
-        settingsButton = overlayButton("⚙").apply {
-            textSize = 24f
-            contentDescription = "Playback settings: video quality, audio and speed"
-            visibility = View.GONE
-            setOnClickListener { showPlaybackSettings() }
-        }
         // One compact bottom transport row. Line switching belongs OUTSIDE
         // videoHost in serverRailScroll; no Previous/Next server shortcuts.
         compactControls = LinearLayout(this).apply {
@@ -655,6 +649,9 @@ class NativePlayerActivity : Activity() {
         bufferingStartedAt = null
         suspendedAt = if (activityResumed) null else openingStartedAt
         forcedQualityLabel = null
+        selectedAudioLabel = null
+        selectedSubtitleLabel = null
+        closeSettingsMenu()
         qualityOptions.clear()
         qualityButton.text = "Auto"
         showStatus("Opening ${serverLabel(index)}…")
@@ -1325,9 +1322,9 @@ class NativePlayerActivity : Activity() {
             "audio" -> {
                 val selector = trackSelector
                 choice("Auto", "Default audio", selectedAudioLabel == null) {
-                    selector?.parameters = selector?.buildUponParameters()
-                        ?.clearOverridesOfType(C.TRACK_TYPE_AUDIO)?.build()
-                        ?: return@choice
+                    if (selector == null) return@choice
+                    selector.parameters = selector.buildUponParameters()
+                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO).build()
                     selectedAudioLabel = null
                 }
                 player?.currentTracks?.groups?.forEach { group ->
