@@ -634,6 +634,35 @@ class NativePlayerActivity : Activity() {
         if (hasFocus) safeHideSystemBars()
     }
 
+    private fun clearControlsHideTimer() {
+        if (!::playerView.isInitialized) return
+        controlsHideRunnable?.let { playerView.removeCallbacks(it) }
+        controlsHideRunnable = null
+    }
+
+    private fun setControlsVisible(visible: Boolean) {
+        controlsVisible = visible
+        if (::topBar.isInitialized)
+            topBar.visibility = if (visible) View.VISIBLE else View.GONE
+        if (::compactControls.isInitialized)
+            compactControls.visibility = if (visible) View.VISIBLE else View.GONE
+        if (::serverRailScroll.isInitialized)
+            serverRailScroll.visibility =
+                if (visible && visibleServerIndices().size > 1) View.VISIBLE else View.GONE
+        clearControlsHideTimer()
+        if (visible && ::playerView.isInitialized) {
+            val task = Runnable {
+                if (!isFinishing && !isDestroyed &&
+                    (!::settingsPanel.isInitialized ||
+                     settingsPanel.visibility != View.VISIBLE)) {
+                    setControlsVisible(false)
+                }
+            }
+            controlsHideRunnable = task
+            playerView.postDelayed(task, controlsHideDelayMs)
+        }
+    }
+
     private fun updateCompactControls() {
         if (!::compactControls.isInitialized) return
         val exo = player ?: return
@@ -981,8 +1010,8 @@ class NativePlayerActivity : Activity() {
             sources.optJSONObject(index)?.optString("transport") != "vercel-fallback"
         }
 
-    private fun showServerMenu() {
-        val popup = PopupMenu(this, serverButton)
+    private fun showServerMenu(anchor: View = serverButton) {
+        val popup = PopupMenu(this, anchor)
         for (i in visibleServerIndices()) {
             popup.menu.add(0, 12000 + i, i, serverLabel(i)).apply {
                 isChecked = i == selectedServerIndex
@@ -992,6 +1021,7 @@ class NativePlayerActivity : Activity() {
             val i = item.itemId - 12000
             if (i in 0 until sources.length()) {
                 selectServer(i)
+                setControlsVisible(true)
                 true
             } else false
         }
@@ -1026,6 +1056,35 @@ class NativePlayerActivity : Activity() {
             else raw.replaceFirst(Regex("""(?i)^\s*([^·•|]+?)\s*[·•|]\s*\1(?=\s*[·•|]|$)"""), "$1").trim()
     }
 
+    private fun safeLineResolution(index: Int): String {
+        val raw = sources.optJSONObject(index)?.optString("resolution").orEmpty().trim()
+        return if (raw.matches(Regex("(?i)^(?:[0-9]{3,4}p|auto|sd|hd|fhd|uhd|4k)$"))) raw else ""
+    }
+
+    private fun safeLineFormat(index: Int): String {
+        val source = sources.optJSONObject(index) ?: return ""
+        val declared = source.optString("streamType")
+            .ifBlank { source.optString("stream_type") }.lowercase(Locale.ROOT)
+        return when (declared) {
+            "hls", "m3u8" -> "HLS"
+            "dash", "mpd" -> "DASH"
+            "flv" -> "FLV"
+            "mp4" -> "MP4"
+            else -> {
+                // Fallback only when the source did not declare a type.
+                // Never put a raw URL, query token, or secret in the UI.
+                val url = source.optString("url").lowercase(Locale.ROOT)
+                when {
+                    ".m3u8" in url -> "HLS"
+                    ".mpd" in url -> "DASH"
+                    ".flv" in url -> "FLV"
+                    ".mp4" in url -> "MP4"
+                    else -> ""
+                }
+            }
+        }
+    }
+
     private fun renderServerRail() {
         if (!::serverRail.isInitialized || !::serverRailScroll.isInitialized) return
         serverRail.removeAllViews()
@@ -1033,65 +1092,108 @@ class NativePlayerActivity : Activity() {
         for (i in visibleServerIndices()) {
             val selected = i == selectedServerIndex
             val failed = autoFallbackTried.contains(i)
-            val chip = TextView(this).apply {
-                text = when {
-                    selected -> "✓ ${serverLabel(i)}"
-                    failed -> "! ${serverLabel(i)}"
-                    else -> serverLabel(i)
-                }
-                setTextColor(
-                    when {
-                        selected -> Color.rgb(82, 224, 154)
-                        failed -> Color.rgb(255, 145, 145)
-                        else -> Color.WHITE
-                    }
-                )
-                textSize = 11f
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
-                gravity = Gravity.CENTER
-                setSingleLine(true)
-                ellipsize = TextUtils.TruncateAt.END
-                maxWidth = dp(165)
-                minWidth = dp(70)
-                setPadding(dp(10), 0, dp(10), 0)
-                isSelected = selected
-                contentDescription = if (selected) {
-                    "${serverLabel(i)}, selected line"
-                } else {
-                    "${serverLabel(i)}, line"
+            val chip = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(7), dp(3), dp(7), dp(3))
+                isClickable = true
+                isFocusable = true
+                contentDescription = buildString {
+                    append(serverLabel(i))
+                    val resolution = safeLineResolution(i)
+                    val format = safeLineFormat(i)
+                    if (resolution.isNotEmpty()) append(", $resolution")
+                    if (format.isNotEmpty()) append(", $format")
+                    if (selected) append(", selected")
                 }
                 background = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = dp(7).toFloat()
-                    setColor(
-                        if (selected) Color.rgb(22, 60, 45)
-                        else Color.rgb(23, 26, 25)
-                    )
-                    setStroke(
-                        if (selected) dp(2) else dp(1),
-                        when {
-                            selected -> Color.rgb(82, 224, 154)
-                            failed -> Color.rgb(220, 94, 94)
-                            else -> Color.rgb(100, 100, 100)
-                        }
-                    )
+                    cornerRadius = dp(8).toFloat()
+                    setColor(if (selected) Color.argb(238, 19, 58, 42)
+                        else Color.argb(233, 25, 29, 29))
+                    setStroke(if (selected) dp(2) else dp(1), when {
+                        selected -> Color.rgb(56, 216, 138)
+                        failed -> Color.rgb(220, 94, 94)
+                        else -> Color.rgb(103, 112, 109)
+                    })
                 }
-                setOnClickListener { selectServer(i) }
+                setOnClickListener {
+                    setControlsVisible(true)
+                    selectServer(i)
+                }
             }
-            serverRail.addView(
-                chip,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    dp(40)
-                ).apply {
-                    marginEnd = dp(8)
-                }
-            )
+            chip.addView(TextView(this).apply {
+                text = (if (selected) "✓ " else if (failed) "! " else "") + serverLabel(i)
+                textSize = 10f
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                setTextColor(if (selected) Color.rgb(143, 227, 185) else Color.WHITE)
+                setSingleLine(true)
+                ellipsize = TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+            val meta = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val resolution = safeLineResolution(i)
+            if (resolution.isNotEmpty()) {
+                meta.addView(TextView(this).apply {
+                    text = resolution
+                    textSize = 9f
+                    setTextColor(Color.rgb(194, 207, 200))
+                    setSingleLine(true)
+                }, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = dp(6) })
+            }
+            val format = safeLineFormat(i)
+            if (format.isNotEmpty()) {
+                meta.addView(TextView(this).apply {
+                    text = format
+                    textSize = 9f
+                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    setTextColor(Color.WHITE)
+                    setPadding(dp(5), 0, dp(5), 0)
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(5).toFloat()
+                        setColor(when (format) {
+                            "DASH" -> Color.rgb(31, 87, 126)
+                            "FLV" -> Color.rgb(102, 47, 116)
+                            else -> Color.rgb(35, 91, 74)
+                        })
+                    }
+                })
+            }
+            chip.addView(meta, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(2) })
+            serverRail.addView(chip, LinearLayout.LayoutParams(
+                dp(150), dp(40)
+            ).apply { marginEnd = dp(6) })
             if (selected) selectedChip = chip
+        }
+        if (visibleServerIndices().size > 3) {
+            val all = TextView(this).apply {
+                text = "⋯"
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                contentDescription = "Choose from all stream lines"
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(8).toFloat()
+                    setColor(Color.argb(230, 25, 29, 29))
+                    setStroke(dp(1), Color.rgb(103, 112, 109))
+                }
+                setOnClickListener {
+                    setControlsVisible(true)
+                    showServerMenu(this)
+                }
+            }
+            serverRail.addView(all, LinearLayout.LayoutParams(dp(38), dp(40)))
         }
         selectedChip?.let { chip ->
             serverRailScroll.post {
-                serverRailScroll.smoothScrollTo((chip.left - dp(12)).coerceAtLeast(0), 0)
+                serverRailScroll.smoothScrollTo((chip.left - dp(7)).coerceAtLeast(0), 0)
             }
         }
     }
@@ -1284,6 +1386,7 @@ class NativePlayerActivity : Activity() {
 
     private fun closeSettingsMenu() {
         if (::settingsPanel.isInitialized) settingsPanel.visibility = View.GONE
+        setControlsVisible(true)
     }
 
     private fun openSettingsMenu(section: String) {
@@ -1419,6 +1522,7 @@ class NativePlayerActivity : Activity() {
             }
         }
         settingsPanel.visibility = View.VISIBLE
+        setControlsVisible(true)
         // Up to 455dp like Web. Short option lists do not create a blank box.
         val root = settingsPanel.parent as? FrameLayout
         val heightAvailable = root?.height?.takeIf { it > 0 }
@@ -1552,6 +1656,7 @@ class NativePlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        clearControlsHideTimer()
         sourceSessions.close(sessionId)
         if (activePlayer.get() === this) activePlayer.clear()
         stopProgressCheck()
@@ -1566,6 +1671,7 @@ class NativePlayerActivity : Activity() {
     }
 
     override fun onPause() {
+        clearControlsHideTimer()
         activityResumed = false
         updatePlaybackTiming(false)
         stopProgressCheck()
@@ -1577,6 +1683,7 @@ class NativePlayerActivity : Activity() {
     override fun onResume() {
         super.onResume()
         activityResumed = true
+        if (::playerView.isInitialized && controlsVisible) setControlsVisible(true)
         val exo = player ?: return
         updatePlaybackTiming(exo.playWhenReady)
         progressWatchdog.resetBaseline(SystemClock.elapsedRealtime(), exo.currentPosition)
