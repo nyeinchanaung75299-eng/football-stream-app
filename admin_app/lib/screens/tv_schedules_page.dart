@@ -143,7 +143,7 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
                   onRefresh: _refresh,
                 ),
               if (widget.embedded) const SizedBox(height: 10),
-              if (kIsWeb && snapshot.hasError && _lastSchedule != null) ...[
+              if (snapshot.hasError && _lastSchedule != null) ...[
                 Card(
                   color: Theme.of(context).colorScheme.errorContainer,
                   child: ListTile(
