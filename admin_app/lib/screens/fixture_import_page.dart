@@ -69,6 +69,31 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   bool loading = false;
   bool importing = false;
   String? errorText;
+  String? _sourceFixtureDiagnostic;
+
+  String? _diagnoseFixturePayload(dynamic payload, String provider) {
+    if (payload is! Map || payload['diagnostics'] is! Map) return null;
+    final diagnostics = payload['diagnostics'] as Map;
+    final count = (diagnostics['candidate_count'] as num?)?.toInt() ?? 0;
+    final timed = (diagnostics['confirmed_kickoff_count'] as num?)?.toInt() ?? 0;
+    final estimate = (diagnostics['estimated_countdown_count'] as num?)?.toInt() ?? 0;
+    if (count > 0) {
+      return '${_providerLabel(provider)} returned $count football events, '
+          'but only $timed confirmed and $estimate fresh countdown times. '
+          'No valid kickoff matched the chosen mode or Myanmar date.';
+    }
+    final status = diagnostics['content_state']?.toString();
+    if (status == 'browser_render_or_unsupported_markup') {
+      return '${_providerLabel(provider)} did not publish readable football '
+          'matches in HTML or embedded JSON. It may require browser JavaScript '
+          'or a permitted public API.';
+    }
+    if (status == 'no_recognized_football_fixtures') {
+      return '${_providerLabel(provider)} returned JSON, but no football '
+          'match with a valid same-site page link was recognized.';
+    }
+    return '${_providerLabel(provider)} returned no recognized football fixtures.';
+  }
 
   List<Map<String, dynamic>> fixtures = [];
   final Set<int> selectedIds = {};
@@ -170,6 +195,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         if (provider != 'cola') rethrow;
         data = await _loadColaMirror();
       }
+    }
+    if (provider == fixtureSource && provider != 'cola') {
+      _sourceFixtureDiagnostic = _diagnoseFixturePayload(data, provider);
     }
     final raw = data is Map ? data['matches'] : null;
     if (raw is! List) {
@@ -274,6 +302,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     setState(() {
       loading = true;
       errorText = null;
+      _sourceFixtureDiagnostic = null;
       selectedIds.clear();
     });
 
@@ -310,8 +339,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       setState(() {
         fixtures = timedRows;
         if (timedRows.isEmpty) {
-          errorText = 'No matches with valid confirmed or fresh countdown-based kickoff times were returned by '
-              '${_providerLabel(fixtureSource)}. This source may use browser-only data.';
+          errorText = _sourceFixtureDiagnostic ??
+              'No matches with confirmed or fresh countdown-based Myanmar kickoff times '
+              'were returned by ${_providerLabel(fixtureSource)}.';
         }
       });
     } catch (e) {
@@ -327,7 +357,10 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         fixtures = [];
         final raw = e.toString();
         final lower = raw.toLowerCase();
-        if (lower.contains('football_providers_missing') ||
+        if (fixtureSource != 'cola') {
+          errorText = '${_providerLabel(fixtureSource)} match data failed: '
+              '${raw.replaceFirst('Exception: ', '')}';
+        } else if (lower.contains('football_providers_missing') ||
             lower.contains('no football fixture provider is configured')) {
           errorText =
               'ColaTV had no usable matches and no fallback fixture API is configured.';
