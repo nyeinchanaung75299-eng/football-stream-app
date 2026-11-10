@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
+import android.content.res.ColorStateList
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
@@ -22,6 +24,7 @@ import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.SeekBar
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.media3.common.C
 import androidx.media3.common.AudioAttributes
@@ -136,6 +139,12 @@ class NativePlayerActivity : Activity() {
     private lateinit var compactTime: TextView
     private lateinit var compactSeek: SeekBar
     private lateinit var displayModeButton: TextView
+    private lateinit var settingsPanel: LinearLayout
+    private lateinit var settingsScroll: ScrollView
+    private lateinit var settingsItems: LinearLayout
+    private var settingsSection = "video"
+    private var selectedAudioLabel: String? = null
+    private var selectedSubtitleLabel: String? = null
     private var displayMode = 0 // 0=Fit, 1=Full, 2=Zoom
 
     private var sources = JSONArray()
@@ -296,7 +305,7 @@ class NativePlayerActivity : Activity() {
         val topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(6))
+            setPadding(dp(7), dp(4), dp(7), dp(4))
             setBackgroundColor(Color.rgb(21, 21, 30))
             // Server name / quality / back button stay hidden until player
             // controls are shown by a tap.
@@ -304,7 +313,7 @@ class NativePlayerActivity : Activity() {
         }
 
         val back = overlayButton("←").apply {
-            textSize = 22f
+            textSize = 21f
             contentDescription = "Back"
             setOnClickListener {
                 emitPlaybackEvent("playback closed")
@@ -321,10 +330,11 @@ class NativePlayerActivity : Activity() {
             text = safeTitle
             setTextColor(Color.WHITE)
             textSize = 12f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), 0, dp(8), 0)
+            setPadding(dp(6), 0, dp(6), 0)
             contentDescription = "Match: $safeTitle"
         }
 
@@ -341,13 +351,13 @@ class NativePlayerActivity : Activity() {
         qualityButton = overlayButton("Auto").apply {
             textSize = 14f
             setPadding(dp(12), 0, dp(12), 0)
-            setOnClickListener { showQualityMenu() }
+            setOnClickListener { openSettingsMenu("video") }
         }
 
         displayModeButton = overlayButton("Fit").apply {
             contentDescription = "Original aspect ratio; tap for Full"
-            textSize = 13f
-            setPadding(dp(10), 0, dp(10), 0)
+            textSize = 11f
+            setPadding(dp(2), 0, dp(2), 0)
             setOnClickListener { toggleDisplayMode() }
         }
 
@@ -361,20 +371,20 @@ class NativePlayerActivity : Activity() {
             }
         }
         if (visibleServerIndices().size == 1) serverButton.visibility = View.GONE
-        topBar.addView(back, LinearLayout.LayoutParams(dp(40), dp(42)))
+        topBar.addView(back, LinearLayout.LayoutParams(dp(36), dp(36)))
         topBar.addView(
             titleText,
-            LinearLayout.LayoutParams(0, dp(42), 1f)
+            LinearLayout.LayoutParams(0, dp(36), 1f)
         )
         topBar.addView(
             displayModeButton,
             LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                dp(42)
+                dp(34),
+                dp(34)
             )
         )
 
-        topBar.addView(rotateButton, LinearLayout.LayoutParams(dp(40), dp(42)))
+        topBar.addView(rotateButton, LinearLayout.LayoutParams(dp(36), dp(36)))
 
         root.addView(
             topBar,
@@ -406,19 +416,13 @@ class NativePlayerActivity : Activity() {
             serverRailScroll,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50), Gravity.TOP)
         )
-        settingsButton = overlayButton("⚙").apply {
-            textSize = 24f
-            contentDescription = "Playback settings: video quality, audio and speed"
-            visibility = View.GONE
-            setOnClickListener { showPlaybackSettings() }
-        }
         // One compact bottom transport row. Line switching belongs OUTSIDE
         // videoHost in serverRailScroll; no Previous/Next server shortcuts.
         compactControls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(5), 0, dp(5), 0)
-            setBackgroundColor(Color.argb(48, 0, 0, 0))
+            setPadding(dp(4), 0, dp(4), 0)
+            setBackgroundColor(Color.argb(90, 0, 0, 0))
             visibility = View.GONE
         }
         fun transportButton(label: String, description: String): TextView =
@@ -457,11 +461,17 @@ class NativePlayerActivity : Activity() {
         }
         compactTime = transportButton("LIVE", "Playback time").apply {
             textSize = 10f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
             setSingleLine(true)
+            setPadding(dp(2), 0, dp(2), 0)
+            maxWidth = dp(110)
         }
         compactSeek = SeekBar(this).apply {
             max = 1000
             progress = 0
+            progressTintList = ColorStateList.valueOf(Color.rgb(71, 229, 158))
+            thumbTintList = ColorStateList.valueOf(Color.rgb(71, 229, 158))
+            progressBackgroundTintList = ColorStateList.valueOf(Color.rgb(112, 119, 115))
             contentDescription = "Seek video"
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {}
@@ -477,18 +487,20 @@ class NativePlayerActivity : Activity() {
         }
         settingsButton = overlayButton("⚙").apply {
             textSize = 18f
+            background = null
             visibility = View.VISIBLE
             contentDescription = "Resolution audio and playback speed"
             setOnClickListener { showPlaybackSettings() }
         }
         for (view in listOf(rewind, compactPlay, forward)) {
-            compactControls.addView(view, LinearLayout.LayoutParams(dp(36), dp(36)))
+            compactControls.addView(view, LinearLayout.LayoutParams(dp(35), dp(35)))
         }
-        compactControls.addView(compactTime, LinearLayout.LayoutParams(dp(88), dp(36)))
-        compactControls.addView(compactSeek, LinearLayout.LayoutParams(0, dp(36), 1f))
-        compactControls.addView(settingsButton, LinearLayout.LayoutParams(dp(36), dp(36)))
+        compactControls.addView(compactTime, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, dp(35)))
+        compactControls.addView(compactSeek, LinearLayout.LayoutParams(0, dp(35), 1f))
+        compactControls.addView(settingsButton, LinearLayout.LayoutParams(dp(35), dp(35)))
         videoHost.addView(compactControls, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(38), Gravity.BOTTOM
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(35), Gravity.BOTTOM
         ))
         val ticker = object : Runnable {
             override fun run() {
@@ -503,30 +515,35 @@ class NativePlayerActivity : Activity() {
             val landscape = root.width > root.height
             val hasLines = visibleServerIndices().size > 1
             val railHeight = if (hasLines) dp(50) else 0
-            val headerHeight = dp(46)
+            val headerHeight = dp(44)
             val portraitHeight = (root.width * 9f / 16f).toInt()
                 .coerceAtMost((root.height - headerHeight - railHeight).coerceAtLeast(dp(120)))
-            val offset = if (landscape) 0 else
-                ((root.height - headerHeight - portraitHeight - railHeight) / 2).coerceAtLeast(0)
+            // Web reference: portrait player begins at TOP. Empty space belongs
+            // below the video. Landscape header overlays, not pushes, video.
             topBar.layoutParams = (topBar.layoutParams as FrameLayout.LayoutParams).apply {
                 gravity = Gravity.TOP
-                topMargin = offset
+                topMargin = 0
             }
+            topBar.background = if (landscape) GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.argb(190, 0, 0, 0), Color.argb(25, 0, 0, 0))
+            ) else GradientDrawable().apply { setColor(Color.rgb(21, 21, 30)) }
             topBar.visibility = View.VISIBLE
             videoHost.layoutParams = (videoHost.layoutParams as FrameLayout.LayoutParams).apply {
                 width = ViewGroup.LayoutParams.MATCH_PARENT
-                height = if (landscape) (root.height - headerHeight - railHeight).coerceAtLeast(dp(120))
+                height = if (landscape) (root.height - railHeight).coerceAtLeast(dp(120))
                     else portraitHeight
                 gravity = Gravity.TOP
-                topMargin = offset + headerHeight
+                topMargin = if (landscape) 0 else headerHeight
             }
             serverRailScroll.layoutParams =
                 (serverRailScroll.layoutParams as FrameLayout.LayoutParams).apply {
                     gravity = Gravity.TOP
                     topMargin = if (landscape) root.height - railHeight
-                        else offset + headerHeight + portraitHeight
+                        else headerHeight + portraitHeight
                 }
             serverRailScroll.visibility = if (hasLines) View.VISIBLE else View.GONE
+            if (::settingsPanel.isInitialized) positionSettingsPanel(root, landscape)
         }
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> layoutPlayer() }
         root.post { layoutPlayer(); applyDisplayMode() }
@@ -536,8 +553,12 @@ class NativePlayerActivity : Activity() {
         // Touching the video toggles them; source line chips stay below video.
         playerView.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_UP) {
-                compactControls.visibility =
-                    if (compactControls.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                if (::settingsPanel.isInitialized && settingsPanel.visibility == View.VISIBLE) {
+                    closeSettingsMenu()
+                } else {
+                    compactControls.visibility =
+                        if (compactControls.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                }
             }
             true
         }
@@ -565,6 +586,10 @@ class NativePlayerActivity : Activity() {
                 Gravity.CENTER
             )
         )
+
+        // Web-style settings are a dark native overlay, not Android PopupMenu.
+        // Add last so the panel remains above playback/status without replacing Media3.
+        buildSettingsPanel(root)
 
         // Run immersive-mode and playback only after the view hierarchy exists.
         root.post {
@@ -624,6 +649,9 @@ class NativePlayerActivity : Activity() {
         bufferingStartedAt = null
         suspendedAt = if (activityResumed) null else openingStartedAt
         forcedQualityLabel = null
+        selectedAudioLabel = null
+        selectedSubtitleLabel = null
+        closeSettingsMenu()
         qualityOptions.clear()
         qualityButton.text = "Auto"
         showStatus("Opening ${serverLabel(index)}…")
@@ -988,6 +1016,7 @@ class NativePlayerActivity : Activity() {
                     }
                 )
                 textSize = 11f
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
                 gravity = Gravity.CENTER
                 setSingleLine(true)
                 ellipsize = TextUtils.TruncateAt.END
@@ -1002,10 +1031,10 @@ class NativePlayerActivity : Activity() {
                 }
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
-                    cornerRadius = dp(20).toFloat()
+                    cornerRadius = dp(7).toFloat()
                     setColor(
-                        if (selected) Color.argb(225, 18, 57, 43)
-                        else Color.argb(225, 24, 24, 24)
+                        if (selected) Color.rgb(22, 60, 45)
+                        else Color.rgb(23, 26, 25)
                     )
                     setStroke(
                         if (selected) dp(2) else dp(1),
@@ -1063,148 +1092,324 @@ class NativePlayerActivity : Activity() {
         }
     }
 
+    // Web reference: dark, compact, tabbed PLAYER SETTINGS dialog with a
+    // real close X, compact system-font rows and selected green checkmarks.
+    // Only the controls are native views; Media3 and its track selector stay intact.
+    private fun buildSettingsPanel(root: FrameLayout) {
+        settingsPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            elevation = dp(14).toFloat()
+            background = GradientDrawable().apply {
+                cornerRadius = dp(16).toFloat()
+                setColor(Color.rgb(18, 18, 18))
+                setStroke(dp(1), Color.rgb(71, 72, 83))
+            }
+            clipToPadding = false
+            contentDescription = "Player settings"
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(9), dp(7), dp(9), dp(4))
+        }
+        val back = overlayButton("←").apply {
+            textSize = 16f
+            contentDescription = "Back to video settings"
+            setOnClickListener {
+                if (settingsSection == "video") closeSettingsMenu()
+                else openSettingsMenu("video")
+            }
+        }
+        val heading = TextView(this).apply {
+            text = "PLAYER SETTINGS"
+            textSize = 12f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            letterSpacing = 0.02f
+            setTextColor(Color.rgb(189, 189, 189))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(6), 0, dp(6), 0)
+        }
+        val close = overlayButton("✕").apply {
+            textSize = 16f
+            contentDescription = "Close player settings"
+            setOnClickListener { closeSettingsMenu() }
+        }
+        header.addView(back, LinearLayout.LayoutParams(dp(34), dp(34)))
+        header.addView(heading, LinearLayout.LayoutParams(0, dp(34), 1f))
+        header.addView(close, LinearLayout.LayoutParams(dp(34), dp(34)))
+        settingsPanel.addView(header, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(45)))
+
+        settingsItems = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(7), dp(3), dp(7), dp(7))
+        }
+        settingsScroll = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            isFillViewport = false
+            addView(settingsItems, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        settingsPanel.addView(settingsScroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(settingsPanel, FrameLayout.LayoutParams(
+            dp(335), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END
+        ).apply {
+            topMargin = dp(54)
+            rightMargin = dp(8)
+        })
+    }
+
+    private fun positionSettingsPanel(root: FrameLayout, landscape: Boolean) {
+        if (!::settingsPanel.isInitialized) return
+        val widthAvailable = (root.width - dp(16)).coerceAtLeast(dp(160))
+        val width = if (landscape) {
+            minOf(dp(335), widthAvailable, (root.width * 0.48f).toInt().coerceAtLeast(dp(180)))
+        } else minOf(dp(335), widthAvailable)
+        settingsPanel.layoutParams = (settingsPanel.layoutParams as FrameLayout.LayoutParams).apply {
+            this.width = width
+            this.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            gravity = Gravity.TOP or Gravity.END
+            topMargin = if (landscape) dp(50) else dp(54)
+            rightMargin = dp(8)
+        }
+    }
+
+    private fun settingsBackground(selected: Boolean, radius: Int = 8): GradientDrawable =
+        GradientDrawable().apply {
+            cornerRadius = dp(radius).toFloat()
+            setColor(if (selected) Color.rgb(23, 49, 40) else Color.rgb(29, 29, 29))
+            setStroke(dp(1), if (selected) Color.rgb(56, 185, 121)
+                else Color.rgb(65, 65, 65))
+        }
+
+    private fun addSettingsChoice(
+        label: String,
+        subtitle: String,
+        selected: Boolean,
+        enabled: Boolean = true,
+        onSelect: () -> Unit
+    ) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(36)
+            setPadding(dp(8), dp(5), dp(8), dp(5))
+            background = settingsBackground(selected)
+            alpha = if (enabled) 1f else 0.48f
+            isClickable = enabled
+            isFocusable = enabled
+            contentDescription = label + if (selected) ", selected" else ""
+            if (enabled) setOnClickListener {
+                onSelect()
+                closeSettingsMenu()
+                updateCompactControls()
+            }
+        }
+        val textColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        textColumn.addView(TextView(this).apply {
+            text = label
+            textSize = 12f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        })
+        textColumn.addView(TextView(this).apply {
+            text = subtitle
+            textSize = 10f
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            setTextColor(Color.rgb(189, 189, 189))
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        })
+        row.addView(textColumn, LinearLayout.LayoutParams(0,
+            ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        if (selected) row.addView(TextView(this).apply {
+            text = "✓"
+            textSize = 11f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            setTextColor(Color.rgb(143, 227, 185))
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(dp(26), dp(24)))
+        settingsItems.addView(row, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            topMargin = dp(3)
+            bottomMargin = dp(3)
+        })
+    }
+
     private fun showPlaybackSettings() {
-        val popup = PopupMenu(this, settingsButton)
-        popup.menu.add(0, 7000, 0, "Video quality • ${forcedQualityLabel ?: "Auto"}")
-        popup.menu.add(0, 7001, 1, "Audio tracks")
-        popup.menu.add(0, 7002, 2, "Playback speed")
-        popup.menu.add(0, 7003, 3, "Subtitles")
-        popup.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                7000 -> { showQualityMenu(); true }
-                7001 -> { showAudioMenu(); true }
-                7002 -> { showSpeedMenu(); true }
-                7003 -> { showSubtitleMenu(); true }
-                else -> false
-            }
-        }
-        popup.show()
+        if (!::settingsPanel.isInitialized) return
+        if (settingsPanel.visibility == View.VISIBLE) closeSettingsMenu()
+        else openSettingsMenu("video")
     }
 
-    private fun showAudioMenu() {
-        val selector = trackSelector ?: return
-        val popup = PopupMenu(this, settingsButton)
-        val choices = mutableListOf<Pair<Tracks.Group, Int>>()
-        popup.menu.add(0, 7600, 0, "Audio • Auto")
-        player?.currentTracks?.groups?.forEach { group ->
-            if (group.type != C.TRACK_TYPE_AUDIO) return@forEach
-            for (i in 0 until group.length) {
-                if (!group.isTrackSupported(i)) continue
-                val format = group.getTrackFormat(i)
-                val language = format.language?.takeIf { it.isNotBlank() } ?: "Track"
-                val label = listOfNotNull(format.label?.takeIf { it.isNotBlank() }, language)
-                    .distinct().joinToString(" • ")
-                choices.add(group to i)
-                popup.menu.add(0, 7601 + choices.size, choices.size, label)
-            }
-        }
-        popup.setOnMenuItemClickListener { item ->
-            if (item.itemId == 7600) {
-                selector.parameters = selector.buildUponParameters()
-                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO).build()
-                true
-            } else {
-                val choice = choices.getOrNull(item.itemId - 7602) ?: return@setOnMenuItemClickListener false
-                val override = TrackSelectionOverride(choice.first.mediaTrackGroup, choice.second)
-                selector.parameters = selector.buildUponParameters()
-                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
-                    .setOverrideForType(override).build()
-                true
-            }
-        }
-        popup.show()
+    private fun closeSettingsMenu() {
+        if (::settingsPanel.isInitialized) settingsPanel.visibility = View.GONE
     }
 
-    private fun showSubtitleMenu() {
-        val selector = trackSelector ?: return
-        val popup = PopupMenu(this, settingsButton)
-        val choices = mutableListOf<Pair<Tracks.Group, Int>>()
-        popup.menu.add(0, 7900, 0, "Subtitles • Off")
-        player?.currentTracks?.groups?.forEach { group ->
-            if (group.type != C.TRACK_TYPE_TEXT) return@forEach
-            for (i in 0 until group.length) {
-                if (!group.isTrackSupported(i)) continue
-                val format = group.getTrackFormat(i)
-                val language = format.language?.takeIf { it.isNotBlank() } ?: "Unknown"
-                val label = format.label?.takeIf { it.isNotBlank() } ?: language
-                choices.add(group to i)
-                popup.menu.add(0, 7900 + choices.size, choices.size, label)
+    private fun openSettingsMenu(section: String) {
+        if (!::settingsPanel.isInitialized || isFinishing || isDestroyed) return
+        settingsSection = section
+        settingsItems.removeAllViews()
+        val tabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(3), 0, dp(5))
+        }
+        for ((key, label) in listOf(
+            "video" to "VIDEO", "audio" to "AUDIO",
+            "subtitles" to "SUBTITLES", "speed" to "SPEED"
+        )) {
+            val active = section == key
+            val tab = overlayButton(label).apply {
+                textSize = 10f
+                background = settingsBackground(active, 7)
+                setTextColor(if (active) Color.rgb(143, 227, 185) else Color.WHITE)
+                setPadding(dp(2), 0, dp(2), 0)
+                contentDescription = label + if (active) ", selected tab" else " tab"
+                setOnClickListener { openSettingsMenu(key) }
+            }
+            tabs.addView(tab, LinearLayout.LayoutParams(0, dp(34), 1f).apply {
+                marginEnd = if (key != "speed") dp(3) else 0
+            })
+        }
+        settingsItems.addView(tabs, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))
+        var choices = 0
+        fun choice(label: String, subtitle: String, selected: Boolean,
+            enabled: Boolean = true, select: () -> Unit) {
+            addSettingsChoice(label, subtitle, selected, enabled, select)
+            choices++
+        }
+
+        when (section) {
+            "video" -> {
+                val selector = trackSelector
+                val generation = playbackGeneration
+                choice("Auto", "Adaptive quality", forcedQualityLabel == null) {
+                    if (generation != playbackGeneration || selector == null) return@choice
+                    selector.parameters = selector.buildUponParameters()
+                        .clearOverridesOfType(C.TRACK_TYPE_VIDEO).build()
+                    forcedQualityLabel = null
+                    qualityButton.text = "Auto"
+                    emitPlaybackEvent("playback quality selected", mapOf("quality" to "auto"))
+                }
+                qualityOptions.forEach { option ->
+                    choice(option.label, "Video track", forcedQualityLabel == option.label) {
+                        if (generation != playbackGeneration || selector == null) return@choice
+                        val override = TrackSelectionOverride(option.group.mediaTrackGroup, option.trackIndex)
+                        selector.parameters = selector.buildUponParameters()
+                            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                            .setOverrideForType(override).build()
+                        forcedQualityLabel = option.label
+                        qualityButton.text = option.label
+                        emitPlaybackEvent("playback quality selected",
+                            mapOf("quality" to option.label))
+                    }
+                }
+                if (qualityOptions.isEmpty()) {
+                    choice("Auto only", "No manual video track exposed by stream.", false, false) {}
+                }
+            }
+            "audio" -> {
+                val selector = trackSelector
+                choice("Auto", "Default audio", selectedAudioLabel == null) {
+                    if (selector == null) return@choice
+                    selector.parameters = selector.buildUponParameters()
+                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO).build()
+                    selectedAudioLabel = null
+                }
+                player?.currentTracks?.groups?.forEach { group ->
+                    if (group.type != C.TRACK_TYPE_AUDIO) return@forEach
+                    for (i in 0 until group.length) {
+                        if (!group.isTrackSupported(i)) continue
+                        val format = group.getTrackFormat(i)
+                        val language = format.language?.takeIf { it.isNotBlank() } ?: "Track"
+                        val label = listOfNotNull(
+                            format.label?.takeIf { it.isNotBlank() }, language
+                        ).distinct().joinToString(" • ")
+                        choice(label, "Audio track", selectedAudioLabel == label) {
+                            if (selector == null) return@choice
+                            selector.parameters = selector.buildUponParameters()
+                                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                                .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i))
+                                .build()
+                            selectedAudioLabel = label
+                        }
+                    }
+                }
+            }
+            "subtitles" -> {
+                val selector = trackSelector
+                choice("Off", "Disable subtitles", selectedSubtitleLabel == null) {
+                    if (selector == null) return@choice
+                    selector.parameters = selector.buildUponParameters()
+                        .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+                    selectedSubtitleLabel = null
+                }
+                player?.currentTracks?.groups?.forEach { group ->
+                    if (group.type != C.TRACK_TYPE_TEXT) return@forEach
+                    for (i in 0 until group.length) {
+                        if (!group.isTrackSupported(i)) continue
+                        val format = group.getTrackFormat(i)
+                        val label = format.label?.takeIf { it.isNotBlank() }
+                            ?: format.language?.takeIf { it.isNotBlank() }
+                            ?: "Subtitles " + (i + 1)
+                        choice(label, "Subtitle track", selectedSubtitleLabel == label) {
+                            if (selector == null) return@choice
+                            selector.parameters = selector.buildUponParameters()
+                                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                                .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i))
+                                .build()
+                            selectedSubtitleLabel = label
+                        }
+                    }
+                }
+            }
+            else -> {
+                val exo = player
+                for (speed in listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)) {
+                    val label = if (speed == 1f) "Normal · 1×" else speed.toString() + "×"
+                    choice(label, "Playback speed",
+                        exo != null && kotlin.math.abs(exo.playbackParameters.speed - speed) < 0.01f) {
+                        exo?.setPlaybackSpeed(speed)
+                    }
+                }
             }
         }
-        popup.setOnMenuItemClickListener { item ->
-            if (item.itemId == 7900) {
-                selector.parameters = selector.buildUponParameters()
-                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-                    .build()
-                true
-            } else {
-                val chosen = choices.getOrNull(item.itemId - 7901)
-                    ?: return@setOnMenuItemClickListener false
-                selector.parameters = selector.buildUponParameters()
-                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                    .setOverrideForType(TrackSelectionOverride(chosen.first.mediaTrackGroup, chosen.second))
-                    .build()
-                true
-            }
+        settingsPanel.visibility = View.VISIBLE
+        // Up to 455dp like Web. Short option lists do not create a blank box.
+        val root = settingsPanel.parent as? FrameLayout
+        val heightAvailable = root?.height?.takeIf { it > 0 }
+            ?: resources.displayMetrics.heightPixels
+        val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        if (root != null && root.width > 0) positionSettingsPanel(root, isLandscape)
+        val maxScroll = minOf(dp(455), (heightAvailable * 0.61f).toInt()
+            .coerceAtLeast(dp(90)))
+        settingsScroll.layoutParams = (settingsScroll.layoutParams as LinearLayout.LayoutParams).apply {
+            height = minOf(maxScroll, dp(42) + choices * dp(49))
         }
-        popup.show()
+        settingsScroll.scrollTo(0, 0)
+        compactControls.visibility = View.VISIBLE
     }
 
-    private fun showSpeedMenu() {
-        val exo = player ?: return
-        val popup = PopupMenu(this, settingsButton)
-        val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
-        speeds.forEachIndexed { i, speed ->
-            popup.menu.add(0, 7800 + i, i,
-                if (speed == 1f) "Normal • 1×" else "${speed}×")
+    @Deprecated("Deprecated in Android SDK")
+    override fun onBackPressed() {
+        if (::settingsPanel.isInitialized && settingsPanel.visibility == View.VISIBLE) {
+            closeSettingsMenu()
+        } else {
+            super.onBackPressed()
         }
-        popup.setOnMenuItemClickListener { item ->
-            val speed = speeds.getOrNull(item.itemId - 7800)
-                ?: return@setOnMenuItemClickListener false
-            // Live speed support depends on stream/container capabilities.
-            exo.setPlaybackSpeed(speed)
-            true
-        }
-        popup.show()
-    }
-
-    private fun showQualityMenu() {
-        val selector = trackSelector ?: return
-        val generation = playbackGeneration
-        val popup = PopupMenu(this, settingsButton)
-        popup.menu.add(0, 9000, 0, "Auto").apply { isChecked = forcedQualityLabel == null }
-        qualityOptions.forEachIndexed { index, option ->
-            popup.menu.add(0, 9100 + index, index + 1, option.label).apply { isChecked = forcedQualityLabel == option.label }
-        }
-        popup.setOnMenuItemClickListener { item ->
-            if (generation != playbackGeneration || isFinishing || isDestroyed) {
-                return@setOnMenuItemClickListener false
-            }
-            if (item.itemId == 9000) {
-                selector.parameters = selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_VIDEO).build()
-                forcedQualityLabel = null
-                qualityButton.text = "Auto"
-                emitPlaybackEvent(
-                    "playback quality selected",
-                    mapOf("quality" to "auto")
-                )
-                true
-            } else {
-                val option = qualityOptions.getOrNull(item.itemId - 9100) ?: return@setOnMenuItemClickListener false
-                val override = TrackSelectionOverride(option.group.mediaTrackGroup, option.trackIndex)
-                selector.parameters = selector.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_VIDEO).setOverrideForType(override).build()
-                forcedQualityLabel = option.label
-                qualityButton.text = option.label
-                emitPlaybackEvent(
-                    "playback quality selected",
-                    mapOf("quality" to option.label)
-                )
-                true
-            }
-        }
-        popup.show()
     }
 
     private fun toggleDisplayMode() {
@@ -1274,9 +1479,15 @@ class NativePlayerActivity : Activity() {
     private fun overlayButton(value: String): TextView {
         return TextView(this).apply {
             text = value
+            textSize = 12f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.argb(150, 0, 0, 0))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(7).toFloat()
+                setColor(Color.rgb(30, 30, 41))
+                setStroke(dp(1), Color.rgb(57, 57, 69))
+            }
             isClickable = true
             isFocusable = true
         }
