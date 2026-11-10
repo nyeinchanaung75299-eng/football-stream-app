@@ -31,7 +31,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         defaultValue: '0',
       ).trim() ==
       '1';
-  DateTime selectedDate = DateTime.now();
+  DateTime selectedDate = DateTime.now().toUtc()
+      .add(const Duration(hours: 6, minutes: 30));
   String mode = 'date';
   static const _fixtureProviders = <String, String>{
     'cola': 'ColaTV',
@@ -83,8 +84,12 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   Future<void> pickDate() async {
     final result = await showDatePicker(
       context: context,
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      firstDate: DateTime.now().toUtc()
+          .add(const Duration(hours: 6, minutes: 30))
+          .subtract(const Duration(days: 30)),
+      lastDate: DateTime.now().toUtc()
+          .add(const Duration(hours: 6, minutes: 30))
+          .add(const Duration(days: 365)),
       initialDate: selectedDate,
     );
 
@@ -222,6 +227,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         'is_live': isLive,
         'source_page_url': row['page_url'],
         'poster_url': row['poster_url'],
+        'kickoff_estimated': row['kickoff_estimated'] == true,
+        'kickoff_source': row['kickoff_source'],
       });
     }
 
@@ -304,7 +311,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       setState(() {
         fixtures = timedRows;
         if (timedRows.isEmpty) {
-          errorText = 'No matches with confirmed kickoff times were returned by '
+          errorText = 'No matches with valid confirmed or fresh countdown-based kickoff times were returned by '
               '${_providerLabel(fixtureSource)}. This source may use browser-only data.';
         }
       });
@@ -786,12 +793,18 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                                 const SizedBox(height: 5),
                                 Text(
                                   '${DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff)}'
-                                  ' MMT${f['status_short'] == null ? '' : ' • ${f['status_short']}'}',
+                                  ' MMT${f['kickoff_estimated'] == true ? ' • ESTIMATED' : ''}'
+                                  '${f['status_short'] == null ? '' : ' • ${f['status_short']}'}',
                                   style: TextStyle(
                                     fontSize: 12.5,
                                     color: colors.onSurfaceVariant,
                                   ),
                                 ),
+                                if (f['kickoff_estimated'] == true)
+                                  const Text(
+                                    'Calculated from source countdown • verify before publishing',
+                                    style: TextStyle(fontSize: 10.5),
+                                  ),
                               ],
                             ),
                           ),
