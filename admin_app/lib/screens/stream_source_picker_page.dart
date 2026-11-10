@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../analytics_service.dart';
 import 'soco_import_page.dart';
@@ -6,11 +7,11 @@ import 'soco_import_page.dart';
 /// Source selection lives in its own bottom navigation destination so source
 /// providers do not crowd the live-management controls.
 class StreamSourcePickerPage extends StatelessWidget {
-  const StreamSourcePickerPage({super.key, this.embedded = false, this.onProviderClosed});
+  const StreamSourcePickerPage({super.key, this.embedded = false, this.onSourceMutated});
 
   final bool embedded;
-  /// Only invalidate guide data after returning from a source editing route.
-  final VoidCallback? onProviderClosed;
+  /// Trigger guide invalidation only after a confirmed successful line save.
+  final VoidCallback? onSourceMutated;
 
   static const _sources = <_SourceOption>[
     _SourceOption('soco', 'Soco', Icons.sports_soccer_rounded),
@@ -28,10 +29,13 @@ class StreamSourcePickerPage extends StatelessWidget {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         settings: RouteSettings(name: '/admin/stream-sources/${source.id}'),
-        builder: (_) => SocoImportPage(initialSource: source.id),
+        builder: (_) => SocoImportPage(
+          initialSource: source.id,
+          onMutated: kIsWeb ? onSourceMutated : null,
+        ),
       ),
     );
-    if (context.mounted) onProviderClosed?.call();
+    // Opening and closing a provider is read-only; do not invalidate guides.
   }
 
   @override
