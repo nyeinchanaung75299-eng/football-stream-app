@@ -112,8 +112,11 @@ export async function experimentalMatches(source, {fetcher = fetch} = {}) {
     if (!teams) continue;
     // Only accept a timestamp explicitly tied to the link or its adjacent
     // immediate markup. Never generate fake kickoff times.
-    const nearby = html.slice(Math.max(0, hit.index - 280), hit.index + hit[0].length + 120);
-    const kickoff = explicitKickoff(hit[0]) ?? explicitKickoff(nearby);
+    const preceding = html.slice(Math.max(0, hit.index - 280), hit.index);
+    // Do not borrow another match's kickoff from an earlier anchor.
+    const boundary = preceding.lastIndexOf('</a>');
+    const sameCardBefore = boundary < 0 ? preceding : preceding.slice(boundary + 4);
+    const kickoff = explicitKickoff(hit[0]) ?? explicitKickoff(sameCardBefore);
     if (!kickoff) continue;
     const id = sourceId(page);
     seen.add(page);
