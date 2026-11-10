@@ -214,8 +214,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
     if (kIsWeb && !_isManualSource) {
       _sourceQuery = ui.query;
       _sourceSearch.text = ui.query;
-      dayFilter = ui.dayFilter;
-      availableOnly = ui.availableOnly;
+      dayFilter = _isExperimentalSource ? 'all' : ui.dayFilter;
+      availableOnly = _isExperimentalSource ? false : ui.availableOnly;
       sourceMatches = AdminWebSourceCache.rows(source) ?? const [];
     }
     _sourceScroll = ScrollController(initialScrollOffset: ui.scrollOffset);
@@ -1980,7 +1980,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       padding: const EdgeInsets.all(18),
                       child: Text(
                         _sourceQuery.trim().isEmpty
-                            ? 'No football matches in this source section.'
+                            ? (_isExperimentalSource
+                                ? 'No verified football event links could be read from this website. The site may use JavaScript-only fixtures, block requests, or have no current matches. Source playback is not confirmed.'
+                                : 'No football matches in this source section.')
                             : 'No matches found. Clear search to see all fixtures.',
                       ),
                     ),
@@ -2049,6 +2051,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                               fontWeight: FontWeight.w900,
                             ),
                           ),
+                          if (displayKickoff != null || !_isExperimentalSource) ...[
                           const SizedBox(height: 4),
                           Text(
                             match['kind'] == 'channel'
@@ -2062,6 +2065,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                       ).format(displayKickoff),
                             style: TextStyle(color: colors.onSurfaceVariant),
                           ),
+                          ],
+                          if (_isExperimentalSource && displayKickoff == null)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 4),
+                              child: Text('Source page only • schedule not verified',
+                                  style: TextStyle(fontSize: 11)),
+                            ),
                           const SizedBox(height: 12),
                           if (anchors.isEmpty)
                             Text(
