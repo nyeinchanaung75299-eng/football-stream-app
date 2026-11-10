@@ -69,7 +69,7 @@ class _DashboardPageState extends State<DashboardPage> {
       if (!mounted || !_mutatingSections.contains(section)) return;
       // Web has explicit success callbacks for the source picker. Do not
       // evict guides simply because an Admin previewed a provider.
-      if (kIsWeb && section == 'stream-sources') return;
+      if (section == 'stream-sources') return;
       // The editing route may have changed fixtures or channels. Evict only
       // dependent guide screens, never hold a deleted row in an Admin cache.
       _invalidateGuidesAfterEdit();
@@ -226,7 +226,7 @@ class _DashboardPageState extends State<DashboardPage> {
         iconColor: const Color(0xFFF59E0B),
         onTap: () =>
             open(context, FixtureImportPage(
-              onPublished: kIsWeb ? _invalidateGuidesAfterEdit : null,
+              onPublished: _invalidateGuidesAfterEdit,
             ), 'pick-big-matches'),
       ),
       const SizedBox(height: 8),
@@ -299,7 +299,7 @@ class _DashboardPageState extends State<DashboardPage> {
         onTap: () => open(
           context,
           RepositoryMatchesPage(
-            onMutated: kIsWeb ? _invalidateGuidesAfterEdit : null,
+            onMutated: _invalidateGuidesAfterEdit,
           ),
           'repository-matches',
         ),
