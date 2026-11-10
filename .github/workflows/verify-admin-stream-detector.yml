@@ -166,7 +166,7 @@ jobs:
           xml = manifest.read_text()
           if 'NativePlayerActivity' not in xml:
               xml = xml.replace('    </application>',
-                  '        <activity android:name=".NativePlayerActivity" android:exported="false" />\\n'
+                  '        <activity android:name=".NativePlayerActivity" android:exported="false" />' + chr(10)
                   '    </application>')
           manifest.write_text(xml)
           PY2
