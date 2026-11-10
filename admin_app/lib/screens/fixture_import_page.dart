@@ -50,7 +50,6 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     'viprow': 'VIPRow',
     'score088': 'Score088TV',
     'sports808': 'LiveSports808',
-    'phut90': '90phut TV',
     'kooralive': 'Koora Live',
     'livextv': 'LiveXTV',
     'streamfree': 'StreamFree',
