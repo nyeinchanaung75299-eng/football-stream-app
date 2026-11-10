@@ -130,6 +130,46 @@ jobs:
           flutter create --platforms=android .
           python3 ../scripts/configure_gradle_distribution.py android/gradle/wrapper/gradle-wrapper.properties
           rm -f test/widget_test.dart
+      - name: Verify compact Web and native player UI contracts
+        run: |
+          python3 scripts/generate_embedded_player.py --check
+          node --test scripts/test_android_player_web_parity.mjs
+          node scripts/test_web_player.mjs
+      # Compile the ACTUAL Kotlin player used by release builds, not Flutter's
+      # generated default Activity, so native UI changes are checked before merge.
+      - name: Patch Viewer native Media3 player for PR compile
+        working-directory: user_app
+        run: |
+          python3 - <<'PY2'
+          from pathlib import Path
+          import shutil
+          gk = Path('android/app/build.gradle.kts')
+          s = gk.read_text().replace('minSdk = flutter.minSdkVersion','minSdk = 24')
+          if 'androidx.media3:media3-exoplayer:' not in s:
+              s += """
+          dependencies {
+              implementation("androidx.media3:media3-exoplayer:1.4.1")
+              implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
+              implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
+              implementation("androidx.media3:media3-ui:1.4.1")
+          }
+          """
+          gk.write_text(s)
+          dest = Path('android/app/src/main/kotlin/com/example/football_viewer')
+          dest.mkdir(parents=True, exist_ok=True)
+          for name in ('MainActivity.kt', 'NativePlayerActivity.kt'):
+              shutil.copy2(Path('android_patch') / name, dest / name)
+          java = Path('android/app/src/main/java/com/example/football_viewer')
+          java.mkdir(parents=True, exist_ok=True)
+          shutil.copy2(Path('android_patch/PlaybackSourceSessions.java'), java / 'PlaybackSourceSessions.java')
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          xml = manifest.read_text()
+          if 'NativePlayerActivity' not in xml:
+              xml = xml.replace('    </application>',
+                  '        <activity android:name=".NativePlayerActivity" android:exported="false" />\\n'
+                  '    </application>')
+          manifest.write_text(xml)
+          PY2
       - name: Install Viewer dependencies
         working-directory: user_app
         run: flutter pub get
