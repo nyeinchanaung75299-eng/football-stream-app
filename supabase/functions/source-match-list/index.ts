@@ -1,4 +1,5 @@
 import { websiteMatches, websiteStreams } from "../_shared/website_sources.mjs";
+import { experimentalMatches, isExperimentalFootballSource } from "../_shared/experimental_football_sources.mjs";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
@@ -67,6 +68,10 @@ Deno.serve(async (req) => {
       return json({ error: "Unsupported source." }, 400);
     }
 
+    if (isExperimentalFootballSource(source)) {
+      return json(await experimentalMatches(source));
+    }
+
     if (source === "sofascore") {
       try {
         return json(await sofascoreMatches(body.date));
@@ -93,7 +98,7 @@ Deno.serve(async (req) => {
     }
 
     return await jsonpMatches({
-      source,
+      source: source === "yyzb" ? "yyzb" : "soco",
       url: source === "yyzb" ? YYZB_MATCHES_URL : SOCO_MATCHES_URL,
     });
   } catch (error) {
@@ -109,6 +114,7 @@ Deno.serve(async (req) => {
 function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "arena" | "sofascore" | null {
   const source = String(value ?? "").trim().toLowerCase();
   if (!source) return "soco";
+  if (isExperimentalFootballSource(source)) return source as any;
   if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "arena" || source === "sofascore") {
     return source;
   }
