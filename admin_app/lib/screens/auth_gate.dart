@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -20,6 +22,43 @@ class _AuthGateState extends State<AuthGate> {
   String? _checkedUserId;
   String? _cacheBoundUser;
   Future<_AdminAccess>? _accessFuture;
+  StreamSubscription<AuthState>? _authChanges;
+  String? _observedUserId;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!kIsWeb) return;
+    final auth = Supabase.instance.client.auth;
+    _observedUserId = auth.currentSession?.user.id;
+    _authChanges = auth.onAuthStateChange.listen((state) {
+      if (!mounted) return;
+      final userId = state.event == AuthChangeEvent.signedOut
+          ? null
+          : auth.currentSession?.user.id;
+      if (userId == _observedUserId) return;
+
+      // AuthGate is the first Navigator route. Rebuilding its LoginPage
+      // cannot hide any private route previously pushed above that route.
+      // Invalidate cache/session state immediately, then close ALL private
+      // routes (including picker pages and dialogs) after this frame.
+      _observedUserId = userId;
+      _bindWebCache(userId);
+      _checkedUserId = null;
+      _accessFuture = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context, rootNavigator: true)
+            .popUntil((route) => route.isFirst);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _authChanges?.cancel();
+    super.dispose();
+  }
 
   // Account switch, explicit logout and expired sessions always drop the
   // private in-memory provider cache and shared guide, including in-flight
