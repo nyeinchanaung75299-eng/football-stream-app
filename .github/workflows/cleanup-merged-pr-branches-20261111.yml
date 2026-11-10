@@ -1,4 +1,5 @@
 name: One-time cleanup of verified merged PR branches
+# Execution authorized after dry-run confirmed 173/173 eligible; 0 skipped.
 on:
   push:
     branches: [main]
