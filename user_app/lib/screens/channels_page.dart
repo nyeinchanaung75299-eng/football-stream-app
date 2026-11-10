@@ -504,6 +504,16 @@ class _ChannelsPageState extends State<ChannelsPage> {
             controller: _channelScroll,
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
+              if (snapshot.hasError && _lastChannels != null)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(12, 6, 12, 2),
+                    child: Text(
+                      'Offline • showing the last available channel list',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ),
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 5),
