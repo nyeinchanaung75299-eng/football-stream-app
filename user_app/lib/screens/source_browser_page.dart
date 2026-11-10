@@ -119,6 +119,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     if (!ViewerTabCache.sourceFresh(source)) {
       unawaited(_feed.refresh());
     }
+    if (ViewerTabCache.sourceRows(source) == null) {
+      // Safari may evict its in-memory app while the tab is in background.
+      // Restore its last verified public list without pausing revalidation.
+      unawaited(_restoreLastGood(source, _feed));
+    }
     _sourceRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       final state = WidgetsBinding.instance.lifecycleState;
       if (mounted &&
@@ -158,6 +163,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       previousFeed.dispose();
       if (!ViewerTabCache.sourceFresh(source)) {
         unawaited(_feed.refresh());
+      }
+      if (ViewerTabCache.sourceRows(source) == null) {
+        unawaited(_restoreLastGood(source, _feed));
       }
     }
   }
@@ -501,25 +509,50 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return rows;
   }
 
-  String get _cacheKey => 'viewer_source_cache_v1_$source';
+  String _cacheKeyFor(String name) => 'viewer_source_cache_v1_$name';
 
-  Future<void> _saveLastGood(List<Map<String, dynamic>> rows) async {
+  // Store public display/schedule data only. Provider stream credentials,
+  // DRM information and headers must never be written to browser storage.
+  dynamic _safeSourceCacheValue(dynamic value) {
+    if (value is List) return value.map(_safeSourceCacheValue).toList();
+    if (value is Map) {
+      const blocked = <String>{
+        'stream_url', 'url', 'key_id', 'key_data', 'token', 'headers',
+        'authorization', 'cookie', 'license_url', 'drm', 'stream_links',
+        'secret', 'access_token', 'refresh_token',
+      };
+      return <String, dynamic>{
+        for (final entry in value.entries)
+          if (!blocked.contains(entry.key.toString().toLowerCase()))
+            entry.key.toString(): _safeSourceCacheValue(entry.value),
+      };
+    }
+    return value;
+  }
+
+  Future<void> _saveLastGood(
+    List<Map<String, dynamic>> rows, {
+    String? forSource,
+  }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
-        _cacheKey,
+        _cacheKeyFor(forSource ?? source),
         jsonEncode({
           'fetched_at': DateTime.now().toUtc().toIso8601String(),
-          'matches': rows,
+          'matches': _safeSourceCacheValue(rows),
         }),
       );
     } catch (_) {}
   }
 
-  Future<List<Map<String, dynamic>>?> _loadLastGood() async {
+  Future<List<Map<String, dynamic>>?> _loadLastGood({
+    String? forSource,
+  }) async {
+    final requested = forSource ?? source;
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_cacheKey);
+      final raw = prefs.getString(_cacheKeyFor(requested));
       if (raw == null || raw.isEmpty) return null;
       final decoded = jsonDecode(raw);
       if (decoded is! Map || decoded['matches'] is! List) return null;
@@ -534,19 +567,35 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       return (decoded['matches'] as List)
           .whereType<Map>()
           .map((row) => Map<String, dynamic>.from(row))
-          .map((row) => englishSourceMatch(row, source))
+          .map((row) => englishSourceMatch(row, requested))
           .toList();
     } catch (_) {
       return null;
     }
   }
 
+  Future<void> _restoreLastGood(
+    String requested,
+    LiveFeedController<List<Map<String, dynamic>>> expectedFeed,
+  ) async {
+    final cached = await _loadLastGood(forSource: requested);
+    if (cached == null || !mounted || source != requested ||
+        !identical(_feed, expectedFeed)) return;
+    ViewerTabCache.seedStaleSourceIfMissing(requested, cached);
+    expectedFeed.seedIfMissing(cached);
+  }
+
   Future<List<Map<String, dynamic>>> _loadMatches() async {
+    final requestedSource = source;
     if (!_enableNoVpnFallback) {
       if (bases.isEmpty) {
         throw StateError('No live source API is configured.');
       }
-      return _authoritativeHedged(_apiJobs(_loadFrom));
+      final rows = await _authoritativeHedged(_apiJobs(_loadFrom));
+      // Previously this early return never saved a public last-good snapshot
+      // in normal builds, causing a blank reload after Safari evicted memory.
+      unawaited(_saveLastGood(rows, forSource: requestedSource));
+      return rows;
     }
 
     Object? authoritativeError;
@@ -567,7 +616,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         ...workerJobs,
         () => _loadFromSupabase(),
       ]);
-      unawaited(_saveLastGood(rows));
+      unawaited(_saveLastGood(rows, forSource: requestedSource));
       return rows;
     } catch (error, stack) {
       authoritativeError = error;
@@ -580,7 +629,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         () => _loadFromMirror(),
         () => _loadFromMirror(_rawSourceMirrorBase),
       ]);
-      unawaited(_saveLastGood(rows));
+      unawaited(_saveLastGood(rows, forSource: requestedSource));
       return rows;
     } catch (_) {
       final cached = await _loadLastGood();
