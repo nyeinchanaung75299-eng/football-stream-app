@@ -101,6 +101,9 @@ class SocoImportPage extends StatefulWidget {
 
 class _SocoImportPageState extends State<SocoImportPage> {
   bool get _isManualSource => source == 'playz';
+  bool get _currentSession => !kIsWeb ||
+      (_sourceSessionGeneration == AdminWebSourceCache.sessionGeneration &&
+       Supabase.instance.client.auth.currentSession != null);
 
   static const _pagesMirrorBase =
       'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources';
@@ -489,7 +492,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   Future<void> _probeVisibleAnchorStatuses() async {
-    if (!mounted || loading) return;
+    if (!mounted || loading || !_currentSession) return;
 
     final provider = source;
     final epoch = ++_anchorStatusEpoch;
@@ -527,13 +530,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
       }
     }
 
-    if (mounted && source == provider) setState(() {});
+    if (mounted && source == provider && _currentSession) setState(() {});
 
     await runBoundedStatusChecks(
       pending,
       _statusProbeConcurrency,
       (item) async {
-        if (!mounted ||
+        if (!mounted || !_currentSession ||
             source != provider ||
             epoch != _anchorStatusEpoch) return;
         final match = Map<String, dynamic>.from(item['match'] as Map);
@@ -559,7 +562,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
             },
           );
 
-          if (!mounted || source != provider || epoch != _anchorStatusEpoch) return;
+          if (!mounted || !_currentSession || source != provider || epoch != _anchorStatusEpoch) return;
           if (data is! Map) {
             _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'unknown';
             return;
@@ -575,15 +578,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
             _anchorStatuses[key] = 'offline';
           }
         } catch (_) {
-          _anchorStatuses[key] = 'unknown';
+          if (_currentSession) _anchorStatuses[key] = 'unknown';
         } finally {
           // Avoid letting an older status request overwrite fresh data.
-          if (mounted && source == provider && epoch == _anchorStatusEpoch) {
+          if (mounted && _currentSession && source == provider && epoch == _anchorStatusEpoch) {
             _anchorStatusCheckedAt[key] = DateTime.now();
           }
           // Repaint this room as soon as its own request finishes. A slow
           // neighbour no longer holds the whole four-item batch at UNKNOWN.
-          if (mounted && source == provider && epoch == _anchorStatusEpoch) {
+          if (mounted && _currentSession && source == provider && epoch == _anchorStatusEpoch) {
             setState(() {});
           }
         }
@@ -727,7 +730,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     final extractingKey = _anchorKey(match, anchor);
     final provider = source;
-    bool current() => mounted && source == provider;
+    bool current() => mounted && _currentSession && source == provider;
     if (_extractingAnchorKey != null) return;
     // A manual tap takes priority over background checking. Any queued
     // probe results become stale and cannot block the quality picker.
@@ -765,7 +768,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         final health = (line['health_status'] ?? '').toString().toLowerCase();
         return health == 'healthy' || health == 'slow';
       });
-      if (mounted) {
+      if (current()) {
         setState(() {
           _anchorLineCounts[statusKey] = lines.length;
           _anchorStatuses[statusKey] = sourceIsLive
@@ -839,7 +842,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       final detail = e.toString().replaceFirst('Exception: ', '');
       message('Could not load ${_sourceLabel(provider)} stream links. $detail');
     } finally {
-      if (mounted && _extractingAnchorKey == extractingKey) {
+      if (current() && _extractingAnchorKey == extractingKey) {
         setState(() => _extractingAnchorKey = null);
       }
     }
@@ -1106,7 +1109,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     required Map<String, dynamic> line,
     required String anchorName,
   }) async {
-    if (_addingLine) return false;
+    if (_addingLine || !_currentSession) return false;
     setState(() => _addingLine = true);
     final provider = source;
     try {
@@ -1114,7 +1117,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       // initial match only suggest which match should appear first.
       final presetTarget = targetMatchId;
       final target = await _chooseDestination();
-      if (target == null) return false;
+      if (target == null || !_currentSession || !mounted) return false;
 
       final url = (line['url'] ?? '').toString().trim();
       if (url.isEmpty) return false;
@@ -1133,6 +1136,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .maybeSingle()
           .timeout(const Duration(seconds: 10));
 
+      if (!_currentSession || !mounted) return false;
       Map<String, dynamic> saved;
       if (exact != null) {
         // A previously imported short-lived line may have been disabled after
@@ -1171,6 +1175,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
             .maybeSingle()
             .timeout(const Duration(seconds: 10));
 
+        if (!_currentSession || !mounted) return false;
         if (sameLogical != null) {
           saved = await Supabase.instance.client
               .from('stream_links')
@@ -1213,6 +1218,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         }
       }
 
+      if (!_currentSession || !mounted) return false;
       // Saving is complete. A slow health check must not keep ADD waiting or
       // invite a duplicate submission. Its result is keyed to the saved row,
       // never to whichever provider/destination the UI later selects.
@@ -1241,7 +1247,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       message('Could not add the server. Please retry.');
       return false;
     } finally {
-      if (mounted) {
+      if (mounted && _currentSession) {
         setState(() => _addingLine = false);
       } else {
         _addingLine = false;
