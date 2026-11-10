@@ -65,7 +65,11 @@ void main() {
       }, () => MockClient((request) async {
         requests.add(request.url.path);
         if (request.url.path.endsWith('/matches')) {
-          return http.Response(jsonEncode({'matches': [current]}), 200);
+          return http.Response(
+            jsonEncode({'matches': [current]}),
+            200,
+            headers: const {'content-type': 'application/json; charset=utf-8'},
+          );
         }
         return http.Response('{}', 404);
       }));
