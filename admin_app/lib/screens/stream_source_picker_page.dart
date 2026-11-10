@@ -31,13 +31,12 @@ class StreamSourcePickerPage extends StatelessWidget {
         settings: RouteSettings(name: '/admin/stream-sources/${source.id}'),
         builder: (_) => SocoImportPage(
           initialSource: source.id,
-          onMutated: kIsWeb ? onSourceMutated : null,
+          onMutated: onSourceMutated,
         ),
       ),
     );
-    // Preserve the previous native behavior. On Web, browsing is read-only
-    // and only a confirmed successful import invalidates dependent guides.
-    if (!kIsWeb && context.mounted) onSourceMutated?.call();
+    // Source previews do not change data. Successful imports explicitly
+    // invalidate dependent guides via onSourceMutated on every platform.
   }
 
   @override
