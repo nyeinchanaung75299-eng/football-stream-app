@@ -102,7 +102,7 @@ class ViewerTabCache {
     }
     final pending = _sourceInFlight[source];
     if (pending != null) return pending;
-    final operation = Future<List<Map<String, dynamic>>>(() async {
+    final operation = Future<List<Map<String, dynamic>>>.sync(() async {
       final next = await fetch();
       _sources[source] = _TabResult(next, DateTime.now());
       return next;
@@ -137,7 +137,7 @@ class ViewerTabCache {
     }
     final pending = _channelsInFlight;
     if (pending != null) return pending;
-    final operation = Future<List<Map<String, dynamic>>>(() async {
+    final operation = Future<List<Map<String, dynamic>>>.sync(() async {
       final next = await fetch();
       _channels = _TabResult(next, DateTime.now());
       return next;
