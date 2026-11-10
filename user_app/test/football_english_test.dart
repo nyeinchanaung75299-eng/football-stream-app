@@ -3,6 +3,23 @@ import 'package:football_viewer/football_english.dart';
 import 'package:football_viewer/source_match_discovery.dart';
 
 void main() {
+  test('10 Nov YYZB screenshot aliases display in English without changing IDs', () {
+    final row = englishSourceMatch({
+      'source_id': 'mgl-42',
+      'league': '蒙古超',
+      'home_team': '德仁FC',
+      'away_team': '乌兰巴托FC',
+      'anchors': [{'room_num': 'source-room-7'}],
+    }, 'yyzb');
+    expect(row['league'], 'Mongolian Premier League');
+    expect(row['home_team'], 'Deren FC');
+    expect(row['away_team'], 'Ulaanbaatar FC');
+    expect(row['source_id'], 'mgl-42');
+    expect((row['anchors'] as List).first['room_num'], 'source-room-7');
+    expect(englishKnownFootballName('葡U23', kind: 'league'),
+        'Portugal U23 League');
+  });
+
   test('screenshot clubs and common leagues have verified English labels', () {
     expect(englishKnownFootballName('帕德博恩'), 'SC Paderborn 07');
     expect(englishKnownFootballName('斯图加特'), 'VfB Stuttgart');
