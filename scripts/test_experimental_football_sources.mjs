@@ -89,3 +89,65 @@ test("Stale HTTP countdown cannot invent a football kickoff", async () => {
   assert.equal(data.matches[0].match_time, null);
   assert.equal(data.diagnostics.estimated_countdown_count, 0);
 });
+
+
+test("Pick Big Matches reads explicit football times from a JSON-LD SportsEvent", async () => {
+  const html = '<html><script type="application/ld+json">' +
+    JSON.stringify({"@type":"SportsEvent",sport:"Football",name:"Arsenal vs Liverpool",
+      homeTeam:{name:"Arsenal"},awayTeam:{name:"Liverpool"},
+      startDate:"2026-11-11T19:00:00Z",url:"/event/arsenal-vs-liverpool"}) +
+    '</script></html>';
+  const data = await experimentalMatches("crichd", {fetcher:pages({
+    "https://crichd.pk/sports/soccer-streams":html,
+  })});
+  assert.equal(data.results,1);
+  assert.equal(data.matches[0].home_team,"Arsenal");
+  assert.equal(data.matches[0].away_team,"Liverpool");
+  assert.equal(data.matches[0].match_time,"2026-11-11T19:00:00.000Z");
+  assert.equal(data.matches[0].verified_kickoff,true);
+  assert.equal(data.diagnostics.embedded_json_documents,1);
+});
+
+test("Sources and Pick Big Matches read public Next.js event JSON without running scripts", async () => {
+  const next = {props:{pageProps:{events:[{
+    id:123,homeTeam:{name:"Liverpool"},awayTeam:{name:"Man City"},
+    sport:{name:"Football"},tournament:{name:"Premier League"},
+    url:"/football/liverpool-vs-man-city",startTimestamp:1794420000,
+  }]}}};
+  const data=await experimentalMatches("sports808", {fetcher:pages({
+    "https://www.livesports808.cc/football?lang=2":
+      '<script id="__NEXT_DATA__" type="application/json">'+JSON.stringify(next)+'</script>',
+  })});
+  assert.equal(data.results,1);
+  assert.equal(data.matches[0].league,"Premier League");
+  assert.equal(data.matches[0].source,"sports808");
+  assert.equal(data.matches[0].verified_kickoff,true);
+  assert.equal(data.matches[0].match_time,new Date(1794420000*1000).toISOString());
+});
+
+test("Generic multisport JSON requires football evidence and rejects foreign event hosts", async () => {
+  const page={events:[
+    {homeTeam:{name:"Boston"},awayTeam:{name:"Lakers"},sport:"Basketball",
+      url:"/event/boston-vs-lakers",startDate:"2026-11-11T19:00:00Z"},
+    {homeTeam:{name:"Arsenal"},awayTeam:{name:"Liverpool"},sport:"Football",
+      url:"https://another-site.example/event/arsenal-vs-liverpool",startDate:"2026-11-11T19:00:00Z"},
+    {homeTeam:{name:"Arsenal"},awayTeam:{name:"Liverpool"},sport:"Football",
+      url:"/football/arsenal-vs-liverpool",startDate:"2026-11-11T19:00:00Z"},
+  ]};
+  const data=await experimentalMatches("streamfree",{fetcher:pages({
+    "https://strmfree.st/":'<script type="application/json">'+JSON.stringify(page)+'</script>',
+  })});
+  assert.equal(data.results,1);
+  assert.equal(data.matches[0].home_team,"Arsenal");
+  assert.equal(data.matches[0].away_team,"Liverpool");
+});
+
+test("Invalid JavaScript state and unrelated strings cannot create matches", async () => {
+  const data=await experimentalMatches("crichd",{fetcher:pages({
+    "https://crichd.pk/sports/soccer-streams":
+      '<script>window.__INITIAL_STATE__={homeTeam:"Arsenal",evil:function(){}};</script>'+
+      '<script type="application/json">{"homeTeam":"Arsenal","awayTeam":"Liverpool","url":"https://outside.example/football/arsenal-vs-liverpool"}</script>',
+  })});
+  assert.equal(data.results,0);
+  assert.equal(data.diagnostics.content_state,"no_recognized_football_fixtures");
+});
