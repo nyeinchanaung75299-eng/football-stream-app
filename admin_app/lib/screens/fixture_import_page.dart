@@ -61,7 +61,11 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   // Unknown or timezone-ambiguous kickoffs are never replaced by now.
   DateTime? _myanmarKickoff(Object? raw) {
     final value = raw?.toString().trim() ?? '';
-    if (!RegExp(r'(?:Z|[+-]\d{2}:?\d{2})
+    if (!RegExp(r'(?:Z|[+-]\d{2}:?\d{2})$', caseSensitive: false)
+        .hasMatch(value)) return null;
+    final parsed = DateTime.tryParse(value);
+    return parsed?.toUtc().add(const Duration(hours: 6, minutes: 30));
+  }
   bool loading = false;
   bool importing = false;
   String? errorText;
