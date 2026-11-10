@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
 import '../services/tv_schedule_service.dart';
@@ -24,6 +25,7 @@ class MyChannelsGuidePage extends StatefulWidget {
 class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
   late Future<TvScheduleGuide> _guide = _load();
   TvScheduleGuide? _lastGuide;
+  DateTime? _lastSuccessfulAt;
   String selectedGroup = 'All';
   String epgFilter = 'all';
   DateTime _lastRefreshAt = DateTime.now();
@@ -47,6 +49,7 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
   Future<TvScheduleGuide> _load({bool refresh = false}) async {
     final guide = await TvScheduleService().load(refresh: refresh);
     _lastGuide = guide; // The last success survives an offline refresh.
+    _lastSuccessfulAt = DateTime.now();
     return guide;
   }
 
@@ -130,6 +133,23 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
                   onRefresh: _refresh,
                 ),
               if (widget.embedded) const SizedBox(height: 10),
+              if (kIsWeb && snapshot.hasError && _lastGuide != null) ...[
+                Card(
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  child: ListTile(
+                    leading: const Icon(Icons.cloud_off_rounded),
+                    title: const Text('Refresh failed — showing saved channel guide'),
+                    subtitle: Text(_lastSuccessfulAt == null
+                        ? 'Last successful update unavailable'
+                        : 'Last successful: ${DateFormat('dd MMM HH:mm').format(_lastSuccessfulAt!.toLocal())}'),
+                    trailing: TextButton(
+                      onPressed: _refresh,
+                      child: const Text('RETRY'),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               DropdownButtonFormField<String>(
                 key: ValueKey('admin-guide-group-$activeGroup'),
                 value: activeGroup,
