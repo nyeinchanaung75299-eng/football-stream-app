@@ -1,4 +1,5 @@
 import { websiteMatches, websiteStreams } from "../_shared/website_sources.mjs";
+import { experimentalMatches, experimentalStreams, isExperimentalFootballSource } from "../_shared/experimental_football_sources.mjs";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
@@ -90,6 +91,15 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (isExperimentalFootballSource(source)) {
+      // Experimental website access is admin-only. Viewer public mode cannot
+      // issue third-party HTML fetches or use the resolver as a proxy.
+      if (viewerPublic) return json({ error: "Admin access required." }, 403);
+      return json(action === "streams"
+        ? await experimentalStreams(source, body)
+        : await experimentalMatches(source));
+    }
+
     if (source === "arena") {
       const payload = action === "streams" ? await websiteStreams(source, body) :
         { ok: true, source, matches: await websiteMatches(source), generated_at: new Date().toISOString() };
@@ -169,6 +179,7 @@ Deno.serve(async (req) => {
 function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "arena" | null {
   const source = String(value ?? "").trim().toLowerCase();
   if (!source) return "soco";
+  if (isExperimentalFootballSource(source)) return source as any;
   if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "arena") {
     return source;
   }
