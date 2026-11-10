@@ -12,7 +12,6 @@ export const experimentalFootballSites = Object.freeze({
   viprow:    { label: "VIPRow",           home: "https://www.viprow.lc/sports-football-online",host: "viprow.lc" },
   score088:  { label: "Score088TV",       home: "https://www.score088tv.live/football",        host: "score088tv.live" },
   sports808: { label: "LiveSports808",    home: "https://www.livesports808.cc/football?lang=2",host: "livesports808.cc" },
-  phut90:    { label: "90phut TV",        home: "https://90phuttv-sports.com/",                host: "90phuttv-sports.com" },
   kooralive: { label: "Koora Live",       home: "https://kooralive.watch/",                   host: "kooralive.watch" },
   livextv:   { label: "LiveXTV",          home: "https://livextv.pro/",                       host: "livextv.pro" },
   streamfree:{label: "StreamFree",       home: "https://strmfree.st/",                       host: "strmfree.st" },
