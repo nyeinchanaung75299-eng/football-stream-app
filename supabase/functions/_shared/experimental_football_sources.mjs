@@ -6,7 +6,7 @@ export const experimentalFootballSites = Object.freeze({
   xoilac:    { label: "Xoilac TV",        home: "https://xoilacls.tv/",                        host: "xoilacls.tv" },
   livetv:    { label: "LiveTV",           home: "https://livetv.li/soccer",                   host: "livetv.li" },
   rojadirecta:{label: "Rojadirecta",     home: "https://en.rojadirectaes.org/live-football", host: "rojadirectaes.org" },
-  crichd:    { label: "CricHD",           home: "https://crichd.pk/",                         host: "crichd.pk" },
+  crichd:    { label: "CricHD",           home: "https://crichd.pk/sports/soccer-streams",                         host: "crichd.pk" },
   roxie:     { label: "RoxieStreams",     home: "https://roxiestreams.su/soccer",             host: "roxiestreams.su" },
   vipbox:    { label: "VIPBox",           home: "https://www.vipboxtv.st/football-stream",    host: "vipboxtv.st" },
   viprow:    { label: "VIPRow",           home: "https://www.viprow.lc/sports-football-online",host: "viprow.lc" },
@@ -74,12 +74,12 @@ function sourceId(value) {
   return (hash >>> 0).toString(36);
 }
 
-async function publicHtml(url, fetcher) {
+async function publicHtml(url, fetcher, {withClock = false, now = Date.now} = {}) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 8000);
   try {
     const response = await fetcher(url, {
-      headers: { Accept: "text/html" },
+      headers: { Accept: "text/html", "Cache-Control": "no-cache" },
       redirect: "follow",
       signal: ctl.signal,
     });
@@ -92,45 +92,151 @@ async function publicHtml(url, fetcher) {
     if (length > 1500000) throw Error("Source page exceeds size limit");
     const html = await response.text();
     if (html.length > 1500000) throw Error("Source page exceeds size limit");
-    return html;
+    if (!withClock) return html;
+    const observedAt = now();
+    const ageValue = response.headers?.get?.("age");
+    const age = ageValue == null ? 0 : Number(ageValue);
+    const dateValue = response.headers?.get?.("date");
+    const responseDate = dateValue ? Date.parse(dateValue) : NaN;
+    // A cached/pre-rendered countdown cannot be assumed to be current.
+    const clockFresh = Number.isFinite(observedAt) &&
+      Number.isFinite(age) && age >= 0 && age <= 60 &&
+      (!Number.isFinite(responseDate) ||
+        Math.abs(observedAt - responseDate) <= 120000);
+    return {html, observedAt, clockFresh};
   } finally { clearTimeout(timer); }
 }
 
-export async function experimentalMatches(source, {fetcher = fetch} = {}) {
+// Read only match links that are explicitly published on this site. Some
+// providers put the fixture identity in /event/home-vs-away instead of the
+// anchor text, so the original "Team A vs Team B" regex dropped every row.
+function teamsFromLink(url, inner) {
+  const visible = fixtureTitle(inner);
+  if (visible) return visible;
+  let path;
+  try { path = decodeURIComponent(new URL(url).pathname); }
+  catch (_) { return null; }
+  const match = path.match(/(?:^|\/)(?:event|events|match|matches|watch|live)?\/?([a-z0-9-]+)-vs-([a-z0-9-]+)(?:\/|$)/i);
+  if (!match) return null;
+  const title = part => part.replace(/-/g, " ").replace(/\b[a-z]/g, c => c.toUpperCase()).trim();
+  const home = title(match[1]), away = title(match[2]);
+  if (home.length < 2 || away.length < 2 || home.length > 65 || away.length > 65) return null;
+  return {home, away};
+}
+
+// Only fields documenting a fixture's kickoff are accepted. In particular,
+// another event's timestamp, countdown and the server clock are NOT kickoffs.
+function pageKickoff(markup) {
+  const patterns = [
+    /<time\b[^>]*\bdatetime\s*=\s*["']([^"']+)["'][^>]*>/gi,
+    /(?:startDate|start_date|startTime|kickoff_at|kickoffAt)\s*["']?\s*[:=]\s*["']([^"']+)["']/gi,
+    /<meta\b[^>]*(?:name|property)\s*=\s*["'](?:event:start_time|startDate|event:start_date)["'][^>]*content\s*=\s*["']([^"']+)["']/gi,
+  ];
+  for (const pattern of patterns) {
+    for (const match of markup.matchAll(pattern)) {
+      const kickoff = explicitKickoff(match[1]);
+      if (kickoff) return kickoff;
+    }
+  }
+  return null;
+}
+
+// Estimated kickoff = timestamp of this actual HTTP read + countdown duration.
+// It must be bound to one match card; search-engine crawls and stale caches
+// must never be used to calculate a scheduled kickoff.
+export function countdownKickoff(fragment, observedAt, clockFresh = true) {
+  if (!clockFresh || !Number.isFinite(observedAt)) return null;
+  const text = normalizeText(fragment);
+  const match = text.match(/\b(?:starts?\s+in|kick[\s-]?off\s+in)\s*[:：]?\s*(\d{1,3}):([0-5]\d):([0-5]\d)\b/i);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3]);
+  const total = hours * 3600 + minutes * 60 + seconds;
+  if (total < 1 || total > 7 * 24 * 3600) return null;
+  return new Date(observedAt + total * 1000).toISOString();
+}
+
+function eventRecord(source, site, page, teams, kickoff, timingSource = "none") {
+  const id = sourceId(page);
+  const hasTime = kickoff != null;
+  return {
+    source, source_id: id, schedule_id: id,
+    league: "Football", home_team: teams.home, away_team: teams.away,
+    home_logo: null, away_logo: null, poster_url: null,
+    match_time: kickoff, status: hasTime ? "NS" : "UNVERIFIED",
+    match_status: hasTime ? "SCHEDULED" : "UNVERIFIED",
+    hot: false, page_url: page,
+    // These rows are for admin inspection, not proven video playback.
+    verified_kickoff: hasTime && timingSource === "explicit",
+    kickoff_estimated: hasTime && timingSource === "countdown",
+    kickoff_source: timingSource,
+    anchors: [{room_num: id, page_url: page, nick_name: site.label}],
+  };
+}
+
+export async function experimentalMatches(source, {fetcher = fetch, now = Date.now} = {}) {
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
-  const html = await publicHtml(site.home, fetcher);
-  const matches = [], seen = new Set();
-  // Static server-rendered anchors only; JavaScript-only pages return no rows.
+  const catalog = await publicHtml(site.home, fetcher, {withClock: true, now});
+  const {html} = catalog;
+  const candidates = new Map();
   const anchors = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   for (const hit of html.matchAll(anchors)) {
-    if (matches.length >= 100) break;
+    if (candidates.size >= 80) break;
     const href = hit[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
     const page = href && allowedPageUrl(href.replace(/&amp;/gi, "&"), site);
-    if (!page || page === site.home || seen.has(page)) continue;
-    const teams = fixtureTitle(hit[2]);
+    if (!page || page === site.home || candidates.has(page)) continue;
+    // Multi-sport home pages cannot be trusted as football catalogs.
+    // Skip them unless the published link itself identifies football.
+    if (["ppv", "livextv", "streamfree"].includes(source) &&
+        !/\b(?:soccer|football)\b/i.test(page)) continue;
+    const teams = teamsFromLink(page, hit[2]);
     if (!teams) continue;
-    // Only accept a timestamp explicitly tied to the link or its adjacent
-    // immediate markup. Never generate fake kickoff times.
-    const preceding = html.slice(Math.max(0, hit.index - 280), hit.index);
-    // Do not borrow another match's kickoff from an earlier anchor.
-    const boundary = preceding.lastIndexOf('</a>');
-    const sameCardBefore = boundary < 0 ? preceding : preceding.slice(boundary + 4);
-    const kickoff = explicitKickoff(hit[0]) ?? explicitKickoff(sameCardBefore);
-    if (!kickoff) continue;
-    const id = sourceId(page);
-    seen.add(page);
-    matches.push({
-      source, source_id: id, schedule_id: id,
-      league: "Football", home_team: teams.home, away_team: teams.away,
-      home_logo: null, away_logo: null, poster_url: null,
-      match_time: kickoff, status: "NS", match_status: "SCHEDULED", hot: false,
-      page_url: page,
-      anchors: [{room_num: id, page_url: page, nick_name: site.label}],
-    });
+    // The timestamp must be inside this anchor or immediately preceding it,
+    // with a preceding sibling anchor acting as a hard event boundary.
+    const preceding = html.slice(Math.max(0, hit.index - 240), hit.index);
+    const boundary = preceding.lastIndexOf("</a>");
+    const local = boundary < 0 ? preceding : preceding.slice(boundary + 4);
+    const explicit = pageKickoff(hit[0]) ?? pageKickoff(local);
+    const countdown = explicit ? null :
+      countdownKickoff(hit[0], catalog.observedAt, catalog.clockFresh) ??
+      countdownKickoff(local, catalog.observedAt, catalog.clockFresh);
+    const kickoff = explicit ?? countdown;
+    const timingSource = explicit ? "explicit" : countdown ? "countdown" : "none";
+    candidates.set(page, {page, teams, kickoff, timingSource});
   }
-  matches.sort((a,b) => a.match_time.localeCompare(b.match_time));
-  return {ok: true, source, matches, results: matches.length, generated_at: new Date().toISOString()};
+
+  // Detail pages may publish authoritative UTC/offset timestamps that the
+  // index omits. Bound network work: only 6 pages, at most 3 concurrent.
+  const needDetail = [...candidates.values()]
+    .filter(candidate => !candidate.kickoff).slice(0, 6);
+  for (let offset = 0; offset < needDetail.length; offset += 3) {
+    await Promise.all(needDetail.slice(offset, offset + 3).map(async item => {
+      try {
+        const detail = await publicHtml(item.page, fetcher, {withClock: true, now});
+        const exact = pageKickoff(detail.html);
+        const estimated = exact ? null :
+          countdownKickoff(detail.html, detail.observedAt, detail.clockFresh);
+        item.kickoff = exact ?? estimated;
+        item.timingSource = exact ? "explicit" : estimated ? "countdown" : "none";
+      } catch (_) { /* Keep as unverified, never manufacture a kickoff. */ }
+    }));
+  }
+
+  const matches = [...candidates.values()].map(row =>
+    eventRecord(source, site, row.page, row.teams, row.kickoff, row.timingSource)
+  ).sort((a,b) => (a.match_time ?? "9999").localeCompare(b.match_time ?? "9999"));
+  const confirmed = matches.filter(row => row.verified_kickoff).length;
+  const estimated = matches.filter(row => row.kickoff_estimated).length;
+  return {
+    ok: true, source, matches, results: matches.length,
+    diagnostics: {candidate_count: matches.length, confirmed_kickoff_count: confirmed,
+      estimated_countdown_count: estimated,
+      missing_kickoff_count: matches.length - confirmed - estimated,
+      note: "Countdown kickoffs are estimates from a fresh page response, not verified fixture times."},
+    generated_at: new Date().toISOString(),
+  };
 }
 
 function literalMediaUrls(html, pageUrl) {
