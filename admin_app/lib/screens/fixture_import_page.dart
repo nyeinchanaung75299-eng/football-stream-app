@@ -366,8 +366,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           (resultMap['skipped_deleted'] as num?)?.toInt() ??
           (chosen.length - savedIds.length).clamp(0, chosen.length);
       // A successful no-op (all fixtures skipped) must not invalidate a
-      // retained guide. Native behavior remains unchanged.
-      if (kIsWeb && savedIds.isNotEmpty && mounted) {
+      // retained guide on either Web or Android.
+      if (savedIds.isNotEmpty && mounted) {
         widget.onPublished?.call();
       }
 
