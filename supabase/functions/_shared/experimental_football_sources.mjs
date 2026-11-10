@@ -118,7 +118,7 @@ function teamsFromLink(url, inner) {
 function pageKickoff(markup) {
   const patterns = [
     /<time\b[^>]*\bdatetime\s*=\s*["']([^"']+)["'][^>]*>/gi,
-    /(?:startDate|start_date|startTime|kickoff_at|kickoffAt|datePublished)\s*["']?\s*[:=]\s*["']([^"']+)["']/gi,
+    /(?:startDate|start_date|startTime|kickoff_at|kickoffAt)\s*["']?\s*[:=]\s*["']([^"']+)["']/gi,
     /<meta\b[^>]*(?:name|property)\s*=\s*["'](?:event:start_time|startDate|event:start_date)["'][^>]*content\s*=\s*["']([^"']+)["']/gi,
   ];
   for (const pattern of patterns) {
