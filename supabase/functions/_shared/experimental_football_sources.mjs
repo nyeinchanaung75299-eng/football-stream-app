@@ -96,41 +96,101 @@ async function publicHtml(url, fetcher) {
   } finally { clearTimeout(timer); }
 }
 
+// Read only match links that are explicitly published on this site. Some
+// providers put the fixture identity in /event/home-vs-away instead of the
+// anchor text, so the original "Team A vs Team B" regex dropped every row.
+function teamsFromLink(url, inner) {
+  const visible = fixtureTitle(inner);
+  if (visible) return visible;
+  let path;
+  try { path = decodeURIComponent(new URL(url).pathname); }
+  catch (_) { return null; }
+  const match = path.match(/(?:^|\/)(?:event|events|match|matches|watch|live)?\/?([a-z0-9-]+)-vs-([a-z0-9-]+)(?:\/|$)/i);
+  if (!match) return null;
+  const title = part => part.replace(/-/g, " ").replace(/\b[a-z]/g, c => c.toUpperCase()).trim();
+  const home = title(match[1]), away = title(match[2]);
+  if (home.length < 2 || away.length < 2 || home.length > 65 || away.length > 65) return null;
+  return {home, away};
+}
+
+// Only fields documenting a fixture's kickoff are accepted. In particular,
+// another event's timestamp, countdown and the server clock are NOT kickoffs.
+function pageKickoff(markup) {
+  const patterns = [
+    /<time\b[^>]*\bdatetime\s*=\s*["']([^"']+)["'][^>]*>/gi,
+    /(?:startDate|start_date|startTime|kickoff_at|kickoffAt|datePublished)\s*["']?\s*[:=]\s*["']([^"']+)["']/gi,
+    /<meta\b[^>]*(?:name|property)\s*=\s*["'](?:event:start_time|startDate|event:start_date)["'][^>]*content\s*=\s*["']([^"']+)["']/gi,
+  ];
+  for (const pattern of patterns) {
+    for (const match of markup.matchAll(pattern)) {
+      const kickoff = explicitKickoff(match[1]);
+      if (kickoff) return kickoff;
+    }
+  }
+  return null;
+}
+
+function eventRecord(source, site, page, teams, kickoff, status = "unverified") {
+  const id = sourceId(page);
+  const hasTime = kickoff != null;
+  return {
+    source, source_id: id, schedule_id: id,
+    league: "Football", home_team: teams.home, away_team: teams.away,
+    home_logo: null, away_logo: null, poster_url: null,
+    match_time: kickoff, status: hasTime ? "NS" : "UNVERIFIED",
+    match_status: hasTime ? "SCHEDULED" : "UNVERIFIED",
+    hot: false, page_url: page,
+    // These rows are for admin inspection, not proven video playback.
+    verified_kickoff: hasTime,
+    anchors: [{room_num: id, page_url: page, nick_name: site.label}],
+  };
+}
+
 export async function experimentalMatches(source, {fetcher = fetch} = {}) {
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
   const html = await publicHtml(site.home, fetcher);
-  const matches = [], seen = new Set();
-  // Static server-rendered anchors only; JavaScript-only pages return no rows.
+  const candidates = new Map();
   const anchors = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   for (const hit of html.matchAll(anchors)) {
-    if (matches.length >= 100) break;
+    if (candidates.size >= 80) break;
     const href = hit[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
     const page = href && allowedPageUrl(href.replace(/&amp;/gi, "&"), site);
-    if (!page || page === site.home || seen.has(page)) continue;
-    const teams = fixtureTitle(hit[2]);
+    if (!page || page === site.home || candidates.has(page)) continue;
+    const teams = teamsFromLink(page, hit[2]);
     if (!teams) continue;
-    // Only accept a timestamp explicitly tied to the link or its adjacent
-    // immediate markup. Never generate fake kickoff times.
-    const preceding = html.slice(Math.max(0, hit.index - 280), hit.index);
-    // Do not borrow another match's kickoff from an earlier anchor.
-    const boundary = preceding.lastIndexOf('</a>');
-    const sameCardBefore = boundary < 0 ? preceding : preceding.slice(boundary + 4);
-    const kickoff = explicitKickoff(hit[0]) ?? explicitKickoff(sameCardBefore);
-    if (!kickoff) continue;
-    const id = sourceId(page);
-    seen.add(page);
-    matches.push({
-      source, source_id: id, schedule_id: id,
-      league: "Football", home_team: teams.home, away_team: teams.away,
-      home_logo: null, away_logo: null, poster_url: null,
-      match_time: kickoff, status: "NS", match_status: "SCHEDULED", hot: false,
-      page_url: page,
-      anchors: [{room_num: id, page_url: page, nick_name: site.label}],
-    });
+    // The timestamp must be inside this anchor or immediately preceding it,
+    // with a preceding sibling anchor acting as a hard event boundary.
+    const preceding = html.slice(Math.max(0, hit.index - 240), hit.index);
+    const boundary = preceding.lastIndexOf("</a>");
+    const local = boundary < 0 ? preceding : preceding.slice(boundary + 4);
+    const kickoff = pageKickoff(hit[0]) ?? pageKickoff(local);
+    candidates.set(page, {page, teams, kickoff});
   }
-  matches.sort((a,b) => a.match_time.localeCompare(b.match_time));
-  return {ok: true, source, matches, results: matches.length, generated_at: new Date().toISOString()};
+
+  // Detail pages may publish authoritative UTC/offset timestamps that the
+  // index omits. Bound network work: only 6 pages, at most 3 concurrent.
+  const needDetail = [...candidates.values()]
+    .filter(candidate => !candidate.kickoff).slice(0, 6);
+  for (let offset = 0; offset < needDetail.length; offset += 3) {
+    await Promise.all(needDetail.slice(offset, offset + 3).map(async item => {
+      try {
+        item.kickoff = pageKickoff(await publicHtml(item.page, fetcher));
+      } catch (_) { /* Keep as unverified, never manufacture a kickoff. */ }
+    }));
+  }
+
+  const matches = [...candidates.values()].map(row =>
+    eventRecord(source, site, row.page, row.teams, row.kickoff)
+  ).sort((a,b) => (a.match_time ?? "9999").localeCompare(b.match_time ?? "9999"));
+  const confirmed = matches.filter(row => row.verified_kickoff).length;
+  return {
+    ok: true, source, matches, results: matches.length,
+    diagnostics: {candidate_count: matches.length, confirmed_kickoff_count: confirmed,
+      missing_kickoff_count: matches.length - confirmed,
+      note: "Unverified rows may be inspected in Sources but are excluded from Pick Big Matches."},
+    generated_at: new Date().toISOString(),
+  };
 }
 
 function literalMediaUrls(html, pageUrl) {
