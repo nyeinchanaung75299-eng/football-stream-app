@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 
 import '../analytics_service.dart';
 import 'soco_import_page.dart';
