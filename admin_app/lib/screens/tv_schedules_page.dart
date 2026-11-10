@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../football_english.dart';
@@ -23,6 +25,7 @@ class TvSchedulesPage extends StatefulWidget {
 class _TvSchedulesPageState extends State<TvSchedulesPage> {
   late Future<_ScheduleData> _schedule = _load();
   _ScheduleData? _lastSchedule;
+  DateTime? _lastSuccessfulAt;
   late Future<_GuideResult> _guide = _loadGuide();
   String _view = 'upcoming';
   DateTime _lastRefreshAt = DateTime.now();
@@ -46,6 +49,7 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
   Future<_ScheduleData> _load() async {
     final result = _ScheduleData(matches: await _loadMatches());
     _lastSchedule = result; // Keep last success on temporary network loss.
+    _lastSuccessfulAt = DateTime.now();
     return result; // Including authoritative empty/deleted lists.
   }
 
@@ -139,6 +143,23 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
                   onRefresh: _refresh,
                 ),
               if (widget.embedded) const SizedBox(height: 10),
+              if (kIsWeb && snapshot.hasError && _lastSchedule != null) ...[
+                Card(
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  child: ListTile(
+                    leading: const Icon(Icons.cloud_off_rounded),
+                    title: const Text('Match refresh failed — showing saved schedule'),
+                    subtitle: Text(_lastSuccessfulAt == null
+                        ? 'Last successful update unavailable'
+                        : 'Last successful: ${DateFormat('dd MMM HH:mm').format(_lastSuccessfulAt!.toLocal())}'),
+                    trailing: TextButton(
+                      onPressed: _refresh,
+                      child: const Text('RETRY'),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               Wrap(
                 spacing: 8,
                 children: [

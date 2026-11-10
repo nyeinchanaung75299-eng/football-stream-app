@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,7 +10,8 @@ import '../widgets/match_destination_sheet.dart';
 import 'repository_channel_updates_page.dart';
 
 class RepositoryMatchesPage extends StatefulWidget {
-  const RepositoryMatchesPage({super.key});
+  const RepositoryMatchesPage({super.key, this.onMutated});
+  final VoidCallback? onMutated;
   @override
   State<RepositoryMatchesPage> createState() => _RepositoryMatchesPageState();
 }
@@ -49,6 +51,7 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
     setState(() => working = true);
     try {
       final result = await (imports ? ConnectedChannelSource(source: 'repository-imports') : source).request('sync');
+      if (kIsWeb) widget.onMutated?.call();
       if (imports) {
         notice('Updated ${result['updated_lines'] ?? 0} lines • Checked ${result['probed'] ?? 0} changed configurations • Repaired ${result['repaired'] ?? 0}');
       } else { refresh(); notice('Repository matches updated.'); }
@@ -67,6 +70,7 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
         builder: (_) => MatchDestinationSheet(matches: List<Map<String,dynamic>>.from(matches)));
       if (match == null || !mounted) return;
       await source.request('add_match',{'entry_id':row['id'],'source_line_id':line['id'],'match_id':match});
+      if (kIsWeb) widget.onMutated?.call();
       notice('Line added. Repository updates and removals are followed.');
     } catch (error) { notice(error is StateError ? error.message.toString() : 'Could not add this line.'); }
   }
@@ -111,7 +115,7 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
       return Column(children:[
         SwitchListTile.adaptive(dense:true,title:const Text('Auto-sync every 5 minutes',style:TextStyle(fontSize:12)),
           subtitle:Text('${state['status']} • ${data['total']} football matches',style:const TextStyle(fontSize:11)),
-          value:state['enabled']==true,onChanged:(value)async{await source.request('settings',{'enabled':value});refresh();}),
+          value:state['enabled']==true,onChanged:(value)async{await source.request('settings',{'enabled':value});if(kIsWeb)widget.onMutated?.call();refresh();}),
         Padding(padding:const EdgeInsets.symmetric(horizontal:12),child:TextField(controller:search,
           decoration:const InputDecoration(hintText:'Search teams or leagues',prefixIcon:Icon(Icons.search),isDense:true),
           onChanged:(_){debounce?.cancel();debounce=Timer(const Duration(milliseconds:300),(){page=0;refresh();});})),

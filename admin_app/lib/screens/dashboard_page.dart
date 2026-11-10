@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../analytics_service.dart';
@@ -14,6 +15,7 @@ import 'live_links_page.dart';
 import 'live_upload_page.dart';
 import 'my_channels_guide_page.dart';
 import '../services/tv_schedule_service.dart';
+import '../services/admin_web_source_cache.dart';
 import 'stream_source_picker_page.dart';
 import 'tv_schedules_page.dart';
 import 'telegram_setup_page.dart';
@@ -65,6 +67,9 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
     ).then((_) {
       if (!mounted || !_mutatingSections.contains(section)) return;
+      // Web has explicit success callbacks for the source picker. Do not
+      // evict guides simply because an Admin previewed a provider.
+      if (kIsWeb && section == 'stream-sources') return;
       // The editing route may have changed fixtures or channels. Evict only
       // dependent guide screens, never hold a deleted row in an Admin cache.
       _invalidateGuidesAfterEdit();
@@ -87,7 +92,7 @@ class _DashboardPageState extends State<DashboardPage> {
       0 => _controls(context, colors),
       1 => StreamSourcePickerPage(
         embedded: true,
-        onProviderClosed: _invalidateGuidesAfterEdit,
+        onSourceMutated: _invalidateGuidesAfterEdit,
       ),
       2 => _tools(context, colors),
       3 => TvSchedulesPage(
@@ -120,6 +125,10 @@ class _DashboardPageState extends State<DashboardPage> {
             tooltip: 'Logout',
             onPressed: () async {
               await AnalyticsService.capture('admin logout');
+              if (kIsWeb) {
+                AdminWebSourceCache.clear();
+                TvScheduleService.invalidateShared();
+              }
               await Supabase.instance.client.auth.signOut();
               // The old private widget tree is destroyed by AuthGate on
               // sign-out; clear the session-scoped tab registry as well.
@@ -216,7 +225,9 @@ class _DashboardPageState extends State<DashboardPage> {
         title: 'Pick Big Matches',
         iconColor: const Color(0xFFF59E0B),
         onTap: () =>
-            open(context, const FixtureImportPage(), 'pick-big-matches'),
+            open(context, FixtureImportPage(
+              onPublished: kIsWeb ? _invalidateGuidesAfterEdit : null,
+            ), 'pick-big-matches'),
       ),
       const SizedBox(height: 8),
       _ActionCard(
@@ -287,7 +298,9 @@ class _DashboardPageState extends State<DashboardPage> {
         iconColor: colors.primary,
         onTap: () => open(
           context,
-          const RepositoryMatchesPage(),
+          RepositoryMatchesPage(
+            onMutated: kIsWeb ? _invalidateGuidesAfterEdit : null,
+          ),
           'repository-matches',
         ),
       ),

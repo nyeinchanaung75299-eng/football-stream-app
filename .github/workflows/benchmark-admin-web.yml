@@ -1,0 +1,69 @@
+name: Compare NCA Admin Web startup (Web only)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'admin_app/**'
+      - 'scripts/compare_admin_web_startup.mjs'
+      - '.github/workflows/benchmark-admin-web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare-web:
+    name: Compare compressed bytes and first Flutter frame
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate browser benchmark script
+        run: node --check scripts/compare_admin_web_startup.mjs
+
+      - name: Checkout exact target branch for before measurement
+        run: |
+          git fetch origin main
+          git worktree add --detach /tmp/nca-admin-web-before origin/main
+
+      - name: Build baseline Admin Web (never APK)
+        working-directory: /tmp/nca-admin-web-before/admin_app
+        run: |
+          flutter create --platforms=web .
+          flutter pub get
+          flutter build web --release --base-href "/football-stream-app/admin/" --pwa-strategy=none --no-web-resources-cdn
+          python3 ../scripts/stamp_flutter_web_cache.py build/web baseline-web
+
+      - name: Build candidate Admin Web (never APK)
+        working-directory: admin_app
+        run: |
+          flutter create --platforms=web .
+          flutter pub get
+          flutter build web --release --base-href "/football-stream-app/admin/" --pwa-strategy=none --no-web-resources-cdn
+          python3 ../scripts/stamp_flutter_web_cache.py build/web candidate-web
+
+      - name: Compare cold and warm first frames with identical network settings
+        run: |
+          export CHROME_BIN="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$CHROME_BIN"
+          node scripts/compare_admin_web_startup.mjs \
+            /tmp/nca-admin-web-before/admin_app/build/web \
+            admin_app/build/web
+
+      # No Android generation, APK compilation, signing, or release operations.
