@@ -42,8 +42,12 @@ class _TabResult {
 class ViewerTabCache {
   ViewerTabCache._();
 
-  static const sourceTtl = Duration(seconds: 75);
-  static const channelTtl = Duration(minutes: 4);
+  // Source schedules change regularly; keep successful tab results for a short
+  // window, without forcing a spinner when an older list needs revalidation.
+  static const sourceTtl = Duration(minutes: 5);
+  // Channel catalogue changes less often than live programmes/EPG. Keep EPG
+  // in its independent, shorter-lived cache.
+  static const channelTtl = Duration(minutes: 10);
 
   static final Map<String, _TabResult> _sources = {};
   static final Map<String, Future<List<Map<String, dynamic>>>> _sourceInFlight = {};
@@ -76,6 +80,20 @@ class ViewerTabCache {
 
   static List<Map<String, dynamic>>? sourceRows(String source) =>
       _sources[source]?.rows;
+
+  /// Seed only after a verified, recent on-device snapshot has been loaded.
+  /// Mark restored rows stale so the app still checks the authoritative API;
+  /// meanwhile revisits can paint immediately even on a poor connection.
+  static void seedStaleSourceIfMissing(
+    String source,
+    List<Map<String, dynamic>> rows,
+  ) {
+    if (_sources.containsKey(source)) return;
+    _sources[source] = _TabResult(
+      rows,
+      DateTime.now().subtract(sourceTtl),
+    );
+  }
 
   static bool sourceFresh(String source, {DateTime? now}) {
     final entry = _sources[source];
@@ -121,6 +139,13 @@ class ViewerTabCache {
   }
 
   static List<Map<String, dynamic>>? get channelRows => _channels?.rows;
+
+  /// Preserve a last-known public channel catalogue across Safari reloads,
+  /// but never prevent the current server from authoritatively replacing it.
+  static void seedStaleChannelsIfMissing(List<Map<String, dynamic>> rows) {
+    if (_channels != null) return;
+    _channels = _TabResult(rows, DateTime.now().subtract(channelTtl));
+  }
 
   static bool channelsFresh({DateTime? now}) {
     final entry = _channels;
