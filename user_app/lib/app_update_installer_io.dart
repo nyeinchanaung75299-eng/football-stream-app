@@ -66,7 +66,7 @@ Future<void> downloadAndInstallApk(
           received = 0;
           total = response.contentLength;
         }
-        if (total != null && (total! <= 0 || total! > maxBytes)) {
+        if (total != null && (total <= 0 || total > maxBytes)) {
           throw StateError('APK download size is outside the safe limit.');
         }
 
@@ -82,8 +82,8 @@ Future<void> downloadAndInstallApk(
             if (received > maxBytes) {
               throw StateError('APK download exceeds safe size.');
             }
-            if (total != null && total! > 0) {
-              onProgress?.call((received / total!).clamp(0.0, 1.0).toDouble());
+            if (total != null && total > 0) {
+              onProgress?.call((received / total).clamp(0.0, 1.0).toDouble());
             }
           }
           await sink.flush();
