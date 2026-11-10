@@ -101,11 +101,12 @@ class SocoImportPage extends StatefulWidget {
 
 class _SocoImportPageState extends State<SocoImportPage> {
   bool get _isManualSource => source == 'playz';
-  bool get _currentSession => !kIsWeb ||
-      (_sourceSessionGeneration == AdminWebSourceCache.sessionGeneration &&
-       _sourceSessionUserId != null &&
-       Supabase.instance.client.auth.currentSession?.user.id ==
-           _sourceSessionUserId);
+  bool get _currentSession =>
+      (!kIsWeb ||
+       _sourceSessionGeneration == AdminWebSourceCache.sessionGeneration) &&
+      _sourceSessionUserId != null &&
+      Supabase.instance.client.auth.currentSession?.user.id ==
+          _sourceSessionUserId;
 
   static const _pagesMirrorBase =
       'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources';
@@ -1236,7 +1237,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
       final shownLabel = provider == 'yyzb' ? englishStreamLabel(label) : label;
       message('$sourceName $shownLabel added. Health check is pending.');
-      if (kIsWeb) widget.onMutated?.call();
+      widget.onMutated?.call();
       return true;
     } on TimeoutException {
       message('Could not confirm the save. Refresh before trying again.');
