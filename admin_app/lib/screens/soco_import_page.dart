@@ -125,7 +125,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
     'viprow': 'VIPRow',
     'score088': 'Score088TV',
     'sports808': 'LiveSports808',
-    'phut90': '90phut TV',
     'kooralive': 'Koora Live',
     'livextv': 'LiveXTV',
     'streamfree': 'StreamFree',
