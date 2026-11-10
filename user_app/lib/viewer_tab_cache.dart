@@ -91,7 +91,7 @@ class ViewerTabCache {
     if (_sources.containsKey(source)) return;
     _sources[source] = _TabResult(
       rows,
-      DateTime.now().subtract(sourceTtl),
+      DateTime.now().subtract(sourceTtl + const Duration(seconds: 1)),
     );
   }
 
@@ -144,7 +144,7 @@ class ViewerTabCache {
   /// but never prevent the current server from authoritatively replacing it.
   static void seedStaleChannelsIfMissing(List<Map<String, dynamic>> rows) {
     if (_channels != null) return;
-    _channels = _TabResult(rows, DateTime.now().subtract(channelTtl));
+    _channels = _TabResult(rows, DateTime.now().subtract(channelTtl + const Duration(seconds: 1)));
   }
 
   static bool channelsFresh({DateTime? now}) {
