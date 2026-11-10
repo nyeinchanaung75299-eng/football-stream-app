@@ -657,7 +657,9 @@ class _HomePageState extends State<HomePage> {
           .map((row) => Map<String, dynamic>.from(row))
           .toList();
       final visible = _sortMatchesChronologically(rows);
-      if (visible.isEmpty) return null;
+      // A successful authoritative [] must survive fallback/network loss too.
+      // Otherwise an older GitHub mirror can resurrect deleted fixtures.
+      // Missing/malformed snapshots still return null above.
       return _PersistedMatchCache(visible, fetchedAt);
     } catch (_) {
       return null;
