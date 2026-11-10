@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -10,6 +11,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
 import '../football_english.dart';
 import '../services/manual_source_url.dart';
+import '../services/admin_web_source_cache.dart';
 import '../services/function_gateway.dart';
 import '../services/stream_library_service.dart';
 import '../source_line_validation.dart';
@@ -84,8 +86,11 @@ class SocoImportPage extends StatefulWidget {
     this.initialMatchId,
     this.initialSource = 'soco',
     this.initialReferer,
+    this.onMutated,
   });
 
+  /// Called only after a confirmed successful source-line mutation.
+  final VoidCallback? onMutated;
   final String? initialMatchId;
   final String initialSource;
   final String? initialReferer;
@@ -114,6 +119,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   String dayFilter = 'today';
   String? errorText;
   final _sourceSearch = TextEditingController();
+  late final ScrollController _sourceScroll;
   String _sourceQuery = '';
   List<Map<String, dynamic>> sourceMatches = const [];
   final Map<String, String> _anchorStatuses = <String, String>{};
@@ -168,7 +174,20 @@ class _SocoImportPageState extends State<SocoImportPage> {
     dayFilter = (source == 'fawa' || source == 'cola' || source == 'arena' || _isManualSource)
         ? 'all'
         : 'today';
-    _loadSoco();
+    final ui = AdminWebSourceCache.ui(source);
+    if (kIsWeb && !_isManualSource) {
+      _sourceQuery = ui.query;
+      _sourceSearch.text = ui.query;
+      dayFilter = ui.dayFilter;
+      availableOnly = ui.availableOnly;
+      sourceMatches = AdminWebSourceCache.rows(source) ?? const [];
+    }
+    _sourceScroll = ScrollController(initialScrollOffset: ui.scrollOffset);
+    if (sourceMatches.isEmpty && !AdminWebSourceCache.fresh(source)) {
+      unawaited(_loadSoco());
+    } else if (!AdminWebSourceCache.fresh(source)) {
+      unawaited(_loadSoco(silent: true));
+    }
     _sourceRefreshTimer = Timer.periodic(
       const Duration(minutes: 1),
       (_) => unawaited(_refreshSourceInBackground()),
@@ -179,6 +198,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
   void dispose() {
     _sourceLoadEpoch += 1;
     _sourceRefreshTimer?.cancel();
+    if (kIsWeb && !_isManualSource) {
+      AdminWebSourceCache.saveUi(source, AdminSourceUiState(
+        query: _sourceQuery,
+        dayFilter: dayFilter,
+        availableOnly: availableOnly,
+        scrollOffset: _sourceScroll.hasClients ? _sourceScroll.offset : 0,
+      ));
+    }
+    _sourceScroll.dispose();
     _sourceSearch.dispose();
     _playzServerName.dispose();
     _playzUrl.dispose();
@@ -192,6 +220,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   Future<void> _refreshSourceInBackground() async {
     if (!mounted || _isManualSource || loading || _backgroundRefreshBusy)
       return;
+    if (kIsWeb && AdminWebSourceCache.fresh(source)) return;
     final state = WidgetsBinding.instance.lifecycleState;
     if (_extractingAnchorKey != null ||
         (state != null && state != AppLifecycleState.resumed) ||
@@ -311,6 +340,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
     }
 
     try {
+      final parsed = await AdminWebSourceCache.load(provider, () async {
       dynamic data;
       if (!_enableNoVpnFallback) {
         data = await FunctionGateway.invoke(
@@ -342,6 +372,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .toList();
 
       parsed.sort((a, b) => compareAdminSourceMatches(a, b, provider));
+      return parsed;
+      }, force: true);
 
       unawaited(
         AnalyticsService.capture(
@@ -387,9 +419,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (!silent) {
         final detail = e.toString().replaceFirst('Exception: ', '');
         setState(() {
-          sourceMatches = const [];
+          if (!kIsWeb || sourceMatches.isEmpty) {
+            sourceMatches = const [];
+          }
           errorText =
-              'Could not load ${_sourceLabel(provider)} sources. $detail';
+              'Could not refresh ${_sourceLabel(provider)} sources. $detail';
         });
       }
     } finally {
@@ -1186,6 +1220,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
       final shownLabel = provider == 'yyzb' ? englishStreamLabel(label) : label;
       message('$sourceName $shownLabel added. Health check is pending.');
+      if (kIsWeb) widget.onMutated?.call();
       return true;
     } on TimeoutException {
       message('Could not confirm the save. Refresh before trying again.');
@@ -1801,6 +1836,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       body: RefreshIndicator(
         onRefresh: _loadSoco,
         child: ListView(
+          controller: _sourceScroll,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
           children: [
                 if (_isManualSource) _manualSourceCard(colors),
