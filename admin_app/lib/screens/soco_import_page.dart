@@ -80,6 +80,20 @@ Future<void> runBoundedStatusChecks<T>(
   await Future.wait(List.generate(workerCount, (_) => worker()));
 }
 
+/// Bound private pages must not accept results after sign-out or account
+/// switch. On Web, session generation also rejects same-user relogin races.
+@visibleForTesting
+bool sourceSessionMatches({
+  required String? pageUser,
+  required String? activeUser,
+  required int pageGeneration,
+  required int currentGeneration,
+  required bool isWeb,
+}) =>
+    pageUser != null &&
+    activeUser == pageUser &&
+    (!isWeb || pageGeneration == currentGeneration);
+
 class SocoImportPage extends StatefulWidget {
   const SocoImportPage({
     super.key,
@@ -101,11 +115,13 @@ class SocoImportPage extends StatefulWidget {
 
 class _SocoImportPageState extends State<SocoImportPage> {
   bool get _isManualSource => source == 'playz';
-  bool get _currentSession => !kIsWeb ||
-      (_sourceSessionGeneration == AdminWebSourceCache.sessionGeneration &&
-       _sourceSessionUserId != null &&
-       Supabase.instance.client.auth.currentSession?.user.id ==
-           _sourceSessionUserId);
+  bool get _currentSession => sourceSessionMatches(
+        pageUser: _sourceSessionUserId,
+        activeUser: Supabase.instance.client.auth.currentSession?.user.id,
+        pageGeneration: _sourceSessionGeneration,
+        currentGeneration: AdminWebSourceCache.sessionGeneration,
+        isWeb: kIsWeb,
+      );
 
   static const _pagesMirrorBase =
       'https://nyeinchanaung75299-eng.github.io/football-stream-app/sources';
@@ -1236,7 +1252,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
       final shownLabel = provider == 'yyzb' ? englishStreamLabel(label) : label;
       message('$sourceName $shownLabel added. Health check is pending.');
-      if (kIsWeb) widget.onMutated?.call();
+      widget.onMutated?.call();
       return true;
     } on TimeoutException {
       message('Could not confirm the save. Refresh before trying again.');

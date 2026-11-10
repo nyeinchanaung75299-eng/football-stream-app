@@ -29,20 +29,51 @@ String vpnFreeUpdateUrl(String value) {
       .toString();
 }
 
+const _viewerReleaseApkPath =
+    '/nyeinchanaung75299-eng/football-stream-app/feed/public/releases/'
+    'NCA-arm64-v8a-latest.apk';
+
+/// Refuse unrelated or corrupted manifests before comparing version codes.
+@visibleForTesting
+bool validViewerRelease(Map<String, dynamic> release) {
+  final uri = Uri.tryParse(release['apk_url']?.toString() ?? '');
+  final digest = (release['sha256'] ?? '').toString().trim().toLowerCase();
+  final version = (release['version_name'] ?? '').toString().trim();
+  final size = int.tryParse(release['size_bytes']?.toString() ?? '') ?? 0;
+  final build = int.tryParse(release['build_number']?.toString() ?? '') ?? 0;
+  return (release['app'] == null || release['app'] == 'nca_viewer') &&
+      release['abi'] == 'arm64-v8a' &&
+      uri != null &&
+      uri.scheme == 'https' &&
+      uri.host == 'raw.githubusercontent.com' &&
+      uri.path == _viewerReleaseApkPath &&
+      !uri.hasQuery &&
+      !uri.hasFragment &&
+      RegExp(r'^[0-9a-f]{64}$').hasMatch(digest) &&
+      RegExp(r'^\d+\.\d+\.\d+$').hasMatch(version) &&
+      size > 0 &&
+      size <= 45 * 1024 * 1024 &&
+      build > 0;
+}
+
 class AppUpdateService {
   AppUpdateService._();
 
   static bool _checked = false;
   static bool _downloading = false;
 
+  // Prefer the release feed written atomically with signed APKs; Pages lags.
   static const _manifestUrls = <String>[
-    'https://nyeinchanaung75299-eng.github.io/'
-        'football-stream-app/releases/latest.json',
     'https://raw.githubusercontent.com/'
         'nyeinchanaung75299-eng/football-stream-app/'
         'feed/public/releases/latest.json',
+    'https://nyeinchanaung75299-eng.github.io/'
+        'football-stream-app/releases/latest.json',
     '$_vpnFreeViewerOrigin/football-stream-app/releases/latest.json',
   ];
+
+  @visibleForTesting
+  static List<String> get manifestUrls => _manifestUrls;
 
   static Future<String> versionSummary() async {
     try {
@@ -77,7 +108,10 @@ class AppUpdateService {
           }
 
           final decoded = jsonDecode(response.body);
-          if (decoded is! Map) continue;
+          if (decoded is! Map ||
+              !validViewerRelease(Map<String, dynamic>.from(decoded))) {
+            continue;
+          }
 
           final latestVersion =
               decoded['version_name']?.toString().trim() ?? '';
@@ -135,7 +169,9 @@ class AppUpdateService {
 
           final decoded = jsonDecode(response.body);
           if (decoded is Map) {
-            data = decoded;
+            final candidate = Map<String, dynamic>.from(decoded);
+            if (!validViewerRelease(candidate)) continue;
+            data = candidate;
             break;
           }
         } catch (_) {}

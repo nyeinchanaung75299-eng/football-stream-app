@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -143,7 +142,7 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
                   onRefresh: _refresh,
                 ),
               if (widget.embedded) const SizedBox(height: 10),
-              if (kIsWeb && snapshot.hasError && _lastSchedule != null) ...[
+              if (snapshot.hasError && _lastSchedule != null) ...[
                 Card(
                   color: Theme.of(context).colorScheme.errorContainer,
                   child: ListTile(

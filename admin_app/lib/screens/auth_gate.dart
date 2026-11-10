@@ -29,7 +29,8 @@ class _AuthGateState extends State<AuthGate> {
   @override
   void initState() {
     super.initState();
-    if (!kIsWeb) return;
+    // Android also keeps pushed pages mounted above the AuthGate root.
+    // Observe identity transitions on every platform, not only the browser.
     final auth = Supabase.instance.client.auth;
     _observedUserId = auth.currentSession?.user.id;
     _authChanges = auth.onAuthStateChange.listen((state) {
