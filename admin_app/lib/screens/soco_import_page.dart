@@ -114,6 +114,24 @@ class SocoImportPage extends StatefulWidget {
 }
 
 class _SocoImportPageState extends State<SocoImportPage> {
+  static const _experimentalSourceNames = <String, String>{
+    'camel': 'Camel Live',
+    'xoilac': 'Xoilac TV',
+    'livetv': 'LiveTV',
+    'rojadirecta': 'Rojadirecta',
+    'crichd': 'CricHD',
+    'roxie': 'RoxieStreams',
+    'vipbox': 'VIPBox',
+    'viprow': 'VIPRow',
+    'score088': 'Score088TV',
+    'sports808': 'LiveSports808',
+    'phut90': '90phut TV',
+    'kooralive': 'Koora Live',
+    'livextv': 'LiveXTV',
+    'streamfree': 'StreamFree',
+    'ppv': 'PPV.st',
+  };
+  bool get _isExperimentalSource => _experimentalSourceNames.containsKey(source);
   bool get _isManualSource => source == 'playz';
   bool get _currentSession => sourceSessionMatches(
         pageUser: _sourceSessionUserId,
@@ -184,19 +202,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (page != null) _playzOrigin.text = page.origin;
     }
     final requested = widget.initialSource.trim().toLowerCase();
-    source = const {
-      'soco',
-      'yyzb',
-      'fawa',
-      'cola',
-      'arena',
-      'playz',
-    }.contains(requested)
-        ? requested
-        : 'soco';
+    source = (_experimentalSourceNames.containsKey(requested) || const {
+      'soco', 'yyzb', 'fawa', 'cola', 'arena', 'playz',
+    }.contains(requested)) ? requested : 'soco';
     if(source=='arena')availableOnly=false;
     if (_isManualSource) _libraryFuture = _streamLibrary.list();
-    dayFilter = (source == 'fawa' || source == 'cola' || source == 'arena' || _isManualSource)
+    dayFilter = (source == 'fawa' || source == 'cola' || source == 'arena' || _isExperimentalSource || _isManualSource)
         ? 'all'
         : 'today';
     final ui = AdminWebSourceCache.ui(source);
@@ -527,6 +538,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
           _anchorStatusCheckedAt[key] = now;
           continue;
         }
+        if (_experimentalSourceNames.containsKey(provider)) {
+          // No automatic HTML polling for experimental third-party sites.
+          // Only a direct operator tap requests the page's media list.
+          _anchorStatuses[key] = 'unknown';
+          _anchorStatusCheckedAt[key] = now;
+          continue;
+        }
         if (provider == 'fawa') {
           // Fawa has useful schedule-level readiness metadata. Soco, YYZB
           // and Cola are resolved below because their room state can change.
@@ -762,7 +780,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'page_url': anchor['page_url'] ?? match['page_url'],
           // Cola URLs are checked before the operator can import them.
           // Other rotating providers keep the fast metadata-only path.
-          'skip_probe': provider != 'cola',
+          'skip_probe': provider != 'cola' && !_isExperimentalSource,
         },
       );
 
@@ -1830,7 +1848,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       case 'arena':
         return 'Arena Koora';
       default:
-        return 'Soco';
+        return _experimentalSourceNames[value] ?? 'Soco';
     }
   }
 
@@ -1968,9 +1986,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
                     ),
                   ),
                 ...visible.map((match) {
-                  final kickoff = DateTime.tryParse(
+                  final parsedKickoff = DateTime.tryParse(
                     match['match_time']?.toString() ?? '',
-                  )?.toLocal();
+                  );
+                  final kickoff = _isExperimentalSource && parsedKickoff != null
+                      ? parsedKickoff.toUtc().add(const Duration(hours: 6, minutes: 30))
+                      : parsedKickoff?.toLocal();
                   final displayKickoff = kickoff;
                   final anchors = List<Map<String, dynamic>>.from(
                     match['anchors'] ?? const [],

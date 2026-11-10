@@ -1,4 +1,4 @@
-import { websiteMatches, websiteStreams } from "../_shared/website_sources.mjs";
+import { websiteMatches, websiteStreams, experimentalMatches, experimentalStreams, isExperimentalFootballSource } from "../_shared/website_sources.mjs";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { englishFootballName, firstFootballName, providerEnglishName, sourceFootballNames, englishStreamerName } from "../_shared/football_names.mjs";
@@ -90,6 +90,22 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (isExperimentalFootballSource(source)) {
+      // Experimental website access is admin-only. Viewer public mode cannot
+      // issue third-party HTML fetches or use the resolver as a proxy.
+      if (viewerPublic) return json({ error: "Admin access required." }, 403);
+      if (action !== "streams") return json(await experimentalMatches(source));
+      const resolved = await experimentalStreams(source, body);
+      if (body.status_only === true || body.status_only === "true") return json(resolved);
+      const checked = await probeLines(resolved.lines ?? [], skipProbeRequested(body));
+      const lines = checked.filter((line: any) =>
+        ["healthy", "slow"].includes(String(line.health_status)));
+      return json({ ...resolved, lines, line_count: lines.length,
+        ready: lines.length > 0,
+        message: lines.length ? resolved.message :
+          "No verified playable HLS/DASH line. No access protections were bypassed." });
+    }
+
     if (source === "arena") {
       const payload = action === "streams" ? await websiteStreams(source, body) :
         { ok: true, source, matches: await websiteMatches(source), generated_at: new Date().toISOString() };
@@ -169,6 +185,7 @@ Deno.serve(async (req) => {
 function normalizeSource(value: unknown): "soco" | "yyzb" | "fawa" | "cola" | "arena" | null {
   const source = String(value ?? "").trim().toLowerCase();
   if (!source) return "soco";
+  if (isExperimentalFootballSource(source)) return source as any;
   if (source === "soco" || source === "yyzb" || source === "fawa" || source === "cola" || source === "arena") {
     return source;
   }

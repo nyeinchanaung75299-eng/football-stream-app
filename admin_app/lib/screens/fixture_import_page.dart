@@ -33,7 +33,39 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       '1';
   DateTime selectedDate = DateTime.now();
   String mode = 'date';
+  static const _fixtureProviders = <String, String>{
+    'cola': 'ColaTV',
+    'soco': 'Soco',
+    'yyzb': 'YYZB',
+    'fawa': 'Fawa',
+    'arena': 'Arena Koora',
+    'crichd': 'CricHD',
+    'camel': 'Camel Live',
+    'xoilac': 'Xoilac TV',
+    'livetv': 'LiveTV',
+    'rojadirecta': 'Rojadirecta',
+    'roxie': 'RoxieStreams',
+    'vipbox': 'VIPBox',
+    'viprow': 'VIPRow',
+    'score088': 'Score088TV',
+    'sports808': 'LiveSports808',
+    'phut90': '90phut TV',
+    'kooralive': 'Koora Live',
+    'livextv': 'LiveXTV',
+    'streamfree': 'StreamFree',
+    'ppv': 'PPV.st',
+  };
   String fixtureSource = 'cola';
+
+  // Myanmar Standard Time is UTC+06:30 regardless of device time zone.
+  // Unknown or timezone-ambiguous kickoffs are never replaced by now.
+  DateTime? _myanmarKickoff(Object? raw) {
+    final value = raw?.toString().trim() ?? '';
+    if (!RegExp(r'(?:Z|[+-]\d{2}:?\d{2})$', caseSensitive: false)
+        .hasMatch(value)) return null;
+    final parsed = DateTime.tryParse(value);
+    return parsed?.toUtc().add(const Duration(hours: 6, minutes: 30));
+  }
   bool loading = false;
   bool importing = false;
   String? errorText;
@@ -150,9 +182,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     for (final item in raw) {
       if (item is! Map) continue;
       final row = Map<String, dynamic>.from(item);
-      final matchTime = DateTime.tryParse(
-        row['match_time']?.toString() ?? '',
-      )?.toLocal();
+      final matchTime = _myanmarKickoff(row['match_time']);
+      if (matchTime == null) continue;
 
       final isLive = row['hot'] == true ||
           row['status']?.toString().toUpperCase() == 'LIVE' ||
@@ -161,7 +192,6 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       if (requestedMode == 'live') {
         if (!isLive) continue;
       } else if (requestedMode == 'date') {
-        if (matchTime == null) continue;
         final day = DateTime(matchTime.year, matchTime.month, matchTime.day);
         if (day != wantedDate) continue;
       }
@@ -187,9 +217,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         'away_name': away,
         'home_logo': row['home_logo'],
         'away_logo': row['away_logo'],
-        'kickoff_at':
-            (row['match_time'] ?? DateTime.now().toUtc().toIso8601String())
-                .toString(),
+        'kickoff_at': row['match_time'].toString(),
         'status_short': isLive ? 'LIVE' : 'NS',
         'is_live': isLive,
         'source_page_url': row['page_url'],
@@ -250,6 +278,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       try {
         rows = await _loadSourceFixtures(provider, requestedMode, requestedDate);
       } catch (_) {
+        if (provider != 'cola') rethrow;
         rows = const [];
       }
 
@@ -268,9 +297,16 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         },
       ));
 
+      // All providers, including the backup, require a confirmed kickoff.
+      final timedRows = rows.where((row) =>
+          _myanmarKickoff(row['kickoff_at']) != null).toList();
       if (!current()) return;
       setState(() {
-        fixtures = rows;
+        fixtures = timedRows;
+        if (timedRows.isEmpty) {
+          errorText = 'No matches with confirmed kickoff times were returned by '
+              '${_providerLabel(fixtureSource)}. This source may use browser-only data.';
+        }
       });
     } catch (e) {
       unawaited(AnalyticsService.capture(
@@ -415,7 +451,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Pick a Soco / YYZB / Fawa / ColaTV source now, or add a stream manually.',
+                  'Pick an available stream source now, or add an authorized stream manually.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 18),
@@ -424,7 +460,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                   child: FilledButton.icon(
                     onPressed: () => Navigator.pop(sheetContext, 'source'),
                     icon: const Icon(Icons.podcasts_rounded),
-                    label: const Text('PICK SOCO / YYZB / FAWA / COLATV'),
+                    label: const Text('PICK STREAM SOURCE'),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -454,7 +490,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
               ),
               builder: (_) => SocoImportPage(
                 initialMatchId: savedIds.first,
-                initialSource: 'cola',
+                initialSource: fixtureSource,
               ),
             ),
           );
@@ -474,7 +510,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${chosen.length} matches published. Open Soco / YYZB / Fawa / ColaTV Links or Stream Servers to add links.',
+              '${chosen.length} matches published. Open Stream Sources or Stream Servers to add lines.',
             ),
           ),
         );
@@ -500,6 +536,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   }
 
   String _providerLabel(dynamic value) {
+    final known = _fixtureProviders[value?.toString()];
+    if (known != null) return known;
     switch (value?.toString()) {
       case 'cola':
         return 'ColaTV';
@@ -578,6 +616,25 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),
         children: [
+          DropdownButtonFormField<String>(
+            value: fixtureSource,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Pick Big Match source',
+              border: OutlineInputBorder(),
+            ),
+            items: _fixtureProviders.entries
+                .map((entry) => DropdownMenuItem<String>(
+                      value: entry.key, child: Text(entry.value),
+                    ))
+                .toList(),
+            onChanged: importing ? null : (value) {
+              if (value == null || value == fixtureSource) return;
+              setState(() => fixtureSource = value);
+              loadFixtures();
+            },
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               modeButton(
@@ -681,9 +738,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
             ...fixtures.map((f) {
               final id = f['fixture_id'] as int;
               final checked = selectedIds.contains(id);
-              final kickoff = DateTime.parse(
-                f['kickoff_at'].toString(),
-              ).toLocal();
+              final kickoff = _myanmarKickoff(f['kickoff_at'])!;
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: 9),
@@ -731,7 +786,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                                 const SizedBox(height: 5),
                                 Text(
                                   '${DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff)}'
-                                  '${f['status_short'] == null ? '' : ' • ${f['status_short']}'}',
+                                  ' MMT${f['status_short'] == null ? '' : ' • ${f['status_short']}'}',
                                   style: TextStyle(
                                     fontSize: 12.5,
                                     color: colors.onSurfaceVariant,
