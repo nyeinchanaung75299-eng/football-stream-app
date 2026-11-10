@@ -151,6 +151,22 @@ class ViewerTabCache {
     return operation;
   }
 
+  /// Test isolation only: HTTP mock fixtures from one test must not be
+  /// incorrectly treated as cached responses in a later widget test.
+  /// Production never calls this during tab navigation.
+  static void clearForTesting() {
+    _sources.clear();
+    _sourceInFlight.clear();
+    _sourceUi.clear();
+    _channels = null;
+    _channelsInFlight = null;
+    channelUi = const ViewerChannelsUiState();
+    _channelGroups = const {};
+    _groupFetchedAt = null;
+    _channelMatches = const [];
+    _matchesFetchedAt = null;
+  }
+
   /// Useful when an admin-side event is known to change the public catalog.
   static void invalidateChannels() => _channels = null;
 }
