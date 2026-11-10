@@ -17,13 +17,15 @@ void main() {
   testWidgets(
     'YYZB saves successful public listings safely and restores after reload',
     (tester) async {
-      final start = DateTime.now().toUtc().add(const Duration(hours: 2))
-          .toIso8601String();
+      final now = DateTime.now();
+      // Same upcoming fixture shape as the verified legacy YYZB room tests.
+      final start = DateTime(now.year, now.month, now.day, 23, 59)
+          .toUtc().toIso8601String();
       final current = <String, dynamic>{
-        'source_id': 'yyzb-room-1',
-        'home_team': '德仁FC',
-        'away_team': '乌兰巴托FC',
-        'league': '蒙古超',
+        'source_id': 'fixture-42',
+        'home_team': '帕德博恩',
+        'away_team': '斯图加特',
+        'league': '德甲',
         'match_time': start,
         'stream_url': 'https://secret.example/stream?token=private',
         'key_data': 'secret-drm',
@@ -38,8 +40,8 @@ void main() {
           home: SourceBrowserPage(source: 'yyzb'),
         ));
         await tester.pumpAndSettle();
-        expect(find.text('Deren FC'), findsOneWidget);
-        expect(find.text('Ulaanbaatar FC'), findsOneWidget);
+        expect(find.text('SC Paderborn 07'), findsOneWidget);
+        expect(find.text('VfB Stuttgart'), findsOneWidget);
         final prefs = await SharedPreferences.getInstance();
         final saved = prefs.getString('viewer_source_cache_v1_yyzb');
         expect(saved, isNotNull);
@@ -66,7 +68,7 @@ void main() {
         ));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 150));
-        expect(find.text('Deren FC'), findsOneWidget);
+        expect(find.text('SC Paderborn 07'), findsOneWidget);
         expect(find.text('Loading YYZB…'), findsNothing);
         await tester.pumpWidget(const SizedBox.shrink());
       }, () => MockClient((_) async => http.Response('{}', 503)));
