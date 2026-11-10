@@ -1,4 +1,5 @@
 import {arenaMatches,arenaStreams} from './arena_source.mjs';
+export { experimentalMatches, experimentalStreams, isExperimentalFootballSource } from './experimental_football_sources.mjs';
 
 export async function websiteMatches(source,{fetcher=fetch,now=Date.now(),date}={}){
  if(source==='arena')return arenaMatches({fetcher,now,date});
