@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
+import android.content.res.ColorStateList
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
@@ -22,6 +24,7 @@ import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.SeekBar
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.media3.common.C
 import androidx.media3.common.AudioAttributes
@@ -136,6 +139,12 @@ class NativePlayerActivity : Activity() {
     private lateinit var compactTime: TextView
     private lateinit var compactSeek: SeekBar
     private lateinit var displayModeButton: TextView
+    private lateinit var settingsPanel: LinearLayout
+    private lateinit var settingsScroll: ScrollView
+    private lateinit var settingsItems: LinearLayout
+    private var settingsSection = "video"
+    private var selectedAudioLabel: String? = null
+    private var selectedSubtitleLabel: String? = null
     private var displayMode = 0 // 0=Fit, 1=Full, 2=Zoom
 
     private var sources = JSONArray()
@@ -296,7 +305,7 @@ class NativePlayerActivity : Activity() {
         val topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(6))
+            setPadding(dp(7), dp(4), dp(7), dp(4))
             setBackgroundColor(Color.rgb(21, 21, 30))
             // Server name / quality / back button stay hidden until player
             // controls are shown by a tap.
@@ -304,7 +313,7 @@ class NativePlayerActivity : Activity() {
         }
 
         val back = overlayButton("←").apply {
-            textSize = 22f
+            textSize = 21f
             contentDescription = "Back"
             setOnClickListener {
                 emitPlaybackEvent("playback closed")
@@ -321,10 +330,11 @@ class NativePlayerActivity : Activity() {
             text = safeTitle
             setTextColor(Color.WHITE)
             textSize = 12f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), 0, dp(8), 0)
+            setPadding(dp(6), 0, dp(6), 0)
             contentDescription = "Match: $safeTitle"
         }
 
@@ -346,8 +356,8 @@ class NativePlayerActivity : Activity() {
 
         displayModeButton = overlayButton("Fit").apply {
             contentDescription = "Original aspect ratio; tap for Full"
-            textSize = 13f
-            setPadding(dp(10), 0, dp(10), 0)
+            textSize = 11f
+            setPadding(dp(2), 0, dp(2), 0)
             setOnClickListener { toggleDisplayMode() }
         }
 
@@ -361,20 +371,20 @@ class NativePlayerActivity : Activity() {
             }
         }
         if (visibleServerIndices().size == 1) serverButton.visibility = View.GONE
-        topBar.addView(back, LinearLayout.LayoutParams(dp(40), dp(42)))
+        topBar.addView(back, LinearLayout.LayoutParams(dp(36), dp(36)))
         topBar.addView(
             titleText,
-            LinearLayout.LayoutParams(0, dp(42), 1f)
+            LinearLayout.LayoutParams(0, dp(36), 1f)
         )
         topBar.addView(
             displayModeButton,
             LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                dp(42)
+                dp(34),
+                dp(34)
             )
         )
 
-        topBar.addView(rotateButton, LinearLayout.LayoutParams(dp(40), dp(42)))
+        topBar.addView(rotateButton, LinearLayout.LayoutParams(dp(36), dp(36)))
 
         root.addView(
             topBar,
@@ -417,8 +427,8 @@ class NativePlayerActivity : Activity() {
         compactControls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(5), 0, dp(5), 0)
-            setBackgroundColor(Color.argb(48, 0, 0, 0))
+            setPadding(dp(4), 0, dp(4), 0)
+            setBackgroundColor(Color.argb(90, 0, 0, 0))
             visibility = View.GONE
         }
         fun transportButton(label: String, description: String): TextView =
@@ -457,11 +467,17 @@ class NativePlayerActivity : Activity() {
         }
         compactTime = transportButton("LIVE", "Playback time").apply {
             textSize = 10f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
             setSingleLine(true)
+            setPadding(dp(2), 0, dp(2), 0)
+            maxWidth = dp(110)
         }
         compactSeek = SeekBar(this).apply {
             max = 1000
             progress = 0
+            progressTintList = ColorStateList.valueOf(Color.rgb(71, 229, 158))
+            thumbTintList = ColorStateList.valueOf(Color.rgb(71, 229, 158))
+            progressBackgroundTintList = ColorStateList.valueOf(Color.rgb(112, 119, 115))
             contentDescription = "Seek video"
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {}
@@ -477,18 +493,20 @@ class NativePlayerActivity : Activity() {
         }
         settingsButton = overlayButton("⚙").apply {
             textSize = 18f
+            background = null
             visibility = View.VISIBLE
             contentDescription = "Resolution audio and playback speed"
             setOnClickListener { showPlaybackSettings() }
         }
         for (view in listOf(rewind, compactPlay, forward)) {
-            compactControls.addView(view, LinearLayout.LayoutParams(dp(36), dp(36)))
+            compactControls.addView(view, LinearLayout.LayoutParams(dp(35), dp(35)))
         }
-        compactControls.addView(compactTime, LinearLayout.LayoutParams(dp(88), dp(36)))
-        compactControls.addView(compactSeek, LinearLayout.LayoutParams(0, dp(36), 1f))
-        compactControls.addView(settingsButton, LinearLayout.LayoutParams(dp(36), dp(36)))
+        compactControls.addView(compactTime, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, dp(35)))
+        compactControls.addView(compactSeek, LinearLayout.LayoutParams(0, dp(35), 1f))
+        compactControls.addView(settingsButton, LinearLayout.LayoutParams(dp(35), dp(35)))
         videoHost.addView(compactControls, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(38), Gravity.BOTTOM
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(35), Gravity.BOTTOM
         ))
         val ticker = object : Runnable {
             override fun run() {
@@ -503,30 +521,35 @@ class NativePlayerActivity : Activity() {
             val landscape = root.width > root.height
             val hasLines = visibleServerIndices().size > 1
             val railHeight = if (hasLines) dp(50) else 0
-            val headerHeight = dp(46)
+            val headerHeight = dp(44)
             val portraitHeight = (root.width * 9f / 16f).toInt()
                 .coerceAtMost((root.height - headerHeight - railHeight).coerceAtLeast(dp(120)))
-            val offset = if (landscape) 0 else
-                ((root.height - headerHeight - portraitHeight - railHeight) / 2).coerceAtLeast(0)
+            // Web reference: portrait player begins at TOP. Empty space belongs
+            // below the video. Landscape header overlays, not pushes, video.
             topBar.layoutParams = (topBar.layoutParams as FrameLayout.LayoutParams).apply {
                 gravity = Gravity.TOP
-                topMargin = offset
+                topMargin = 0
             }
+            topBar.background = if (landscape) GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.argb(190, 0, 0, 0), Color.argb(25, 0, 0, 0))
+            ) else GradientDrawable().apply { setColor(Color.rgb(21, 21, 30)) }
             topBar.visibility = View.VISIBLE
             videoHost.layoutParams = (videoHost.layoutParams as FrameLayout.LayoutParams).apply {
                 width = ViewGroup.LayoutParams.MATCH_PARENT
-                height = if (landscape) (root.height - headerHeight - railHeight).coerceAtLeast(dp(120))
+                height = if (landscape) (root.height - railHeight).coerceAtLeast(dp(120))
                     else portraitHeight
                 gravity = Gravity.TOP
-                topMargin = offset + headerHeight
+                topMargin = if (landscape) 0 else headerHeight
             }
             serverRailScroll.layoutParams =
                 (serverRailScroll.layoutParams as FrameLayout.LayoutParams).apply {
                     gravity = Gravity.TOP
                     topMargin = if (landscape) root.height - railHeight
-                        else offset + headerHeight + portraitHeight
+                        else headerHeight + portraitHeight
                 }
             serverRailScroll.visibility = if (hasLines) View.VISIBLE else View.GONE
+            if (::settingsPanel.isInitialized) positionSettingsPanel(root, landscape)
         }
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> layoutPlayer() }
         root.post { layoutPlayer(); applyDisplayMode() }
@@ -536,8 +559,12 @@ class NativePlayerActivity : Activity() {
         // Touching the video toggles them; source line chips stay below video.
         playerView.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_UP) {
-                compactControls.visibility =
-                    if (compactControls.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                if (::settingsPanel.isInitialized && settingsPanel.visibility == View.VISIBLE) {
+                    closeSettingsMenu()
+                } else {
+                    compactControls.visibility =
+                        if (compactControls.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                }
             }
             true
         }
@@ -565,6 +592,10 @@ class NativePlayerActivity : Activity() {
                 Gravity.CENTER
             )
         )
+
+        // Web-style settings are a dark native overlay, not Android PopupMenu.
+        // Add last so the panel remains above playback/status without replacing Media3.
+        buildSettingsPanel(root)
 
         // Run immersive-mode and playback only after the view hierarchy exists.
         root.post {
@@ -988,6 +1019,7 @@ class NativePlayerActivity : Activity() {
                     }
                 )
                 textSize = 11f
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
                 gravity = Gravity.CENTER
                 setSingleLine(true)
                 ellipsize = TextUtils.TruncateAt.END
@@ -1002,10 +1034,10 @@ class NativePlayerActivity : Activity() {
                 }
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
-                    cornerRadius = dp(20).toFloat()
+                    cornerRadius = dp(7).toFloat()
                     setColor(
-                        if (selected) Color.argb(225, 18, 57, 43)
-                        else Color.argb(225, 24, 24, 24)
+                        if (selected) Color.rgb(22, 60, 45)
+                        else Color.rgb(23, 26, 25)
                     )
                     setStroke(
                         if (selected) dp(2) else dp(1),
@@ -1274,9 +1306,15 @@ class NativePlayerActivity : Activity() {
     private fun overlayButton(value: String): TextView {
         return TextView(this).apply {
             text = value
+            textSize = 12f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.argb(150, 0, 0, 0))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(7).toFloat()
+                setColor(Color.rgb(30, 30, 41))
+                setStroke(dp(1), Color.rgb(57, 57, 69))
+            }
             isClickable = true
             isFocusable = true
         }
