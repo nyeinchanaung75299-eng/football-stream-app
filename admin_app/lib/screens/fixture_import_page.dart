@@ -192,7 +192,6 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       if (requestedMode == 'live') {
         if (!isLive) continue;
       } else if (requestedMode == 'date') {
-        if (matchTime == null) continue;
         final day = DateTime(matchTime.year, matchTime.month, matchTime.day);
         if (day != wantedDate) continue;
       }
