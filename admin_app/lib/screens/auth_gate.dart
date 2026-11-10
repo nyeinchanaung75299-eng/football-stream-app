@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'dashboard_page.dart';
 import '../services/admin_web_source_cache.dart';
+import '../services/admin_private_route_guard.dart';
 import '../services/tv_schedule_service.dart';
 import 'login_page.dart';
 
@@ -48,8 +49,7 @@ class _AuthGateState extends State<AuthGate> {
       _accessFuture = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        Navigator.of(context, rootNavigator: true)
-            .popUntil((route) => route.isFirst);
+        closeAdminPrivateRoutes(context);
       });
     });
   }
