@@ -74,12 +74,12 @@ function sourceId(value) {
   return (hash >>> 0).toString(36);
 }
 
-async function publicHtml(url, fetcher) {
+async function publicHtml(url, fetcher, {withClock = false, now = Date.now} = {}) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 8000);
   try {
     const response = await fetcher(url, {
-      headers: { Accept: "text/html" },
+      headers: { Accept: "text/html", "Cache-Control": "no-cache" },
       redirect: "follow",
       signal: ctl.signal,
     });
@@ -92,7 +92,18 @@ async function publicHtml(url, fetcher) {
     if (length > 1500000) throw Error("Source page exceeds size limit");
     const html = await response.text();
     if (html.length > 1500000) throw Error("Source page exceeds size limit");
-    return html;
+    if (!withClock) return html;
+    const observedAt = now();
+    const ageValue = response.headers?.get?.("age");
+    const age = ageValue == null ? 0 : Number(ageValue);
+    const dateValue = response.headers?.get?.("date");
+    const responseDate = dateValue ? Date.parse(dateValue) : NaN;
+    // A cached/pre-rendered countdown cannot be assumed to be current.
+    const clockFresh = Number.isFinite(observedAt) &&
+      Number.isFinite(age) && age >= 0 && age <= 60 &&
+      (!Number.isFinite(responseDate) ||
+        Math.abs(observedAt - responseDate) <= 120000);
+    return {html, observedAt, clockFresh};
   } finally { clearTimeout(timer); }
 }
 
@@ -130,7 +141,23 @@ function pageKickoff(markup) {
   return null;
 }
 
-function eventRecord(source, site, page, teams, kickoff, status = "unverified") {
+// Estimated kickoff = timestamp of this actual HTTP read + countdown duration.
+// It must be bound to one match card; search-engine crawls and stale caches
+// must never be used to calculate a scheduled kickoff.
+export function countdownKickoff(fragment, observedAt, clockFresh = true) {
+  if (!clockFresh || !Number.isFinite(observedAt)) return null;
+  const text = normalizeText(fragment);
+  const match = text.match(/\b(?:starts?\s+in|kick[\s-]?off\s+in)\s*[:：]?\s*(\d{1,3}):([0-5]\d):([0-5]\d)\b/i);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3]);
+  const total = hours * 3600 + minutes * 60 + seconds;
+  if (total < 1 || total > 7 * 24 * 3600) return null;
+  return new Date(observedAt + total * 1000).toISOString();
+}
+
+function eventRecord(source, site, page, teams, kickoff, timingSource = "none") {
   const id = sourceId(page);
   const hasTime = kickoff != null;
   return {
@@ -141,15 +168,18 @@ function eventRecord(source, site, page, teams, kickoff, status = "unverified") 
     match_status: hasTime ? "SCHEDULED" : "UNVERIFIED",
     hot: false, page_url: page,
     // These rows are for admin inspection, not proven video playback.
-    verified_kickoff: hasTime,
+    verified_kickoff: hasTime && timingSource === "explicit",
+    kickoff_estimated: hasTime && timingSource === "countdown",
+    kickoff_source: timingSource,
     anchors: [{room_num: id, page_url: page, nick_name: site.label}],
   };
 }
 
-export async function experimentalMatches(source, {fetcher = fetch} = {}) {
+export async function experimentalMatches(source, {fetcher = fetch, now = Date.now} = {}) {
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
-  const html = await publicHtml(site.home, fetcher);
+  const catalog = await publicHtml(site.home, fetcher, {withClock: true, now});
+  const {html} = catalog;
   const candidates = new Map();
   const anchors = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   for (const hit of html.matchAll(anchors)) {
@@ -168,8 +198,13 @@ export async function experimentalMatches(source, {fetcher = fetch} = {}) {
     const preceding = html.slice(Math.max(0, hit.index - 240), hit.index);
     const boundary = preceding.lastIndexOf("</a>");
     const local = boundary < 0 ? preceding : preceding.slice(boundary + 4);
-    const kickoff = pageKickoff(hit[0]) ?? pageKickoff(local);
-    candidates.set(page, {page, teams, kickoff});
+    const explicit = pageKickoff(hit[0]) ?? pageKickoff(local);
+    const countdown = explicit ? null :
+      countdownKickoff(hit[0], catalog.observedAt, catalog.clockFresh) ??
+      countdownKickoff(local, catalog.observedAt, catalog.clockFresh);
+    const kickoff = explicit ?? countdown;
+    const timingSource = explicit ? "explicit" : countdown ? "countdown" : "none";
+    candidates.set(page, {page, teams, kickoff, timingSource});
   }
 
   // Detail pages may publish authoritative UTC/offset timestamps that the
@@ -179,20 +214,27 @@ export async function experimentalMatches(source, {fetcher = fetch} = {}) {
   for (let offset = 0; offset < needDetail.length; offset += 3) {
     await Promise.all(needDetail.slice(offset, offset + 3).map(async item => {
       try {
-        item.kickoff = pageKickoff(await publicHtml(item.page, fetcher));
+        const detail = await publicHtml(item.page, fetcher, {withClock: true, now});
+        const exact = pageKickoff(detail.html);
+        const estimated = exact ? null :
+          countdownKickoff(detail.html, detail.observedAt, detail.clockFresh);
+        item.kickoff = exact ?? estimated;
+        item.timingSource = exact ? "explicit" : estimated ? "countdown" : "none";
       } catch (_) { /* Keep as unverified, never manufacture a kickoff. */ }
     }));
   }
 
   const matches = [...candidates.values()].map(row =>
-    eventRecord(source, site, row.page, row.teams, row.kickoff)
+    eventRecord(source, site, row.page, row.teams, row.kickoff, row.timingSource)
   ).sort((a,b) => (a.match_time ?? "9999").localeCompare(b.match_time ?? "9999"));
   const confirmed = matches.filter(row => row.verified_kickoff).length;
+  const estimated = matches.filter(row => row.kickoff_estimated).length;
   return {
     ok: true, source, matches, results: matches.length,
     diagnostics: {candidate_count: matches.length, confirmed_kickoff_count: confirmed,
-      missing_kickoff_count: matches.length - confirmed,
-      note: "Unverified rows may be inspected in Sources but are excluded from Pick Big Matches."},
+      estimated_countdown_count: estimated,
+      missing_kickoff_count: matches.length - confirmed - estimated,
+      note: "Countdown kickoffs are estimates from a fresh page response, not verified fixture times."},
     generated_at: new Date().toISOString(),
   };
 }
