@@ -655,7 +655,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                   hasScrollBody: false,
                   child: Center(
                     child: Text(
-                      snapshot.data!.isEmpty
+                      rows.isEmpty
                           ? 'No published channels yet.'
                           : 'No matching channels.',
                     ),
