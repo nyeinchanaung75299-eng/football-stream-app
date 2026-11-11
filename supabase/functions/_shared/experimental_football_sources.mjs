@@ -123,11 +123,27 @@ function teamsFromLink(url, inner) {
   return {home, away};
 }
 
+
+// Countdowns can be outside the <a> but inside the same single-match
+// <article>/<li> card. Reject shared wrappers with multiple match links.
+function matchCardMarkup(html, hit) {
+  for (const tag of ["article", "li"]) {
+    const start = html.lastIndexOf("<" + tag, hit.index);
+    const finish = html.indexOf("</" + tag + ">", hit.index + hit[0].length);
+    if (start < 0 || finish < 0 || finish - start > 3500) continue;
+    const card = html.slice(start, finish);
+    if ([...card.matchAll(/<a\b/gi)].length !== 1) continue;
+    if (card.includes(hit[0])) return card;
+  }
+  return "";
+}
+
 // Only fields documenting a fixture's kickoff are accepted. In particular,
 // another event's timestamp, countdown and the server clock are NOT kickoffs.
 function pageKickoff(markup) {
   const patterns = [
     /<time\b[^>]*\bdatetime\s*=\s*["']([^"']+)["'][^>]*>/gi,
+    /\bdata-(?:kickoff|start(?:-time|-date)?|timestamp)\s*=\s*["']([^"']+)["']/gi,
     /(?:startDate|start_date|startTime|kickoff_at|kickoffAt)\s*["']?\s*[:=]\s*["']([^"']+)["']/gi,
     /<meta\b[^>]*(?:name|property)\s*=\s*["'](?:event:start_time|startDate|event:start_date)["'][^>]*content\s*=\s*["']([^"']+)["']/gi,
   ];
@@ -229,13 +245,15 @@ function embeddedTeamPair(item) {
 }
 
 function kickoffFromJson(item, observedAt, clockFresh) {
-  const raw = item.startDate ?? item.start_time ?? item.startTime ??
-    item.kickoff_at ?? item.kickoffAt ?? item.match_time ?? null;
+  const raw = item.startDate ?? item.start_date ?? item.start_time ?? item.startTime ??
+    item.kickoff_at ?? item.kickoffAt ?? item.kickoff ??
+    item.match_time ?? item.matchTime ?? item.scheduledAt ?? item.startsAt ?? null;
   if (typeof raw === "string") {
     const value = explicitKickoff(raw);
     if (value) return {kickoff:value, timingSource:"explicit"};
   }
-  const ts = item.startTimestamp ?? item.start_timestamp;
+  const ts = item.startTimestamp ?? item.start_timestamp ??
+    item.startTimeUnix ?? item.kickoffTimestamp ?? item.kickoff_unix;
   if ((typeof ts === "number" || typeof ts === "string") && String(ts).trim()) {
     const n = Number(ts);
     if (Number.isFinite(n)) {
@@ -254,6 +272,11 @@ function kickoffFromJson(item, observedAt, clockFresh) {
       observedAt, clockFresh,
     );
     if (value) return {kickoff:value, timingSource:"countdown"};
+  } else if (typeof rawCountdown === "number" && Number.isInteger(rawCountdown)
+      && rawCountdown > 0 && rawCountdown <= 7*24*3600 &&
+      clockFresh && Number.isFinite(observedAt)) {
+    return {kickoff:new Date(observedAt + rawCountdown*1000).toISOString(),
+      timingSource:"countdown"};
   }
   return {kickoff:null, timingSource:"none"};
 }
@@ -326,10 +349,12 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     const preceding = html.slice(Math.max(0, hit.index - 240), hit.index);
     const boundary = preceding.lastIndexOf("</a>");
     const local = boundary < 0 ? preceding : preceding.slice(boundary + 4);
-    const explicit = pageKickoff(hit[0]) ?? pageKickoff(local);
+    const card = matchCardMarkup(html, hit);
+    const explicit = pageKickoff(hit[0]) ?? pageKickoff(local) ??
+      (card ? pageKickoff(card) : null);
     const countdown = explicit ? null :
       countdownKickoff(hit[0], catalog.observedAt, catalog.clockFresh) ??
-      countdownKickoff(local, catalog.observedAt, catalog.clockFresh);
+      (card ? countdownKickoff(card, catalog.observedAt, catalog.clockFresh) : null);
     const kickoff = explicit ?? countdown;
     const timingSource = explicit ? "explicit" : countdown ? "countdown" : "none";
     candidates.set(page, {page, teams, kickoff, timingSource});
