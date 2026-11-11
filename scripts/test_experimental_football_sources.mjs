@@ -341,3 +341,39 @@ test("Absent logos are never replaced by invented shields, private URLs or fake 
   assert.equal(data.matches[0].home_logo,null);
   assert.equal(data.matches[0].away_logo,null);
 });
+
+
+test("LiveTV soccer card with structured teams and Unix kickoff is recognized", async () => {
+  const unix = Math.floor(Date.parse("2026-11-12T18:30:00Z") / 1000);
+  const html =
+    '<li data-home-team="Turkey" data-away-team="Belgium" data-start-time="'+unix+'">' +
+    '<a href="/soccer/xyz-123">Match details</a>' +
+    '</li>';
+  const result = await experimentalMatches("livetv", {fetcher:pages({
+    "https://livetv.li/soccer":html,
+  })});
+  assert.equal(result.results,1);
+  assert.equal(result.matches[0].home_team,"Turkey");
+  assert.equal(result.matches[0].away_team,"Belgium");
+  assert.equal(result.matches[0].match_time,"2026-11-12T18:30:00.000Z");
+  assert.deepEqual(result.diagnostics.available_days_mmt,["2026-11-13"]);
+});
+
+test("An unrelated page timestamp is not interpreted as football kickoff", async () => {
+  const result = await experimentalMatches("livetv", {fetcher:pages({
+    "https://livetv.li/soccer":
+      '<li data-home="Turkey" data-away="Belgium" data-timestamp="1794508200">' +
+      '<a href="/soccer/xyz-123">Match details</a></li>',
+  })});
+  assert.equal(result.results,1);
+  assert.equal(result.matches[0].match_time,null);
+});
+
+test("Generic multi-sport site does not import basketball as football", async () => {
+  const result = await experimentalMatches("streamfree", {fetcher:pages({
+    "https://strmfree.st/":
+      '<li data-home="Lakers" data-away="Celtics" data-start-time="1794508200">' +
+      '<a href="/basketball/lakers-celtics">Match details</a></li>',
+  })});
+  assert.equal(result.results,0);
+});
