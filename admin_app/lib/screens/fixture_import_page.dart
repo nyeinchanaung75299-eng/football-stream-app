@@ -78,9 +78,14 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     final timed = (diagnostics['confirmed_kickoff_count'] as num?)?.toInt() ?? 0;
     final estimate = (diagnostics['estimated_countdown_count'] as num?)?.toInt() ?? 0;
     if (count > 0) {
-      return '${_providerLabel(provider)} returned $count football events, '
-          'but only $timed confirmed and $estimate fresh countdown times. '
-          'No valid kickoff matched the chosen mode or Myanmar date.';
+      final available = diagnostics['available_days_mmt'];
+      final days = available is List
+          ? available.map((day) => day.toString()).take(6).join(', ')
+          : '';
+      return '${_providerLabel(provider)} returned $count football events '
+          '($timed confirmed, $estimate countdown estimated). '
+          '${days.isEmpty ? "No verified Myanmar dates are available." : "Available MMT dates: $days."} '
+          'Choose All to inspect every dated fixture.';
     }
     final status = diagnostics['content_state']?.toString();
     if (status == 'browser_render_or_unsupported_markup') {
@@ -211,11 +216,15 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     );
 
     final rows = <Map<String, dynamic>>[];
+    final publishedMmtDays = <String>{};
+    var datedFixtureCount = 0;
     for (final item in raw) {
       if (item is! Map) continue;
       final row = Map<String, dynamic>.from(item);
       final matchTime = _myanmarKickoff(row['match_time']);
       if (matchTime == null) continue;
+      datedFixtureCount++;
+      publishedMmtDays.add(DateFormat('yyyy-MM-dd').format(matchTime));
 
       final isLive = row['hot'] == true ||
           row['status']?.toString().toUpperCase() == 'LIVE' ||
@@ -257,6 +266,25 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         'kickoff_estimated': row['kickoff_estimated'] == true,
         'kickoff_source': row['kickoff_source'],
       });
+    }
+
+    // A source can have perfectly valid kickoff times on OTHER MMT dates.
+    // Date/Live filters returning zero must never claim the source has zero
+    // valid kickoff timestamps or confuse an upstream parsing failure.
+    if (rows.isEmpty && provider == fixtureSource && provider != 'cola' &&
+        datedFixtureCount > 0) {
+      final days = publishedMmtDays.toList()..sort();
+      final preview = days.take(7).join(', ');
+      final date = DateFormat('yyyy-MM-dd').format(requestedDate);
+      if (requestedMode == 'date') {
+        _sourceFixtureDiagnostic = '${_providerLabel(provider)} returned '
+            '$datedFixtureCount dated football fixtures, but none on $date MMT. '
+            'Available MMT dates: $preview. Choose All or another date.';
+      } else if (requestedMode == 'live') {
+        _sourceFixtureDiagnostic = '${_providerLabel(provider)} returned '
+            '$datedFixtureCount dated fixtures, but none are marked LIVE. '
+            'Choose All for upcoming games.';
+      }
     }
 
     rows.sort((a, b) {
@@ -669,7 +697,13 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                 .toList(),
             onChanged: importing ? null : (value) {
               if (value == null || value == fixtureSource) return;
-              setState(() => fixtureSource = value);
+              setState(() {
+                fixtureSource = value;
+                // New experimental feeds often have no fixtures for today.
+                // Show all confirmed dates first; Date remains selectable.
+                if (!const {'cola', 'soco', 'yyzb', 'fawa', 'arena'}
+                    .contains(value)) mode = 'all';
+              });
               loadFixtures();
             },
           ),

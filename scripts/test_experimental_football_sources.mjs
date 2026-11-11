@@ -206,3 +206,45 @@ test("MMT date remains correct across a Myanmar day boundary", () => {
   assert.equal(mmt.toISOString().slice(0,10),"2026-11-11");
   assert.equal(mmt.toISOString().slice(11,16),"04:00");
 });
+
+
+test("Provider exposes actual Myanmar dates when valid UTC kickoff falls on next MMT day", async () => {
+  const page = '<script type="application/ld+json">'+JSON.stringify({
+    "@type":"SportsEvent",sport:"Football",homeTeam:{name:"Arsenal"},
+    awayTeam:{name:"Chelsea"},url:"/event/arsenal-vs-chelsea",
+    startDate:"2026-11-11T21:30:00Z"
+  })+'</script>';
+  const data=await experimentalMatches("crichd",{fetcher:pages({
+    "https://crichd.pk/sports/soccer-streams":page,
+  })});
+  assert.equal(data.results,1);
+  assert.equal(data.diagnostics.confirmed_kickoff_count,1);
+  assert.deepEqual(data.diagnostics.available_days_mmt,["2026-11-12"]);
+});
+
+test("Public football SportsEvent with title and same-site URL is recognized", async () => {
+  const page = '<script type="application/ld+json">'+JSON.stringify({
+    "@type":"SportsEvent",sport:"Soccer",
+    name:"Arsenal vs Chelsea",url:"/football/arsenal-chelsea",
+    startDate:"2026-11-11T19:00:00Z"
+  })+'</script>';
+  const data=await experimentalMatches("rojadirecta",{fetcher:pages({
+    "https://en.rojadirectaes.org/live-football":page,
+  })});
+  assert.equal(data.results,1);
+  assert.equal(data.matches[0].home_team,"Arsenal");
+  assert.equal(data.matches[0].away_team,"Chelsea");
+  assert.equal(data.diagnostics.available_days_mmt[0],"2026-11-12");
+});
+
+test("Public JSON site metadata alone does not create fake football matches", async () => {
+  const page = '<script type="application/ld+json">'+JSON.stringify({
+    "@type":"WebSite",name:"Sports Portal",url:"https://en.rojadirectaes.org/"
+  })+'</script>';
+  const data=await experimentalMatches("rojadirecta",{fetcher:pages({
+    "https://en.rojadirectaes.org/live-football":page,
+  })});
+  assert.equal(data.results,0);
+  assert.equal(data.diagnostics.embedded_json_documents,1);
+  assert.deepEqual(data.diagnostics.available_days_mmt,[]);
+});
