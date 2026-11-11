@@ -687,14 +687,24 @@ class _SocoImportPageState extends State<SocoImportPage> {
       return rows.toList();
     }
 
-    final now = DateTime.now();
+    // Experimental providers display Myanmar Time independently of the
+    // device timezone. Use that same clock for the Today/Tomorrow filters.
+    // Keep the original device-local behavior for existing NCA sources.
+    const mmOffset = Duration(hours: 6, minutes: 30);
+    final now = _isExperimentalSource
+        ? DateTime.now().toUtc().add(mmOffset)
+        : DateTime.now();
     final wanted = dayFilter == 'tomorrow'
         ? DateTime(now.year, now.month, now.day + 1)
         : DateTime(now.year, now.month, now.day);
 
     return rows.where((row) {
-      final time =
-          DateTime.tryParse(row['match_time']?.toString() ?? '')?.toLocal();
+      final parsed = DateTime.tryParse(row['match_time']?.toString() ?? '');
+      final time = parsed == null
+          ? null
+          : _isExperimentalSource
+              ? parsed.toUtc().add(mmOffset)
+              : parsed.toLocal();
       return time != null && _sameDate(time, wanted);
     }).toList();
   }
