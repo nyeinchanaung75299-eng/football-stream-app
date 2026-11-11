@@ -85,8 +85,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           'or a permitted public API.';
     }
     if (status == 'no_recognized_football_fixtures') {
-      return '${_providerLabel(provider)} returned JSON, but no football '
-          'match with a valid same-site page link was recognized.';
+      return '${_providerLabel(provider)} returned JSON scripts, but no '
+          'recognized football event metadata. Script presence alone does '
+          'not prove that fixtures are available.';
     }
     return '${_providerLabel(provider)} returned no recognized football fixtures.';
   }
