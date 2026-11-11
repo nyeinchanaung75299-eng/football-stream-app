@@ -36,6 +36,11 @@ List<Map<String, dynamic>> mergeVerifiedFootballBadges(
     final home = _teamKey(fixture['home_name']);
     final away = _teamKey(fixture['away_name']);
     if (home.isEmpty || away.isEmpty) return fixture;
+    String? homeBadge = existingHome;
+    String? awayBadge = existingAway;
+    String? homeFallback = verifiedBadgeUrl(fixture['home_logo_fallback']);
+    String? awayFallback = verifiedBadgeUrl(fixture['away_logo_fallback']);
+    var matched = false;
     for (final candidate in trustedFixtures) {
       if (candidate is! Map) continue;
       if (_teamKey(candidate['home_name'] ?? candidate['home_team']) != home ||
@@ -49,21 +54,30 @@ List<Map<String, dynamic>> mergeVerifiedFootballBadges(
       final trustedAway =
           verifiedBadgeUrl(candidate['away_logo'] ?? candidate['away_logo_url']);
       if (trustedHome == null && trustedAway == null) continue;
-      return {
-        ...fixture,
-        'home_logo': existingHome ?? trustedHome,
-        'away_logo': existingAway ?? trustedAway,
-        'home_logo_fallback': existingHome != null && trustedHome != null &&
-                existingHome != trustedHome
-            ? trustedHome
-            : fixture['home_logo_fallback'],
-        'away_logo_fallback': existingAway != null && trustedAway != null &&
-                existingAway != trustedAway
-            ? trustedAway
-            : fixture['away_logo_fallback'],
-      };
+      matched = true;
+      if (trustedHome != null) {
+        if (homeBadge == null) {
+          homeBadge = trustedHome;
+        } else if (homeBadge != trustedHome) {
+          homeFallback ??= trustedHome;
+        }
+      }
+      if (trustedAway != null) {
+        if (awayBadge == null) {
+          awayBadge = trustedAway;
+        } else if (awayBadge != trustedAway) {
+          awayFallback ??= trustedAway;
+        }
+      }
     }
-    return fixture;
+    if (!matched) return fixture;
+    return {
+      ...fixture,
+      'home_logo': homeBadge ?? fixture['home_logo'],
+      'away_logo': awayBadge ?? fixture['away_logo'],
+      if (homeFallback != null) 'home_logo_fallback': homeFallback,
+      if (awayFallback != null) 'away_logo_fallback': awayFallback,
+    };
   }).toList(growable: false);
 }
 
