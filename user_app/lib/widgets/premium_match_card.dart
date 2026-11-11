@@ -271,6 +271,7 @@ class _Team extends StatelessWidget {
               ? Image.network(
                   logo!,
                   fit: BoxFit.contain,
+                  webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                   filterQuality: FilterQuality.medium,
                   errorBuilder: (_, __, ___) => Icon(
                     Icons.shield_outlined,
