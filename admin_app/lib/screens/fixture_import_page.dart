@@ -169,6 +169,12 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 
   Future<List<Map<String, dynamic>>> _loadSourceFixtures(
       String provider, String requestedMode, DateTime requestedDate) async {
+    // Provider restriction is enforced at the network entrypoint as well as
+    // the dropdown. Stream Sources retain their own independent providers.
+    if (!isPickBigMatchProvider(provider)) {
+      throw ArgumentError.value(provider, 'provider',
+          'Provider is not enabled for Pick Big Matches.');
+    }
     dynamic data;
     if (!_enableNoVpnFallback) {
       data = await FunctionGateway.invoke(
