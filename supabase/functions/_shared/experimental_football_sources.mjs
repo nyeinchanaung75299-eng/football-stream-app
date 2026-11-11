@@ -423,7 +423,10 @@ function publicFixtureJsonRows(html, site, source, clock) {
   const output = new Map();
   // Generic all-sports indexes need an explicit football/soccer marker
   // associated with the event. Football-only catalogs can be accepted.
-  const footballCatalog = /(?:football|soccer)/i.test(new URL(site.home).pathname) ||
+  // LiveTV /soccer is a mixed-sports HTML page in practice: its URL alone
+  // is NOT proof that every embedded event is football.
+  const footballCatalog = (source !== "livetv" &&
+    /(?:football|soccer)/i.test(new URL(site.home).pathname)) ||
     ["camel","xoilac","kooralive"].includes(source);
   const state = publicEmbeddedJson(html);
   let examined = 0;
