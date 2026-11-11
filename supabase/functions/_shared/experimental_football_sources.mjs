@@ -483,12 +483,52 @@ function publicFixtureJsonRows(html, site, source, clock) {
   return {rows:output, jsonDocumentCount:state.length};
 }
 
+// LiveTV publishes soccer fixtures in nested table rows under
+// .side-match-item, not in <article>/<li> cards or SportsEvent JSON. Accept
+// only rows with their OWN explicit Soccer marker and a real same-site link.
+// The display clock ("19:45 (Soccer)") lacks a timezone, so it must not
+// become a fabricated UTC kickoff.
+function publicLiveTvSoccerRows(html, site, source) {
+  const rows = [];
+  const cards = /<div\\b[^>]*\\bclass\\s*=\\s*["'][^"']*\\bside-match-item\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/div>/gi;
+  for (const hit of html.matchAll(cards)) {
+    if (rows.length >= 80) break;
+    const card = hit[1];
+    const imageSports = [...card.matchAll(/<img\\b[^>]*\\balt\\s*=\\s*["']([^"']+)["']/gi)]
+      .map(m => m[1].trim());
+    const labelSports = [...card.matchAll(/<span\\b[^>]*\\bclass\\s*=\\s*["'][^"']*\\bevdesc\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/span>/gi)]
+      .map(m => normalizeText(m[1]).match(/\\(([^()]+)\\)/)?.[1]?.trim()).filter(Boolean);
+    const sports = [...imageSports,...labelSports];
+    const other = /^(?:basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker|boxing|mma|ufc|volleyball|badminton|esports|motorsport|american football)$/i;
+    if (sports.some(value => other.test(value)) ||
+        !sports.some(value => /^(?:soccer|football)$/i.test(value))) continue;
+    // Multiple fixture links in a shared wrapper are ambiguous: reject.
+    const anchors = [...card.matchAll(/<a\\b([^>]*)>([\\s\\S]*?)<\\/a>/gi)]
+      .map(m => ({href:m[1].match(/\\bhref\\s*=\\s*["']([^"']+)["']/i)?.[1],
+        teams:fixtureTitle(m[2])}))
+      .filter(m => m.href && m.teams);
+    if (anchors.length !== 1) continue;
+    const item = anchors[0];
+    const page = allowedPageUrl(item.href.replace(/&amp;/gi,"&"), site);
+    if (!page || page === site.home) continue;
+    const kickoff = pageKickoff(card);
+    rows.push(eventRecord(source,site,page,item.teams,kickoff,
+      kickoff ? "explicit" : "none",htmlTeamBadges(card,item.teams,site)));
+  }
+  return rows;
+}
+
 export async function experimentalMatches(source, {fetcher = fetch, now = Date.now} = {}) {
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
   const catalog = await publicHtml(site.home, fetcher, {withClock: true, now});
   const {html} = catalog;
   const embedded = publicFixtureJsonRows(html,site,source,catalog);
+  if (source === "livetv") {
+    for (const row of publicLiveTvSoccerRows(html,site,source)) {
+      if (!embedded.rows.has(row.page_url)) embedded.rows.set(row.page_url,row);
+    }
+  }
   const candidates = new Map();
   const anchors = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   for (const hit of html.matchAll(anchors)) {
