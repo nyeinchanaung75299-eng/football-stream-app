@@ -206,3 +206,45 @@ test("MMT date remains correct across a Myanmar day boundary", () => {
   assert.equal(mmt.toISOString().slice(0,10),"2026-11-11");
   assert.equal(mmt.toISOString().slice(11,16),"04:00");
 });
+
+
+test("Rojadirecta-style SportsEvent title and same-site URL can yield football fixture", async () => {
+  const event={
+    "@type":"SportsEvent", sport:"Soccer",
+    name:"Arsenal vs Chelsea",
+    startDate:"2026-11-12T19:45:00Z",
+    url:"https://en.rojadirectaes.org/match/arsenal-vs-chelsea"
+  };
+  const payload='<script type="application/ld+json">'+JSON.stringify(event)+'</script>';
+  const result=await experimentalMatches("rojadirecta",{fetcher:pages({
+    "https://en.rojadirectaes.org/live-football":payload,
+  })});
+  assert.equal(result.results,1);
+  assert.equal(result.matches[0].home_team,"Arsenal");
+  assert.equal(result.matches[0].away_team,"Chelsea");
+  assert.equal(result.matches[0].match_time,"2026-11-12T19:45:00.000Z");
+});
+
+test("Public JSON title fixture rejects external event pages and basketball", async () => {
+  const raw={events:[
+    {sport:"Soccer",name:"Arsenal vs Chelsea",url:"https://other.example/match/arsenal-vs-chelsea"},
+    {sport:"Basketball",name:"Lakers vs Celtics",url:"/match/lakers-vs-celtics"},
+  ]};
+  const result=await experimentalMatches("rojadirecta",{fetcher:pages({
+    "https://en.rojadirectaes.org/live-football":
+      '<script type="application/json">'+JSON.stringify(raw)+'</script>',
+  })});
+  assert.equal(result.results,0);
+});
+
+test("CricHD confirmed kickoff is not necessarily on Myanmar selected date", async () => {
+  const result=await experimentalMatches("crichd",{fetcher:pages({
+    "https://crichd.pk/sports/soccer-streams":'<a href="/event/england-vs-croatia">England vs Croatia</a>',
+    "https://crichd.pk/event/england-vs-croatia":
+      '<time datetime="2026-11-12T19:45:00Z">19:45 UTC</time>',
+  })});
+  assert.equal(result.diagnostics.confirmed_kickoff_count,1);
+  const mmt=new Date(Date.parse(result.matches[0].match_time)+390*60*1000);
+  assert.equal(mmt.toISOString().slice(0,10),"2026-11-13");
+  assert.notEqual(mmt.toISOString().slice(0,10),"2026-11-11");
+});
