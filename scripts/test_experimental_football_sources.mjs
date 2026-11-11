@@ -151,3 +151,58 @@ test("Invalid JavaScript state and unrelated strings cannot create matches", asy
   assert.equal(data.results,0);
   assert.equal(data.diagnostics.content_state,"no_recognized_football_fixtures");
 });
+
+
+test("CricHD countowns in each single-event li card map to the correct fixture", async () => {
+  const observed = Date.parse("2026-11-10T22:00:00Z");
+  const html = [
+    '<ul>',
+    '<li class="match"><a href="/event/arsenal-vs-chelsea">Arsenal vs Chelsea</a><span>Starts in: 01:30:00</span></li>',
+    '<li class="match"><a href="/event/liverpool-vs-everton">Liverpool vs Everton</a><span>Starts in: 04:00:00</span></li>',
+    '</ul>',
+  ].join("");
+  const result = await experimentalMatches("crichd",{
+    now: () => observed,
+    fetcher: pages({"https://crichd.pk/sports/soccer-streams":html}),
+  });
+  assert.equal(result.matches.length,2);
+  assert.equal(result.matches[0].home_team,"Arsenal");
+  assert.equal(result.matches[0].match_time,"2026-11-10T23:30:00.000Z");
+  assert.equal(result.matches[0].kickoff_estimated,true);
+  assert.equal(result.matches[1].home_team,"Liverpool");
+  assert.equal(result.matches[1].match_time,"2026-11-11T02:00:00.000Z");
+  assert.equal(result.diagnostics.estimated_countdown_count,2);
+});
+
+test("Countdown in another match card never leaks to this match", async () => {
+  const catalog = '<li><a href="/event/arsenal-vs-chelsea">Arsenal vs Chelsea</a><span>Starts in: 01:30:00</span></li>'+
+    '<li><a href="/event/liverpool-vs-everton">Liverpool vs Everton</a></li>';
+  const data = await experimentalMatches("crichd", {fetcher:pages({
+    "https://crichd.pk/sports/soccer-streams": catalog,
+  })});
+  assert.equal(data.results,2);
+  const noTime=data.matches.find(m=>m.home_team==="Liverpool");
+  assert.equal(noTime.match_time,null);
+});
+
+test("JSON countdown in seconds is supported only for a fresh response", async () => {
+  const observed=Date.parse("2026-11-10T22:00:00Z");
+  const embedded = '<script type="application/ld+json">'+
+    JSON.stringify({"@type":"SportsEvent", sport:"Football",
+      homeTeam:{name:"Arsenal"},awayTeam:{name:"Chelsea"},
+      url:"/event/arsenal-vs-chelsea",countdown:5400})+
+    '</script>';
+  const data=await experimentalMatches("crichd",{
+    now:()=>observed,fetcher:pages({"https://crichd.pk/sports/soccer-streams":embedded}),
+  });
+  assert.equal(data.results,1);
+  assert.equal(data.matches[0].match_time,"2026-11-10T23:30:00.000Z");
+  assert.equal(data.matches[0].kickoff_estimated,true);
+});
+
+test("MMT date remains correct across a Myanmar day boundary", () => {
+  const actualUtc = Date.parse("2026-11-10T21:30:00Z");
+  const mmt = new Date(actualUtc + (6*60+30)*60*1000);
+  assert.equal(mmt.toISOString().slice(0,10),"2026-11-11");
+  assert.equal(mmt.toISOString().slice(11,16),"04:00");
+});
