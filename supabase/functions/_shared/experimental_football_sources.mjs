@@ -490,21 +490,21 @@ function publicFixtureJsonRows(html, site, source, clock) {
 // become a fabricated UTC kickoff.
 function publicLiveTvSoccerRows(html, site, source) {
   const rows = [];
-  const cards = /<div\\b[^>]*\\bclass\\s*=\\s*["'][^"']*\\bside-match-item\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/div>/gi;
+  const cards = /<div\b[^>]*\bclass\s*=\s*["'][^"']*\bside-match-item\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi;
   for (const hit of html.matchAll(cards)) {
     if (rows.length >= 80) break;
     const card = hit[1];
-    const imageSports = [...card.matchAll(/<img\\b[^>]*\\balt\\s*=\\s*["']([^"']+)["']/gi)]
+    const imageSports = [...card.matchAll(/<img\b[^>]*\balt\s*=\s*["']([^"']+)["']/gi)]
       .map(m => m[1].trim());
-    const labelSports = [...card.matchAll(/<span\\b[^>]*\\bclass\\s*=\\s*["'][^"']*\\bevdesc\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/span>/gi)]
-      .map(m => normalizeText(m[1]).match(/\\(([^()]+)\\)/)?.[1]?.trim()).filter(Boolean);
+    const labelSports = [...card.matchAll(/<span\b[^>]*\bclass\s*=\s*["'][^"']*\bevdesc\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi)]
+      .map(m => normalizeText(m[1]).match(/\(([^()]+)\)/)?.[1]?.trim()).filter(Boolean);
     const sports = [...imageSports,...labelSports];
     const other = /^(?:basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker|boxing|mma|ufc|volleyball|badminton|esports|motorsport|american football)$/i;
     if (sports.some(value => other.test(value)) ||
         !sports.some(value => /^(?:soccer|football)$/i.test(value))) continue;
     // Multiple fixture links in a shared wrapper are ambiguous: reject.
-    const anchors = [...card.matchAll(/<a\\b([^>]*)>([\\s\\S]*?)<\\/a>/gi)]
-      .map(m => ({href:m[1].match(/\\bhref\\s*=\\s*["']([^"']+)["']/i)?.[1],
+    const anchors = [...card.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)]
+      .map(m => ({href:m[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1],
         teams:fixtureTitle(m[2])}))
       .filter(m => m.href && m.teams);
     if (anchors.length !== 1) continue;
