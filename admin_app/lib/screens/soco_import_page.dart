@@ -176,11 +176,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
         'This site may load matches through browser JavaScript; a permitted '
         'public data endpoint is needed. No video stream is verified.',
       'no_recognized_football_fixtures' =>
-        'JSON scripts were present, but no trusted football event was '
-        'recognized. These scripts may contain configuration, external '
-        'links or browser-only fixture data.',
+        'No verified football fixtures are currently available from this source. '
+        'The page returned JSON, but it did not contain a confirmed football '
+        'match with recognizable teams and a trusted event page. It may be '
+        'showing configuration or loading fixtures in the browser instead. '
+        'No match or playable video link has been invented.',
       'empty_page' =>
-        'This provider returned no recognizable football events.',
+        'This source currently has no verified football fixtures on its public page.',
       _ => 'No verified football event was returned by this provider.',
     };
   }
