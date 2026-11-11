@@ -160,6 +160,27 @@ function structuredCardTeams(markup) {
     home.length <= 65 && away.length <= 65 && home !== away ? {home,away} : null;
 }
 
+// A multi-sport listing can label an individual event as soccer without
+// putting "football" in its URL. Read evidence ONLY within one match card
+// (or its anchor), never from global page headings or unrelated cards.
+function explicitFixtureSport(markup) {
+  if (!markup) return "unknown";
+  const labels = [];
+  for (const hit of markup.matchAll(/\bdata-(?:sport(?:-type)?|category(?:-name)?|discipline)\s*=\s*["']([^"']{1,60})["']/gi)) {
+    labels.push(hit[1].trim());
+  }
+  for (const hit of markup.matchAll(/<(span|small|label|div)\b([^>]*)>([^<]{1,50})<\/\1>/gi)) {
+    const className = hit[2].match(/\bclass\s*=\s*["']([^"']{1,120})["']/i)?.[1] ?? "";
+    if (/(?:^|[\s_-])(?:sport|category|discipline)(?:$|[\s_-])/i.test(className)) {
+      labels.push(normalizeText(hit[3]));
+    }
+  }
+  // Explicit non-football evidence wins over both URL hints and other labels.
+  const otherSport = /\b(?:basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker|boxing|mma|ufc|volleyball|badminton|esports|motorsport|american football)\b/i;
+  if (labels.some(label => otherSport.test(label))) return "other";
+  return labels.some(label => /^(?:football|soccer)$/i.test(label)) ? "football" : "unknown";
+}
+
 function matchCardMarkup(html, hit) {
   for (const tag of ["article", "li"]) {
     const start = html.lastIndexOf("<" + tag, hit.index);
@@ -475,18 +496,22 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     const href = hit[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
     const page = href && allowedPageUrl(href.replace(/&amp;/gi, "&"), site);
     if (!page || page === site.home || candidates.has(page)) continue;
-    // Multi-sport home pages cannot be trusted as football catalogs.
-    // Skip them unless the published link itself identifies football.
-    if (["ppv", "livextv", "streamfree"].includes(source) &&
-        !/\b(?:soccer|football)\b/i.test(page)) continue;
     const card = matchCardMarkup(html, hit);
+    const cardSport = explicitFixtureSport(card || hit[0]);
+    const footballLink = /\b(?:soccer|football)\b/i.test(page);
+    // Even a football-looking URL must not turn a labelled basketball
+    // or cricket card into a football fixture.
+    if (cardSport === "other") continue;
+    // On multi-sport home pages, a generic /event/... URL is allowed ONLY
+    // when that single match's own markup explicitly says football/soccer.
+    // Other generic links remain unverified, not invented as fixtures.
+    if (["ppv", "livextv", "streamfree"].includes(source) &&
+        !footballLink && cardSport !== "football") continue;
     const teams = teamsFromLink(page, hit[2]) ?? structuredCardTeams(card || hit[0]);
     if (!teams) continue;
-    // Do not treat cricket/basketball listings as football on multi-sport homes.
     const footballCatalog = /(?:football|soccer)/i.test(new URL(site.home).pathname) ||
       ["camel","xoilac","kooralive"].includes(source);
-    if (!footballCatalog && !/(?:football|soccer)/i.test(page) &&
-        !/\bdata-sport\s*=\s*["'](?:football|soccer)["']/i.test(card)) continue;
+    if (!footballCatalog && !footballLink && cardSport !== "football") continue;
     // The timestamp must be inside this anchor or immediately preceding it,
     // with a preceding sibling anchor acting as a hard event boundary.
     const preceding = html.slice(Math.max(0, hit.index - 240), hit.index);
