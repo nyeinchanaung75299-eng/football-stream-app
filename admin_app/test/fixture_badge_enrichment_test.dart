@@ -9,6 +9,35 @@ void main() {
       'home_logo':null,'away_logo':null,
     }
   ];
+  test('lookup all missing-badge fixture dates, not only first source row', () {
+    expect(missingBadgeUtcDates([
+      {'kickoff_at': '2026-11-12T17:00:00Z', 'home_logo': null, 'away_logo': null},
+      {'kickoff_at': '2026-11-13T01:00:00Z', 'home_logo': null, 'away_logo': null},
+      {'kickoff_at': '2026-11-13T20:00:00Z', 'home_logo': null, 'away_logo': null},
+      {'kickoff_at': '2026-11-14T04:00:00Z',
+       'home_logo': 'https://example.org/one.png',
+       'away_logo': 'https://example.org/two.png'},
+    ]), ['2026-11-12', '2026-11-13']);
+  });
+  test('source badges are never overwritten just because another match lacks logos', () {
+    final rows = mergeVerifiedFootballBadges([
+      {
+        'home_name': 'Turkey', 'away_name': 'Belgium',
+        'kickoff_at': '2026-11-12T17:00:00Z',
+        'home_logo': 'https://real.example.org/turkey.png',
+        'away_logo': null,
+      }
+    ], [
+      {
+        'home_name': 'Turkey', 'away_name': 'Belgium',
+        'kickoff_at': '2026-11-12T17:30:00Z',
+        'home_logo': 'https://new.example.org/turkey.png',
+        'away_logo': 'https://new.example.org/belgium.png',
+      }
+    ]);
+    expect(rows.single['home_logo'], 'https://real.example.org/turkey.png');
+    expect(rows.single['away_logo'], 'https://new.example.org/belgium.png');
+  });
   test('matching trusted football fixture restores both country team badges', () {
     final rows = mergeVerifiedFootballBadges(source, [
       {
