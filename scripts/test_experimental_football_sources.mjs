@@ -438,3 +438,24 @@ test("Public JSON relative HLS and HTML data-file manifest URLs are parsed, not 
   ]);
   assert.equal(data.ready, true);
 });
+
+
+test("competition logo.webp is retained as league metadata but never used for either team", async () => {
+  const leagueLogo = "https://cdn.img4every1.org/league/nations-league-streams/logo.webp";
+  const event = {
+    "@type": "SportsEvent", sport: "Football",
+    homeTeam: {name: "Turkey", logo: leagueLogo},
+    awayTeam: {name: "Belgium"},
+    league: {name: "Nations League", logo: leagueLogo},
+    startDate: "2026-11-12T17:00:00Z",
+    url: "/football/turkey-vs-belgium",
+  };
+  const data = await experimentalMatches("score088", {fetcher:pages({
+    "https://www.score088tv.live/football":
+      '<script type="application/ld+json">' + JSON.stringify(event) + '</script>',
+  })});
+  assert.equal(data.results, 1);
+  assert.equal(data.matches[0].league_logo, leagueLogo);
+  assert.equal(data.matches[0].home_logo, null);
+  assert.equal(data.matches[0].away_logo, null);
+});
