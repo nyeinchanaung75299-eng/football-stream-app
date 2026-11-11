@@ -14,7 +14,8 @@ function soccerMarkupSamples(html) {
     const title = hit[2].replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
     if(!/\s[-–—]\s/.test(title) || title.length<14 || title.length>90) continue;
     const before = clean.slice(Math.max(0,hit.index-750),hit.index);
-    if(!/soccer/i.test(before)) continue;
+    // Generic event samples reveal the real table/grid nesting even when
+    // the page has no soccer games at this particular observation time.
     const sample=(before.slice(-520)+hit[0]).replace(/\s+/g," ").slice(0,850)
       .replace(/(?:src|href|data-url|data-href)\s*=\s*["'][^"']+["']/gi,"")
       .replace(/(?:https?:)?\/\/[^\s"'<>]+/gi,"[URL]")
