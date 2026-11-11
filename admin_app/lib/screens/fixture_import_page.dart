@@ -87,6 +87,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   List<Map<String, dynamic>> fixtures = [];
   final Set<int> selectedIds = {};
   final Map<String, List<dynamic>> _trustedBadgeFixturesCache = {};
+  List<dynamic>? _trustedColaBadgesCache;
+  DateTime? _trustedColaBadgesCheckedAt;
   int _loadEpoch = 0;
 
   @override
@@ -287,35 +289,75 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       return at.compareTo(bt);
     });
 
-    // Secondary badge lookup uses the existing authorized football-fixtures
-    // feed, but ONLY accepts an exact team pair within 2 hours of kickoff.
-    // Never block source discovery or invent badges when it is unavailable.
+    // CricHD and Score088TV sometimes omit badges even when ColaTV publishes
+    // the SAME football fixture with genuine source badges. Read Cola's
+    // *existing* endpoint; do not modify its parsing or replace its images.
+    // Never guess from team names alone: the merger also requires a kickoff
+    // within two hours and the correct home/away pair.
     if ((provider == 'crichd' || provider == 'score088') &&
         rows.isNotEmpty &&
-        rows.any((row) => row['home_logo'] == null || row['away_logo'] == null)) {
-      try {
-        final kickoff = DateTime.tryParse(rows.first['kickoff_at'].toString())
-            ?.toUtc();
-        if (kickoff != null) {
-          final fixtureDate = DateFormat('yyyy-MM-dd').format(kickoff);
-          var trustedRows = _trustedBadgeFixturesCache[fixtureDate];
-          if (trustedRows == null) {
-            final data = await FunctionGateway.invoke(
-              'football-fixtures',
-              body: {'mode': 'date', 'date': fixtureDate},
-            ).timeout(const Duration(seconds: 7));
-            if (data is Map && data['fixtures'] is List) {
-              trustedRows = data['fixtures'] as List;
-              _trustedBadgeFixturesCache[fixtureDate] = trustedRows;
-            }
-          }
-          if (trustedRows != null) {
-            return mergeVerifiedFootballBadges(rows, trustedRows);
-          }
+        rows.any((row) => verifiedBadgeUrl(row['home_logo']) == null ||
+            verifiedBadgeUrl(row['away_logo']) == null)) {
+      Future<List<dynamic>> colaBadges() async {
+        final checked = _trustedColaBadgesCheckedAt;
+        if (checked != null &&
+            DateTime.now().difference(checked) < const Duration(minutes: 2)) {
+          return _trustedColaBadgesCache ?? <dynamic>[];
         }
-      } catch (_) {
-        // Failure of an optional badge service must never hide matches.
+        try {
+          final data = await FunctionGateway.invoke(
+            'source-match-list',
+            body: {'source': 'cola'},
+          ).timeout(const Duration(seconds: 7));
+          final raw = data is Map ? data['matches'] : null;
+          if (raw is! List) return <dynamic>[];
+          final trusted = <dynamic>[];
+          for (final item in raw) {
+            if (item is! Map) continue;
+            trusted.add({
+              'home_name': item['home_team'],
+              'away_name': item['away_team'],
+              'kickoff_at': item['match_time'],
+              'home_logo': item['home_logo'],
+              'away_logo': item['away_logo'],
+            });
+          }
+          _trustedColaBadgesCache = trusted;
+          _trustedColaBadgesCheckedAt = DateTime.now();
+          return trusted;
+        } catch (_) {
+          return <dynamic>[];
+        }
       }
+
+      Future<List<dynamic>> footballBadges(String fixtureDate) async {
+        final cached = _trustedBadgeFixturesCache[fixtureDate];
+        if (cached != null) return cached;
+        try {
+          final data = await FunctionGateway.invoke(
+            'football-fixtures',
+            body: {'mode': 'date', 'date': fixtureDate},
+          ).timeout(const Duration(seconds: 7));
+          final trusted = data is Map ? data['fixtures'] : null;
+          if (trusted is! List) return <dynamic>[];
+          _trustedBadgeFixturesCache[fixtureDate] = trusted;
+          return trusted;
+        } catch (_) {
+          return <dynamic>[];
+        }
+      }
+
+      // "All" can include multiple kickoff days. Avoid looking only at the
+      // first row; cap the number of lookups and run independent reads together.
+      final dates = missingBadgeUtcDates(rows);
+      final lookups = await Future.wait<List<dynamic>>([
+        colaBadges(),
+        ...dates.map(footballBadges),
+      ]);
+      final verified = <dynamic>[
+        for (final lookup in lookups) ...lookup,
+      ];
+      return mergeVerifiedFootballBadges(rows, verified);
     }
     return rows;
   }
@@ -725,8 +767,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                 fixtureSource = value;
                 // New experimental feeds often have no fixtures for today.
                 // Show all confirmed dates first; Date remains selectable.
-                if (!const {'cola', 'soco', 'yyzb', 'fawa', 'arena'}
-                    .contains(value)) mode = 'all';
+                if (value != 'cola') mode = 'all';
               });
               loadFixtures();
             },
@@ -913,9 +954,15 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                           const SizedBox(width: 8),
                           Column(
                             children: [
-                              _TeamLogo(url: f['home_logo']?.toString()),
+                              _TeamLogo(
+                                url: f['home_logo']?.toString(),
+                                fallbackUrl: f['home_logo_fallback']?.toString(),
+                              ),
                               const SizedBox(height: 5),
-                              _TeamLogo(url: f['away_logo']?.toString()),
+                              _TeamLogo(
+                                url: f['away_logo']?.toString(),
+                                fallbackUrl: f['away_logo_fallback']?.toString(),
+                              ),
                             ],
                           ),
                         ],
@@ -933,32 +980,50 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 }
 
 class _TeamLogo extends StatelessWidget {
-  const _TeamLogo({this.url});
+  const _TeamLogo({this.url, this.fallbackUrl});
 
   final String? url;
+  final String? fallbackUrl;
+
+  static const _unavailable = SizedBox(
+    width: 28,
+    height: 28,
+    child: Icon(Icons.shield_outlined, size: 20),
+  );
 
   @override
   Widget build(BuildContext context) {
-    if (url == null || url!.isEmpty) {
-      return const SizedBox(
-        width: 28,
-        height: 28,
-        child: Icon(Icons.shield_outlined, size: 20),
-      );
-    }
+    // Keep the original provider logo path (including ColaTV's existing
+    // URLs) byte-for-byte. The trusted secondary image is HTTPS-validated.
+    // Do not regress providers which already render badges correctly.
+    final primary = url?.trim().isNotEmpty == true ? url!.trim() : null;
+    final backup = verifiedBadgeUrl(fallbackUrl);
+    if (primary == null && backup == null) return _unavailable;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Image.network(
-        url!,
+        primary ?? backup!,
         width: 28,
         height: 28,
         fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) => const SizedBox(
-          width: 28,
-          height: 28,
-          child: Icon(Icons.shield_outlined, size: 20),
-        ),
+        // A valid public WebP/PNG may fail Flutter Web's byte fetch due to CORS.
+        // Use an HTML <img> only on failure; no proxy or access bypass.
+        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+        // A publisher may hotlink-block a URL despite publishing it in JSON.
+        // Fall back only to the exact same fixture's independently sourced
+        // verified team badge, never a guessed CDN name or unrelated shield.
+        errorBuilder: (_, __, ___) =>
+            backup != null && backup != primary
+                ? Image.network(
+                    backup,
+                    width: 28,
+                    height: 28,
+                    fit: BoxFit.contain,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                    errorBuilder: (_, __, ___) => _unavailable,
+                  )
+                : _unavailable,
       ),
     );
   }

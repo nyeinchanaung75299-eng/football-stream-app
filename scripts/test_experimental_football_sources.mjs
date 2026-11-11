@@ -377,3 +377,64 @@ test("Generic multi-sport site does not import basketball as football", async ()
   })});
   assert.equal(result.results,0);
 });
+
+
+test("Competition prefix does not turn a league name into a team", async () => {
+  const data = await experimentalMatches("score088", {fetcher: pages({
+    "https://www.score088tv.live/football":
+      '<li><a href="/football/torreense-w-vs-sparta-praha-w">' +
+      'UEFA Europa Cup vs Women – Torreense W – Sparta Praha W 19:00 Watch</a>' +
+      '<time datetime="2026-11-12T17:00:00Z"></time></li>' +
+      '<li><a href="/football/india-vs-maldives">' +
+      'SAFF Championship vs India – Maldives 10:30 Watch</a>' +
+      '<time datetime="2026-11-12T19:00:00Z"></time></li>',
+  })});
+  assert.equal(data.results, 2);
+  assert.equal(data.matches[0].home_team, "Torreense W");
+  assert.equal(data.matches[0].away_team, "Sparta Praha W");
+  assert.equal(data.matches[1].home_team, "India");
+  assert.equal(data.matches[1].away_team, "Maldives");
+});
+
+test("Football link in embedded JSON identifies sport but explicit basketball overrides it", async () => {
+  const payload = {events: [
+    {homeTeam:{name:"Arsenal"},awayTeam:{name:"Chelsea"},
+      url:"/football/arsenal-vs-chelsea",startDate:"2026-11-12T19:00:00Z"},
+    {homeTeam:{name:"Lakers"},awayTeam:{name:"Celtics"},sport:"Basketball",
+      url:"/football/lakers-vs-celtics",startDate:"2026-11-12T19:00:00Z"},
+  ]};
+  const data = await experimentalMatches("streamfree", {fetcher: pages({
+    "https://strmfree.st/":
+      '<script type="application/json">'+JSON.stringify(payload)+'</script>',
+  })});
+  assert.equal(data.results, 1);
+  assert.equal(data.matches[0].home_team, "Arsenal");
+});
+
+test("Detail pages can restore real badges without erasing confirmed index kickoff", async () => {
+  const page = "https://crichd.pk/event/arsenal-vs-chelsea";
+  const data = await experimentalMatches("crichd", {fetcher: pages({
+    "https://crichd.pk/sports/soccer-streams":
+      '<article><a href="/event/arsenal-vs-chelsea">Arsenal vs Chelsea</a>' +
+      '<time datetime="2026-11-12T19:00:00Z"></time></article>',
+    [page]: '<img alt="Arsenal logo" src="/images/arsenal.png">' +
+      '<img alt="Chelsea badge" data-src="/images/chelsea.png">',
+  })});
+  assert.equal(data.results, 1);
+  assert.equal(data.matches[0].match_time, "2026-11-12T19:00:00.000Z");
+  assert.equal(data.matches[0].home_logo, "https://crichd.pk/images/arsenal.png");
+  assert.equal(data.matches[0].away_logo, "https://crichd.pk/images/chelsea.png");
+});
+
+test("Public JSON relative HLS and HTML data-file manifest URLs are parsed, not invented", async () => {
+  const page = "https://crichd.pk/event/arsenal-vs-chelsea";
+  const data = await experimentalStreams("crichd", {page_url: page},
+    {fetcher:pages({[page]:
+      '<script type="application/json">{"file":"/public/master.m3u8"}</script>' +
+      '<video data-file="/public/manifest.mpd"></video>'})});
+  assert.deepEqual(data.lines.map(row => row.url).sort(), [
+    "https://crichd.pk/public/manifest.mpd",
+    "https://crichd.pk/public/master.m3u8",
+  ]);
+  assert.equal(data.ready, true);
+});

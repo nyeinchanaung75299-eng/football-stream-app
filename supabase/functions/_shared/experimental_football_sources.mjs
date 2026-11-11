@@ -48,8 +48,19 @@ function normalizeText(value) {
 
 function fixtureTitle(text) {
   const name = normalizeText(text)
+    .replace(/\b\d{1,2}:\d{2}\s*(?:watch|live)\b/gi, " ")
     .replace(/\b(?:live\s*(?:stream|tv)|watch\s*(?:live|now)|football|soccer)\b/gi, " ")
     .replace(/\s+/g, " ").trim();
+  // Some source cards are "SAFF Championship vs India – Maldives Watch".
+  // That first "vs" separates league from teams, not the two teams.
+  const competition = name.match(/^.{2,65}?\b(?:cup|league|championship|tournament)\s+vs?\.?\s+(.+)$/i);
+  if (competition) {
+    const parts = competition[1].split(/\s+[–—]\s+/).map(s => s.trim()).filter(Boolean);
+    if (parts.length < 2) return null;
+    const home = parts[parts.length - 2], away = parts[parts.length - 1];
+    return home.length > 1 && away.length > 1 && home.length <= 65 && away.length <= 65
+      ? {home, away} : null;
+  }
   const match = name.match(/^(.{2,70}?)\s+(?:vs?\.?|[-–—]|ضد)\s+(.{2,70}?)(?:\s*(?:\||•|\().*)?$/i);
   if (!match) return null;
   const home = match[1].trim(), away = match[2].trim();
@@ -325,8 +336,10 @@ function embeddedTeamPair(item) {
   const away = nameOfTeam(item.awayTeam ?? item.away_team ?? item.away);
   if (home.length > 1 && away.length > 1 &&
       home.length <= 65 && away.length <= 65 && home !== away) return {home, away};
-  if (Array.isArray(item.competitor) || Array.isArray(item.competitors)) {
-    const sides = item.competitor ?? item.competitors;
+  const participants = item.competitor ?? item.competitors ?? item.participant ?? item.participants ??
+    (Array.isArray(item.teams) ? item.teams : null);
+  if (Array.isArray(participants)) {
+    const sides = participants;
     const h = sides.find(s => /home/i.test(String(s?.homeOrAway ?? s?.qualifier ?? s?.side ?? "")));
     const a = sides.find(s => /away/i.test(String(s?.homeOrAway ?? s?.qualifier ?? s?.side ?? "")));
     if (h && a) {
@@ -407,11 +420,17 @@ function publicFixtureJsonRows(html, site, source, clock) {
         node.category?.name ?? node.category?.slug ?? "");
       const categoryIsFootball = /(?:soccer|football)/i.test(sport);
       const categoryOtherSport = /(?:basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker)/i.test(sport);
-      const eventIsFootball = categoryOtherSport ? false : football || categoryIsFootball ||
-        /\b(?:soccer|football)\b/i.test(String(node.sportType ?? ""));
+      const linkValue = node.url ?? node.href ?? node.page_url ?? node.matchUrl ?? node.link;
+      const linkedPage = typeof linkValue === "string" ? allowedPageUrl(linkValue, site) : null;
+      // Football-specific links are meaningful evidence on multi-sport homes,
+      // but an explicitly different sport always wins.
+      const linkedFootball = linkedPage &&
+        /\/(?:football|soccer)(?:\/|[-?]|$)/i.test(new URL(linkedPage).pathname);
+      const eventIsFootball = !categoryOtherSport && (football || categoryIsFootball ||
+        linkedFootball || /\b(?:soccer|football)\b/i.test(String(node.sportType ?? "")));
       const teams = embeddedTeamPair(node);
-      const link = node.url ?? node.href ?? node.page_url ?? node.matchUrl ?? node.link;
-      const page = typeof link === "string" ? allowedPageUrl(link,site) : null;
+      const link = linkValue;
+      const page = linkedPage;
       // A verified SportsEvent with an explicit UTC/offset kickoff but no
       // event URL can be listed as a schedule only. Never follow foreign URLs.
       const rawLink = typeof link === "string" ? link.trim() : "";
@@ -487,7 +506,8 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
   // Detail pages may publish authoritative UTC/offset timestamps that the
   // index omits. Bound network work: only 6 pages, at most 3 concurrent.
   const needDetail = [...candidates.values()]
-    .filter(candidate => !candidate.kickoff).slice(0, 6);
+    .filter(candidate => !candidate.kickoff ||
+      !candidate.badges.home || !candidate.badges.away).slice(0, 8);
   for (let offset = 0; offset < needDetail.length; offset += 3) {
     await Promise.all(needDetail.slice(offset, offset + 3).map(async item => {
       try {
@@ -495,8 +515,23 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
         const exact = pageKickoff(detail.html);
         const estimated = exact ? null :
           countdownKickoff(detail.html, detail.observedAt, detail.clockFresh);
-        item.kickoff = exact ?? estimated;
-        item.timingSource = exact ? "explicit" : estimated ? "countdown" : "none";
+        if (!item.kickoff) {
+          item.kickoff = exact ?? estimated;
+          item.timingSource = exact ? "explicit" : estimated ? "countdown" : "none";
+        }
+        const htmlBadges = htmlTeamBadges(detail.html, item.teams, site);
+        item.badges.home ??= htmlBadges.home;
+        item.badges.away ??= htmlBadges.away;
+        // Some detail pages publish team badges only in a SportsEvent JSON
+        // block. Require the SAME named team pair, not a generic page image.
+        const detailRows = publicFixtureJsonRows(detail.html, site, source, detail).rows;
+        for (const badgeRow of detailRows.values()) {
+          if (badgeRow.home_team.toLowerCase() !== item.teams.home.toLowerCase() ||
+              badgeRow.away_team.toLowerCase() !== item.teams.away.toLowerCase()) continue;
+          item.badges.home ??= badgeRow.home_logo;
+          item.badges.away ??= badgeRow.away_logo;
+          break;
+        }
       } catch (_) { /* Keep as unverified, never manufacture a kickoff. */ }
     }));
   }
@@ -505,10 +540,21 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
   for (const row of candidates.values()) {
     if (!embedded.rows.has(row.page)) embedded.rows.set(row.page,
       eventRecord(source,site,row.page,row.teams,row.kickoff,row.timingSource,row.badges));
-    else if (!embedded.rows.get(row.page).match_time && row.kickoff)
-      embedded.rows.set(row.page,{...eventRecord(source,site,row.page,row.teams,row.kickoff,row.timingSource,row.badges),
-        home_logo: embedded.rows.get(row.page).home_logo ?? row.badges.home,
-        away_logo: embedded.rows.get(row.page).away_logo ?? row.badges.away});
+    else {
+      const original = embedded.rows.get(row.page);
+      embedded.rows.set(row.page, {
+        ...original,
+        ...(!original.match_time && row.kickoff ? {
+          match_time: row.kickoff,
+          verified_kickoff: row.timingSource === "explicit",
+          kickoff_estimated: row.timingSource === "countdown",
+          kickoff_source: row.timingSource,
+          status: "NS", match_status: "SCHEDULED",
+        } : {}),
+        home_logo: original.home_logo ?? row.badges.home,
+        away_logo: original.away_logo ?? row.badges.away,
+      });
+    }
   }
   const matches = [...embedded.rows.values()].sort((a,b) =>
     (a.match_time ?? "9999").localeCompare(b.match_time ?? "9999"));
@@ -543,7 +589,8 @@ function literalMediaUrls(html, pageUrl) {
   const urls = new Set();
   const cleaned = html.replace(/\\\//g, "/").replace(/&amp;/gi, "&");
   const quoted = /(?:https?:\/\/|\/\/)[^\s"'<>\\]+?\.(?:m3u8|mpd)(?:\?[^\s"'<>\\]*)?/gi;
-  const relative = /(?:src|href)\s*=\s*["']([^"']+\.(?:m3u8|mpd)(?:\?[^"']*)?)["']/gi;
+  const relative = /\b(?:src|href|data-src|data-file|data-hls|data-dash)\s*=\s*["']([^"']+\.(?:m3u8|mpd)(?:\?[^"']*)?)["']/gi;
+  const jsonMedia = /["'](?:file|src|hls|dash|manifest|playlist|source)["']\s*:\s*["']([^"'<>\s]+\.(?:m3u8|mpd)(?:\?[^"'<>\s]*)?)["']/gi;
   function add(raw) {
     try {
       const url = new URL(raw, pageUrl);
@@ -556,6 +603,7 @@ function literalMediaUrls(html, pageUrl) {
   }
   for (const hit of cleaned.matchAll(quoted)) add(hit[0]);
   for (const hit of cleaned.matchAll(relative)) add(hit[1]);
+  for (const hit of cleaned.matchAll(jsonMedia)) add(hit[1]);
   return [...urls].slice(0, 12);
 }
 
