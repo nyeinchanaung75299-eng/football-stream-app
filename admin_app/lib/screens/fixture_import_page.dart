@@ -954,9 +954,15 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                           const SizedBox(width: 8),
                           Column(
                             children: [
-                              _TeamLogo(url: f['home_logo']?.toString()),
+                              _TeamLogo(
+                                url: f['home_logo']?.toString(),
+                                fallbackUrl: f['home_logo_fallback']?.toString(),
+                              ),
                               const SizedBox(height: 5),
-                              _TeamLogo(url: f['away_logo']?.toString()),
+                              _TeamLogo(
+                                url: f['away_logo']?.toString(),
+                                fallbackUrl: f['away_logo_fallback']?.toString(),
+                              ),
                             ],
                           ),
                         ],
@@ -974,32 +980,43 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 }
 
 class _TeamLogo extends StatelessWidget {
-  const _TeamLogo({this.url});
+  const _TeamLogo({this.url, this.fallbackUrl});
 
   final String? url;
+  final String? fallbackUrl;
+
+  static const _unavailable = SizedBox(
+    width: 28,
+    height: 28,
+    child: Icon(Icons.shield_outlined, size: 20),
+  );
 
   @override
   Widget build(BuildContext context) {
-    if (url == null || url!.isEmpty) {
-      return const SizedBox(
-        width: 28,
-        height: 28,
-        child: Icon(Icons.shield_outlined, size: 20),
-      );
-    }
+    final primary = verifiedBadgeUrl(url);
+    final backup = verifiedBadgeUrl(fallbackUrl);
+    if (primary == null && backup == null) return _unavailable;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Image.network(
-        url!,
+        primary ?? backup!,
         width: 28,
         height: 28,
         fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) => const SizedBox(
-          width: 28,
-          height: 28,
-          child: Icon(Icons.shield_outlined, size: 20),
-        ),
+        // A publisher may hotlink-block a URL despite publishing it in JSON.
+        // Fall back only to the exact same fixture's independently sourced
+        // verified team badge, never a guessed CDN name or unrelated shield.
+        errorBuilder: (_, __, ___) =>
+            backup != null && backup != primary
+                ? Image.network(
+                    backup,
+                    width: 28,
+                    height: 28,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => _unavailable,
+                  )
+                : _unavailable,
       ),
     );
   }
