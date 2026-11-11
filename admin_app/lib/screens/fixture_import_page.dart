@@ -993,7 +993,10 @@ class _TeamLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primary = verifiedBadgeUrl(url);
+    // Keep the original provider logo path (including ColaTV's existing
+    // URLs) byte-for-byte. The trusted secondary image is HTTPS-validated.
+    // Do not regress providers which already render badges correctly.
+    final primary = url?.trim().isNotEmpty == true ? url!.trim() : null;
     final backup = verifiedBadgeUrl(fallbackUrl);
     if (primary == null && backup == null) return _unavailable;
 
