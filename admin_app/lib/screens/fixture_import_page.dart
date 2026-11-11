@@ -9,6 +9,7 @@ import 'soco_import_page.dart';
 import '../analytics_service.dart';
 import '../football_english.dart';
 import '../big_match_source_policy.dart';
+import '../services/fixture_badge_enrichment.dart';
 import '../services/function_gateway.dart';
 
 class FixtureImportPage extends StatefulWidget {
@@ -85,6 +86,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 
   List<Map<String, dynamic>> fixtures = [];
   final Set<int> selectedIds = {};
+  final Map<String, List<dynamic>> _trustedBadgeFixturesCache = {};
   int _loadEpoch = 0;
 
   @override
@@ -278,6 +280,37 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           DateTime(9999);
       return at.compareTo(bt);
     });
+
+    // Secondary badge lookup uses the existing authorized football-fixtures
+    // feed, but ONLY accepts an exact team pair within 2 hours of kickoff.
+    // Never block source discovery or invent badges when it is unavailable.
+    if ((provider == 'crichd' || provider == 'score088') &&
+        rows.isNotEmpty &&
+        rows.any((row) => row['home_logo'] == null || row['away_logo'] == null)) {
+      try {
+        final kickoff = DateTime.tryParse(rows.first['kickoff_at'].toString())
+            ?.toUtc();
+        if (kickoff != null) {
+          final fixtureDate = DateFormat('yyyy-MM-dd').format(kickoff);
+          var trustedRows = _trustedBadgeFixturesCache[fixtureDate];
+          if (trustedRows == null) {
+            final data = await FunctionGateway.invoke(
+              'football-fixtures',
+              body: {'mode': 'date', 'date': fixtureDate},
+            ).timeout(const Duration(seconds: 7));
+            if (data is Map && data['fixtures'] is List) {
+              trustedRows = data['fixtures'] as List;
+              _trustedBadgeFixturesCache[fixtureDate] = trustedRows;
+            }
+          }
+          if (trustedRows != null) {
+            return mergeVerifiedFootballBadges(rows, trustedRows);
+          }
+        }
+      } catch (_) {
+        // Failure of an optional badge service must never hide matches.
+      }
+    }
     return rows;
   }
 
