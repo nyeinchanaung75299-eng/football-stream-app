@@ -241,6 +241,15 @@ function embeddedTeamPair(item) {
         return {home:first, away:second};
     }
   }
+  // Public structured SportsEvent feeds sometimes publish only a title
+  // ("Home vs Away") rather than separately named home/away fields.
+  // Keep the existing football-category and same-site URL requirements.
+  const eventType = String(item["@type"] ?? item.type ?? "");
+  const sport = String(item.sport?.name ?? item.sport ?? item.category?.name ?? "");
+  if (/sports?event/i.test(eventType) || /(?:football|soccer)/i.test(sport)) {
+    const title = item.name ?? item.eventName ?? item.matchName ?? item.title;
+    if (typeof title === "string") return fixtureTitle(title);
+  }
   return null;
 }
 
@@ -388,6 +397,13 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     (a.match_time ?? "9999").localeCompare(b.match_time ?? "9999"));
   const confirmed = matches.filter(row => row.verified_kickoff).length;
   const estimated = matches.filter(row => row.kickoff_estimated).length;
+  // The source page is not scoped to the requested date. Expose actual
+  // published MMT days so Admin can distinguish a calendar mismatch from
+  // broken fixture parsing. Never infer dates for untimed events.
+  const publishedDaysMMT = [...new Set(matches
+    .filter(row => row.match_time && !Number.isNaN(Date.parse(row.match_time)))
+    .map(row => new Date(Date.parse(row.match_time) + 390 * 60000)
+      .toISOString().slice(0, 10)))].sort();
   return {
     ok: true, source, matches, results: matches.length,
     diagnostics: {candidate_count: matches.length,
@@ -398,6 +414,7 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
       confirmed_kickoff_count: confirmed,
       estimated_countdown_count: estimated,
       missing_kickoff_count: matches.length - confirmed - estimated,
+      available_days_mmt: publishedDaysMMT,
       note: "Countdown kickoffs are estimates from a fresh page response, not verified fixture times."},
     generated_at: new Date().toISOString(),
   };
