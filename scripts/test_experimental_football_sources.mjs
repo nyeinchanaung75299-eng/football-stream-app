@@ -438,3 +438,72 @@ test("Public JSON relative HLS and HTML data-file manifest URLs are parsed, not 
   ]);
   assert.equal(data.ready, true);
 });
+
+
+for (const [source, home] of [
+  ["streamfree", "https://strmfree.st/"],
+  ["livextv", "https://livextv.pro/"],
+  ["ppv", "https://ppv.st/"],
+]) {
+  test(`${source} accepts an explicitly football-labelled generic event URL`, async () => {
+    const fixture = '<article data-sport="football">' +
+      '<a href="/event/arsenal-vs-chelsea">Arsenal vs Chelsea</a>' +
+      '<time datetime="2026-11-13T19:00:00Z"></time></article>';
+    const data = await experimentalMatches(source, {fetcher:pages({[home]: fixture})});
+    assert.equal(data.results, 1);
+    assert.equal(data.matches[0].home_team, "Arsenal");
+    assert.equal(data.matches[0].away_team, "Chelsea");
+    assert.equal(data.matches[0].match_time, "2026-11-13T19:00:00.000Z");
+    assert.equal(data.matches[0].verified_kickoff, true);
+  });
+}
+
+test("Single-event soccer category label can verify a generic URL", async () => {
+  const html = '<li><span class="sport-label">Soccer</span>' +
+    '<a href="/events/arsenal-vs-chelsea">Arsenal vs Chelsea</a>' +
+    '<time datetime="2026-11-13T19:00:00Z"></time></li>';
+  const data = await experimentalMatches("streamfree", {fetcher:pages({
+    "https://strmfree.st/": html,
+  })});
+  assert.equal(data.results, 1);
+});
+
+test("Multi-sport source still rejects generic URLs with no event-specific sport", async () => {
+  const data = await experimentalMatches("livextv", {fetcher:pages({
+    "https://livextv.pro/": '<h2>Football</h2><li>' +
+      '<a href="/event/arsenal-vs-chelsea">Arsenal vs Chelsea</a>' +
+      '<time datetime="2026-11-13T19:00:00Z"></time></li>',
+  })});
+  assert.equal(data.results, 0);
+});
+
+test("An explicitly non-football card is rejected even when its URL contains football", async () => {
+  const html = '<article data-sport="basketball">' +
+    '<a href="/football/lakers-vs-celtics">Lakers vs Celtics</a>' +
+    '<time datetime="2026-11-13T19:00:00Z"></time></article>';
+  const data = await experimentalMatches("streamfree", {fetcher:pages({
+    "https://strmfree.st/": html,
+  })});
+  assert.equal(data.results, 0);
+});
+
+test("Conflicting football/cricket labels reject the card rather than guess", async () => {
+  const html = '<li data-category="football" data-sport="cricket">' +
+    '<a href="/events/india-vs-pakistan">India vs Pakistan</a>' +
+    '<time datetime="2026-11-13T19:00:00Z"></time></li>';
+  const data = await experimentalMatches("ppv", {fetcher:pages({
+    "https://ppv.st/": html,
+  })});
+  assert.equal(data.results, 0);
+});
+
+test("A football label on a different card must not authorize this generic match URL", async () => {
+  const html = '<li data-sport="football"><a href="/football/arsenal-vs-chelsea">' +
+    'Arsenal vs Chelsea</a></li><li><a href="/event/lakers-vs-celtics">' +
+    'Lakers vs Celtics</a></li>';
+  const data = await experimentalMatches("streamfree", {fetcher:pages({
+    "https://strmfree.st/": html,
+  })});
+  assert.equal(data.results, 1);
+  assert.equal(data.matches[0].home_team, "Arsenal");
+});
