@@ -134,11 +134,14 @@ function structuredCardTeams(markup) {
     away: markup.match(/\bdata-(?:away|away-team|guest|guest-team)\s*=\s*["']([^"']+)["']/i)?.[1],
   };
   function classSide(side) {
-    const names = side === "home" ? "(?:home|host)(?:[-_]?team)?"
-      : "(?:away|guest)(?:[-_]?team)?";
-    const expression = new RegExp('<(?:span|div|strong)\\b[^>]*class=["\\'][^"\\']*\\b' +
-      names + '\\b[^"\\']*["\\'][^>]*>([\\s\\S]*?)<\\/', "i");
-    return expression.exec(markup)?.[1];
+    const indicator = side === "home"
+      ? /\b(?:home|host)(?:[-_]?team)?\b/i
+      : /\b(?:away|guest)(?:[-_]?team)?\b/i;
+    for (const node of markup.matchAll(/<(?:span|div|strong)\b([^>]*)>([\s\S]*?)<\/(?:span|div|strong)>/gi)) {
+      const className = node[1].match(/\bclass\s*=\s*["']([^"']+)["']/i)?.[1] ?? "";
+      if (indicator.test(className)) return node[2];
+    }
+    return null;
   }
   const home = normalizeText(attrs.home ?? classSide("home"));
   const away = normalizeText(attrs.away ?? classSide("away"));
