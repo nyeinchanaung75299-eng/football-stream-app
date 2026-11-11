@@ -95,15 +95,37 @@ Deno.serve(async (req) => {
       // issue third-party HTML fetches or use the resolver as a proxy.
       if (viewerPublic) return json({ error: "Admin access required." }, 403);
       if (action !== "streams") return json(await experimentalMatches(source));
-      const resolved = await experimentalStreams(source, body);
-      if (body.status_only === true || body.status_only === "true") return json(resolved);
-      const checked = await probeLines(resolved.lines ?? [], skipProbeRequested(body));
+      // An event listing is not proof of a working video URL. Even the small
+      // status-only check must verify published manifests; it must not mark
+      // the room READY simply because a string ended in .m3u8 or .mpd.
+      const statusOnly = body.status_only === true || body.status_only === "true" ||
+        body.status_only === "1";
+      const resolved = await experimentalStreams(source, { ...body, status_only: false });
+      // Never skip independent probes for these newly added sources.
+      const checked = await probeLines(resolved.lines ?? [], false);
       const lines = checked.filter((line: any) =>
         ["healthy", "slow"].includes(String(line.health_status)));
+      const publishedCount = (resolved.lines ?? []).length;
+      const accessDenied = checked.some((line: any) =>
+        [401, 403].includes(Number(line.health_http)));
+      const diagnosticCode = lines.length > 0 ? "manifest_reachable" :
+        publishedCount === 0 ? "no_public_manifest" :
+        accessDenied ? "manifest_access_denied" : "manifest_probe_failed";
+      if (statusOnly) {
+        return json({ ok: true, source, ready: lines.length > 0,
+          line_count: lines.length, detected_count: publishedCount,
+          live_status: false, diagnostic_code: diagnosticCode });
+      }
+      const explanation = lines.length > 0
+        ? "Public manifest responded to the first-byte check. Verify actual playback before importing."
+        : publishedCount === 0
+        ? "No public HLS/DASH manifest URL was found in the readable page HTML/JSON. This website may load video through its own player or authorized API."
+        : accessDenied
+        ? "A public manifest URL was found, but the media server denied the check (HTTP 401/403). Access protections were not bypassed."
+        : "A public manifest URL was found, but no line passed the manifest check. It may be expired, offline, geo-restricted or temporarily unreachable.";
       return json({ ...resolved, lines, line_count: lines.length,
-        ready: lines.length > 0,
-        message: lines.length ? resolved.message :
-          "No verified playable HLS/DASH line. No access protections were bypassed." });
+        detected_count: publishedCount, ready: lines.length > 0,
+        diagnostic_code: diagnosticCode, message: explanation });
     }
 
     if (source === "arena") {
