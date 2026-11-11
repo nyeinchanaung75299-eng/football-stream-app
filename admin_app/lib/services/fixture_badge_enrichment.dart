@@ -57,3 +57,28 @@ List<Map<String, dynamic>> mergeVerifiedFootballBadges(
     return fixture;
   }).toList(growable: false);
 }
+
+
+/// Request only UTC dates actually present in the source. CricHD/Score088TV
+/// regularly return matches spanning multiple days even when "All" is used.
+/// The old code looked up only the first kickoff, leaving later team badges
+/// unavailable. This helper does not change ColaTV's own badge mapping.
+List<String> missingBadgeUtcDates(List<Map<String, dynamic>> fixtures,
+    {int maxDates = 4}) {
+  final dates = <String>{};
+  for (final fixture in fixtures) {
+    if (verifiedBadgeUrl(fixture['home_logo']) != null &&
+        verifiedBadgeUrl(fixture['away_logo']) != null) continue;
+    final date = DateTime.tryParse(
+      (fixture['kickoff_at'] ?? '').toString(),
+    )?.toUtc();
+    if (date == null) continue;
+    dates.add(
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}',
+    );
+    if (dates.length >= maxDates) break;
+  }
+  return dates.toList(growable: false);
+}
