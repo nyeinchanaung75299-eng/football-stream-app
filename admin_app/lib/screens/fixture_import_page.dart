@@ -70,6 +70,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   bool importing = false;
   String? errorText;
   String? _sourceFixtureDiagnostic;
+  bool _offerAllDates = false;
 
   String? _diagnoseFixturePayload(dynamic payload, String provider) {
     if (payload is! Map || payload['diagnostics'] is! Map) return null;
@@ -259,6 +260,43 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       });
     }
 
+
+    // A provider can return valid football fixtures on dates other than the
+    // selected Myanmar day. Distinguish that from an extraction failure.
+    if (provider != 'cola' && rows.isEmpty &&
+        (requestedMode == 'date' || requestedMode == 'live')) {
+      final validRows = <Map<String, dynamic>>[];
+      final dates = <DateTime>{};
+      for (final item in raw) {
+        if (item is! Map) continue;
+        final row = Map<String, dynamic>.from(item);
+        final kick = _myanmarKickoff(row['match_time']);
+        if (kick == null ||
+            (row['home_team'] ?? '').toString().trim().isEmpty ||
+            (row['away_team'] ?? '').toString().trim().isEmpty) continue;
+        validRows.add(row);
+        dates.add(DateTime(kick.year, kick.month, kick.day));
+      }
+      if (validRows.isNotEmpty) {
+        _offerAllDates = true;
+        if (requestedMode == 'date') {
+          final sortedDates = dates.toList()..sort();
+          final sample = sortedDates.take(5)
+              .map((day) => DateFormat('dd MMM yyyy').format(day)).join(', ');
+          _sourceFixtureDiagnostic = _providerLabel(provider) + ' returned ' +
+              validRows.length.toString() +
+              ' timed football fixtures, but none on ' +
+              DateFormat('dd MMM yyyy').format(requestedDate) +
+              ' Myanmar Time. Available MMT dates: ' + sample +
+              '. Select Show All Dates or choose a matching date.';
+        } else {
+          _sourceFixtureDiagnostic = _providerLabel(provider) + ' returned ' +
+              validRows.length.toString() +
+              ' timed football fixtures, but none marked LIVE. Select All to view them.';
+        }
+      }
+    }
+
     rows.sort((a, b) {
       final at = DateTime.tryParse(a['kickoff_at']?.toString() ?? '') ??
           DateTime(9999);
@@ -303,6 +341,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       loading = true;
       errorText = null;
       _sourceFixtureDiagnostic = null;
+      _offerAllDates = false;
       selectedIds.clear();
     });
 
@@ -729,6 +768,18 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 10),
+                    if (_offerAllDates && mode != 'all')
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            setState(() => mode = 'all');
+                            loadFixtures();
+                          },
+                          icon: const Icon(Icons.view_list_rounded),
+                          label: const Text('SHOW ALL DATES'),
+                        ),
+                      ),
                     OutlinedButton(
                       onPressed: loadFixtures,
                       child: const Text('TRY AGAIN'),
