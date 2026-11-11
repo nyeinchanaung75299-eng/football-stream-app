@@ -173,7 +173,7 @@ export function countdownKickoff(fragment, observedAt, clockFresh = true) {
 }
 
 function eventRecord(source, site, page, teams, kickoff, timingSource = "none") {
-  const id = sourceId(page);
+  const id = sourceId(page ?? [source, teams.home, teams.away, kickoff].join(":"));
   const hasTime = kickoff != null;
   return {
     source, source_id: id, schedule_id: id,
@@ -186,7 +186,9 @@ function eventRecord(source, site, page, teams, kickoff, timingSource = "none") 
     verified_kickoff: hasTime && timingSource === "explicit",
     kickoff_estimated: hasTime && timingSource === "countdown",
     kickoff_source: timingSource,
-    anchors: [{room_num: id, page_url: page, nick_name: site.label}],
+    schedule_only: page == null,
+    // Never present metadata-only fixtures as a stream line.
+    anchors: page ? [{room_num: id, page_url: page, nick_name: site.label}] : [],
   };
 }
 
@@ -317,13 +319,25 @@ function publicFixtureJsonRows(html, site, source, clock) {
       const teams = embeddedTeamPair(node);
       const link = node.url ?? node.href ?? node.page_url ?? node.matchUrl ?? node.link;
       const page = typeof link === "string" ? allowedPageUrl(link,site) : null;
-      if (teams && page && eventIsFootball && !output.has(page) && output.size < 80) {
+      // A verified SportsEvent with an explicit UTC/offset kickoff but no
+      // event URL can be listed as a schedule only. Never follow foreign URLs.
+      const rawLink = typeof link === "string" ? link.trim() : "";
+      const schemaType = String(node["@type"] ?? node.type ?? "");
+      const recognizedSchema = /(?:^|:)SportsEvent$/i.test(schemaType);
+      if (teams && eventIsFootball && output.size < 80) {
         const when = kickoffFromJson(node,clock.observedAt,clock.clockFresh);
-        const row = eventRecord(source,site,page,teams,when.kickoff,when.timingSource);
-        const league = nameOfTeam(node.tournament ?? node.league ??
-          node.competition ?? node.leagueName);
-        if (league && league.length < 100) row.league = league;
-        output.set(page,row);
+        const scheduleOnly = !rawLink && recognizedSchema &&
+          when.timingSource === "explicit";
+        if (page || scheduleOnly) {
+          const key = page ?? ["schedule", source, teams.home, teams.away, when.kickoff].join(":");
+          if (!output.has(key)) {
+            const row = eventRecord(source,site,page,teams,when.kickoff,when.timingSource);
+            const league = nameOfTeam(node.tournament ?? node.league ??
+              node.competition ?? node.leagueName);
+            if (league && league.length < 100) row.league = league;
+            output.set(key,row);
+          }
+        }
       }
       if (depth < 10) for (const [key,value] of Object.entries(node).slice(0,90)) {
         if (value && typeof value === "object" && !["__proto__","constructor"].includes(key))
@@ -395,6 +409,7 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
   }
   const matches = [...embedded.rows.values()].sort((a,b) =>
     (a.match_time ?? "9999").localeCompare(b.match_time ?? "9999"));
+  const scheduleOnly = matches.filter(row => row.schedule_only).length;
   const confirmed = matches.filter(row => row.verified_kickoff).length;
   const estimated = matches.filter(row => row.kickoff_estimated).length;
   // The source page is not scoped to the requested date. Expose actual
@@ -409,6 +424,7 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     diagnostics: {candidate_count: matches.length,
       extraction_mode: embedded.rows.size > candidates.size ? "embedded-json" : "html-or-mixed",
       embedded_json_documents: embedded.jsonDocumentCount,
+      schedule_only_count: scheduleOnly,
       content_state: matches.length ? "matches_found" : embedded.jsonDocumentCount ? "no_recognized_football_fixtures" :
         /<script\b/i.test(html) ? "browser_render_or_unsupported_markup" : "empty_page",
       confirmed_kickoff_count: confirmed,

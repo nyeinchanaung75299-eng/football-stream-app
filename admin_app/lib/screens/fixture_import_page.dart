@@ -70,6 +70,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   bool importing = false;
   String? errorText;
   String? _sourceFixtureDiagnostic;
+  bool _offerAllDates = false;
 
   String? _diagnoseFixturePayload(dynamic payload, String provider) {
     if (payload is! Map || payload['diagnostics'] is! Map) return null;
@@ -94,8 +95,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           'or a permitted public API.';
     }
     if (status == 'no_recognized_football_fixtures') {
-      return '${_providerLabel(provider)} returned JSON, but no football '
-          'match with a valid same-site page link was recognized.';
+      return '${_providerLabel(provider)} contained JSON scripts, but no '
+          'trusted football event was recognized. Script data may be '
+          'configuration or browser-only fixtures.';
     }
     return '${_providerLabel(provider)} returned no recognized football fixtures.';
   }
@@ -273,6 +275,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     // valid kickoff timestamps or confuse an upstream parsing failure.
     if (rows.isEmpty && provider == fixtureSource && provider != 'cola' &&
         datedFixtureCount > 0) {
+      _offerAllDates = requestedMode != 'all';
       final days = publishedMmtDays.toList()..sort();
       final preview = days.take(7).join(', ');
       final date = DateFormat('yyyy-MM-dd').format(requestedDate);
@@ -331,6 +334,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       loading = true;
       errorText = null;
       _sourceFixtureDiagnostic = null;
+      _offerAllDates = false;
       selectedIds.clear();
     });
 
@@ -763,6 +767,18 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 10),
+                    if (_offerAllDates && mode != 'all')
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            setState(() => mode = 'all');
+                            loadFixtures();
+                          },
+                          icon: const Icon(Icons.view_list_rounded),
+                          label: const Text('SHOW ALL DATES'),
+                        ),
+                      ),
                     OutlinedButton(
                       onPressed: loadFixtures,
                       child: const Text('TRY AGAIN'),

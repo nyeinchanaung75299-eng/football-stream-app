@@ -248,3 +248,46 @@ test("Public JSON site metadata alone does not create fake football matches", as
   assert.equal(data.diagnostics.embedded_json_documents,1);
   assert.deepEqual(data.diagnostics.available_days_mmt,[]);
 });
+
+
+test("Valid public SportsEvent without URL is schedule only, not a stream", async () => {
+  const html = '<script type="application/ld+json">' + JSON.stringify({
+    "@type":"SportsEvent", sport:"Football",
+    homeTeam:{name:"Arsenal"},awayTeam:{name:"Chelsea"},
+    startDate:"2026-11-11T19:00:00Z",
+  }) + '</script>';
+  const data=await experimentalMatches("rojadirecta",{fetcher:pages({
+    "https://en.rojadirectaes.org/live-football":html,
+  })});
+  assert.equal(data.results,1);
+  assert.equal(data.matches[0].match_time,"2026-11-11T19:00:00.000Z");
+  assert.equal(data.matches[0].page_url,null);
+  assert.equal(data.matches[0].schedule_only,true);
+  assert.deepEqual(data.matches[0].anchors,[]);
+  assert.equal(data.diagnostics.schedule_only_count,1);
+  assert.deepEqual(data.diagnostics.available_days_mmt,["2026-11-12"]);
+});
+
+test("Generic JSON without SportsEvent type and URL does not invent fixtures", async () => {
+  const html='<script type="application/json">'+JSON.stringify({
+    sport:"Football",homeTeam:{name:"Arsenal"},awayTeam:{name:"Chelsea"},
+    startDate:"2026-11-11T19:00:00Z",
+  })+'</script>';
+  const data=await experimentalMatches("rojadirecta",{fetcher:pages({
+    "https://en.rojadirectaes.org/live-football":html,
+  })});
+  assert.equal(data.results,0);
+});
+
+test("External links never turn into trusted schedule-only video sources", async () => {
+  const html='<script type="application/ld+json">'+JSON.stringify({
+    "@type":"SportsEvent",sport:"Football",
+    homeTeam:{name:"Arsenal"},awayTeam:{name:"Chelsea"},
+    startDate:"2026-11-11T19:00:00Z",
+    url:"https://foreign.invalid/event/arsenal-vs-chelsea",
+  })+'</script>';
+  const data=await experimentalMatches("rojadirecta",{fetcher:pages({
+    "https://en.rojadirectaes.org/live-football":html,
+  })});
+  assert.equal(data.results,0);
+});
