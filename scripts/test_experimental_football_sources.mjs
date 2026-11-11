@@ -291,3 +291,53 @@ test("External links never turn into trusted schedule-only video sources", async
   })});
   assert.equal(data.results,0);
 });
+
+
+test("Public football SportsEvent supplies both actual team logos to Pick Big Matches", async () => {
+  const fixture = {
+    "@type": "SportsEvent", sport: "Football",
+    homeTeam: {name:"Turkey", logo:"https://assets.example.org/teams/turkey.png"},
+    awayTeam: {name:"Belgium", crest:"/logos/belgium.svg"},
+    startDate:"2026-11-12T17:00:00Z",
+    url:"/football/turkey-vs-belgium",
+  };
+  const results = await experimentalMatches("score088",{fetcher:pages({
+    "https://www.score088tv.live/football":
+      '<script type="application/ld+json">'+JSON.stringify(fixture)+'</script>',
+  })});
+  assert.equal(results.matches.length,1);
+  assert.equal(results.matches[0].home_logo,"https://assets.example.org/teams/turkey.png");
+  assert.equal(results.matches[0].away_logo,"https://www.score088tv.live/logos/belgium.svg");
+});
+
+test("Team badge identification uses team-name alt, not league logo or unrelated images", async () => {
+  const html = [
+    '<article>',
+    '<a href="/football/arsenal-vs-chelsea">Arsenal vs Chelsea</a>',
+    '<img alt="Premier League Logo" src="/assets/premier-league.png">',
+    '<img alt="Arsenal Logo" data-src="/logos/arsenal.png">',
+    '<img alt="Chelsea crest" src="https://images.example.org/chelsea.png">',
+    '<time datetime="2026-11-11T19:00:00Z"></time>',
+    '</article>',
+  ].join("");
+  const results = await experimentalMatches("crichd",{fetcher:pages({
+    "https://crichd.pk/sports/soccer-streams":html,
+  })});
+  assert.equal(results.matches.length,1);
+  assert.equal(results.matches[0].home_logo,"https://crichd.pk/logos/arsenal.png");
+  assert.equal(results.matches[0].away_logo,"https://images.example.org/chelsea.png");
+});
+
+test("Absent logos are never replaced by invented shields, private URLs or fake CDN links", async () => {
+  const data = await experimentalMatches("crichd",{fetcher:pages({
+    "https://crichd.pk/sports/soccer-streams":
+      '<script type="application/json">'+JSON.stringify({sport:"Football",
+        homeTeam:{name:"Arsenal",logo:"http://192.168.1.5/badge.png"},
+        awayTeam:{name:"Chelsea"},
+        url:"/football/arsenal-vs-chelsea",startDate:"2026-11-11T19:00:00Z"
+      })+'</script>',
+  })});
+  assert.equal(data.results,1);
+  assert.equal(data.matches[0].home_logo,null);
+  assert.equal(data.matches[0].away_logo,null);
+});
