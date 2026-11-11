@@ -535,10 +535,6 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
   const candidates = new Map();
   const anchors = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   for (const hit of html.matchAll(anchors)) {
-    // LiveTV's /soccer landing page also embeds basketball and tennis.
-    // Its own event cards must be vetted individually, never parsed with
-    // the broad football-catalog URL shortcut.
-    if (source === "livetv") continue;
     if (candidates.size >= 80) break;
     const href = hit[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
     const page = href && allowedPageUrl(href.replace(/&amp;/gi, "&"), site);
@@ -546,6 +542,12 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     const card = matchCardMarkup(html, hit);
     const cardSport = explicitFixtureSport(card || hit[0]);
     const footballLink = /\b(?:soccer|football)\b/i.test(page);
+    // LiveTV has basketball and tennis links mixed into /soccer. For its
+    // legacy <li>/<article> form keep only one-event structured team cards
+    // with a soccer-specific URL. Table rows use the dedicated parser above.
+    if (source === "livetv" &&
+        (!card || !structuredCardTeams(card) || !footballLink ||
+          cardSport === "other")) continue;
     // Even a football-looking URL must not turn a labelled basketball
     // or cricket card into a football fixture.
     if (cardSport === "other") continue;
