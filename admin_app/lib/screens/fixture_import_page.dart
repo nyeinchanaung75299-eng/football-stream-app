@@ -8,6 +8,7 @@ import 'live_links_page.dart';
 import 'soco_import_page.dart';
 import '../analytics_service.dart';
 import '../football_english.dart';
+import '../big_match_source_policy.dart';
 import '../services/function_gateway.dart';
 
 class FixtureImportPage extends StatefulWidget {
@@ -34,27 +35,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   DateTime selectedDate = DateTime.now().toUtc()
       .add(const Duration(hours: 6, minutes: 30));
   String mode = 'date';
-  static const _fixtureProviders = <String, String>{
-    'cola': 'ColaTV',
-    'soco': 'Soco',
-    'yyzb': 'YYZB',
-    'fawa': 'Fawa',
-    'arena': 'Arena Koora',
-    'crichd': 'CricHD',
-    'camel': 'Camel Live',
-    'xoilac': 'Xoilac TV',
-    'livetv': 'LiveTV',
-    'rojadirecta': 'Rojadirecta',
-    'roxie': 'RoxieStreams',
-    'vipbox': 'VIPBox',
-    'viprow': 'VIPRow',
-    'score088': 'Score088TV',
-    'sports808': 'LiveSports808',
-    'kooralive': 'Koora Live',
-    'livextv': 'LiveXTV',
-    'streamfree': 'StreamFree',
-    'ppv': 'PPV.st',
-  };
+  static const _fixtureProviders = pickBigMatchProviders;
   String fixtureSource = 'cola';
 
   // Myanmar Standard Time is UTC+06:30 regardless of device time zone.
