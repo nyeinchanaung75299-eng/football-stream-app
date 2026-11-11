@@ -164,9 +164,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final found = (diagnostics['candidate_count'] as num?)?.toInt() ?? 0;
     final confirmed = (diagnostics['confirmed_kickoff_count'] as num?)?.toInt() ?? 0;
     final estimated = (diagnostics['estimated_countdown_count'] as num?)?.toInt() ?? 0;
+    final scheduleOnly = (diagnostics['schedule_only_count'] as num?)?.toInt() ?? 0;
     if (found > 0) {
       return '$found football fixture(s) found • $confirmed timed, $estimated estimated from fresh countdown. '
-          'A source page does not guarantee a working video stream.';
+          '$scheduleOnly schedule-only event(s) have no playback link. '
+          'A fixture does not guarantee a working stream.';
     }
     return switch (diagnostics['content_state']?.toString()) {
       'browser_render_or_unsupported_markup' =>
@@ -174,8 +176,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
         'This site may load matches through browser JavaScript; a permitted '
         'public data endpoint is needed. No video stream is verified.',
       'no_recognized_football_fixtures' =>
-        'Public JSON was found, but no valid football fixture with a '
-        'same-site event URL was recognized. Check this provider format.',
+        'This page contains JSON scripts, but no trusted football event '
+        'was recognized. The scripts may contain configuration rather than '
+        'fixtures, or the site may use browser-only data.',
       'empty_page' =>
         'This provider returned no recognizable football events.',
       _ => 'No verified football event was returned by this provider.',
