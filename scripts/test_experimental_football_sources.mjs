@@ -563,3 +563,22 @@ test("LiveTV uses only an explicitly published UTC kickoff, not local clock labe
   assert.equal(data.matches[0].match_time, "2026-11-13T20:00:00.000Z");
   assert.equal(data.matches[0].verified_kickoff, true);
 });
+
+
+test("LiveTV mixed-sports JSON cannot inherit soccer status from page URL", async () => {
+  const events = [
+    {homeTeam:{name:"Lakers"}, awayTeam:{name:"Celtics"},
+      url:"/event/lakers-celtics", startDate:"2026-11-13T20:00:00Z"},
+    {homeTeam:{name:"Arsenal"}, awayTeam:{name:"Chelsea"}, sport:"Soccer",
+      url:"/event/arsenal-chelsea", startDate:"2026-11-13T20:00:00Z"},
+    {homeTeam:{name:"Heat"}, awayTeam:{name:"Bulls"}, sport:"Basketball",
+      url:"/soccer/heat-bulls", startDate:"2026-11-13T20:00:00Z"},
+  ];
+  const data = await experimentalMatches("livetv", {fetcher:pages({
+    "https://livetv.li/soccer": '<script type="application/json">'+
+      JSON.stringify({events})+'</script>',
+  })});
+  assert.equal(data.results, 1);
+  assert.equal(data.matches[0].home_team, "Arsenal");
+  assert.equal(data.matches[0].away_team, "Chelsea");
+});
