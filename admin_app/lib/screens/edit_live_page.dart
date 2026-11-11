@@ -430,6 +430,7 @@ class _TeamLogo extends StatelessWidget {
       child: Image.network(
         url,
         fit: BoxFit.contain,
+        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
         errorBuilder: (_, __, ___) => Center(child: fallback),
       ),
     );
