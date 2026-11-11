@@ -3,6 +3,27 @@
 import { experimentalFootballSites, experimentalMatches } from
   "../supabase/functions/_shared/experimental_football_sources.mjs";
 
+// Report only static structure around two Soccer links for the table-based
+// LiveTV listing. Redact URLs and scripts before printing.
+function soccerMarkupSamples(html) {
+  const clean = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi," ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi," ");
+  const out=[];
+  for(const hit of clean.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
+    if(out.length>=3) break;
+    const title = hit[2].replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
+    if(!/\s[-–—]\s/.test(title) || title.length<14 || title.length>90) continue;
+    const before = clean.slice(Math.max(0,hit.index-750),hit.index);
+    if(!/soccer/i.test(before)) continue;
+    const sample=(before.slice(-520)+hit[0]).replace(/\s+/g," ").slice(0,850)
+      .replace(/(?:src|href|data-url|data-href)\s*=\s*["'][^"']+["']/gi,"")
+      .replace(/(?:https?:)?\/\/[^\s"'<>]+/gi,"[URL]")
+      .replace(/\bon[a-z]+\s*=\s*["'][^"']+["']/gi,"");
+    out.push({title,sample});
+  }
+  return out;
+}
+
 const ids = Object.keys(experimentalFootballSites);
 const results = [];
 
@@ -56,6 +77,7 @@ for (let i=0; i<ids.length; i+=3) {
       if (["ppv","streamfree","livextv","livetv"].includes(source)) {
         const publicHtml = await response.clone().text();
         shape = publicFixtureMarkupShape(publicHtml);
+        if (source === "livetv") shape.soccerSamples = soccerMarkupSamples(publicHtml);
       }
       return response;
     };
