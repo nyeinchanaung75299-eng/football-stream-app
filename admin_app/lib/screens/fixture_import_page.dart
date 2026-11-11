@@ -251,6 +251,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         'away_name': away,
         'home_logo': row['home_logo'],
         'away_logo': row['away_logo'],
+        'league_logo': row['league_logo'],
         'kickoff_at': row['match_time'].toString(),
         'status_short': isLive ? 'LIVE' : 'NS',
         'is_live': isLive,
@@ -918,12 +919,31 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  englishKnownFootballName(f['league_name'].toString(), kind: 'league'),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: colors.onSurfaceVariant,
-                                  ),
+                                Row(
+                                  children: [
+                                    if (verifiedBadgeUrl(f['league_logo']) != null) ...[
+                                      Image.network(
+                                        verifiedBadgeUrl(f['league_logo'])!,
+                                        width: 18,
+                                        height: 18,
+                                        fit: BoxFit.contain,
+                                        errorBuilder: (_, __, ___) =>
+                                            const SizedBox.shrink(),
+                                      ),
+                                      const SizedBox(width: 5),
+                                    ],
+                                    Flexible(
+                                      child: Text(
+                                        englishKnownFootballName(
+                                            f['league_name'].toString(),
+                                            kind: 'league'),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: colors.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 const SizedBox(height: 5),
                                 Text(
@@ -996,7 +1016,42 @@ class _TeamLogo extends StatelessWidget {
     // Keep the original provider logo path (including ColaTV's existing
     // URLs) byte-for-byte. The trusted secondary image is HTTPS-validated.
     // Do not regress providers which already render badges correctly.
-    final primary = url?.trim().isNotEmpty == true ? url!.trim() : null;
+    final raw = url?.trim().isNotEmpty == true ? url!.trim() : null;
+    final badgePath = Uri.tryParse(raw ?? '')?.path ?? '';
+    // Competition badges (e.g. /league/nations-league-streams/logo.webp)
+    // never stand in for either actual team. ColaTV's genuine logos stay as is.
+    final leagueBadge = RegExp(
+      r'/league/[^/]+/logo\.(?:webp|png|jpe?g|svg)
+    if (primary == null && backup == null) return _unavailable;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.network(
+        primary ?? backup!,
+        width: 28,
+        height: 28,
+        fit: BoxFit.contain,
+        // A publisher may hotlink-block a URL despite publishing it in JSON.
+        // Fall back only to the exact same fixture's independently sourced
+        // verified team badge, never a guessed CDN name or unrelated shield.
+        errorBuilder: (_, __, ___) =>
+            backup != null && backup != primary
+                ? Image.network(
+                    backup,
+                    width: 28,
+                    height: 28,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => _unavailable,
+                  )
+                : _unavailable,
+      ),
+    );
+  }
+}
+,
+      caseSensitive: false,
+    ).hasMatch(badgePath);
+    final primary = leagueBadge ? null : raw;
     final backup = verifiedBadgeUrl(fallbackUrl);
     if (primary == null && backup == null) return _unavailable;
 
