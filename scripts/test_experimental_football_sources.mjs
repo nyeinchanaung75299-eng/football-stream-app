@@ -507,3 +507,78 @@ test("A football label on a different card must not authorize this generic match
   assert.equal(data.results, 1);
   assert.equal(data.matches[0].home_team, "Arsenal");
 });
+
+
+test("LiveTV public table row imports only a genuinely labelled Soccer fixture", async () => {
+  const html = [
+    '<div class="side-match-item"><tr><td><img alt="Basketball"></td><td>',
+    '<a class="live" href="/view/basketball">Lakers - Celtics</a>',
+    '<span class="evdesc">06:00 (Basketball)</span></td></tr></div>',
+    '<div class="side-match-item"><tr><td><img alt="Soccer"></td><td>',
+    '<a class="live" href="/view/arsenal-chelsea">Arsenal - Chelsea</a>',
+    '<span class="evdesc">21:00 (Soccer)</span></td></tr></div>',
+    '<div class="side-match-item"><tr><td><img alt="Tennis"></td><td>',
+    '<a class="live" href="/view/tennis">Player One - Player Two</a>',
+    '<span class="evdesc">21:30 (Tennis)</span></td></tr></div>',
+  ].join('');
+  const data = await experimentalMatches("livetv", {fetcher:pages({
+    "https://livetv.li/soccer": html,
+  })});
+  assert.equal(data.results, 1);
+  assert.equal(data.matches[0].home_team, "Arsenal");
+  assert.equal(data.matches[0].away_team, "Chelsea");
+  assert.equal(data.matches[0].match_time, null);
+  assert.equal(data.matches[0].verified_kickoff, false);
+  assert.equal(data.matches[0].source, "livetv");
+});
+
+test("LiveTV source rejects ambiguous rows, foreign events and unverified sport", async () => {
+  const data = await experimentalMatches("livetv", {fetcher:pages({
+    "https://livetv.li/soccer": [
+      '<div class="side-match-item"><img alt="Soccer">',
+      '<a href="https://other.invalid/view/123">Arsenal - Chelsea</a>',
+      '<span class="evdesc">20:00 (Soccer)</span></div>',
+      '<div class="side-match-item"><img alt="Soccer">',
+      '<a href="/view/multi">Team A - Team B</a>',
+      '<a href="/view/multi2">Team C - Team D</a></div>',
+      '<div class="side-match-item">',
+      '<a href="/view/none">Arsenal - Chelsea</a></div>',
+      '<div class="side-match-item"><img alt="Basketball">',
+      '<span class="evdesc">20:00 (Soccer)</span>',
+      '<a href="/view/conflict">Arsenal - Chelsea</a></div>',
+    ].join(''),
+  })});
+  assert.equal(data.results, 0);
+});
+
+test("LiveTV uses only an explicitly published UTC kickoff, not local clock label", async () => {
+  const html = '<div class="side-match-item"><img alt="Soccer">' +
+    '<a href="/view/arsenal-chelsea">Arsenal - Chelsea</a>' +
+    '<time datetime="2026-11-13T20:00:00Z"></time>' +
+    '<span class="evdesc">21:00 (Soccer)</span></div>';
+  const data = await experimentalMatches("livetv", {fetcher:pages({
+    "https://livetv.li/soccer": html,
+  })});
+  assert.equal(data.results, 1);
+  assert.equal(data.matches[0].match_time, "2026-11-13T20:00:00.000Z");
+  assert.equal(data.matches[0].verified_kickoff, true);
+});
+
+
+test("LiveTV mixed-sports JSON cannot inherit soccer status from page URL", async () => {
+  const events = [
+    {homeTeam:{name:"Lakers"}, awayTeam:{name:"Celtics"},
+      url:"/event/lakers-celtics", startDate:"2026-11-13T20:00:00Z"},
+    {homeTeam:{name:"Arsenal"}, awayTeam:{name:"Chelsea"}, sport:"Soccer",
+      url:"/event/arsenal-chelsea", startDate:"2026-11-13T20:00:00Z"},
+    {homeTeam:{name:"Heat"}, awayTeam:{name:"Bulls"}, sport:"Basketball",
+      url:"/soccer/heat-bulls", startDate:"2026-11-13T20:00:00Z"},
+  ];
+  const data = await experimentalMatches("livetv", {fetcher:pages({
+    "https://livetv.li/soccer": '<script type="application/json">'+
+      JSON.stringify({events})+'</script>',
+  })});
+  assert.equal(data.results, 1);
+  assert.equal(data.matches[0].home_team, "Arsenal");
+  assert.equal(data.matches[0].away_team, "Chelsea");
+});
