@@ -8,6 +8,8 @@ import 'live_links_page.dart';
 import 'soco_import_page.dart';
 import '../analytics_service.dart';
 import '../football_english.dart';
+import '../big_match_source_policy.dart';
+import '../services/fixture_badge_enrichment.dart';
 import '../services/function_gateway.dart';
 
 class FixtureImportPage extends StatefulWidget {
@@ -34,27 +36,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   DateTime selectedDate = DateTime.now().toUtc()
       .add(const Duration(hours: 6, minutes: 30));
   String mode = 'date';
-  static const _fixtureProviders = <String, String>{
-    'cola': 'ColaTV',
-    'soco': 'Soco',
-    'yyzb': 'YYZB',
-    'fawa': 'Fawa',
-    'arena': 'Arena Koora',
-    'crichd': 'CricHD',
-    'camel': 'Camel Live',
-    'xoilac': 'Xoilac TV',
-    'livetv': 'LiveTV',
-    'rojadirecta': 'Rojadirecta',
-    'roxie': 'RoxieStreams',
-    'vipbox': 'VIPBox',
-    'viprow': 'VIPRow',
-    'score088': 'Score088TV',
-    'sports808': 'LiveSports808',
-    'kooralive': 'Koora Live',
-    'livextv': 'LiveXTV',
-    'streamfree': 'StreamFree',
-    'ppv': 'PPV.st',
-  };
+  static const _fixtureProviders = pickBigMatchProviders;
   String fixtureSource = 'cola';
 
   // Myanmar Standard Time is UTC+06:30 regardless of device time zone.
@@ -104,6 +86,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 
   List<Map<String, dynamic>> fixtures = [];
   final Set<int> selectedIds = {};
+  final Map<String, List<dynamic>> _trustedBadgeFixturesCache = {};
   int _loadEpoch = 0;
 
   @override
@@ -186,6 +169,12 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 
   Future<List<Map<String, dynamic>>> _loadSourceFixtures(
       String provider, String requestedMode, DateTime requestedDate) async {
+    // Provider restriction is enforced at the network entrypoint as well as
+    // the dropdown. Stream Sources retain their own independent providers.
+    if (!isPickBigMatchProvider(provider)) {
+      throw ArgumentError.value(provider, 'provider',
+          'Provider is not enabled for Pick Big Matches.');
+    }
     dynamic data;
     if (!_enableNoVpnFallback) {
       data = await FunctionGateway.invoke(
@@ -297,6 +286,37 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           DateTime(9999);
       return at.compareTo(bt);
     });
+
+    // Secondary badge lookup uses the existing authorized football-fixtures
+    // feed, but ONLY accepts an exact team pair within 2 hours of kickoff.
+    // Never block source discovery or invent badges when it is unavailable.
+    if ((provider == 'crichd' || provider == 'score088') &&
+        rows.isNotEmpty &&
+        rows.any((row) => row['home_logo'] == null || row['away_logo'] == null)) {
+      try {
+        final kickoff = DateTime.tryParse(rows.first['kickoff_at'].toString())
+            ?.toUtc();
+        if (kickoff != null) {
+          final fixtureDate = DateFormat('yyyy-MM-dd').format(kickoff);
+          var trustedRows = _trustedBadgeFixturesCache[fixtureDate];
+          if (trustedRows == null) {
+            final data = await FunctionGateway.invoke(
+              'football-fixtures',
+              body: {'mode': 'date', 'date': fixtureDate},
+            ).timeout(const Duration(seconds: 7));
+            if (data is Map && data['fixtures'] is List) {
+              trustedRows = data['fixtures'] as List;
+              _trustedBadgeFixturesCache[fixtureDate] = trustedRows;
+            }
+          }
+          if (trustedRows != null) {
+            return mergeVerifiedFootballBadges(rows, trustedRows);
+          }
+        }
+      } catch (_) {
+        // Failure of an optional badge service must never hide matches.
+      }
+    }
     return rows;
   }
 

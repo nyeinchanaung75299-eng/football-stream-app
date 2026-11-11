@@ -18,6 +18,7 @@ on:
       - "scripts/test_performance_regressions.mjs"
       - "scripts/test_backend_startup.mjs"
       - "scripts/test_experimental_football_sources.mjs"
+      - "scripts/diagnose_public_football_sources.mjs"
       - "supabase/functions/_shared/experimental_football_sources.mjs"
       - "admin_app/lib/screens/soco_import_page.dart"
       - ".github/workflows/verify-performance-pr.yml"
@@ -53,6 +54,11 @@ jobs:
 
       - name: Verify experimental football match parsing without invented kickoff times
         run: node --test scripts/test_experimental_football_sources.mjs
+
+      - name: Diagnose public football fixture indexes (nonblocking live smoke)
+        continue-on-error: true
+        timeout-minutes: 4
+        run: node scripts/diagnose_public_football_sources.mjs
 
       - name: Verify YYZB fixture names and badge extraction
         run: node --test scripts/test_football_names.mjs
