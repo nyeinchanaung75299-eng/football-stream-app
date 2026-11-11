@@ -71,16 +71,54 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   String? errorText;
   String? _sourceFixtureDiagnostic;
 
-  String? _diagnoseFixturePayload(dynamic payload, String provider) {
+  String? _diagnoseFixturePayload(dynamic payload, String provider,
+      String requestedMode, DateTime requestedDate) {
     if (payload is! Map || payload['diagnostics'] is! Map) return null;
     final diagnostics = payload['diagnostics'] as Map;
     final count = (diagnostics['candidate_count'] as num?)?.toInt() ?? 0;
     final timed = (diagnostics['confirmed_kickoff_count'] as num?)?.toInt() ?? 0;
     final estimate = (diagnostics['estimated_countdown_count'] as num?)?.toInt() ?? 0;
-    if (count > 0) {
-      return '${_providerLabel(provider)} returned $count football events, '
-          'but only $timed confirmed and $estimate fresh countdown times. '
-          'No valid kickoff matched the chosen mode or Myanmar date.';
+    final raw = payload['matches'];
+    if (count > 0 && raw is List) {
+      final validTimes = <DateTime>[];
+      var liveMatches = 0;
+      for (final entry in raw) {
+        if (entry is! Map) continue;
+        final kickoff = _myanmarKickoff(entry['match_time']);
+        final home = (entry['home_team'] ?? '').toString().trim();
+        final away = (entry['away_team'] ?? '').toString().trim();
+        if (kickoff == null || home.isEmpty || away.isEmpty) continue;
+        validTimes.add(kickoff);
+        final isLive = entry['hot'] == true ||
+            entry['status']?.toString().toUpperCase() == 'LIVE' ||
+            entry['match_status']?.toString().toUpperCase() == 'LIVE';
+        if (isLive) liveMatches++;
+      }
+      if (requestedMode == 'date' && validTimes.isNotEmpty) {
+        final onDate = validTimes.where((time) =>
+            time.year == requestedDate.year &&
+            time.month == requestedDate.month &&
+            time.day == requestedDate.day).length;
+        if (onDate == 0) {
+          final days = validTimes.map((t) =>
+              DateFormat('dd MMM yyyy', 'en_US').format(t)).toSet().take(6);
+          return '$count events found ($timed confirmed, $estimate estimated), '
+              'but none have a kickoff on '
+              '${DateFormat('dd MMM yyyy', 'en_US').format(requestedDate)} MMT. '
+              'Available source dates (MMT): ${days.join(', ')}. '
+              'Choose All to view them.';
+        }
+      }
+      if (requestedMode == 'live' && liveMatches == 0) {
+        return '$count events were returned by ${_providerLabel(provider)}, '
+            'but none are marked LIVE. Choose All to see scheduled fixtures.';
+      }
+      if (validTimes.isEmpty) {
+        return '$count events were detected, but none have both valid teams '
+            'and UTC-offset kickoff times. Check this provider\'s match fields.';
+      }
+      return '$count events found ($timed confirmed, $estimate estimated). '
+          'No matching entries passed the selected ${requestedMode.toUpperCase()} filter.';
     }
     final status = diagnostics['content_state']?.toString();
     if (status == 'browser_render_or_unsupported_markup') {
@@ -197,7 +235,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       }
     }
     if (provider == fixtureSource && provider != 'cola') {
-      _sourceFixtureDiagnostic = _diagnoseFixturePayload(data, provider);
+      _sourceFixtureDiagnostic = _diagnoseFixturePayload(
+          data, provider, requestedMode, requestedDate);
     }
     final raw = data is Map ? data['matches'] : null;
     if (raw is! List) {
@@ -729,6 +768,16 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 10),
+                    if (fixtureSource != 'cola' && mode != 'all' &&
+                        _sourceFixtureDiagnostic?.contains('Choose All') == true)
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          setState(() => mode = 'all');
+                          await loadFixtures();
+                        },
+                        icon: const Icon(Icons.view_list_rounded),
+                        label: const Text('SHOW ALL SOURCE DATES'),
+                      ),
                     OutlinedButton(
                       onPressed: loadFixtures,
                       child: const Text('TRY AGAIN'),
