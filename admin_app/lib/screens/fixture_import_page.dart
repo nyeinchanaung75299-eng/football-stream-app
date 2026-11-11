@@ -768,7 +768,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 10),
-                    if (fixtureSource != 'cola' && mode != 'all')
+                    if (fixtureSource != 'cola' && mode != 'all' &&
+                        _sourceFixtureDiagnostic?.contains('Choose All') == true)
                       OutlinedButton.icon(
                         onPressed: () async {
                           setState(() => mode = 'all');
