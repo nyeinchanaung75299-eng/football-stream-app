@@ -532,6 +532,10 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
   const candidates = new Map();
   const anchors = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   for (const hit of html.matchAll(anchors)) {
+    // LiveTV's /soccer landing page also embeds basketball and tennis.
+    // Its own event cards must be vetted individually, never parsed with
+    // the broad football-catalog URL shortcut.
+    if (source === "livetv") continue;
     if (candidates.size >= 80) break;
     const href = hit[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
     const page = href && allowedPageUrl(href.replace(/&amp;/gi, "&"), site);
