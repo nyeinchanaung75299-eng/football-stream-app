@@ -126,6 +126,26 @@ function teamsFromLink(url, inner) {
 
 // Countdowns can be outside the <a> but inside the same single-match
 // <article>/<li> card. Reject shared wrappers with multiple match links.
+
+function structuredCardTeams(markup) {
+  if (!markup) return null;
+  const attrs = {
+    home: markup.match(/\bdata-(?:home|home-team|host|host-team)\s*=\s*["']([^"']+)["']/i)?.[1],
+    away: markup.match(/\bdata-(?:away|away-team|guest|guest-team)\s*=\s*["']([^"']+)["']/i)?.[1],
+  };
+  function classSide(side) {
+    const names = side === "home" ? "(?:home|host)(?:[-_]?team)?"
+      : "(?:away|guest)(?:[-_]?team)?";
+    const expression = new RegExp('<(?:span|div|strong)\\b[^>]*class=["\\'][^"\\']*\\b' +
+      names + '\\b[^"\\']*["\\'][^>]*>([\\s\\S]*?)<\\/', "i");
+    return expression.exec(markup)?.[1];
+  }
+  const home = normalizeText(attrs.home ?? classSide("home"));
+  const away = normalizeText(attrs.away ?? classSide("away"));
+  return home.length > 1 && away.length > 1 &&
+    home.length <= 65 && away.length <= 65 && home !== away ? {home,away} : null;
+}
+
 function matchCardMarkup(html, hit) {
   for (const tag of ["article", "li"]) {
     const start = html.lastIndexOf("<" + tag, hit.index);
@@ -152,6 +172,14 @@ function pageKickoff(markup) {
       const kickoff = explicitKickoff(match[1]);
       if (kickoff) return kickoff;
     }
+  }
+  // Unix seconds/milliseconds accepted ONLY when explicitly marked as a
+  // match kickoff/start attribute, not an arbitrary page timestamp.
+  for (const hit of markup.matchAll(/\bdata-(?:kickoff|start-time|start-timestamp)\s*=\s*["'](\d{10}|\d{13})["']/gi)) {
+    const n = Number(hit[1]);
+    const ms = n > 1e12 ? n : n * 1000;
+    if (ms >= 1577836800000 && ms <= 4102444800000)
+      return new Date(ms).toISOString();
   }
   return null;
 }
@@ -429,14 +457,19 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     // Skip them unless the published link itself identifies football.
     if (["ppv", "livextv", "streamfree"].includes(source) &&
         !/\b(?:soccer|football)\b/i.test(page)) continue;
-    const teams = teamsFromLink(page, hit[2]);
+    const card = matchCardMarkup(html, hit);
+    const teams = teamsFromLink(page, hit[2]) ?? structuredCardTeams(card || hit[0]);
     if (!teams) continue;
+    // Do not treat cricket/basketball listings as football on multi-sport homes.
+    const footballCatalog = /(?:football|soccer)/i.test(new URL(site.home).pathname) ||
+      ["camel","xoilac","kooralive"].includes(source);
+    if (!footballCatalog && !/(?:football|soccer)/i.test(page) &&
+        !/\bdata-sport\s*=\s*["'](?:football|soccer)["']/i.test(card)) continue;
     // The timestamp must be inside this anchor or immediately preceding it,
     // with a preceding sibling anchor acting as a hard event boundary.
     const preceding = html.slice(Math.max(0, hit.index - 240), hit.index);
     const boundary = preceding.lastIndexOf("</a>");
     const local = boundary < 0 ? preceding : preceding.slice(boundary + 4);
-    const card = matchCardMarkup(html, hit);
     const explicit = pageKickoff(hit[0]) ?? pageKickoff(local) ??
       (card ? pageKickoff(card) : null);
     const countdown = explicit ? null :
