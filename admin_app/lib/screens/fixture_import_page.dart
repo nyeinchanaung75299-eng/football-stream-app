@@ -767,8 +767,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                 fixtureSource = value;
                 // New experimental feeds often have no fixtures for today.
                 // Show all confirmed dates first; Date remains selectable.
-                if (!const {'cola', 'soco', 'yyzb', 'fawa', 'arena'}
-                    .contains(value)) mode = 'all';
+                if (value != 'cola') mode = 'all';
               });
               loadFixtures();
             },
