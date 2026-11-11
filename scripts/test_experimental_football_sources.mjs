@@ -206,3 +206,44 @@ test("MMT date remains correct across a Myanmar day boundary", () => {
   assert.equal(mmt.toISOString().slice(0,10),"2026-11-11");
   assert.equal(mmt.toISOString().slice(11,16),"04:00");
 });
+
+
+test("Verified football SportsEvent without page URL is schedule-only", async () => {
+  const content = '<script type="application/ld+json">' +
+    JSON.stringify({"@type":"SportsEvent",sport:"Football",
+      homeTeam:{name:"Arsenal"},awayTeam:{name:"Chelsea"},
+      startDate:"2026-11-11T19:00:00Z"}) + '</script>';
+  const result = await experimentalMatches("rojadirecta", {fetcher:pages({
+    "https://en.rojadirectaes.org/live-football": content,
+  })});
+  assert.equal(result.results,1);
+  assert.equal(result.matches[0].home_team,"Arsenal");
+  assert.equal(result.matches[0].match_time,"2026-11-11T19:00:00.000Z");
+  assert.equal(result.matches[0].page_url,null);
+  assert.equal(result.matches[0].schedule_only,true);
+  assert.deepEqual(result.matches[0].anchors,[]);
+  assert.equal(result.diagnostics.schedule_only_count,1);
+});
+
+test("No event URL is allowed only with explicit SportsEvent schema and time", async () => {
+  const content = '<script type="application/json">' + JSON.stringify({
+    sport:"Football", homeTeam:{name:"Arsenal"},awayTeam:{name:"Chelsea"},
+    startDate:"2026-11-11T19:00:00Z",
+  }) + '</script>';
+  const result = await experimentalMatches("rojadirecta", {fetcher:pages({
+    "https://en.rojadirectaes.org/live-football": content,
+  })});
+  assert.equal(result.results,0);
+});
+
+test("External event URLs do not become schedule-only pseudo stream sources", async () => {
+  const content = '<script type="application/ld+json">' +
+    JSON.stringify({"@type":"SportsEvent",sport:"Football",
+      homeTeam:{name:"Arsenal"},awayTeam:{name:"Chelsea"},
+      startDate:"2026-11-11T19:00:00Z",
+      url:"https://not-our-fixture-site.example/watch"}) + '</script>';
+  const result = await experimentalMatches("rojadirecta", {fetcher:pages({
+    "https://en.rojadirectaes.org/live-football": content,
+  })});
+  assert.equal(result.results,0);
+});
