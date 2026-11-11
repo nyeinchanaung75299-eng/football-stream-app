@@ -58,6 +58,22 @@ void main() {
     expect(rows.single['home_logo_fallback'], 'https://cola.example.org/turkey.png');
     expect(rows.single['away_logo_fallback'], 'https://cola.example.org/belgium.png');
   });
+  test('two matched feeds contribute opposite team logos', () {
+    final rows = mergeVerifiedFootballBadges(source, [
+      {
+        'home_name': 'Turkey', 'away_name': 'Belgium',
+        'kickoff_at': '2026-11-12T17:00:00Z',
+        'home_logo': 'https://cola.example.org/turkey.png',
+      },
+      {
+        'home_name': 'Turkey', 'away_name': 'Belgium',
+        'kickoff_at': '2026-11-12T17:30:00Z',
+        'away_logo': 'https://football.example.org/belgium.png',
+      }
+    ]);
+    expect(rows.single['home_logo'], 'https://cola.example.org/turkey.png');
+    expect(rows.single['away_logo'], 'https://football.example.org/belgium.png');
+  });
   test('matching trusted football fixture restores both country team badges', () {
     final rows = mergeVerifiedFootballBadges(source, [
       {
