@@ -305,7 +305,11 @@ function publicFixtureJsonRows(html, site, source, clock) {
       const categoryOtherSport = /(?:basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker)/i.test(sport);
       const eventIsFootball = categoryOtherSport ? false : football || categoryIsFootball ||
         /\b(?:soccer|football)\b/i.test(String(node.sportType ?? ""));
-      const teams = embeddedTeamPair(node);
+      // Many public SportsEvent records publish only a human-readable
+      // "Home vs Away" title, not separate homeTeam/awayTeam keys.
+      const eventTitle = node.name ?? node.title ?? node.matchTitle ?? node.eventName;
+      const teams = embeddedTeamPair(node) ??
+        (typeof eventTitle === "string" ? fixtureTitle(eventTitle) : null);
       const link = node.url ?? node.href ?? node.page_url ?? node.matchUrl ?? node.link;
       const page = typeof link === "string" ? allowedPageUrl(link,site) : null;
       if (teams && page && eventIsFootball && !output.has(page) && output.size < 80) {
