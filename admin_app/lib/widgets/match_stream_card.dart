@@ -29,6 +29,7 @@ class MatchStreamCard extends StatelessWidget {
                 ? Image.network(
                     logo,
                     fit: BoxFit.contain,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                     errorBuilder: (_, __, ___) =>
                         const Icon(Icons.sports_soccer, size: 36),
                   )
