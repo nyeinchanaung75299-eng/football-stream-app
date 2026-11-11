@@ -8,6 +8,7 @@ import 'live_links_page.dart';
 import 'soco_import_page.dart';
 import '../analytics_service.dart';
 import '../football_english.dart';
+import '../source_fixture_date_utils.dart';
 import '../services/function_gateway.dart';
 
 class FixtureImportPage extends StatefulWidget {
@@ -59,13 +60,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 
   // Myanmar Standard Time is UTC+06:30 regardless of device time zone.
   // Unknown or timezone-ambiguous kickoffs are never replaced by now.
-  DateTime? _myanmarKickoff(Object? raw) {
-    final value = raw?.toString().trim() ?? '';
-    if (!RegExp(r'(?:Z|[+-]\d{2}:?\d{2})$', caseSensitive: false)
-        .hasMatch(value)) return null;
-    final parsed = DateTime.tryParse(value);
-    return parsed?.toUtc().add(const Duration(hours: 6, minutes: 30));
-  }
+  DateTime? _myanmarKickoff(Object? raw) => sourceFixtureMmtKickoff(raw);
   bool loading = false;
   bool importing = false;
   String? errorText;
@@ -261,39 +256,16 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     }
 
 
-    // A provider can return valid football fixtures on dates other than the
-    // selected Myanmar day. Distinguish that from an extraction failure.
-    if (provider != 'cola' && rows.isEmpty &&
-        (requestedMode == 'date' || requestedMode == 'live')) {
-      final validRows = <Map<String, dynamic>>[];
-      final dates = <DateTime>{};
-      for (final item in raw) {
-        if (item is! Map) continue;
-        final row = Map<String, dynamic>.from(item);
-        final kick = _myanmarKickoff(row['match_time']);
-        if (kick == null ||
-            (row['home_team'] ?? '').toString().trim().isEmpty ||
-            (row['away_team'] ?? '').toString().trim().isEmpty) continue;
-        validRows.add(row);
-        dates.add(DateTime(kick.year, kick.month, kick.day));
-      }
-      if (validRows.isNotEmpty) {
+    if (provider != 'cola' && rows.isEmpty) {
+      final reason = explainEmptyFixtureFilter(
+        provider: _providerLabel(provider),
+        mode: requestedMode,
+        selectedDate: requestedDate,
+        rawMatches: raw,
+      );
+      if (reason != null) {
+        _sourceFixtureDiagnostic = reason;
         _offerAllDates = true;
-        if (requestedMode == 'date') {
-          final sortedDates = dates.toList()..sort();
-          final sample = sortedDates.take(5)
-              .map((day) => DateFormat('dd MMM yyyy').format(day)).join(', ');
-          _sourceFixtureDiagnostic = _providerLabel(provider) + ' returned ' +
-              validRows.length.toString() +
-              ' timed football fixtures, but none on ' +
-              DateFormat('dd MMM yyyy').format(requestedDate) +
-              ' Myanmar Time. Available MMT dates: ' + sample +
-              '. Select Show All Dates or choose a matching date.';
-        } else {
-          _sourceFixtureDiagnostic = _providerLabel(provider) + ' returned ' +
-              validRows.length.toString() +
-              ' timed football fixtures, but none marked LIVE. Select All to view them.';
-        }
       }
     }
 
