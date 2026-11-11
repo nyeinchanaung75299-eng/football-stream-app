@@ -174,11 +174,140 @@ function eventRecord(source, site, page, teams, kickoff, timingSource = "none") 
   };
 }
 
+
+// Browser-generated pages frequently preload public match information as JSON
+// before hydrating their UI. Parse DATA only: never execute the page's JS,
+// request private APIs, or guess a provider endpoint.
+function publicEmbeddedJson(html) {
+  const values = [];
+  const scripts = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+  for (const match of html.matchAll(scripts)) {
+    if (values.length >= 20) break;
+    const attributes = match[1] ?? "";
+    const id = attributes.match(/\bid\s*=\s*["']([^"']+)["']/i)?.[1] ?? "";
+    const type = attributes.match(/\btype\s*=\s*["']([^"']+)["']/i)?.[1] ?? "";
+    if (!/^(application\/(?:ld\+json|json)|text\/json)$/i.test(type) &&
+        !/^(?:__NEXT_DATA__|__NUXT_DATA__|__INITIAL_STATE__|__APOLLO_STATE__)$/i.test(id)) continue;
+    const body = match[2].trim();
+    if (!body || body.length > 900000) continue;
+    try { values.push(JSON.parse(body)); } catch (_) { /* JS expressions are not JSON. */ }
+  }
+  // A limited set of applications include their state as a JSON literal
+  // assignment, not a script with type=application/json. No eval and no JS.
+  const state = /(?:window\.)?(?:__INITIAL_STATE__|__PRELOADED_STATE__)\s*=\s*(\{[^\n;]{1,100000}\})\s*;/gi;
+  for (const hit of html.matchAll(state)) {
+    if (values.length >= 20) break;
+    try { values.push(JSON.parse(hit[1])); } catch (_) { /* Not a JSON literal. */ }
+  }
+  return values;
+}
+
+function nameOfTeam(value) {
+  if (typeof value === "string") return normalizeText(value);
+  if (value && typeof value === "object")
+    return normalizeText(value.name ?? value.displayName ?? value.shortName ?? "");
+  return "";
+}
+
+function embeddedTeamPair(item) {
+  const home = nameOfTeam(item.homeTeam ?? item.home_team ?? item.home);
+  const away = nameOfTeam(item.awayTeam ?? item.away_team ?? item.away);
+  if (home.length > 1 && away.length > 1 &&
+      home.length <= 65 && away.length <= 65 && home !== away) return {home, away};
+  if (Array.isArray(item.competitor) || Array.isArray(item.competitors)) {
+    const sides = item.competitor ?? item.competitors;
+    const h = sides.find(s => /home/i.test(String(s?.homeOrAway ?? s?.qualifier ?? s?.side ?? "")));
+    const a = sides.find(s => /away/i.test(String(s?.homeOrAway ?? s?.qualifier ?? s?.side ?? "")));
+    if (h && a) {
+      const first = nameOfTeam(h), second = nameOfTeam(a);
+      if (first.length > 1 && second.length > 1 &&
+          first.length <= 65 && second.length <= 65 && first !== second)
+        return {home:first, away:second};
+    }
+  }
+  return null;
+}
+
+function kickoffFromJson(item, observedAt, clockFresh) {
+  const raw = item.startDate ?? item.start_time ?? item.startTime ??
+    item.kickoff_at ?? item.kickoffAt ?? item.match_time ?? null;
+  if (typeof raw === "string") {
+    const value = explicitKickoff(raw);
+    if (value) return {kickoff:value, timingSource:"explicit"};
+  }
+  const ts = item.startTimestamp ?? item.start_timestamp;
+  if ((typeof ts === "number" || typeof ts === "string") && String(ts).trim()) {
+    const n = Number(ts);
+    if (Number.isFinite(n)) {
+      const ms = n > 1e12 ? n : n * 1000;
+      // Timestamp must represent a plausible modern fixture.
+      if (ms >= 1577836800000 && ms <= 4102444800000)
+        return {kickoff:new Date(ms).toISOString(), timingSource:"explicit"};
+    }
+  }
+  const rawCountdown = item.countdown ?? item.countdownText ??
+    item.startsIn ?? item.timeRemaining;
+  if (typeof rawCountdown === "string") {
+    const value = countdownKickoff(
+      /\b(?:starts?\s+in|kick[\s-]?off\s+in)\b/i.test(rawCountdown)
+        ? rawCountdown : "Starts in " + rawCountdown,
+      observedAt, clockFresh,
+    );
+    if (value) return {kickoff:value, timingSource:"countdown"};
+  }
+  return {kickoff:null, timingSource:"none"};
+}
+
+function publicFixtureJsonRows(html, site, source, clock) {
+  const output = new Map();
+  // Generic all-sports indexes need an explicit football/soccer marker
+  // associated with the event. Football-only catalogs can be accepted.
+  const footballCatalog = /(?:football|soccer)/i.test(new URL(site.home).pathname) ||
+    ["camel","xoilac","kooralive"].includes(source);
+  const state = publicEmbeddedJson(html);
+  let examined = 0;
+  for (const root of state) {
+    const queue = [{node:root, football:footballCatalog, depth:0}];
+    for (let head = 0; head < queue.length && examined < 4000; head++) {
+      const {node, football, depth} = queue[head];
+      examined++;
+      if (!node || typeof node !== "object" || depth > 10) continue;
+      if (Array.isArray(node)) {
+        for (const child of node.slice(0, 150)) queue.push({node:child,football,depth:depth+1});
+        continue;
+      }
+      const sport = String(node.sport?.name ?? node.sport?.slug ?? node.sport ??
+        node.category?.name ?? node.category?.slug ?? "");
+      const categoryIsFootball = /(?:soccer|football)/i.test(sport);
+      const categoryOtherSport = /(?:basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker)/i.test(sport);
+      const eventIsFootball = categoryOtherSport ? false : football || categoryIsFootball ||
+        /\b(?:soccer|football)\b/i.test(String(node.sportType ?? ""));
+      const teams = embeddedTeamPair(node);
+      const link = node.url ?? node.href ?? node.page_url ?? node.matchUrl ?? node.link;
+      const page = typeof link === "string" ? allowedPageUrl(link,site) : null;
+      if (teams && page && eventIsFootball && !output.has(page) && output.size < 80) {
+        const when = kickoffFromJson(node,clock.observedAt,clock.clockFresh);
+        const row = eventRecord(source,site,page,teams,when.kickoff,when.timingSource);
+        const league = nameOfTeam(node.tournament ?? node.league ??
+          node.competition ?? node.leagueName);
+        if (league && league.length < 100) row.league = league;
+        output.set(page,row);
+      }
+      if (depth < 10) for (const [key,value] of Object.entries(node).slice(0,90)) {
+        if (value && typeof value === "object" && !["__proto__","constructor"].includes(key))
+          queue.push({node:value,football:categoryOtherSport?false:eventIsFootball,depth:depth+1});
+      }
+    }
+  }
+  return {rows:output, jsonDocumentCount:state.length};
+}
+
 export async function experimentalMatches(source, {fetcher = fetch, now = Date.now} = {}) {
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
   const catalog = await publicHtml(site.home, fetcher, {withClock: true, now});
   const {html} = catalog;
+  const embedded = publicFixtureJsonRows(html,site,source,catalog);
   const candidates = new Map();
   const anchors = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   for (const hit of html.matchAll(anchors)) {
@@ -223,14 +352,25 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     }));
   }
 
-  const matches = [...candidates.values()].map(row =>
-    eventRecord(source, site, row.page, row.teams, row.kickoff, row.timingSource)
-  ).sort((a,b) => (a.match_time ?? "9999").localeCompare(b.match_time ?? "9999"));
+  // Prefer the embedded state when the same page is represented in both.
+  for (const row of candidates.values()) {
+    if (!embedded.rows.has(row.page)) embedded.rows.set(row.page,
+      eventRecord(source,site,row.page,row.teams,row.kickoff,row.timingSource));
+    else if (!embedded.rows.get(row.page).match_time && row.kickoff)
+      embedded.rows.set(row.page,eventRecord(source,site,row.page,row.teams,row.kickoff,row.timingSource));
+  }
+  const matches = [...embedded.rows.values()].sort((a,b) =>
+    (a.match_time ?? "9999").localeCompare(b.match_time ?? "9999"));
   const confirmed = matches.filter(row => row.verified_kickoff).length;
   const estimated = matches.filter(row => row.kickoff_estimated).length;
   return {
     ok: true, source, matches, results: matches.length,
-    diagnostics: {candidate_count: matches.length, confirmed_kickoff_count: confirmed,
+    diagnostics: {candidate_count: matches.length,
+      extraction_mode: embedded.rows.size > candidates.size ? "embedded-json" : "html-or-mixed",
+      embedded_json_documents: embedded.jsonDocumentCount,
+      content_state: matches.length ? "matches_found" : embedded.jsonDocumentCount ? "no_recognized_football_fixtures" :
+        /<script\b/i.test(html) ? "browser_render_or_unsupported_markup" : "empty_page",
+      confirmed_kickoff_count: confirmed,
       estimated_countdown_count: estimated,
       missing_kickoff_count: matches.length - confirmed - estimated,
       note: "Countdown kickoffs are estimates from a fresh page response, not verified fixture times."},
