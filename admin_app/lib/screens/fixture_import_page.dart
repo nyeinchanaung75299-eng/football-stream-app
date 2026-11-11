@@ -1007,6 +1007,9 @@ class _TeamLogo extends StatelessWidget {
         width: 28,
         height: 28,
         fit: BoxFit.contain,
+        // A valid public WebP/PNG may fail Flutter Web's byte fetch due to CORS.
+        // Use an HTML <img> only on failure; no proxy or access bypass.
+        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
         // A publisher may hotlink-block a URL despite publishing it in JSON.
         // Fall back only to the exact same fixture's independently sourced
         // verified team badge, never a guessed CDN name or unrelated shield.
@@ -1017,6 +1020,7 @@ class _TeamLogo extends StatelessWidget {
                     width: 28,
                     height: 28,
                     fit: BoxFit.contain,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                     errorBuilder: (_, __, ___) => _unavailable,
                   )
                 : _unavailable,
