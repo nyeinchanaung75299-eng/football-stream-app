@@ -102,7 +102,12 @@ Deno.serve(async (req) => {
         body.status_only === "1";
       const resolved = await experimentalStreams(source, { ...body, status_only: false });
       // Never skip independent probes for these newly added sources.
-      const checked = await probeLines(resolved.lines ?? [], false);
+      // Background availability checks are frequent: probe at most the first
+      // two candidates there. A deliberate operator tap checks every line.
+      const checked = await probeLines(
+        statusOnly ? (resolved.lines ?? []).slice(0, 2) : (resolved.lines ?? []),
+        false,
+      );
       const lines = checked.filter((line: any) =>
         ["healthy", "slow"].includes(String(line.health_status)));
       const publishedCount = (resolved.lines ?? []).length;
