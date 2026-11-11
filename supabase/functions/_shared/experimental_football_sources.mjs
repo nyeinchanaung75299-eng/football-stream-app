@@ -217,7 +217,7 @@ export function countdownKickoff(fragment, observedAt, clockFresh = true) {
 
 // Team badges are optional metadata. Never manufacture an image URL from a
 // team name or silently use league badges / streamer avatars as team crests.
-function safePublishedImage(value, site) {
+function safePublishedTeamBadge(value, site) {
   if (value && typeof value === "object") {
     value = value.url ?? value.contentUrl ?? value.src ?? null;
   }
@@ -232,36 +232,6 @@ function safePublishedImage(value, site) {
         /\.(?:local|internal)$/.test(host)) return null;
     return url.toString();
   } catch (_) { return null; }
-}
-
-// A league's branding cannot identify either participating football team.
-// For example /league/nations-league-streams/logo.webp belongs to the
-// competition, not the two national teams.
-function safePublishedTeamBadge(value, site) {
-  const image = safePublishedImage(value, site);
-  if (!image) return null;
-  const path = new URL(image).pathname;
-  return /\/league\/[^/]+\/logo\.(?:webp|png|jpe?g|svg)$/i.test(path)
-    ? null : image;
-}
-
-function fixtureLeagueBadge(item, site) {
-  const nested = [item.league, item.competition, item.tournament,
-    item.leagueInfo, item.competitionInfo];
-  const direct = [item.league_logo, item.leagueLogo, item.leagueLogoUrl,
-    item.competition_logo, item.competitionLogo, item.tournamentLogo];
-  for (const value of direct) {
-    const image = safePublishedImage(value, site);
-    if (image) return image;
-  }
-  for (const item of nested) {
-    if (!item || typeof item !== "object") continue;
-    for (const key of ["logo", "logoUrl", "logo_url", "crest", "image"]) {
-      const image = safePublishedImage(item[key], site);
-      if (image) return image;
-    }
-  }
-  return null;
 }
 
 function fixtureTeamBadge(item, side, site) {
@@ -312,8 +282,7 @@ function eventRecord(source, site, page, teams, kickoff, timingSource = "none", 
   return {
     source, source_id: id, schedule_id: id,
     league: "Football", home_team: teams.home, away_team: teams.away,
-    home_logo: badges.home ?? null, away_logo: badges.away ?? null,
-    league_logo: badges.league ?? null, poster_url: null,
+    home_logo: badges.home ?? null, away_logo: badges.away ?? null, poster_url: null,
     match_time: kickoff, status: hasTime ? "NS" : "UNVERIFIED",
     match_status: hasTime ? "SCHEDULED" : "UNVERIFIED",
     hot: false, page_url: page,
@@ -476,8 +445,7 @@ function publicFixtureJsonRows(html, site, source, clock) {
           if (!output.has(key)) {
             const row = eventRecord(source,site,page,teams,when.kickoff,when.timingSource,
               {home: fixtureTeamBadge(node, 'home', site),
-               away: fixtureTeamBadge(node, 'away', site),
-               league: fixtureLeagueBadge(node, site)});
+               away: fixtureTeamBadge(node, 'away', site)});
             const league = nameOfTeam(node.tournament ?? node.league ??
               node.competition ?? node.leagueName);
             if (league && league.length < 100) row.league = league;
