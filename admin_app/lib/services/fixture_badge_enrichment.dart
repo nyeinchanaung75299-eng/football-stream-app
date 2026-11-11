@@ -28,7 +28,8 @@ List<Map<String, dynamic>> mergeVerifiedFootballBadges(
   return fixtures.map((fixture) {
     final existingHome = verifiedBadgeUrl(fixture['home_logo']);
     final existingAway = verifiedBadgeUrl(fixture['away_logo']);
-    if (existingHome != null && existingAway != null) return fixture;
+    // A syntactically valid source URL can still be blocked from the browser.
+    // Keep one independently matched alternate for Image.network.errorBuilder.
     final kickoff = DateTime.tryParse(
       (fixture['kickoff_at'] ?? '').toString())?.toUtc();
     if (kickoff == null) return fixture;
@@ -43,15 +44,23 @@ List<Map<String, dynamic>> mergeVerifiedFootballBadges(
         (candidate['kickoff_at'] ?? candidate['match_time'] ?? '').toString())?.toUtc();
       if (candidateKickoff == null ||
           kickoff.difference(candidateKickoff).inMinutes.abs() > 120) continue;
-      final matchedHome = existingHome ??
+      final trustedHome =
           verifiedBadgeUrl(candidate['home_logo'] ?? candidate['home_logo_url']);
-      final matchedAway = existingAway ??
+      final trustedAway =
           verifiedBadgeUrl(candidate['away_logo'] ?? candidate['away_logo_url']);
-      if (matchedHome == null && matchedAway == null) break;
+      if (trustedHome == null && trustedAway == null) continue;
       return {
         ...fixture,
-        'home_logo': matchedHome,
-        'away_logo': matchedAway,
+        'home_logo': existingHome ?? trustedHome,
+        'away_logo': existingAway ?? trustedAway,
+        'home_logo_fallback': existingHome != null && trustedHome != null &&
+                existingHome != trustedHome
+            ? trustedHome
+            : fixture['home_logo_fallback'],
+        'away_logo_fallback': existingAway != null && trustedAway != null &&
+                existingAway != trustedAway
+            ? trustedAway
+            : fixture['away_logo_fallback'],
       };
     }
     return fixture;
