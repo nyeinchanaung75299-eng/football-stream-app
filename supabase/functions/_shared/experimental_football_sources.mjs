@@ -84,7 +84,7 @@ function sourceId(value) {
   return (hash >>> 0).toString(36);
 }
 
-async function publicHtml(url, fetcher, {withClock = false, now = Date.now} = {}) {
+async function publicHtml(url, fetcher, {withClock = false, now = Date.now(), allowedHost = null} = {}) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 8000);
   try {
@@ -94,6 +94,18 @@ async function publicHtml(url, fetcher, {withClock = false, now = Date.now} = {}
       signal: ctl.signal,
     });
     if (!response.ok) throw Error("Source page HTTP " + response.status);
+    // Redirect-following fetches must not turn a provider URL into content
+    // from a different site. Provider aliases/subdomains are allowed only
+    // within the configured source hostname. Never follow auth/captcha gates.
+    if (allowedHost && response.url) {
+      const final = new URL(response.url);
+      const host = final.hostname.toLowerCase();
+      if (!["https:", "http:"].includes(final.protocol) ||
+          final.username || final.password || final.port ||
+          (host !== allowedHost && !host.endsWith("." + allowedHost))) {
+        throw Error("Source redirected outside configured provider");
+      }
+    }
     const type = response.headers?.get?.("content-type") ?? "";
     if (type && !/text\/html|application\/xhtml\+xml/i.test(type)) {
       throw Error("Source page is not HTML");
@@ -182,13 +194,34 @@ function explicitFixtureSport(markup) {
 }
 
 function matchCardMarkup(html, hit) {
-  for (const tag of ["article", "li"]) {
-    const start = html.lastIndexOf("<" + tag, hit.index);
-    const finish = html.indexOf("</" + tag + ">", hit.index + hit[0].length);
-    if (start < 0 || finish < 0 || finish - start > 3500) continue;
-    const card = html.slice(start, finish);
-    if ([...card.matchAll(/<a\b/gi)].length !== 1) continue;
-    if (card.includes(hit[0])) return card;
+  // List and article wrappers are common, but SPA sites also publish
+  // individual <div class="fixture-card"> / <section class="event-item">
+  // cards. Only accept a bounded single-anchor wrapper, never a page-wide
+  // parent that could leak another event's sport or kickoff into this match.
+  for (const tag of ["article", "li", "section", "div"]) {
+    let searchBefore = hit.index;
+    for (let attempt = 0; attempt < 6 && searchBefore >= 0; attempt++) {
+      const start = html.lastIndexOf("<" + tag, searchBefore);
+      if (start < 0 || hit.index - start > 3500) break;
+      const openingEnd = html.indexOf(">", start);
+      if (openingEnd < 0 || openingEnd > hit.index) break;
+      const opening = html.slice(start, openingEnd + 1);
+      const className = opening.match(/\bclass\s*=\s*["']([^"']+)["']/i)?.[1] ?? "";
+      const eventClass = /(?:^|[\s_-])(?:fixture|match|event|game)[-_](?:card|item|row)(?:$|[\s_-])/i.test(className);
+      if ((tag === "div" || tag === "section") && !eventClass) {
+        searchBefore = start - 1;
+        continue;
+      }
+      const close = "</" + tag + ">";
+      const finish = html.indexOf(close, hit.index + hit[0].length);
+      if (finish < 0 || finish - start > 3500) {
+        searchBefore = start - 1;
+        continue;
+      }
+      const card = html.slice(start, finish + close.length);
+      if (card.includes(hit[0]) && [...card.matchAll(/<a\b/gi)].length === 1) return card;
+      searchBefore = start - 1;
+    }
   }
   return "";
 }
@@ -353,8 +386,12 @@ function nameOfTeam(value) {
 }
 
 function embeddedTeamPair(item) {
-  const home = nameOfTeam(item.homeTeam ?? item.home_team ?? item.home);
-  const away = nameOfTeam(item.awayTeam ?? item.away_team ?? item.away);
+  const home = nameOfTeam(item.homeTeam ?? item.home_team ?? item.home ??
+    item.homeName ?? item.home_name ?? item.homeTeamName ?? item.teams?.home ??
+    item.hostTeam ?? item.host_team);
+  const away = nameOfTeam(item.awayTeam ?? item.away_team ?? item.away ??
+    item.awayName ?? item.away_name ?? item.awayTeamName ?? item.teams?.away ??
+    item.guestTeam ?? item.guest_team);
   if (home.length > 1 && away.length > 1 &&
       home.length <= 65 && away.length <= 65 && home !== away) return {home, away};
   const participants = item.competitor ?? item.competitors ?? item.participant ?? item.participants ??
@@ -443,8 +480,10 @@ function publicFixtureJsonRows(html, site, source, clock) {
       const sport = String(node.sport?.name ?? node.sport?.slug ?? node.sport ??
         node.category?.name ?? node.category?.slug ?? "");
       const categoryIsFootball = /(?:soccer|football)/i.test(sport);
-      const categoryOtherSport = /(?:basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker)/i.test(sport);
-      const linkValue = node.url ?? node.href ?? node.page_url ?? node.matchUrl ?? node.link;
+      const categoryOtherSport = /(?:american\s+football|basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker|volleyball|badminton|esports|e-sports|mma|boxing)/i.test(sport);
+      const linkValue = node.url ?? node.href ?? node.page_url ?? node.matchUrl ??
+        node.match_url ?? node.eventUrl ?? node.event_url ?? node.fixtureUrl ??
+        node.fixture_url ?? node.permalink ?? node.link;
       const linkedPage = typeof linkValue === "string" ? allowedPageUrl(linkValue, site) : null;
       // Football-specific links are meaningful evidence on multi-sport homes,
       // but an explicitly different sport always wins.
@@ -524,7 +563,8 @@ function publicLiveTvSoccerRows(html, site, source) {
 export async function experimentalMatches(source, {fetcher = fetch, now = Date.now} = {}) {
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
-  const catalog = await publicHtml(site.home, fetcher, {withClock: true, now});
+  const catalog = await publicHtml(site.home, fetcher, {withClock: true, now,
+    allowedHost: site.host});
   const {html} = catalog;
   const embedded = publicFixtureJsonRows(html,site,source,catalog);
   if (source === "livetv") {
@@ -585,7 +625,8 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
   for (let offset = 0; offset < needDetail.length; offset += 3) {
     await Promise.all(needDetail.slice(offset, offset + 3).map(async item => {
       try {
-        const detail = await publicHtml(item.page, fetcher, {withClock: true, now});
+        const detail = await publicHtml(item.page, fetcher, {withClock: true, now,
+          allowedHost: site.host});
         const exact = pageKickoff(detail.html);
         const estimated = exact ? null :
           countdownKickoff(detail.html, detail.observedAt, detail.clockFresh);
@@ -687,7 +728,7 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   const page = allowedPageUrl(body?.page_url, site);
   if (!page) return {ok: true, source, lines: [], line_count: 0,
     ready: false, message: "No verified public match page."};
-  const html = await publicHtml(page, fetcher);
+  const html = await publicHtml(page, fetcher, {allowedHost: site.host});
   const media = literalMediaUrls(html, page);
   const lines = media.map((url, i) => ({
     label: site.label + " • " + (url.toLowerCase().includes(".mpd") ? "DASH / MPD" : "HLS / M3U8") + " " + (i + 1),
