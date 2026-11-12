@@ -84,7 +84,7 @@ function sourceId(value) {
   return (hash >>> 0).toString(36);
 }
 
-async function publicHtml(url, fetcher, {withClock = false, now = Date.now} = {}) {
+async function publicHtml(url, fetcher, {withClock = false, now = Date.now(), allowedHost = null} = {}) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 8000);
   try {
@@ -94,6 +94,18 @@ async function publicHtml(url, fetcher, {withClock = false, now = Date.now} = {}
       signal: ctl.signal,
     });
     if (!response.ok) throw Error("Source page HTTP " + response.status);
+    // Redirect-following fetches must not turn a provider URL into content
+    // from a different site. Provider aliases/subdomains are allowed only
+    // within the configured source hostname. Never follow auth/captcha gates.
+    if (allowedHost && response.url) {
+      const final = new URL(response.url);
+      const host = final.hostname.toLowerCase();
+      if (!["https:", "http:"].includes(final.protocol) ||
+          final.username || final.password || final.port ||
+          (host !== allowedHost && !host.endsWith("." + allowedHost))) {
+        throw Error("Source redirected outside configured provider");
+      }
+    }
     const type = response.headers?.get?.("content-type") ?? "";
     if (type && !/text\/html|application\/xhtml\+xml/i.test(type)) {
       throw Error("Source page is not HTML");
@@ -551,7 +563,8 @@ function publicLiveTvSoccerRows(html, site, source) {
 export async function experimentalMatches(source, {fetcher = fetch, now = Date.now} = {}) {
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
-  const catalog = await publicHtml(site.home, fetcher, {withClock: true, now});
+  const catalog = await publicHtml(site.home, fetcher, {withClock: true, now,
+    allowedHost: site.host});
   const {html} = catalog;
   const embedded = publicFixtureJsonRows(html,site,source,catalog);
   if (source === "livetv") {
@@ -612,7 +625,8 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
   for (let offset = 0; offset < needDetail.length; offset += 3) {
     await Promise.all(needDetail.slice(offset, offset + 3).map(async item => {
       try {
-        const detail = await publicHtml(item.page, fetcher, {withClock: true, now});
+        const detail = await publicHtml(item.page, fetcher, {withClock: true, now,
+          allowedHost: site.host});
         const exact = pageKickoff(detail.html);
         const estimated = exact ? null :
           countdownKickoff(detail.html, detail.observedAt, detail.clockFresh);
@@ -714,7 +728,7 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   const page = allowedPageUrl(body?.page_url, site);
   if (!page) return {ok: true, source, lines: [], line_count: 0,
     ready: false, message: "No verified public match page."};
-  const html = await publicHtml(page, fetcher);
+  const html = await publicHtml(page, fetcher, {allowedHost: site.host});
   const media = literalMediaUrls(html, page);
   const lines = media.map((url, i) => ({
     label: site.label + " • " + (url.toLowerCase().includes(".mpd") ? "DASH / MPD" : "HLS / M3U8") + " " + (i + 1),
