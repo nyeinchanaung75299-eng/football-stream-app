@@ -182,13 +182,34 @@ function explicitFixtureSport(markup) {
 }
 
 function matchCardMarkup(html, hit) {
-  for (const tag of ["article", "li"]) {
-    const start = html.lastIndexOf("<" + tag, hit.index);
-    const finish = html.indexOf("</" + tag + ">", hit.index + hit[0].length);
-    if (start < 0 || finish < 0 || finish - start > 3500) continue;
-    const card = html.slice(start, finish);
-    if ([...card.matchAll(/<a\b/gi)].length !== 1) continue;
-    if (card.includes(hit[0])) return card;
+  // List and article wrappers are common, but SPA sites also publish
+  // individual <div class="fixture-card"> / <section class="event-item">
+  // cards. Only accept a bounded single-anchor wrapper, never a page-wide
+  // parent that could leak another event's sport or kickoff into this match.
+  for (const tag of ["article", "li", "section", "div"]) {
+    let searchBefore = hit.index;
+    for (let attempt = 0; attempt < 6 && searchBefore >= 0; attempt++) {
+      const start = html.lastIndexOf("<" + tag, searchBefore);
+      if (start < 0 || hit.index - start > 3500) break;
+      const openingEnd = html.indexOf(">", start);
+      if (openingEnd < 0 || openingEnd > hit.index) break;
+      const opening = html.slice(start, openingEnd + 1);
+      const className = opening.match(/\bclass\s*=\s*["']([^"']+)["']/i)?.[1] ?? "";
+      const eventClass = /(?:^|[\s_-])(?:fixture|match|event|game)[-_](?:card|item|row)(?:$|[\s_-])/i.test(className);
+      if ((tag === "div" || tag === "section") && !eventClass) {
+        searchBefore = start - 1;
+        continue;
+      }
+      const close = "</" + tag + ">";
+      const finish = html.indexOf(close, hit.index + hit[0].length);
+      if (finish < 0 || finish - start > 3500) {
+        searchBefore = start - 1;
+        continue;
+      }
+      const card = html.slice(start, finish + close.length);
+      if (card.includes(hit[0]) && [...card.matchAll(/<a\b/gi)].length === 1) return card;
+      searchBefore = start - 1;
+    }
   }
   return "";
 }
@@ -353,8 +374,12 @@ function nameOfTeam(value) {
 }
 
 function embeddedTeamPair(item) {
-  const home = nameOfTeam(item.homeTeam ?? item.home_team ?? item.home);
-  const away = nameOfTeam(item.awayTeam ?? item.away_team ?? item.away);
+  const home = nameOfTeam(item.homeTeam ?? item.home_team ?? item.home ??
+    item.homeName ?? item.home_name ?? item.homeTeamName ?? item.teams?.home ??
+    item.hostTeam ?? item.host_team);
+  const away = nameOfTeam(item.awayTeam ?? item.away_team ?? item.away ??
+    item.awayName ?? item.away_name ?? item.awayTeamName ?? item.teams?.away ??
+    item.guestTeam ?? item.guest_team);
   if (home.length > 1 && away.length > 1 &&
       home.length <= 65 && away.length <= 65 && home !== away) return {home, away};
   const participants = item.competitor ?? item.competitors ?? item.participant ?? item.participants ??
@@ -443,8 +468,10 @@ function publicFixtureJsonRows(html, site, source, clock) {
       const sport = String(node.sport?.name ?? node.sport?.slug ?? node.sport ??
         node.category?.name ?? node.category?.slug ?? "");
       const categoryIsFootball = /(?:soccer|football)/i.test(sport);
-      const categoryOtherSport = /(?:basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker)/i.test(sport);
-      const linkValue = node.url ?? node.href ?? node.page_url ?? node.matchUrl ?? node.link;
+      const categoryOtherSport = /(?:american\s+football|basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker|volleyball|badminton|esports|e-sports|mma|boxing)/i.test(sport);
+      const linkValue = node.url ?? node.href ?? node.page_url ?? node.matchUrl ??
+        node.match_url ?? node.eventUrl ?? node.event_url ?? node.fixtureUrl ??
+        node.fixture_url ?? node.permalink ?? node.link;
       const linkedPage = typeof linkValue === "string" ? allowedPageUrl(linkValue, site) : null;
       // Football-specific links are meaningful evidence on multi-sport homes,
       // but an explicitly different sport always wins.
