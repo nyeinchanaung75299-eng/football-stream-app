@@ -673,3 +673,36 @@ test("A football title on a different div card never validates an unlabelled eve
   assert.equal(result.results,1);
   assert.equal(result.matches[0].home_team,"Turkey");
 });
+
+
+test("Unrelated-site redirect cannot supply a fixture from an experimental provider", async () => {
+  const fixture = '<script type="application/json">'+JSON.stringify({
+    events:[{sport:"Soccer",homeName:"Arsenal",awayName:"Chelsea",
+      eventUrl:"/event/arsenal-chelsea",startDate:"2026-11-13T19:00:00Z"}],
+  })+'</script>';
+  await assert.rejects(experimentalMatches("streamfree", {fetcher:async () => ({
+    ok: true, status: 200, url: "https://unrelated.example/games",
+    headers:{get:()=> "text/html"},text:async()=>fixture,
+  })}), /redirected outside configured provider/);
+});
+
+test("Same-provider subdomain redirect retains public fixture parsing", async () => {
+  const html='<div class="match-card" data-sport="Soccer">' +
+    '<a href="/events/turkey-belgium">Turkey vs Belgium</a></div>';
+  const data=await experimentalMatches("streamfree", {fetcher:async()=>({
+    ok:true,status:200,url:"https://www.strmfree.st/",
+    headers:{get:()=> "text/html"},text:async()=>html,
+  })});
+  assert.equal(data.results,1);
+});
+
+test("Unrelated-site redirects cannot be used as public HLS/DASH page", async () => {
+  const page="https://crichd.pk/event/arsenal-vs-chelsea";
+  await assert.rejects(experimentalStreams("crichd",{page_url:page},{
+    fetcher:async()=>({
+      ok:true,status:200,url:"https://other.example/watch",
+      headers:{get:()=> "text/html"},
+      text:async()=>'<video src="https://other.example/master.m3u8"></video>',
+    }),
+  }),/redirected outside configured provider/);
+});
