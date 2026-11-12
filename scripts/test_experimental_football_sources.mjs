@@ -582,3 +582,94 @@ test("LiveTV mixed-sports JSON cannot inherit soccer status from page URL", asyn
   assert.equal(data.matches[0].home_team, "Arsenal");
   assert.equal(data.matches[0].away_team, "Chelsea");
 });
+
+
+test("StreamFree single-event div fixture card with explicit soccer evidence is recognized", async () => {
+  const html = '<div class="fixture-card" data-sport="soccer">' +
+    '<a href="/events/arsenal-chelsea">Arsenal vs Chelsea</a>' +
+    '<time datetime="2026-11-13T19:00:00Z"></time></div>';
+  const result = await experimentalMatches("streamfree", {fetcher:pages({
+    "https://strmfree.st/": html,
+  })});
+  assert.equal(result.results, 1);
+  assert.equal(result.matches[0].home_team, "Arsenal");
+  assert.equal(result.matches[0].away_team, "Chelsea");
+  assert.equal(result.matches[0].verified_kickoff, true);
+});
+
+test("LiveXTV section event-item card requires its own football marker", async () => {
+  const html =
+    '<h2>Soccer fixtures</h2>' +
+    '<section class="event-item" data-sport="basketball">' +
+    '<a href="/events/lakers-celtics">Lakers vs Celtics</a></section>' +
+    '<section class="event-item" data-category="football">' +
+    '<a href="/events/turkey-belgium">Turkey vs Belgium</a></section>' +
+    '<section class="event-item">' +
+    '<a href="/events/unknown-unknown">Unknown vs Unknown</a></section>';
+  const result = await experimentalMatches("livextv", {fetcher:pages({
+    "https://livextv.pro/": html,
+  })});
+  assert.equal(result.results, 1);
+  assert.equal(result.matches[0].home_team, "Turkey");
+  assert.equal(result.matches[0].away_team, "Belgium");
+  assert.equal(result.matches[0].match_time, null);
+});
+
+test("Public JSON eventUrl and explicit homeName/awayName identify football match", async () => {
+  const json = {fixtures:[{
+    sport: "Soccer", eventUrl: "/events/turkey-belgium",
+    homeName: "Turkey", awayName: "Belgium",
+    startDate: "2026-11-13T19:00:00Z",
+  }]};
+  const result = await experimentalMatches("streamfree", {fetcher:pages({
+    "https://strmfree.st/":
+      '<script type="application/json">' + JSON.stringify(json) + '</script>',
+  })});
+  assert.equal(result.results, 1);
+  assert.equal(result.matches[0].away_team, "Belgium");
+  assert.equal(result.matches[0].match_time, "2026-11-13T19:00:00.000Z");
+});
+
+test("Public JSON match_url and explicit nested teams can identify source fixture", async () => {
+  const json = {games:[{
+    sport:"Football", match_url:"/events/team-one-team-two",
+    teams: {home:{name:"Team One"},away:{name:"Team Two"}},
+    startDate:"2026-11-13T19:00:00Z",
+  }]};
+  const result = await experimentalMatches("livextv", {fetcher:pages({
+    "https://livextv.pro/":
+      '<script type="application/json">' + JSON.stringify(json) + '</script>',
+  })});
+  assert.equal(result.results,1);
+  assert.equal(result.matches[0].home_team,"Team One");
+  assert.equal(result.matches[0].away_team,"Team Two");
+});
+
+test("American football, basketball, and foreign event links stay excluded", async () => {
+  const json={events:[
+    {sport:"American Football",homeName:"Bills",awayName:"Chiefs",
+      event_url:"/football/bills-chiefs",startDate:"2026-11-13T19:00:00Z"},
+    {sport:"Basketball",homeName:"Lakers",awayName:"Celtics",
+      eventUrl:"/football/lakers-celtics",startDate:"2026-11-13T19:00:00Z"},
+    {sport:"Football",homeName:"Arsenal",awayName:"Chelsea",
+      match_url:"https://outside.example/event/arsenal-chelsea",
+      startDate:"2026-11-13T19:00:00Z"},
+  ]};
+  const result=await experimentalMatches("streamfree", {fetcher:pages({
+    "https://strmfree.st/":
+      '<script type="application/json">'+JSON.stringify(json)+'</script>',
+  })});
+  assert.equal(result.results,0);
+});
+
+test("A football title on a different div card never validates an unlabelled event", async () => {
+  const html='<div class="match-card" data-sport="soccer">' +
+    '<a href="/events/turkey-belgium">Turkey vs Belgium</a></div>' +
+    '<div class="match-card">' +
+    '<a href="/events/lakers-celtics">Lakers vs Celtics</a></div>';
+  const result=await experimentalMatches("streamfree", {fetcher:pages({
+    "https://strmfree.st/":html,
+  })});
+  assert.equal(result.results,1);
+  assert.equal(result.matches[0].home_team,"Turkey");
+});
