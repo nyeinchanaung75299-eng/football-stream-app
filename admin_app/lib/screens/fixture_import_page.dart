@@ -11,6 +11,8 @@ import '../football_english.dart';
 import '../big_match_source_policy.dart';
 import '../services/fixture_badge_enrichment.dart';
 import '../services/function_gateway.dart';
+import '../services/connected_channel_source.dart';
+import '../widgets/repository_match_import_sheet.dart';
 
 class FixtureImportPage extends StatefulWidget {
   const FixtureImportPage({super.key, this.onPublished});
@@ -38,6 +40,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   String mode = 'date';
   static const _fixtureProviders = pickBigMatchProviders;
   String fixtureSource = 'cola';
+  final ConnectedChannelSource _repository = ConnectedChannelSource(source: 'repository');
 
   // Myanmar Standard Time is UTC+06:30 regardless of device time zone.
   // Unknown or timezone-ambiguous kickoffs are never replaced by now.
@@ -169,6 +172,73 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     throw Exception(lastError ?? 'ColaTV mirror is unavailable.');
   }
 
+  // Repository fixtures are metadata from the connected, admin-only catalog.
+  // Do not manufacture start times or stream URLs. Existing native lines
+  // continue through publish_repository_match, not publish_featured_matches.
+  Future<List<Map<String, dynamic>>> _loadRepositoryFixtures(
+      String requestedMode, DateTime requestedDate) async {
+    final entries = <Map<String, dynamic>>[];
+    // The server paginates 100 at a time. Bound to 5 requests/500 entries.
+    for (var page = 0; page < 5; page++) {
+      final payload = await _repository.request('catalog', {
+        'kind': 'event', 'page': page,
+      });
+      final raw = payload['entries'];
+      if (raw is! List) throw const FormatException('Repository catalog is invalid.');
+      for (final item in raw) {
+        if (item is Map) entries.add(Map<String, dynamic>.from(item));
+      }
+      final total = (payload['total'] as num?)?.toInt() ?? entries.length;
+      if (raw.isEmpty || entries.length >= total) break;
+    }
+
+    final rows = <Map<String, dynamic>>[];
+    final wanted = DateTime(requestedDate.year, requestedDate.month, requestedDate.day);
+    var missingTime = 0;
+    for (final item in entries) {
+      final meta = item['event_meta'];
+      if (meta is! Map) continue;
+      final home = (meta['home_team'] ?? '').toString().trim();
+      final away = (meta['away_team'] ?? '').toString().trim();
+      final id = (item['id'] ?? '').toString();
+      if (!id.startsWith('repo:match:') || home.isEmpty || away.isEmpty) continue;
+      final utc = meta['kickoff_at']?.toString() ?? '';
+      final mmt = _myanmarKickoff(utc);
+      // A missing time requires explicit MMT time selection on import;
+      // show these only in All, never claim they are live or on a given day.
+      if (mmt == null) {
+        missingTime++;
+        if (requestedMode != 'all') continue;
+      } else {
+        if (requestedMode == 'live') continue; // catalog has no verified live status
+        if (requestedMode == 'date' &&
+            DateTime(mmt.year, mmt.month, mmt.day) != wanted) continue;
+      }
+      rows.add({
+        'fixture_id': _stableSourceFixtureId('repository::$id'),
+        'provider': 'repository',
+        'repository_entry_id': id,
+        'repository_entry': item,
+        'league_name': (meta['league'] ?? 'Football').toString(),
+        'home_name': home, 'away_name': away,
+        'home_logo': meta['home_logo_url'], 'away_logo': meta['away_logo_url'],
+        'kickoff_at': mmt == null ? null : utc,
+        'status_short': mmt == null ? 'TIME PENDING' : 'NS',
+        'is_live': false,
+      });
+    }
+    rows.sort((a, b) =>
+        (a['kickoff_at']?.toString() ?? '9999').compareTo(
+            b['kickoff_at']?.toString() ?? '9999'));
+    if (rows.isEmpty && missingTime > 0 && requestedMode != 'all') {
+      _offerAllDates = true;
+      _sourceFixtureDiagnostic =
+          'Repository has $missingTime fixture(s) without a verified kickoff. '
+          'Choose All to set an MMT kickoff when publishing.';
+    }
+    return rows;
+  }
+
   Future<List<Map<String, dynamic>>> _loadSourceFixtures(
       String provider, String requestedMode, DateTime requestedDate) async {
     // Provider restriction is enforced at the network entrypoint as well as
@@ -176,6 +246,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     if (!isPickBigMatchProvider(provider)) {
       throw ArgumentError.value(provider, 'provider',
           'Provider is not enabled for Pick Big Matches.');
+    }
+    if (provider == 'repository') {
+      return _loadRepositoryFixtures(requestedMode, requestedDate);
     }
     dynamic data;
     if (!_enableNoVpnFallback) {
@@ -426,8 +499,10 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         },
       ));
 
-      // All providers, including the backup, require a confirmed kickoff.
+      // Cola/football API requires confirmed kickoff. Repository supports
+      // untimed events in All mode, but asks the Admin for an explicit MMT time.
       final timedRows = rows.where((row) =>
+          fixtureSource == 'repository' ||
           _myanmarKickoff(row['kickoff_at']) != null).toList();
       if (!current()) return;
       setState(() {
@@ -765,9 +840,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
               if (value == null || value == fixtureSource) return;
               setState(() {
                 fixtureSource = value;
-                // New experimental feeds often have no fixtures for today.
-                // Show all confirmed dates first; Date remains selectable.
-                if (value != 'cola') mode = 'all';
+                // Repository also contains fixtures without a kickoff;
+                // these require manual confirmation and are shown in All.
+                if (value == 'repository') mode = 'all';
               });
               loadFixtures();
             },
@@ -888,7 +963,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
             ...fixtures.map((f) {
               final id = f['fixture_id'] as int;
               final checked = selectedIds.contains(id);
-              final kickoff = _myanmarKickoff(f['kickoff_at'])!;
+              final kickoff = _myanmarKickoff(f['kickoff_at']);
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: 9),
@@ -935,9 +1010,11 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                                 ),
                                 const SizedBox(height: 5),
                                 Text(
-                                  '${DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff)}'
-                                  ' MMT${f['kickoff_estimated'] == true ? ' • ESTIMATED' : ''}'
-                                  '${f['status_short'] == null ? '' : ' • ${f['status_short']}'}',
+                                  kickoff == null
+                                    ? 'Kickoff time pending • select MMT time when publishing'
+                                    : '${DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff)}'
+                                      ' MMT${f['kickoff_estimated'] == true ? ' • ESTIMATED' : ''}'
+                                      '${f['status_short'] == null ? '' : ' • ${f['status_short']}'}',
                                   style: TextStyle(
                                     fontSize: 12.5,
                                     color: colors.onSurfaceVariant,
