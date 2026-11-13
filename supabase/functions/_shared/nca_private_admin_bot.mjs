@@ -120,7 +120,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
   // Independently check the first bytes before offering the copyable URL.
   async function publicHighlightMp4Links() {
     const result = await footballHighlights({
-      provider: 'dasfootball', action: 'catalog',
+      provider: 'dasfootball', action: 'catalog', force: true,
     }, {fetcher});
     const candidates = [];
     for (const entry of result.entries || []) {
