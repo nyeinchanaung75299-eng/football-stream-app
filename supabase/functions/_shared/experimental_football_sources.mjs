@@ -88,49 +88,19 @@ function sourceId(value) {
   return (hash >>> 0).toString(36);
 }
 
-async function publicHtml(url, fetcher, {withClock = false, now = Date.now(), allowedHost = null, timeoutMs = 8000} = {}) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), Math.max(50,timeoutMs));
-  try {
-    const response = await fetcher(url, {
-      headers: { Accept: "text/html", "Cache-Control": "no-cache" },
-      redirect: "follow",
-      signal: ctl.signal,
-    });
-    if (!response.ok) throw Error("Source page HTTP " + response.status);
-    // Redirect-following fetches must not turn a provider URL into content
-    // from a different site. Provider aliases/subdomains are allowed only
-    // within the configured source hostname. Never follow auth/captcha gates.
-    if (allowedHost && response.url) {
-      const final = new URL(response.url);
-      const host = final.hostname.toLowerCase();
-      if (!["https:", "http:"].includes(final.protocol) ||
-          final.username || final.password || final.port ||
-          (host !== allowedHost && !host.endsWith("." + allowedHost))) {
-        throw Error("Source redirected outside configured provider");
-      }
-    }
-    const type = response.headers?.get?.("content-type") ?? "";
-    if (type && !/text\/html|application\/xhtml\+xml/i.test(type)) {
-      throw Error("Source page is not HTML");
-    }
-    const length = Number(response.headers?.get?.("content-length") ?? 0);
-    if (length > 1500000) throw Error("Source page exceeds size limit");
-    const html = await response.text();
-    if (html.length > 1500000) throw Error("Source page exceeds size limit");
-    if (!withClock) return html;
-    const observedAt = now();
-    const ageValue = response.headers?.get?.("age");
-    const age = ageValue == null ? 0 : Number(ageValue);
-    const dateValue = response.headers?.get?.("date");
-    const responseDate = dateValue ? Date.parse(dateValue) : NaN;
-    // A cached/pre-rendered countdown cannot be assumed to be current.
-    const clockFresh = Number.isFinite(observedAt) &&
-      Number.isFinite(age) && age >= 0 && age <= 60 &&
-      (!Number.isFinite(responseDate) ||
-        Math.abs(observedAt - responseDate) <= 120000);
-    return {html, observedAt, clockFresh};
-  } finally { clearTimeout(timer); }
+async function publicHtml(url, fetcher, {withClock = false, now = Date.now, allowedHost = null, timeoutMs = 8000} = {}) {
+  const read = await readPublicSource(url, {fetcher, timeoutMs,
+    allowedHosts: allowedHost ? [allowedHost] : null});
+  if (!withClock) return read.text;
+  const observedAt = typeof now === "function" ? now() : now;
+  const ageValue = read.headers?.get?.("age");
+  const age = ageValue == null ? 0 : Number(ageValue);
+  const dateValue = read.headers?.get?.("date");
+  const responseDate = dateValue ? Date.parse(dateValue) : NaN;
+  const clockFresh = Number.isFinite(observedAt) &&
+    Number.isFinite(age) && age >= 0 && age <= 60 &&
+    (!Number.isFinite(responseDate) || Math.abs(observedAt-responseDate) <= 120000);
+  return {html:read.text,observedAt,clockFresh};
 }
 
 // Read only match links that are explicitly published on this site. Some
