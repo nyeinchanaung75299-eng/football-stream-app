@@ -11,12 +11,16 @@ for (let i=0; i<ids.length; i+=3) {
     let responseStatus = null;
     let redirectTarget = null;
     const fetcher = async (url, init) => {
-      if (String(url) !== site.home) throw Error("Detail page excluded from smoke probe");
+      const publicFeed = ["ppv","livextv"].includes(source) &&
+        String(url)==="https://api.ppv.st/api/streams" || source==="streamfree" &&
+        ["https://strmfree.st/streams","https://strmfree.st/fixtures/soccer"].includes(String(url));
+      if (String(url) !== site.home && !publicFeed) throw Error("Detail page excluded from smoke probe");
       const response = await fetch(url, {...init, redirect:"follow"});
       responseStatus = response.status;
       redirectTarget = response.url;
-      if (new URL(response.url).hostname !== site.host &&
-          !new URL(response.url).hostname.endsWith("."+site.host)) {
+      const expectedHost = publicFeed ? new URL(url).hostname : site.host;
+      if (new URL(response.url).hostname !== expectedHost &&
+          !new URL(response.url).hostname.endsWith("."+expectedHost)) {
         throw Error("Provider redirected to an unrelated host");
       }
       return response;

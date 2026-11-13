@@ -18,8 +18,11 @@ on:
       - "scripts/test_performance_regressions.mjs"
       - "scripts/test_backend_startup.mjs"
       - "scripts/test_experimental_football_sources.mjs"
+      - "scripts/test_public_source_adapters.mjs"
       - "scripts/diagnose_public_football_sources.mjs"
       - "supabase/functions/_shared/experimental_football_sources.mjs"
+      - "supabase/functions/_shared/public_source_media.mjs"
+      - "supabase/functions/_shared/public_football_feeds.mjs"
       - "admin_app/lib/screens/soco_import_page.dart"
       - ".github/workflows/verify-performance-pr.yml"
 
@@ -53,7 +56,7 @@ jobs:
         run: node --test scripts/test_backend_startup.mjs
 
       - name: Verify experimental football match parsing without invented kickoff times
-        run: node --test scripts/test_experimental_football_sources.mjs
+        run: node --test scripts/test_experimental_football_sources.mjs scripts/test_public_source_adapters.mjs
 
       - name: Diagnose public football fixture indexes (nonblocking live smoke)
         continue-on-error: true
