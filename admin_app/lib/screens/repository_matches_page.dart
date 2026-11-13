@@ -7,8 +7,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/connected_channel_source.dart';
 import '../widgets/repository_match_card.dart';
+import '../widgets/repository_match_import_sheet.dart';
 import '../widgets/match_destination_sheet.dart';
 import 'repository_channel_updates_page.dart';
+import 'live_links_page.dart';
+import 'edit_live_page.dart';
 
 class RepositoryMatchesPage extends StatefulWidget {
   const RepositoryMatchesPage({super.key, this.onMutated});
@@ -23,6 +26,7 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
   Timer? debounce;
   int page = 0;
   bool working = false;
+  String? publishingEntry;
   late Future<Map<String, dynamic>> catalog = load();
   Future<Map<String, dynamic>> load() =>
       source.request('catalog', {'query': search.text.trim(), 'page': page});
@@ -65,46 +69,138 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
     );
   }
 
+  Future<void> publishMatch(Map row) async {
+    if (publishingEntry != null) return;
+    final kickoff = await showModalBottomSheet<DateTime>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) =>
+          RepositoryMatchImportSheet(entry: Map<String, dynamic>.from(row)),
+    );
+    if (kickoff == null || !mounted || publishingEntry != null) return;
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser?.id;
+    final onMutated = widget.onMutated;
+    setState(() => publishingEntry = row['id'].toString());
+    try {
+      final raw = await client.rpc('publish_repository_match', params: {
+        'p_entry_id': row['id'],
+        'p_kickoff_at': kickoff.toUtc().toIso8601String(),
+      }).timeout(const Duration(seconds: 20));
+      final result = Map<String, dynamic>.from(raw as Map);
+      if (client.auth.currentUser?.id != user) return;
+      if (result['ok'] == true && result['changed'] == true) onMutated?.call();
+      if (!mounted) return;
+      if (result['ok'] != true) {
+        final note = switch (result['code']) {
+          'previously_deleted' =>
+            'This match was deleted in Controls. It was not restored.',
+          'previously_finished' => 'This saved match is already finished.',
+          'ambiguous_match' =>
+            'More than one saved match matches this fixture. Use View Lines to choose an existing match.',
+          'kickoff_required' =>
+            'Choose the kickoff time before adding this match.',
+          'metadata_pending' =>
+            'The source has not supplied both team names yet.',
+          'no_importable_lines' =>
+            'No native lines with the required configuration are available. Nothing was published.',
+          'source_missing' =>
+            'This fixture is no longer in the source. Refresh the catalog.',
+          _ => 'Could not add this fixture. Refresh the catalog and retry.',
+        };
+        notice(note);
+        return;
+      }
+      final matchId = result['match_id'].toString();
+      final action = await showModalBottomSheet<String>(
+        context: context,
+        useSafeArea: true,
+        showDragHandle: true,
+        builder: (sheet) => Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 22),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.check_circle_rounded, size: 40),
+              Text(
+                  result['created'] == true
+                      ? 'Match added to Live'
+                      : 'Existing Live match linked',
+                  style: Theme.of(sheet).textTheme.titleLarge),
+              const SizedBox(height: 10),
+              Text(
+                  '${result['added_lines']} lines added · ${result['existing_lines']} already present · ${result['skipped_lines']} skipped',
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 14),
+              FilledButton.icon(
+                  onPressed: () => Navigator.pop(sheet, 'lines'),
+                  icon: const Icon(Icons.playlist_play),
+                  label: const Text('MANAGE LIVE LINES')),
+              OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(sheet, 'matches'),
+                  icon: const Icon(Icons.edit_note),
+                  label: const Text('EDIT & DELETE LIVE')),
+              TextButton(
+                  onPressed: () => Navigator.pop(sheet),
+                  child: const Text('DONE')),
+            ])),
+      );
+      if (!mounted || client.auth.currentUser?.id != user) return;
+      if (action == 'lines')
+        await Navigator.of(context).push<void>(MaterialPageRoute(
+            builder: (_) => LiveLinksPage(initialMatchId: matchId)));
+      if (action == 'matches')
+        await Navigator.of(context).push<void>(
+            MaterialPageRoute(builder: (_) => const EditLivePage()));
+    } catch (_) {
+      notice(
+          'Could not confirm the import. Check Controls before trying again.');
+    } finally {
+      if (mounted) setState(() => publishingEntry = null);
+    }
+  }
+
   Widget copyMenu(Map line) => PopupMenuButton<String>(
-    tooltip: 'Copy line',
-    icon: const Icon(Icons.copy),
-    onSelected: (field) => copyField(
-      field == 'all'
-          ? [
-              'URL: ${line['stream_url'] ?? ''}',
-              for (final pair in const {
-                'referer': 'Referer',
-                'origin': 'Origin',
-                'key_id': 'Key ID',
-                'key_data': 'Key Data',
-              }.entries)
-                if (line[pair.key]?.toString().isNotEmpty == true)
-                  '${pair.value}: ${line[pair.key]}',
-            ].join('\n')
-          : line[field]?.toString() ?? '',
-    ),
-    itemBuilder: (_) => [
-      const PopupMenuItem(value: 'stream_url', child: Text('Copy stream URL')),
-      const PopupMenuItem(value: 'all', child: Text('Copy all line details')),
-      for (final pair in const {
-        'referer': 'Referer',
-        'origin': 'Origin',
-        'key_id': 'Key ID',
-        'key_data': 'Key Data',
-      }.entries)
-        if (line[pair.key]?.toString().isNotEmpty == true)
-          PopupMenuItem(value: pair.key, child: Text('Copy ${pair.value}')),
-    ],
-  );
+        tooltip: 'Copy line',
+        icon: const Icon(Icons.copy),
+        onSelected: (field) => copyField(
+          field == 'all'
+              ? [
+                  'URL: ${line['stream_url'] ?? ''}',
+                  for (final pair in const {
+                    'referer': 'Referer',
+                    'origin': 'Origin',
+                    'key_id': 'Key ID',
+                    'key_data': 'Key Data',
+                  }.entries)
+                    if (line[pair.key]?.toString().isNotEmpty == true)
+                      '${pair.value}: ${line[pair.key]}',
+                ].join('\n')
+              : line[field]?.toString() ?? '',
+        ),
+        itemBuilder: (_) => [
+          const PopupMenuItem(
+              value: 'stream_url', child: Text('Copy stream URL')),
+          const PopupMenuItem(
+              value: 'all', child: Text('Copy all line details')),
+          for (final pair in const {
+            'referer': 'Referer',
+            'origin': 'Origin',
+            'key_id': 'Key ID',
+            'key_data': 'Key Data',
+          }.entries)
+            if (line[pair.key]?.toString().isNotEmpty == true)
+              PopupMenuItem(value: pair.key, child: Text('Copy ${pair.value}')),
+        ],
+      );
   Future<void> sync({bool imports = false}) async {
     if (working) return;
     setState(() => working = true);
     try {
-      final result =
-          await (imports
-                  ? ConnectedChannelSource(source: 'repository-imports')
-                  : source)
-              .request('sync');
+      final result = await (imports
+              ? ConnectedChannelSource(source: 'repository-imports')
+              : source)
+          .request('sync');
       if (kIsWeb) widget.onMutated?.call();
       if (imports) {
         notice(
@@ -210,11 +306,11 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
                             icon: const Icon(Icons.playlist_add),
                             onPressed:
                                 line['configuration_status'] == 'requires_drm'
-                                ? null
-                                : () {
-                                    Navigator.pop(sheet);
-                                    add(row, line);
-                                  },
+                                    ? null
+                                    : () {
+                                        Navigator.pop(sheet);
+                                        add(row, line);
+                                      },
                           ),
                         ],
                       ),
@@ -236,145 +332,147 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Repository Matches'),
-      actions: [
-        IconButton(
-          tooltip: 'Sync matches',
-          onPressed: working ? null : () => sync(),
-          icon: const Icon(Icons.sync),
-        ),
-        PopupMenuButton<String>(
-          onSelected: (_) => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => const RepositoryChannelUpdatesPage(),
+        appBar: AppBar(
+          title: const Text('Repository Matches'),
+          actions: [
+            IconButton(
+              tooltip: 'Sync matches',
+              onPressed: working ? null : () => sync(),
+              icon: const Icon(Icons.sync),
             ),
-          ),
-          itemBuilder: (_) => [
-            const PopupMenuItem(
-              value: 'imports',
-              child: Text('Channel source updates'),
-            ),
-          ],
-        ),
-      ],
-    ),
-    body: FutureBuilder<Map<String, dynamic>>(
-      future: catalog,
-      builder: (context, snapshot) {
-        if (snapshot.hasError)
-          return Center(
-            child: TextButton(
-              onPressed: refresh,
-              child: const Text('Retry repository catalog'),
-            ),
-          );
-        if (!snapshot.hasData)
-          return const Center(child: CircularProgressIndicator());
-        final data = snapshot.data!, state = data['state'] as Map;
-        final rows = (data['entries'] as List).whereType<Map>().toList();
-        rows.sort(
-          (a, b) =>
-              ((a['event_meta'] as Map?)?['kickoff_at']?.toString() ?? '9999')
-                  .compareTo(
-                    (b['event_meta'] as Map?)?['kickoff_at']?.toString() ??
-                        '9999',
-                  ),
-        );
-        return Column(
-          children: [
-            SwitchListTile.adaptive(
-              dense: true,
-              title: const Text(
-                'Auto-sync every 5 minutes',
-                style: TextStyle(fontSize: 12),
-              ),
-              subtitle: Text(
-                '${state['status']} • ${data['total']} football matches',
-                style: const TextStyle(fontSize: 11),
-              ),
-              value: state['enabled'] == true,
-              onChanged: (value) async {
-                await source.request('settings', {'enabled': value});
-                if (kIsWeb) widget.onMutated?.call();
-                refresh();
-              },
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: TextField(
-                controller: search,
-                decoration: const InputDecoration(
-                  hintText: 'Search teams or leagues',
-                  prefixIcon: Icon(Icons.search),
-                  isDense: true,
-                ),
-                onChanged: (_) {
-                  debounce?.cancel();
-                  debounce = Timer(const Duration(milliseconds: 300), () {
-                    page = 0;
-                    refresh();
-                  });
-                },
-              ),
-            ),
-            if (working) const LinearProgressIndicator(),
-            Expanded(
-              child: RefreshIndicator(
-                onRefresh: () async {
-                  refresh();
-                  await catalog;
-                },
-                child: ListView.builder(
-                  itemCount: rows.isEmpty ? 1 : rows.length,
-                  itemBuilder: (_, i) {
-                    if (rows.isEmpty)
-                      return const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Text(
-                          'No published football fixtures. Try Sync matches.',
-                        ),
-                      );
-                    final row = rows[i];
-                    return RepositoryMatchCard(
-                      entry: Map<String, dynamic>.from(row),
-                      onViewLines: () => details(row),
-                      onCopyLogo: kIsWeb ? copyField : null,
-                    );
-                  },
+            PopupMenuButton<String>(
+              onSelected: (_) => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const RepositoryChannelUpdatesPage(),
                 ),
               ),
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                IconButton(
-                  onPressed: page > 0
-                      ? () {
-                          page--;
-                          refresh();
-                        }
-                      : null,
-                  icon: const Icon(Icons.chevron_left),
-                ),
-                Text(
-                  '${page * 100 + 1}–${page * 100 + rows.length} / ${data['total']}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                IconButton(
-                  onPressed: (page + 1) * 100 < (data['total'] as num)
-                      ? () {
-                          page++;
-                          refresh();
-                        }
-                      : null,
-                  icon: const Icon(Icons.chevron_right),
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'imports',
+                  child: Text('Channel source updates'),
                 ),
               ],
             ),
           ],
-        );
-      },
-    ),
-  );
+        ),
+        body: FutureBuilder<Map<String, dynamic>>(
+          future: catalog,
+          builder: (context, snapshot) {
+            if (snapshot.hasError)
+              return Center(
+                child: TextButton(
+                  onPressed: refresh,
+                  child: const Text('Retry repository catalog'),
+                ),
+              );
+            if (!snapshot.hasData)
+              return const Center(child: CircularProgressIndicator());
+            final data = snapshot.data!, state = data['state'] as Map;
+            final rows = (data['entries'] as List).whereType<Map>().toList();
+            rows.sort(
+              (a, b) => ((a['event_meta'] as Map?)?['kickoff_at']?.toString() ??
+                      '9999')
+                  .compareTo(
+                (b['event_meta'] as Map?)?['kickoff_at']?.toString() ?? '9999',
+              ),
+            );
+            return Column(
+              children: [
+                SwitchListTile.adaptive(
+                  dense: true,
+                  title: const Text(
+                    'Auto-sync every 5 minutes',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  subtitle: Text(
+                    '${state['status']} • ${data['total']} football matches',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  value: state['enabled'] == true,
+                  onChanged: (value) async {
+                    await source.request('settings', {'enabled': value});
+                    if (kIsWeb) widget.onMutated?.call();
+                    refresh();
+                  },
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: TextField(
+                    controller: search,
+                    decoration: const InputDecoration(
+                      hintText: 'Search teams or leagues',
+                      prefixIcon: Icon(Icons.search),
+                      isDense: true,
+                    ),
+                    onChanged: (_) {
+                      debounce?.cancel();
+                      debounce = Timer(const Duration(milliseconds: 300), () {
+                        page = 0;
+                        refresh();
+                      });
+                    },
+                  ),
+                ),
+                if (working) const LinearProgressIndicator(),
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: () async {
+                      refresh();
+                      await catalog;
+                    },
+                    child: ListView.builder(
+                      itemCount: rows.isEmpty ? 1 : rows.length,
+                      itemBuilder: (_, i) {
+                        if (rows.isEmpty)
+                          return const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Text(
+                              'No published football fixtures. Try Sync matches.',
+                            ),
+                          );
+                        final row = rows[i];
+                        return RepositoryMatchCard(
+                          entry: Map<String, dynamic>.from(row),
+                          onViewLines: () => details(row),
+                          onImportMatch: publishingEntry == null
+                              ? () => publishMatch(row)
+                              : null,
+                          importing: publishingEntry == row['id'],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(
+                      onPressed: page > 0
+                          ? () {
+                              page--;
+                              refresh();
+                            }
+                          : null,
+                      icon: const Icon(Icons.chevron_left),
+                    ),
+                    Text(
+                      '${page * 100 + 1}–${page * 100 + rows.length} / ${data['total']}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    IconButton(
+                      onPressed: (page + 1) * 100 < (data['total'] as num)
+                          ? () {
+                              page++;
+                              refresh();
+                            }
+                          : null,
+                      icon: const Icon(Icons.chevron_right),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      );
 }

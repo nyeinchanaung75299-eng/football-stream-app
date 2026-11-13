@@ -12,7 +12,7 @@ from verify_android_update_signing import RELEASE_BASE, RELEASES, apk_identity
 
 NOTES = {
     'Viewer': 'Compact current-line chooser and slim seek bar. Existing playback and VPN-free fallback are preserved.',
-    'Admin': 'Sources can open Stream Detector with the player URL and return detected lines with Referer/Origin. Compact repository match cards and improved public player parsing.',
+    'Admin': 'Import complete Repository Matches into Live with team logos, MMT kickoff and available unique lines; manage them from existing Live controls.',
 }
 
 

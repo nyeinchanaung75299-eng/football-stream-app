@@ -10,12 +10,14 @@ class RepositoryMatchCard extends StatelessWidget {
     super.key,
     required this.entry,
     required this.onViewLines,
-    this.onCopyLogo,
+    this.onImportMatch,
+    this.importing = false,
   });
 
   final Map<String, dynamic> entry;
   final VoidCallback onViewLines;
-  final ValueChanged<String>? onCopyLogo;
+  final VoidCallback? onImportMatch;
+  final bool importing;
 
   @override
   Widget build(BuildContext context) {
@@ -56,8 +58,6 @@ class RepositoryMatchCard extends StatelessWidget {
                     child: _RepositoryTeam(
                       name: home.isEmpty ? 'Home' : home,
                       logo: meta['home_logo_url']?.toString() ?? '',
-                      side: 'home',
-                      onCopyLogo: onCopyLogo,
                     ),
                   ),
                   SizedBox(
@@ -103,12 +103,27 @@ class RepositoryMatchCard extends StatelessWidget {
                     child: _RepositoryTeam(
                       name: away.isEmpty ? 'Away' : away,
                       logo: meta['away_logo_url']?.toString() ?? '',
-                      side: 'away',
-                      onCopyLogo: onCopyLogo,
                     ),
                   ),
                 ],
               ),
+              if (onImportMatch != null || importing) ...[
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: importing ? null : onImportMatch,
+                    icon: importing
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.playlist_add_rounded, size: 20),
+                    label:
+                        Text(importing ? 'ADDING MATCH…' : 'ADD MATCH TO LIVE'),
+                  ),
+                ),
+              ],
               if (home.isEmpty || away.isEmpty) ...[
                 const SizedBox(height: 6),
                 Text(
@@ -146,65 +161,31 @@ class RepositoryMatchCard extends StatelessWidget {
 }
 
 class _RepositoryTeam extends StatelessWidget {
-  const _RepositoryTeam({
-    required this.name,
-    required this.logo,
-    required this.side,
-    this.onCopyLogo,
-  });
-  final String name, logo, side;
-  final ValueChanged<String>? onCopyLogo;
-
-  String? get copyUrl {
-    final value = logo.trim();
-    final uri = Uri.tryParse(value);
-    if (uri == null ||
-        !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
-        uri.host.isEmpty ||
-        uri.userInfo.isNotEmpty)
-      return null;
-    // Use the displayed URL so the copied badge also works in Live Edit,
-    // whose image fields do not apply the repository's Sofascore proxy.
-    return repositoryLogoUrl(value);
-  }
-
+  const _RepositoryTeam({required this.name, required this.logo});
+  final String name, logo;
   @override
   Widget build(BuildContext context) => Column(
-    children: [
-      SizedBox(
-        width: 48,
-        height: 48,
-        child: logo.isEmpty
-            ? const Icon(Icons.shield_outlined, size: 36)
-            : Image.network(
-                repositoryLogoUrl(logo),
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) =>
-                    const Icon(Icons.shield_outlined, size: 36),
-              ),
-      ),
-      const SizedBox(height: 5),
-      Text(
-        name,
-        textAlign: TextAlign.center,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
-      ),
-      if (onCopyLogo != null && copyUrl != null)
-        Tooltip(
-          message: 'Copy $side logo URL',
-          child: TextButton.icon(
-            key: ValueKey('copy-$side-logo'),
-            onPressed: () => onCopyLogo!(copyUrl!),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              minimumSize: const Size(0, 36),
-            ),
-            icon: const Icon(Icons.copy_rounded, size: 14),
-            label: const Text('Copy logo', style: TextStyle(fontSize: 10)),
+        children: [
+          SizedBox(
+            width: 48,
+            height: 48,
+            child: logo.isEmpty
+                ? const Icon(Icons.shield_outlined, size: 36)
+                : Image.network(
+                    repositoryLogoUrl(logo),
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.shield_outlined, size: 36),
+                  ),
           ),
-        ),
-    ],
-  );
+          const SizedBox(height: 5),
+          Text(
+            name,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+          ),
+        ],
+      );
 }
