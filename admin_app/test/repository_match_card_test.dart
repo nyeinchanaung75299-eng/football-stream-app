@@ -33,6 +33,8 @@ void main() {
       expect(find.text('1:30 AM'), findsOneWidget);
       expect(find.text('14 Nov · MMT'), findsOneWidget);
       expect(find.text('6 UNIQUE LINES'), findsOneWidget);
+      expect(find.text('PICK IN BIG MATCHES'), findsNothing);
+      expect(find.byIcon(Icons.playlist_add_rounded), findsNothing);
       await tester.tap(find.text('VIEW LINES'));
       expect(opened, 1);
       expect(find.byIcon(Icons.delete_outline_rounded), findsNothing);

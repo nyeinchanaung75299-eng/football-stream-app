@@ -12,7 +12,7 @@ from verify_android_update_signing import RELEASE_BASE, RELEASES, apk_identity
 
 NOTES = {
     'Viewer': 'Repository stream lines now show concise server names in Web and Android players. Existing stream playback remains unchanged.',
-    'Admin': 'Repository match line names are shorter in Live Links and Viewer. Private Telegram Highlights now supports Next for more verified public MP4 matches.',
+    'Admin': 'DarkByte keyed sports lines organized by channel groups. Repository Matches preview is read-only; publish from Controls Pick Big Matches. Verified logos updated.',
 }
 
 

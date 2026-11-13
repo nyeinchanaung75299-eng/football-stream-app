@@ -3,12 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/connected_channel_source.dart';
-import 'fixture_import_page.dart';
 import '../widgets/repository_match_card.dart';
-import '../widgets/match_destination_sheet.dart';
 import 'repository_channel_updates_page.dart';
 
 class RepositoryMatchesPage extends StatefulWidget {
@@ -64,18 +61,6 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
         );
       },
     );
-  }
-
-  Future<void> openInPickBigMatches(Map row) async {
-    await Navigator.of(context).push<void>(MaterialPageRoute(
-      settings: const RouteSettings(name: '/admin/pick-big-matches'),
-      builder: (_) => FixtureImportPage(
-        initialSource: 'repository',
-        initialRepositoryEntryId: row['id']?.toString(),
-        onPublished: widget.onMutated,
-      ),
-    ));
-    if (mounted) refresh();
   }
 
   Widget copyMenu(Map line) => PopupMenuButton<String>(
@@ -135,54 +120,6 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
     }
   }
 
-  Future<void> add(Map row, Map line) async {
-    try {
-      final matches = await Supabase.instance.client
-          .from('matches')
-          .select('id,home_team,away_team,league,kickoff_at')
-          .eq('is_active', true)
-          .eq('is_finished', false)
-          .isFilter('deleted_at', null)
-          .gte(
-            'kickoff_at',
-            DateTime.now()
-                .toUtc()
-                .subtract(const Duration(hours: 12))
-                .toIso8601String(),
-          )
-          .order('kickoff_at')
-          .limit(300)
-          .timeout(const Duration(seconds: 15));
-      if (!mounted) return;
-      if (matches.isEmpty) {
-        notice('Add an NCA match in Live Management first.');
-        return;
-      }
-      final match = await showModalBottomSheet<String>(
-        context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
-        builder: (_) => MatchDestinationSheet(
-          matches: List<Map<String, dynamic>>.from(matches),
-        ),
-      );
-      if (match == null || !mounted) return;
-      await source.request('add_match', {
-        'entry_id': row['id'],
-        'source_line_id': line['id'],
-        'match_id': match,
-      });
-      if (kIsWeb) widget.onMutated?.call();
-      notice('Line added. Repository updates and removals are followed.');
-    } catch (error) {
-      notice(
-        error is StateError
-            ? error.message.toString()
-            : 'Could not add this line.',
-      );
-    }
-  }
-
   Future<void> details(Map row) async {
     try {
       final data = await source.request('details', {'entry_id': row['id']});
@@ -219,17 +156,7 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           copyMenu(line),
-                          IconButton(
-                            tooltip: 'Add to Match',
-                            icon: const Icon(Icons.playlist_add),
-                            onPressed:
-                                line['configuration_status'] == 'requires_drm'
-                                    ? null
-                                    : () {
-                                        Navigator.pop(sheet);
-                                        add(row, line);
-                                      },
-                          ),
+
                         ],
                       ),
                     ),
@@ -352,8 +279,7 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
                         return RepositoryMatchCard(
                           entry: Map<String, dynamic>.from(row),
                           onViewLines: () => details(row),
-                          onImportMatch: () => openInPickBigMatches(row),
-                          importing: false,
+
                         );
                       },
                     ),
