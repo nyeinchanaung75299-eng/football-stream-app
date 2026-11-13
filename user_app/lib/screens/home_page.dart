@@ -1062,7 +1062,7 @@ class _HomePageState extends State<HomePage> {
       ' vs ${englishKnownFootballName((match['away_team'] ?? 'Away').toString())}';
 
   String _streamDisplayLabel(Map<String, dynamic> row, int index) {
-    final raw = (row['label'] ?? row['resolution'] ?? 'Server').toString();
+    final raw = shortMatchLineLabel((row['label'] ?? row['resolution'] ?? 'Server').toString());
     return RegExp(r'^YYZB\b', caseSensitive: false).hasMatch(raw)
         ? englishStreamLabel(raw, index: index)
         : raw;
