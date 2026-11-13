@@ -47,6 +47,17 @@ export async function readPublicSource(value, {fetcher = fetch, timeoutMs = 5000
   } finally {clearTimeout(timer);}
 }
 
+// A player may preload a sponsor/preroll MP4 while the match is unavailable.
+// Public and reachable does not make that asset a programme stream.
+function programmeMediaUrl(value) {
+  const url=publicSourceUrl(value);
+  if (!url) return null;
+  const target=new URL(url);
+  if (/(?:^|\.)(?:ads?|doubleclick|googlesyndication)(?:\.|$)/i.test(target.hostname) ||
+      /(?:^|[\/_-])(?:ads?|advert(?:isement)?|preroll|pre-roll|sponsor-video|promo-video)(?:[\/_.-]|$)/i.test(target.pathname)) return null;
+  return url;
+}
+
 export function publishedMediaUrls(html, page) {
   const clean = html.replace(/\\\//g, '/').replace(/\\u002f/gi,'/').replace(/\\u0026/gi,'&').replace(/&amp;/gi, '&');
   const found = new Set();
@@ -57,7 +68,7 @@ export function publishedMediaUrls(html, page) {
   ];
   for (const pattern of patterns) for (const hit of clean.matchAll(pattern)) {
     const url = publicSourceUrl(hit[1] || hit[0], page);
-    if (url && /\.(?:m3u8|mpd|mp4)$/i.test(new URL(url).pathname)) found.add(url);
+    if (url && programmeMediaUrl(url) && /\.(?:m3u8|mpd|mp4)$/i.test(new URL(url).pathname)) found.add(url);
   }
   return [...found].slice(0, 12);
 }
@@ -92,7 +103,7 @@ export async function discoverPublicMedia(page, {fetcher = fetch, firstHtml = nu
     if (seen.has(job.url)) continue;
     seen.add(job.url);
     if (/\.(?:m3u8|mpd|mp4)$/i.test(new URL(job.url).pathname)) {
-      lines.set(job.url,{url:job.url,referer:page,origin:new URL(page).origin});
+      if (programmeMediaUrl(job.url)) lines.set(job.url,{url:job.url,referer:page,origin:new URL(page).origin});
       continue; // The independent media probe validates this published URL.
     }
     try {

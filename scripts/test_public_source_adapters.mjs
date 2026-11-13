@@ -145,3 +145,9 @@ test('Rojadirecta joins only the football row game ID to embedded public player 
  assert.equal(r.matches[0].schedule_only,false);
  assert.equal(r.matches[0].match_time,null,'No timezone is invented for this provider');
 });
+test('sponsor and preroll videos are never exported as programme links',async()=>{
+ const r=await discoverPublicMedia('https://www.score088tv.live/football/event',{fetcher:async()=>response(
+  '<video src="https://media.808ball.top/sponsor-video-480p.mp4"></video>'+
+  '<script>var preroll="https://cdn.example.org/ads/pre-roll.mp4";var actual="https://cdn.example.org/adelaide-vs-sydney.mp4";</script>')});
+ assert.deepEqual(r.lines.map(x=>x.url),['https://cdn.example.org/adelaide-vs-sydney.mp4']);
+});
