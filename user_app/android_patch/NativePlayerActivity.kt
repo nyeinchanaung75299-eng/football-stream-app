@@ -1,6 +1,7 @@
 package com.example.football_viewer
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
@@ -499,6 +500,11 @@ class NativePlayerActivity : Activity() {
             )).apply {
                 setId(0, android.R.id.background)
                 setId(1, android.R.id.progress)
+                // Intrinsic size does not constrain the SeekBar layer bounds.
+                for (layer in 0..1) {
+                    setLayerHeight(layer, dp(3))
+                    setLayerGravity(layer, Gravity.CENTER_VERTICAL)
+                }
             }
             thumb = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -1010,22 +1016,32 @@ class NativePlayerActivity : Activity() {
             sources.optJSONObject(index)?.optString("transport") != "vercel-fallback"
         }
 
-    private fun showServerMenu(anchor: View = serverButton) {
-        val popup = PopupMenu(this, anchor)
-        for (i in visibleServerIndices()) {
-            popup.menu.add(0, 12000 + i, i, serverLabel(i)).apply {
-                isChecked = i == selectedServerIndex
-            }
-        }
-        popup.setOnMenuItemClickListener { item ->
-            val i = item.itemId - 12000
-            if (i in 0 until sources.length()) {
-                selectServer(i)
+    private fun displayServerIndex(): Int {
+        val source = sources.optJSONObject(selectedServerIndex)
+        if (source?.optString("transport") != "vercel-fallback") return selectedServerIndex
+        val originalId = source.optString("id").removeSuffix("-vpn-free")
+        return visibleServerIndices().firstOrNull {
+            sources.optJSONObject(it)?.optString("id") == originalId
+        } ?: selectedServerIndex
+    }
+
+    private fun showServerMenu() {
+        clearControlsHideTimer()
+        val indices = visibleServerIndices()
+        val labels = indices.map { i ->
+            serverLabel(i) + "\n" + listOf(safeLineResolution(i), safeLineFormat(i))
+                .filter { it.isNotEmpty() }.joinToString(" · ")
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Choose line")
+            .setSingleChoiceItems(labels, indices.indexOf(displayServerIndex())) { dialog, position ->
+                selectServer(indices[position])
+                dialog.dismiss()
                 setControlsVisible(true)
-                true
-            } else false
-        }
-        popup.show()
+            }
+            .setNegativeButton("Close") { _, _ -> setControlsVisible(true) }
+            .setOnDismissListener { setControlsVisible(true) }
+            .show()
     }
 
     private fun selectServer(index: Int) {
@@ -1088,114 +1104,28 @@ class NativePlayerActivity : Activity() {
     private fun renderServerRail() {
         if (!::serverRail.isInitialized || !::serverRailScroll.isInitialized) return
         serverRail.removeAllViews()
-        var selectedChip: View? = null
-        for (i in visibleServerIndices()) {
-            val selected = i == selectedServerIndex
-            val failed = autoFallbackTried.contains(i)
-            val chip = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(7), dp(3), dp(7), dp(3))
-                isClickable = true
-                isFocusable = true
-                contentDescription = buildString {
-                    append(serverLabel(i))
-                    val resolution = safeLineResolution(i)
-                    val format = safeLineFormat(i)
-                    if (resolution.isNotEmpty()) append(", $resolution")
-                    if (format.isNotEmpty()) append(", $format")
-                    if (selected) append(", selected")
-                }
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(8).toFloat()
-                    setColor(if (selected) Color.argb(238, 19, 58, 42)
-                        else Color.argb(233, 25, 29, 29))
-                    setStroke(if (selected) dp(2) else dp(1), when {
-                        selected -> Color.rgb(56, 216, 138)
-                        failed -> Color.rgb(220, 94, 94)
-                        else -> Color.rgb(103, 112, 109)
-                    })
-                }
-                setOnClickListener {
-                    setControlsVisible(true)
-                    selectServer(i)
-                }
+        // Only the current line stays over the picture; full names are in the chooser.
+        val shownIndex = displayServerIndex()
+        val current = TextView(this).apply {
+            text = "✓ ${serverLabel(shownIndex)} · ${safeLineFormat(shownIndex)}   ▾ Change line"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), 0, dp(10), 0)
+            setSingleLine(true)
+            ellipsize = TextUtils.TruncateAt.END
+            maxWidth = resources.displayMetrics.widthPixels - dp(16)
+            contentDescription = "Current line ${serverLabel(selectedServerIndex)}. Change line"
+            background = GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.argb(235, 19, 48, 37))
+                setStroke(dp(1), Color.rgb(56, 216, 138))
             }
-            chip.addView(TextView(this).apply {
-                text = (if (selected) "✓ " else if (failed) "! " else "") + serverLabel(i)
-                textSize = 10f
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
-                setTextColor(if (selected) Color.rgb(143, 227, 185) else Color.WHITE)
-                setSingleLine(true)
-                ellipsize = TextUtils.TruncateAt.END
-            }, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ))
-            val meta = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            val resolution = safeLineResolution(i)
-            if (resolution.isNotEmpty()) {
-                meta.addView(TextView(this).apply {
-                    text = resolution
-                    textSize = 9f
-                    setTextColor(Color.rgb(194, 207, 200))
-                    setSingleLine(true)
-                }, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { marginEnd = dp(6) })
-            }
-            val format = safeLineFormat(i)
-            if (format.isNotEmpty()) {
-                meta.addView(TextView(this).apply {
-                    text = format
-                    textSize = 9f
-                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
-                    setTextColor(Color.WHITE)
-                    setPadding(dp(5), 0, dp(5), 0)
-                    background = GradientDrawable().apply {
-                        cornerRadius = dp(5).toFloat()
-                        setColor(when (format) {
-                            "DASH" -> Color.rgb(31, 87, 126)
-                            "FLV" -> Color.rgb(102, 47, 116)
-                            else -> Color.rgb(35, 91, 74)
-                        })
-                    }
-                })
-            }
-            chip.addView(meta, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(2) })
-            serverRail.addView(chip, LinearLayout.LayoutParams(
-                dp(150), dp(40)
-            ).apply { marginEnd = dp(6) })
-            if (selected) selectedChip = chip
+            setOnClickListener { showServerMenu() }
         }
-        if (visibleServerIndices().size > 3) {
-            val all = TextView(this).apply {
-                text = "⋯"
-                textSize = 15f
-                gravity = Gravity.CENTER
-                setTextColor(Color.WHITE)
-                contentDescription = "Choose from all stream lines"
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(8).toFloat()
-                    setColor(Color.argb(230, 25, 29, 29))
-                    setStroke(dp(1), Color.rgb(103, 112, 109))
-                }
-                setOnClickListener {
-                    setControlsVisible(true)
-                    showServerMenu(this)
-                }
-            }
-            serverRail.addView(all, LinearLayout.LayoutParams(dp(38), dp(40)))
-        }
-        selectedChip?.let { chip ->
-            serverRailScroll.post {
-                serverRailScroll.smoothScrollTo((chip.left - dp(7)).coerceAtLeast(0), 0)
-            }
-        }
+        serverRail.addView(current, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)
+        ))
     }
 
     private fun rebuildQualityOptions(tracks: Tracks) {

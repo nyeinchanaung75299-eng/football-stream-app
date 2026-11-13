@@ -125,7 +125,7 @@ Deno.serve(async (req) => {
       const explanation = lines.length > 0
         ? "Public manifest responded to the first-byte check. Verify actual playback before importing."
         : publishedCount === 0
-        ? "No public HLS/DASH manifest URL was found in the readable page HTML/JSON. This website may load video through its own player or authorized API."
+        ? "No public HLS/DASH/MP4 URL was found in the readable page HTML/JSON. This website may load video through its own player or authorized API."
         : accessDenied
         ? "A public manifest URL was found, but the media server denied the check (HTTP 401/403). Access protections were not bypassed."
         : "A public manifest URL was found, but no line passed the manifest check. It may be expired, offline, geo-restricted or temporarily unreachable.";
@@ -1114,7 +1114,10 @@ async function probeLine(line: any, strictManifest = false) {
         new TextDecoder().decode(chunk).includes("#EXTM3U") || (!strictManifest && status === 206)
       : strictManifest && type === "dash"
         ? (chunk: Uint8Array) => /<(?:[\w-]+:)?MPD(?:\s|>)/i.test(new TextDecoder().decode(chunk))
-        : null,
+        : strictManifest && type === "mp4"
+          ? (chunk: Uint8Array) => chunk.length >= 12 &&
+            new TextDecoder().decode(chunk.slice(4, 8)) === "ftyp"
+          : null,
   });
   return {
     ...line,

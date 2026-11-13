@@ -87,3 +87,67 @@ test('StreamFree uses soccer fixtures and excludes American football',async()=>{
  assert.equal(r.matches.length,1);assert.equal(r.matches[0].home_team,'Moldova');
  assert.equal(r.matches[0].anchors[0].page_url,'https://strmfree.st/player/soccer/kaz-mda');
 });
+
+test('Camel Flight fixtures bind published IDs to Unix kickoffs without league-nav false matches',async()=>{
+ const row={id:'fixture-42',match_time:start,home_team:{name:'Moldova'},away_team:{name:'Kazakhstan'},competition:{name:'Nations League'}};
+ const frame='0:'+JSON.stringify(['$',{hotTeamMatches:[row]}])+'\n';
+ const html='<a href="/league/1-liga-vs-rs-7">1 Liga vs RS 7</a><a href="/football/match-moldova-vs-kazakhstan/fixture-42"></a>'+
+ '<script>self.__next_f.push('+JSON.stringify([1,frame])+')</script>';
+ const r=await experimentalMatches('camel',{fetcher:async()=>response(html)});
+ assert.equal(r.matches.length,1);assert.equal(r.matches[0].home_team,'Moldova');
+ assert.equal(r.matches[0].match_time,new Date(start*1000).toISOString());
+});
+test('Xoilac uses actual match card and full ICT permalink date across MMT midnight',async()=>{
+ const html='<a href="/league/one-vs-two">One vs Two</a><div class="wlb-card"><a class="wlb-card__phu" '+
+ 'href="https://xoilacls.tv/truc-tiep/moldova-vs-kazakhstan-luc-0010-ngay-14-11-2026/" aria-label="Moldova vs Kazakhstan"></a></div>';
+ const r=await experimentalMatches('xoilac',{fetcher:async()=>response(html)});
+ assert.equal(r.matches.length,1);assert.equal(r.matches[0].match_time,'2026-11-13T17:10:00.000Z');
+ assert.deepEqual(r.diagnostics.available_days_mmt,['2026-11-13']);
+});
+test('VIP time content attribute is a kickoff, not a wall clock in the team name',async()=>{
+ const r=await experimentalMatches('viprow',{fetcher:async()=>response('<a href="/football/moldova-vs-kazakhstan"><time content="2026-11-13T17:00+00:00">17:00</time> Moldova v Kazakhstan</a>')});
+ assert.equal(r.matches[0].match_time,'2026-11-13T17:00:00.000Z');
+ assert.equal(r.matches[0].home_team,'Moldova');
+});
+test('Roxie table clock follows published Pacific timezone including daylight saving',async()=>{
+ for(const [date,utc] of [['November 13, 2026 9:00 AM','2026-11-13T17:00:00.000Z'],['July 13, 2026 9:00 AM','2026-07-13T16:00:00.000Z']]) {
+  const html='<tr><td>Moldova vs Kazakhstan</td><td class="event-start-time">'+date+'</td><td><a href="/soccer/moldova-vs-kazakhstan">Moldova vs Kazakhstan</a></td></tr>';
+  const r=await experimentalMatches('roxie',{fetcher:async()=>response(html)});assert.equal(r.matches[0].match_time,utc);
+ }
+});
+test('Score088 follows its page-published public event API and two player hops, including MP4',async()=>{
+ const id='live-moldova-vs-kazakhstan-live-stream-2026-11-13',page='https://www.score088tv.live/football/'+id;
+ const data={props:{pageProps:{matchId:id,homeTeam:'Moldova',awayTeam:'Kazakhstan'}}};
+ const calls=[];
+ const r=await experimentalStreams('score088',{page_url:page},{fetcher:async url=>{
+  calls.push(String(url));
+  if(url===page)return response('<script id="__NEXT_DATA__" type="application/json">'+JSON.stringify(data)+'</script>');
+  if(String(url).startsWith('https://api.footypaper.top/'))return response({id,urls:['https://player.example.org/event']},'application/json');
+  if(url==='https://player.example.org/event')return response('<iframe src="https://video.example.org/embed"></iframe>');
+  if(url==='https://video.example.org/embed')return response('<video src="https://cdn.example.org/match.mp4?token=public"></video>');
+  return response('');
+ }});
+ assert.equal(r.lines.length,1);assert.equal(r.lines[0].stream_type,'mp4');
+ assert.equal(r.lines[0].referer,'https://video.example.org/embed');
+ assert.ok(calls.some(u=>u.startsWith('https://api.footypaper.top/')));
+});
+test('public player script config can publish HLS without executing the script',async()=>{
+ const r=await discoverPublicMedia('https://player.example.org/embed',{fetcher:async url=>
+  response(url.endsWith('.js')?'throw Error("must never execute");const file="https:\\u002f\\u002fcdn.example.org\\u002flive.m3u8?x=1\\u0026y=2";':'<script src="/player.js"></script>',url.endsWith('.js')?'text/javascript':'text/html')});
+ assert.equal(r.lines[0].url,'https://cdn.example.org/live.m3u8?x=1&y=2');
+});
+test('Rojadirecta joins only the football row game ID to embedded public player links',async()=>{
+ const html='<details class="game-item-details" data-game-id="42"><summary><span class="game-teams">Moldova - Kazakhstan</span></summary><div class="game-links-container"></div></details>'+
+ '<script>window.LINKS_DATA = '+JSON.stringify({'42':[{link:'https://player.example.org/event'},{link:'acestream://not-native'}],'99':[{link:'https://other.example.org/unrelated'}]})+';</script>';
+ const r=await experimentalMatches('rojadirecta',{fetcher:async()=>response(html)});
+ assert.equal(r.matches.length,1);assert.equal(r.matches[0].anchors.length,1);
+ assert.equal(r.matches[0].anchors[0].page_url,'https://player.example.org/event');
+ assert.equal(r.matches[0].schedule_only,false);
+ assert.equal(r.matches[0].match_time,null,'No timezone is invented for this provider');
+});
+test('sponsor and preroll videos are never exported as programme links',async()=>{
+ const r=await discoverPublicMedia('https://www.score088tv.live/football/event',{fetcher:async()=>response(
+  '<video src="https://media.808ball.top/sponsor-video-480p.mp4"></video>'+
+  '<script>var preroll="https://cdn.example.org/ads/pre-roll.mp4";var actual="https://cdn.example.org/adelaide-vs-sydney.mp4";</script>')});
+ assert.deepEqual(r.lines.map(x=>x.url),['https://cdn.example.org/adelaide-vs-sydney.mp4']);
+});

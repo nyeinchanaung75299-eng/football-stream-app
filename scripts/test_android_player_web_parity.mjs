@@ -66,9 +66,10 @@ test('native lines use no TV icon, separate 1080p/HLS/DASH/FLV tags and a slim p
   assert.match(native, /private fun safeLineFormat/);
   for(const type of ['HLS','DASH','FLV','MP4']) assert.ok(native.includes('"'+type+'"'));
   assert.match(native, /textSize = 10f/);
-  assert.match(native, /textSize = 9f/);
-  assert.match(native, /chip\.addView\(meta/);
-  assert.match(native, /showServerMenu\(this\)/);
+
+  assert.match(native, /setSingleChoiceItems\(labels/);
+  assert.match(native, /Change line/);
+  assert.match(native, /setLayerHeight\(layer, dp\(3\)\)/);
   assert.doesNotMatch(native, /📺/);
   assert.match(native, /LayerDrawable\(arrayOf/);
   assert.match(native, /ClipDrawable\(filledTrack/);

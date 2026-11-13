@@ -233,7 +233,7 @@ jobs:
           BUILD_NUMBER=$((40000 + GITHUB_RUN_NUMBER))
           test "$BUILD_NUMBER" -gt 32748
           flutter build apk --release --split-per-abi \
-            --build-name 2.5.3 --build-number "$BUILD_NUMBER"
+            --build-name 2.5.4 --build-number "$BUILD_NUMBER"
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk /tmp/NCA-admin-arm64-v8a-latest.apk
           echo "NCA_ADMIN_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "NCA_ADMIN_APK_SHA256=$(sha256sum /tmp/NCA-admin-arm64-v8a-latest.apk | awk '{print $1}')" >> "$GITHUB_ENV"
@@ -442,7 +442,7 @@ jobs:
           BUILD_NUMBER=$((40000 + GITHUB_RUN_NUMBER))
           test "$BUILD_NUMBER" -gt 32748
           flutter build apk --release --split-per-abi \
-            --build-name 9.8.0 \
+            --build-name 9.8.1 \
             --build-number "$BUILD_NUMBER"
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk /tmp/NCA-arm64-v8a-latest.apk
           APK_SHA256="$(sha256sum /tmp/NCA-arm64-v8a-latest.apk | awk '{print $1}')"
@@ -497,28 +497,28 @@ jobs:
           python3 - <<'PY'
           import json, os
           data = {
-              "version_name": "9.8.0",
+              "version_name": "9.8.1",
               "build_number": int(os.environ["NCA_BUILD_NUMBER"]),
               "apk_url": "https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/releases/NCA-arm64-v8a-latest.apk",
               "abi": "arm64-v8a",
               "sha256": os.environ["NCA_APK_SHA256"],
               "size_bytes": int(os.environ["NCA_APK_SIZE"]),
               "mandatory": False,
-              "notes": "NCA update is ready. Includes live-score, stream, VPN-free fallback and stability improvements."
+              "notes": "Compact current-line chooser and slim seek bar. Existing playback and VPN-free fallback are preserved."
           }
           with open("public/releases/latest.json", "w", encoding="utf-8") as f:
               json.dump(data, f, separators=(",", ":"))
           if os.environ.get("NCA_ADMIN_SIGNING_READY") == "true":
               admin_data = {
                   "app": "nca_admin",
-                  "version_name": "2.5.3",
+                  "version_name": "2.5.4",
                   "build_number": int(os.environ["NCA_ADMIN_BUILD_NUMBER"]),
                   "apk_url": "https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/releases/NCA-admin-arm64-v8a-latest.apk",
                   "abi": "arm64-v8a",
                   "sha256": os.environ["NCA_ADMIN_APK_SHA256"],
                   "size_bytes": int(os.environ["NCA_ADMIN_APK_SIZE"]),
                   "mandatory": False,
-                  "notes": "Admin Web and Android navigation: Controls, Sources, Tools, TV Schedule, My Channels. Channel Health under Channel Management."
+                  "notes": "Faster My Channels and TV Schedule; published source kickoff times, public player/API link discovery and MP4 support. Retires unavailable Koora Live."
               }
               with open("public/releases/admin-latest.json", "w", encoding="utf-8") as f:
                   json.dump(admin_data, f, separators=(",", ":"))

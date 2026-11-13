@@ -681,6 +681,12 @@ async function handleTvSchedule(request, env, incoming, ctx) {
     : TV_GUIDE_MAX_DAYS;
 
   try {
+    const cache = globalThis.caches?.default;
+    const cacheUrl = new URL('/_nca-public-epg-cache', request.url);
+    cacheUrl.searchParams.set('date', date); cacheUrl.searchParams.set('days', String(days));
+    const cacheRequest = new Request(cacheUrl);
+    let cached = null;
+    try { const hit = cache && await cache.match(cacheRequest); if (hit) cached = await hit.json(); } catch (_) {}
     const upstream = new URL("/api/schedule", TV_GUIDE_ORIGIN);
     upstream.searchParams.set("date", date);
     upstream.searchParams.set("days", String(days));
@@ -689,7 +695,8 @@ async function handleTvSchedule(request, env, incoming, ctx) {
     // starting 18 optional lookups first previously starved this required
     // request and produced a 502 even though the primary guide was healthy.
     const [{data}, catalog, publishedEpg] = await Promise.all([
-      fetchJsonWithTimeout(upstream, {headers: {Accept: "application/json"}}, METADATA_TIMEOUT_MS),
+      cached ? Promise.resolve({data: cached}) :
+        fetchJsonWithTimeout(upstream, {headers: {Accept: "application/json"}}, METADATA_TIMEOUT_MS),
       loadChannelRows(env).catch(() => null),
       loadPublishedChannelEpg(),
     ]);
@@ -698,9 +705,12 @@ async function handleTvSchedule(request, env, incoming, ctx) {
     const withCatalog = guide => {
       if (catalog === null) return guide;
       const byId = new Map(guide.channels.map(row => [row.id, row]));
-      return {...guide, channels: catalog.map(channel => ({
-        ...(byId.get(channel.id) || {matchedEPG:false,programmes:[]}), ...channel,
-      }))};
+      return {...guide, channels: catalog.map(channel => {
+        const savedGuide = byId.get(channel.id);
+        const sameBinding = !savedGuide?.epg_id ||
+          (savedGuide.epg_id === channel.epg_id && savedGuide.epg_source === channel.epg_source);
+        return {...(sameBinding && savedGuide || {matchedEPG:false,programmes:[]}), ...channel};
+      })};
     };
     // Seed the guide with the current catalog before applying supplements.
     // A recently added station may not exist in the upstream catalog yet.
@@ -711,12 +721,6 @@ async function handleTvSchedule(request, env, incoming, ctx) {
     // the background. A cached regional result keeps coverage on warm loads.
     // Cache public programme metadata across isolates, never a request-owned
     // Promise. US2 is essential for NBC and must not wait behind 18 slow feeds.
-    const cache = globalThis.caches?.default;
-    const cacheUrl = new URL('/_nca-public-epg-cache', request.url);
-    cacheUrl.searchParams.set('date', date); cacheUrl.searchParams.set('days', String(days));
-    const cacheRequest = new Request(cacheUrl);
-    let cached = null;
-    try { const hit = cache && await cache.match(cacheRequest); if (hit) cached = await hit.json(); } catch (_) {}
     const enrichment = loadExtendedTvGuide(date, days);
     await Promise.all([
       Promise.race([enrichment.settled, new Promise(resolve => setTimeout(resolve, cached ? 100 : 1100))]),
@@ -736,16 +740,21 @@ async function handleTvSchedule(request, env, incoming, ctx) {
       }),
     } : null;
     const supplements = [
-      ...(cached ? [{source:'cached-regional',ok:true,data:cached}] : []),
+      ...(cached ? [{source:'cached-regional',ok:true,data:withCatalog(cached)}] : []),
       ...enrichment.snapshot(),
       ...(verifiedPublished ? [{source:'github-epg',ok:true,data:verifiedPublished}] : []),
     ];
     const schedule = withCatalog(sanitizeTvSchedule(mergeTvScheduleSources(baseline, supplements), date, days));
-    const complete = enrichment.settled.then(async results => {
+    const complete = Promise.all([
+      enrichment.settled,
+      cached ? fetchJsonWithTimeout(upstream, {headers:{Accept:'application/json'}}, METADATA_TIMEOUT_MS)
+        .then(result => withCatalog(sanitizeTvSchedule(result.data,date,days))).catch(() => baseline)
+        : Promise.resolve(baseline),
+    ]).then(async ([results, freshBaseline]) => {
       if (cache && results.some(result => result.ok && result.data.channels.some(channel => channel.matchedEPG && channel.programmes?.length))) {
         // GitHub rows are checked against the current binding on every read;
         // do not put those rows in the independent regional metadata cache.
-        const full = withCatalog(sanitizeTvSchedule(mergeTvScheduleSources(baseline, results), date, days));
+        const full = withCatalog(sanitizeTvSchedule(mergeTvScheduleSources(freshBaseline, results), date, days));
         await cache.put(cacheRequest, Response.json(full, {headers:{'Cache-Control':'public, max-age=180'}}));
       }
     }).catch(() => {});

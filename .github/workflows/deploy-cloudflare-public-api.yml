@@ -20,6 +20,11 @@ on:
       - "scripts/test_totalsportek_source.mjs"
       - "scripts/test_website_sources.mjs"
       - "supabase/functions/_shared/source_match_rows.mjs"
+      - "supabase/functions/_shared/experimental_football_sources.mjs"
+      - "supabase/functions/_shared/public_source_media.mjs"
+      - "supabase/functions/_shared/public_football_feeds.mjs"
+      - "scripts/test_public_source_adapters.mjs"
+      - "scripts/test_experimental_football_sources.mjs"
       - "scripts/test_fawa_source.mjs"
       - "scripts/test_soco_match_catalog.mjs"
       - "scripts/test_website_stream_scanner.mjs"
@@ -66,6 +71,9 @@ jobs:
 
       - name: Test public website providers
         run: node --test scripts/test_website_sources.mjs scripts/test_totalsportek_source.mjs scripts/test_arena_source.mjs scripts/test_darkbyte_channel_source.mjs
+
+      - name: Test published football fixtures and media chains
+        run: node --test scripts/test_experimental_football_sources.mjs scripts/test_public_source_adapters.mjs
 
       - name: Test public match feed
         run: node --test scripts/test_public_match_feed.mjs

@@ -21,14 +21,12 @@ String playerServerLabel(Map<String, dynamic> source, int index) {
     caseSensitive: false,
   ).firstMatch(label);
   if (repeated == null) return label;
-  return label.replaceRange(
-    repeated.start,
-    repeated.end,
-    repeated.group(1)!,
-  ).trim();
+  return label
+      .replaceRange(repeated.start, repeated.end, repeated.group(1)!)
+      .trim();
 }
 
-/// A compact, horizontally scrollable line selector for an active player.
+/// Current line plus a vertical chooser for an active player.
 ///
 /// Only the public display label is rendered. Stream URLs, request headers and
 /// key material are deliberately ignored.
@@ -54,10 +52,12 @@ class PlayerServerRail extends StatelessWidget {
     if (visible.isEmpty) return const SizedBox.shrink();
 
     var selectedPrimary = selectedIndex;
-    if (selectedIndex >= 0 && selectedIndex < sources.length &&
+    if (selectedIndex >= 0 &&
+        selectedIndex < sources.length &&
         !isVisiblePlaybackLine(sources[selectedIndex])) {
       final fallbackId = (sources[selectedIndex]['id'] ?? '')
-          .toString().replaceFirst(RegExp(r'-vpn-free$'), '');
+          .toString()
+          .replaceFirst(RegExp(r'-vpn-free$'), '');
       for (final original in visible) {
         if ((sources[original]['id'] ?? '').toString() == fallbackId) {
           selectedPrimary = original;
@@ -65,106 +65,92 @@ class PlayerServerRail extends StatelessWidget {
         }
       }
     }
+    final current = visible.contains(selectedPrimary)
+        ? selectedPrimary
+        : visible.first;
     final colors = Theme.of(context).colorScheme;
-    return ColoredBox(
-      color: Colors.black,
-      child: SizedBox(
-        height: 58,
-        child: ListView.separated(
-          key: const ValueKey('player-server-rail'),
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          itemCount: visible.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 8),
-          itemBuilder: (context, position) {
-            final index = visible[position];
-            final selected = index == selectedPrimary;
-            final failed = failedIndices.contains(index);
-            final loading = loadingIndex == index;
-            final label = playerServerLabel(sources[index], position);
+    String format(int index) {
+      final type =
+          (sources[index]['streamType'] ?? sources[index]['stream_type'] ?? '')
+              .toString()
+              .toLowerCase();
+      return const {
+            'hls': 'HLS',
+            'dash': 'DASH',
+            'mpd': 'DASH',
+            'mp4': 'MP4',
+            'flv': 'FLV',
+          }[type] ??
+          '';
+    }
 
-            return Semantics(
-              button: true,
-              selected: selected,
-              label: selected ? '$label, selected line' : '$label, line',
-              child: Material(
-                key: ValueKey('player-line-chip-$index'),
-                color: selected
-                    ? colors.primary.withValues(alpha: .18)
-                    : const Color(0xFF171717),
-                shape: StadiumBorder(
-                  side: BorderSide(
-                    color: selected
-                        ? colors.primary
-                        : failed
-                        ? colors.error.withValues(alpha: .72)
-                        : Colors.white24,
-                    width: selected ? 1.6 : 1,
-                  ),
+    return Material(
+      key: const ValueKey('player-server-rail'),
+      color: Colors.black,
+      child: ListTile(
+        dense: true,
+        leading: Icon(
+          Icons.check_rounded,
+          key: ValueKey('player-line-check-$current'),
+          color: colors.primary,
+        ),
+        title: Text(
+          playerServerLabel(sources[current], current),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: format(current).isEmpty ? null : Text(format(current)),
+        trailing: loadingIndex == current
+            ? SizedBox(
+                key: ValueKey('player-line-loading-$current'),
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: colors.primary,
                 ),
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  onTap: selected ? null : () => onSelected(index),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      minWidth: 72,
-                      maxWidth: 165,
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (selected) ...[
-                            Icon(
-                              Icons.check_rounded,
-                              key: ValueKey('player-line-check-$index'),
-                              size: 17,
-                              color: colors.primary,
-                            ),
-                            const SizedBox(width: 6),
-                          ] else if (failed) ...[
-                            Icon(
-                              Icons.error_outline_rounded,
-                              size: 16,
-                              color: colors.error,
-                            ),
-                            const SizedBox(width: 6),
-                          ],
-                          Flexible(
-                            child: Text(
-                              label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: selected ? colors.primary : Colors.white,
-                                fontSize: 11,
-                                fontWeight: selected
-                                    ? FontWeight.w900
-                                    : FontWeight.w700,
-                              ),
-                            ),
+              )
+            : const Icon(Icons.expand_more),
+        onTap: () => showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (sheetContext) => SafeArea(
+            child: SizedBox(
+              height: MediaQuery.sizeOf(sheetContext).height * .6,
+              child: Column(
+                children: [
+                  const ListTile(title: Text('Choose line')),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: visible.length,
+                      itemBuilder: (_, position) {
+                        final index = visible[position];
+                        return ListTile(
+                          key: ValueKey('player-line-chip-$index'),
+                          selected: index == current,
+                          leading: Icon(
+                            index == current
+                                ? Icons.check_rounded
+                                : failedIndices.contains(index)
+                                ? Icons.error_outline_rounded
+                                : Icons.play_arrow,
                           ),
-                          if (loading) ...[
-                            const SizedBox(width: 7),
-                            SizedBox(
-                              key: ValueKey('player-line-loading-$index'),
-                              width: 12,
-                              height: 12,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 1.8,
-                                color: colors.primary,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
+                          title: Text(playerServerLabel(sources[index], index)),
+                          subtitle: format(index).isEmpty
+                              ? null
+                              : Text(format(index)),
+                          onTap: () {
+                            Navigator.pop(sheetContext);
+                            if (index != current) onSelected(index);
+                          },
+                        );
+                      },
                     ),
                   ),
-                ),
+                ],
               ),
-            );
-          },
+            ),
+          ),
         ),
       ),
     );

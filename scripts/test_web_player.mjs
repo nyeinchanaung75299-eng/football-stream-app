@@ -313,7 +313,8 @@ test('compact player toolbar and bottom controls show de-duplicated provider lin
   assert.doesNotMatch(html,/id="nca-next-line"/);
   const h=createHarness({ios:false});
   await h.open([source('hls','ColaTV · ColaTV · Main')]);
-  const chip=h.elements.get('football-player-line-items').children[0];
+  h.elements.get('football-player-server').click();
+  const chip=h.elements.get('football-player-menu-items').children[0];
   assert.match(chip.innerHTML,/ColaTV · Main/);
   assert.doesNotMatch(chip.innerHTML,/ColaTV · ColaTV/);
   assert.equal(h.elements.get('football-player-title').textContent,'Test match');
@@ -338,7 +339,7 @@ test('four original ColaTV lines remain four visible entries while protected rel
   }
   await h.open(all);
   const rail=h.elements.get('football-player-line-items');
-  assert.equal(rail.children.length,4);
+  assert.equal(rail.children.length,1);
   h.elements.get('football-player-server').click();
   assert.equal(h.elements.get('football-player-menu-items').children.length,4);
   assert.equal(h.video.controls,false,'Custom controls own non-iOS playback');
@@ -429,21 +430,21 @@ test('line chooser and settings stay visible while open, then restart seven-seco
   assert.equal(rail.classList.contains('controls-hidden'),true);
 });
 
-test('stream chips show compact names and separate resolution + HLS/DASH/FLV badges without TV icons', async () => {
-  const h = createHarness({ios:false});
+test('current line stays compact and the vertical chooser exposes names, resolution and formats', async () => {
+  const h=createHarness({ios:false});
   await h.open([
     {...source('hls','beIN Sports En Español HD'),resolution:'1080p'},
     {...source('dash','TNT Sports 1 HD · Server 1'),resolution:'720p'},
     {...source('flv','TNT Sports 2 HD'),resolution:'1080p'}
   ]);
-  const rail = h.elements.get('football-player-line-items');
-  assert.equal(rail.children.length, 3);
-  for (const [i,format] of ['HLS','DASH','FLV'].entries()) {
-    assert.match(rail.children[i].innerHTML, new RegExp(format));
-    assert.match(rail.children[i].innerHTML,/football-line-chip-meta/);
-    assert.doesNotMatch(rail.children[i].innerHTML,/📺|class="tv-icon"/);
-  }
-  assert.match(rail.children[1].innerHTML,/720p/);
+  const rail=h.elements.get('football-player-line-items');
+  assert.equal(rail.children.length,1);
+  assert.match(rail.children[0].innerHTML,/Change line/);
+  rail.children[0].click();
+  const choices=h.elements.get('football-player-menu-items');
+  assert.equal(choices.children.length,3);
+  for(const [i,type] of ['HLS','DASH','FLV'].entries())assert.match(choices.children[i].innerHTML,new RegExp(type));
+  assert.match(choices.children[1].innerHTML,/720p/);
 });
 
 test('single channel starts upright without a line chooser and rotates only on tap', async () => {
@@ -475,30 +476,23 @@ test('iPhone channel keeps its rotate icon through open, turns, reset and reopen
   assert.equal(rotate.attributes['aria-label'],'Rotate video');
 });
 
-test('line chip rail marks the selected server and switches through the existing player path', async () => {
-  const first = { ...source('hls', 'Primary'), resolution: '720p' };
-  const second = { ...source('hls', 'Backup'), resolution: '1080p' };
-  const h = createHarness();
-  await h.open([first, second]);
-
-  const rail = h.elements.get('football-player-line-items');
-  assert.equal(rail.children.length, 2);
-  assert.equal(rail.children[0].classList.contains('current'), true);
-  assert.equal(rail.children[0].attributes['aria-pressed'], 'true');
-  assert.equal(rail.children[1].attributes['aria-pressed'], 'false');
-  assert.match(rail.children[0].innerHTML, /Primary/);
-  assert.match(rail.children[0].innerHTML, /720p.*HLS/);
-
-  rail.children[1].click();
-  await flush();
-
-  assert.deepEqual(h.plays, [first.url, second.url]);
-  assert.equal(rail.children[0].classList.contains('current'), false);
-  assert.equal(rail.children[1].classList.contains('current'), true);
-  assert.equal(h.elements.get('football-player-server').textContent, 'Backup');
-  const selections = h.events.filter(event => event.name === 'playback line selected');
-  assert.equal(selections.length, 1);
-  assert.equal(selections[0].properties.selected_index, 1);
+test('current-line button opens the chooser and switches through the existing player path', async () => {
+  const first={...source('hls','Primary'),resolution:'720p'};
+  const second={...source('hls','Backup'),resolution:'1080p'};
+  const h=createHarness(); await h.open([first,second]);
+  const rail=h.elements.get('football-player-line-items');
+  assert.equal(rail.children.length,1);
+  assert.match(rail.children[0].innerHTML,/Primary/);
+  assert.match(rail.children[0].innerHTML,/720p.*HLS/);
+  rail.children[0].click();
+  h.elements.get('football-player-menu-items').children[1].click(); await flush();
+  assert.deepEqual(h.plays,[first.url,second.url]);
+  assert.equal(rail.children.length,1);
+  assert.match(rail.children[0].innerHTML,/Backup/);
+  assert.equal(h.elements.get('football-player-server').textContent,'Backup');
+  const selections=h.events.filter(event=>event.name==='playback line selected');
+  assert.equal(selections.length,1);
+  assert.equal(selections[0].properties.selected_index,1);
 });
 
 test('line controls never render source URLs, hosts, headers or credential-shaped metadata', async () => {
@@ -518,8 +512,8 @@ test('line controls never render source URLs, hosts, headers or credential-shape
   const chip = h.elements.get('football-player-line-items').children[0];
   const menuItem = h.elements.get('football-player-menu-items').children[0];
   const visible = [
-    chip.innerHTML,
-    chip.attributes['aria-label'],
+    chip?.innerHTML || '',
+    chip?.attributes['aria-label'] || '',
     h.elements.get('football-player-server').textContent,
     menuItem.innerHTML,
   ].join(' ');
@@ -1186,7 +1180,7 @@ test('late backups append only to the current session without restarting or repl
   assert.equal(h.elements.get('football-player-menu-items').children.length, 1);
   h.update([first, backup]);
   assert.deepEqual(h.plays, [first.url], 'Append must preserve the active decoder');
-  assert.equal(h.elements.get('football-player-line-items').children.length, 2, 'The chip rail should receive the late backup');
+  assert.equal(h.elements.get('football-player-line-items').children.length, 1, 'Only the current line stays over the picture');
   assert.equal(h.elements.get('football-player-line-items').children[0].classList.contains('current'), true);
   assert.equal(h.elements.get('football-player-menu-items').children.length, 2, 'An open line picker should receive the new backup too');
   h.elements.get('football-player-server').click();
