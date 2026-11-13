@@ -43,6 +43,16 @@ test("collector retains HLS/DASH/MP4, dedupes, and rejects internal hosts",()=>{
   assert.equal(browserMediaType("https://cdn.example.org/live/stream","application/dash+xml"),"dash");
 });
 
+test("iframe media retains its public initiating document without reading headers",()=>{
+  const collector=createMediaCollector("https://catalog.example.org/match");
+  collector.observe("https://cdn.example.org/master.m3u8");
+  collector.observe("https://cdn.example.org/master.m3u8","","https://player.example.org/embed");
+  collector.observe("https://cdn.example.org/master.m3u8");
+  assert.equal(collector.links.length,1);
+  assert.equal(collector.links[0].referer,"https://player.example.org/embed");
+  assert.equal(collector.links[0].origin,"https://player.example.org");
+});
+
 test("endpoint checks role, free-mode gate and consent before launching browser",async()=>{
   let launches=0;
   const capture=async()=>{ launches++; return {ok:true,mode:"browser",links:[],count:0}; };

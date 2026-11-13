@@ -12,7 +12,10 @@ import 'stream_preview_page.dart';
 /// WebView is deliberately left in charge of normal page loading. This feature
 /// observes requests, but does not read cookies, DRM keys or auth tokens.
 class StreamDetectorPage extends StatefulWidget {
-  const StreamDetectorPage({super.key});
+  const StreamDetectorPage(
+      {super.key, this.initialUrl = '', this.selectionMode = false});
+  final String initialUrl;
+  final bool selectionMode;
 
   @override
   State<StreamDetectorPage> createState() => _StreamDetectorPageState();
@@ -26,6 +29,18 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
   String? _currentPage;
   String? _error;
   int _progress = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    final uri = Uri.tryParse(widget.initialUrl.trim());
+    if (uri != null &&
+        const {'http', 'https'}.contains(uri.scheme.toLowerCase()) &&
+        uri.host.isNotEmpty &&
+        uri.userInfo.isEmpty) {
+      _address.text = uri.toString();
+    }
+  }
 
   @override
   void dispose() {
@@ -56,7 +71,18 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
       pageUrl: _currentPage,
       headers: headers,
     );
-    if (stream == null || !mounted || _seenUrls.contains(stream.url)) return;
+    if (stream == null || !mounted) return;
+    if (_seenUrls.contains(stream.url)) {
+      // Resource-timing discovery may precede the request callback. Keep the
+      // later actual Referer/Origin instead of losing it to URL de-duplication.
+      if (headers != null) {
+        final index = _streams.indexWhere((row) => row.url == stream.url);
+        if (index >= 0)
+          setState(() => _streams[index] =
+              _streams[index].withPublicRequestHeaders(headers));
+      }
+      return;
+    }
     if (_streams.length >= 100) return;
     setState(() {
       _seenUrls.add(stream.url);
@@ -212,14 +238,18 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                 mediaPlaybackRequiresUserGesture: true,
                 allowsInlineMediaPlayback: true,
               ),
-              onWebViewCreated: (controller) => _browser = controller,
+              onWebViewCreated: (controller) {
+                _browser = controller;
+                if (_address.text.isNotEmpty) _openAddress();
+              },
               onLoadStart: (_, url) {
                 final value = url?.toString();
                 if (value == null) return;
                 _capture(value);
                 final uri = Uri.tryParse(value);
                 if (uri != null &&
-                    const {'https', 'http'}.contains(uri.scheme.toLowerCase())) {
+                    const {'https', 'http'}
+                        .contains(uri.scheme.toLowerCase())) {
                   _currentPage = value;
                 }
               },
@@ -308,15 +338,29 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                                     icon: const Icon(Icons.copy, size: 18),
                                     label: const Text('Copy'),
                                   ),
+                                  if (item.referer.isNotEmpty ||
+                                      item.origin.isNotEmpty)
+                                    OutlinedButton.icon(
+                                        onPressed: () => Clipboard.setData(
+                                            ClipboardData(
+                                                text: item.copyDetails)),
+                                        icon: const Icon(Icons.copy_all_rounded,
+                                            size: 18),
+                                        label: const Text('Copy details')),
                                   OutlinedButton.icon(
                                     onPressed: () => _preview(item),
-                                    icon: const Icon(Icons.play_arrow, size: 18),
+                                    icon:
+                                        const Icon(Icons.play_arrow, size: 18),
                                     label: const Text('Test'),
                                   ),
                                   FilledButton.icon(
-                                    onPressed: () => _useInServer(item),
+                                    onPressed: () => widget.selectionMode
+                                        ? Navigator.pop(context, item)
+                                        : _useInServer(item),
                                     icon: const Icon(Icons.add_link, size: 18),
-                                    label: const Text('Add to Servers'),
+                                    label: Text(widget.selectionMode
+                                        ? 'USE LINE'
+                                        : 'Add to Servers'),
                                   ),
                                 ],
                               ),

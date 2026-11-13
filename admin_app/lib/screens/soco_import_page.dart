@@ -16,6 +16,9 @@ import '../services/function_gateway.dart';
 import '../services/stream_library_service.dart';
 import '../source_line_validation.dart';
 import '../source_match_search.dart';
+import '../services/stream_detector_service.dart';
+import 'stream_detector_page.dart'
+    if (dart.library.html) 'stream_detector_page_web.dart';
 
 @visibleForTesting
 List<Map<String, dynamic>> validateSourceMatchRows(
@@ -129,7 +132,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
     'streamfree': 'StreamFree',
     'ppv': 'PPV.st',
   };
-  bool get _isExperimentalSource => _experimentalSourceNames.containsKey(source);
+  bool get _isExperimentalSource =>
+      _experimentalSourceNames.containsKey(source);
   bool get _isManualSource => source == 'playz';
   bool get _currentSession => sourceSessionMatches(
         pageUser: _sourceSessionUserId,
@@ -161,9 +165,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
     if (data is! Map || data['diagnostics'] is! Map) return null;
     final diagnostics = data['diagnostics'] as Map;
     final found = (diagnostics['candidate_count'] as num?)?.toInt() ?? 0;
-    final confirmed = (diagnostics['confirmed_kickoff_count'] as num?)?.toInt() ?? 0;
-    final estimated = (diagnostics['estimated_countdown_count'] as num?)?.toInt() ?? 0;
-    final scheduleOnly = (diagnostics['schedule_only_count'] as num?)?.toInt() ?? 0;
+    final confirmed =
+        (diagnostics['confirmed_kickoff_count'] as num?)?.toInt() ?? 0;
+    final estimated =
+        (diagnostics['estimated_countdown_count'] as num?)?.toInt() ?? 0;
+    final scheduleOnly =
+        (diagnostics['schedule_only_count'] as num?)?.toInt() ?? 0;
     if (found > 0) {
       return '$found football fixture(s) found • $confirmed timed, $estimated estimated from fresh countdown. '
           '$scheduleOnly schedule-only fixtures have no playback links. '
@@ -172,14 +179,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
     return switch (diagnostics['content_state']?.toString()) {
       'browser_render_or_unsupported_markup' =>
         'No fixture data found in public HTML or embedded JSON. '
-        'This site may load matches through browser JavaScript; a permitted '
-        'public data endpoint is needed. No video stream is verified.',
+            'This site may load matches through browser JavaScript; a permitted '
+            'public data endpoint is needed. No video stream is verified.',
       'no_recognized_football_fixtures' =>
         'No verified football fixtures are currently available from this source. '
-        'The page returned JSON, but it did not contain a confirmed football '
-        'match with recognizable teams and a trusted event page. It may be '
-        'showing configuration or loading fixtures in the browser instead. '
-        'No match or playable video link has been invented.',
+            'The page returned JSON, but it did not contain a confirmed football '
+            'match with recognizable teams and a trusted event page. It may be '
+            'showing configuration or loading fixtures in the browser instead. '
+            'No match or playable video link has been invented.',
       'empty_page' =>
         'This source currently has no verified football fixtures on its public page.',
       _ => 'No verified football event was returned by this provider.',
@@ -223,7 +230,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
     super.initState();
     _streamLibrary = StreamLibraryService(Supabase.instance.client);
     _sourceSessionGeneration = AdminWebSourceCache.sessionGeneration;
-    _sourceSessionUserId = Supabase.instance.client.auth.currentSession?.user.id;
+    _sourceSessionUserId =
+        Supabase.instance.client.auth.currentSession?.user.id;
     targetMatchId = widget.initialMatchId;
     if (widget.initialReferer != null) {
       _playzReferer.text = widget.initialReferer!;
@@ -231,12 +239,24 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (page != null) _playzOrigin.text = page.origin;
     }
     final requested = widget.initialSource.trim().toLowerCase();
-    source = (_experimentalSourceNames.containsKey(requested) || const {
-      'soco', 'yyzb', 'fawa', 'cola', 'arena', 'playz',
-    }.contains(requested)) ? requested : 'soco';
-    if(source=='arena')availableOnly=false;
+    source = (_experimentalSourceNames.containsKey(requested) ||
+            const {
+              'soco',
+              'yyzb',
+              'fawa',
+              'cola',
+              'arena',
+              'playz',
+            }.contains(requested))
+        ? requested
+        : 'soco';
+    if (source == 'arena') availableOnly = false;
     if (_isManualSource) _libraryFuture = _streamLibrary.list();
-    dayFilter = (source == 'fawa' || source == 'cola' || source == 'arena' || _isExperimentalSource || _isManualSource)
+    dayFilter = (source == 'fawa' ||
+            source == 'cola' ||
+            source == 'arena' ||
+            _isExperimentalSource ||
+            _isManualSource)
         ? 'all'
         : 'today';
     final ui = AdminWebSourceCache.ui(source);
@@ -264,12 +284,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
     _sourceLoadEpoch += 1;
     _sourceRefreshTimer?.cancel();
     if (kIsWeb && !_isManualSource && _currentSession) {
-      AdminWebSourceCache.saveUi(source, AdminSourceUiState(
-        query: _sourceQuery,
-        dayFilter: dayFilter,
-        availableOnly: availableOnly,
-        scrollOffset: _sourceScroll.hasClients ? _sourceScroll.offset : 0,
-      ));
+      AdminWebSourceCache.saveUi(
+          source,
+          AdminSourceUiState(
+            query: _sourceQuery,
+            dayFilter: dayFilter,
+            availableOnly: availableOnly,
+            scrollOffset: _sourceScroll.hasClients ? _sourceScroll.offset : 0,
+          ));
     }
     _sourceScroll.dispose();
     _sourceSearch.dispose();
@@ -285,8 +307,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
   Future<void> _refreshSourceInBackground() async {
     if (!mounted || _isManualSource || loading || _backgroundRefreshBusy)
       return;
-    if (kIsWeb &&
-        (!_currentSession || AdminWebSourceCache.fresh(source))) return;
+    if (kIsWeb && (!_currentSession || AdminWebSourceCache.fresh(source)))
+      return;
     final state = WidgetsBinding.instance.lifecycleState;
     if (_extractingAnchorKey != null ||
         (state != null && state != AppLifecycleState.resumed) ||
@@ -397,10 +419,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
     }
     final epoch = ++_sourceLoadEpoch;
     final sessionGeneration = AdminWebSourceCache.sessionGeneration;
-    bool current() => mounted && source == provider &&
+    bool current() =>
+        mounted &&
+        source == provider &&
         epoch == _sourceLoadEpoch &&
         (!kIsWeb ||
-         (sessionGeneration == _sourceSessionGeneration && _currentSession));
+            (sessionGeneration == _sourceSessionGeneration && _currentSession));
     if (!silent) {
       setState(() {
         loading = true;
@@ -411,41 +435,45 @@ class _SocoImportPageState extends State<SocoImportPage> {
     try {
       String? loadDiagnostic;
       final parsed = await AdminWebSourceCache.load(provider, () async {
-      dynamic data;
-      if (!_enableNoVpnFallback) {
-        data = await FunctionGateway.invoke(
-          'source-match-list',
-          body: {'source': provider},
-        );
-        validateSourceMatchRows(data, provider);
-      } else {
-        try {
+        dynamic data;
+        if (!_enableNoVpnFallback) {
           data = await FunctionGateway.invoke(
             'source-match-list',
             body: {'source': provider},
           );
           validateSourceMatchRows(data, provider);
-        } catch (_) {
-          data = await _loadSourceMirror(provider);
-          validateSourceMatchRows(data, provider);
+        } else {
+          try {
+            data = await FunctionGateway.invoke(
+              'source-match-list',
+              body: {'source': provider},
+            );
+            validateSourceMatchRows(data, provider);
+          } catch (_) {
+            data = await _loadSourceMirror(provider);
+            validateSourceMatchRows(data, provider);
+          }
         }
-      }
 
-      final rows = validateSourceMatchRows(data, provider);
-      if (_experimentalSourceNames.containsKey(provider)) {
-        loadDiagnostic = _explainExperimentalResponse(data);
-      }
+        final rows = validateSourceMatchRows(data, provider);
+        if (_experimentalSourceNames.containsKey(provider)) {
+          loadDiagnostic = _explainExperimentalResponse(data);
+        }
 
-      final parsed = rows
-          .map((row) => englishSourceMatch(row, provider))
-          .where((row) => (provider != 'yyzb' && provider != 'arena') ||
-              (row['anchors'] is List && (row['anchors'] as List).any((anchor) =>
-                anchor is Map && (anchor['room_num']?.toString().trim().isNotEmpty ?? false))))
-          .where((row) => !_staleSourceMatch(row))
-          .toList();
+        final parsed = rows
+            .map((row) => englishSourceMatch(row, provider))
+            .where((row) =>
+                (provider != 'yyzb' && provider != 'arena') ||
+                (row['anchors'] is List &&
+                    (row['anchors'] as List).any((anchor) =>
+                        anchor is Map &&
+                        (anchor['room_num']?.toString().trim().isNotEmpty ??
+                            false))))
+            .where((row) => !_staleSourceMatch(row))
+            .toList();
 
-      parsed.sort((a, b) => compareAdminSourceMatches(a, b, provider));
-      return parsed;
+        parsed.sort((a, b) => compareAdminSourceMatches(a, b, provider));
+        return parsed;
       }, force: true);
 
       unawaited(
@@ -457,7 +485,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (!current()) return;
       // A one-minute background catalog refresh must not reset all streamer
       // statuses and trigger an identical network probe storm.
-      if (silent && jsonEncode(sourceMatches) == jsonEncode(parsed) &&
+      if (silent &&
+          jsonEncode(sourceMatches) == jsonEncode(parsed) &&
           _experimentalEmptyReason == loadDiagnostic) {
         // Keep the catalog without repainting. Only TTL-expired statuses
         // are rechecked; unchanged results never trigger a full probe storm.
@@ -468,8 +497,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
       }
       final currentKeys = <String>{
         for (final match in parsed)
-          for (final anchor in List<Map<String, dynamic>>.from(
-              match['anchors'] ?? const []))
+          for (final anchor
+              in List<Map<String, dynamic>>.from(match['anchors'] ?? const []))
             _anchorKey(match, anchor, provider: provider),
       };
       setState(() {
@@ -477,8 +506,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
         _experimentalEmptyReason = loadDiagnostic;
         _anchorStatuses.removeWhere((key, _) => !currentKeys.contains(key));
         _anchorLineCounts.removeWhere((key, _) => !currentKeys.contains(key));
-        _anchorStatusCheckedAt.removeWhere(
-            (key, _) => !currentKeys.contains(key));
+        _anchorStatusCheckedAt
+            .removeWhere((key, _) => !currentKeys.contains(key));
       });
       unawaited(
         Future<void>.delayed(Duration.zero, _probeVisibleAnchorStatuses),
@@ -603,7 +632,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
       pending,
       _statusProbeConcurrency,
       (item) async {
-        if (!mounted || !_currentSession ||
+        if (!mounted ||
+            !_currentSession ||
             source != provider ||
             epoch != _anchorStatusEpoch) return;
         final match = Map<String, dynamic>.from(item['match'] as Map);
@@ -629,7 +659,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
             },
           );
 
-          if (!mounted || !_currentSession || source != provider || epoch != _anchorStatusEpoch) return;
+          if (!mounted ||
+              !_currentSession ||
+              source != provider ||
+              epoch != _anchorStatusEpoch) return;
           if (data is! Map) {
             _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'unknown';
             return;
@@ -648,12 +681,18 @@ class _SocoImportPageState extends State<SocoImportPage> {
           if (_currentSession) _anchorStatuses[key] = 'unknown';
         } finally {
           // Avoid letting an older status request overwrite fresh data.
-          if (mounted && _currentSession && source == provider && epoch == _anchorStatusEpoch) {
+          if (mounted &&
+              _currentSession &&
+              source == provider &&
+              epoch == _anchorStatusEpoch) {
             _anchorStatusCheckedAt[key] = DateTime.now();
           }
           // Repaint this room as soon as its own request finishes. A slow
           // neighbour no longer holds the whole four-item batch at UNKNOWN.
-          if (mounted && _currentSession && source == provider && epoch == _anchorStatusEpoch) {
+          if (mounted &&
+              _currentSession &&
+              source == provider &&
+              epoch == _anchorStatusEpoch) {
             setState(() {});
           }
         }
@@ -798,6 +837,44 @@ class _SocoImportPageState extends State<SocoImportPage> {
     );
   }
 
+  Future<void> _openSourceDetector(Map<String, dynamic> match,
+      Map<String, dynamic> anchor, String provider) async {
+    if (!mounted || !_currentSession || source != provider) return;
+    final url =
+        (anchor['page_url'] ?? match['page_url'] ?? '').toString().trim();
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      message('This source has not published a player page URL.');
+      return;
+    }
+    final selected =
+        await Navigator.of(context).push<DetectedStream>(MaterialPageRoute(
+      settings: const RouteSettings(name: '/admin/stream-detector'),
+      builder: (_) => StreamDetectorPage(initialUrl: url, selectionMode: true),
+    ));
+    if (selected == null || !mounted || !_currentSession || source != provider)
+      return;
+    final line = <String, dynamic>{
+      'url': selected.url,
+      'stream_type': selected.type,
+      'referer': selected.referer,
+      'origin': selected.origin,
+      'label': '${_sourceLabel(provider)} · Detected',
+      'resolution': 'Auto',
+      'health_status': 'unknown',
+      'discovery_mode': 'source_browser'
+    };
+    final key = _anchorKey(match, anchor, provider: provider);
+    setState(() {
+      _anchorLineCounts[key] = 1;
+      _anchorStatuses[key] = 'detected';
+    });
+    await _showQualityPicker(match: match, anchor: anchor, lines: [line]);
+  }
+
   Future<void> _openAnchor(
     Map<String, dynamic> match,
     Map<String, dynamic> anchor,
@@ -879,11 +956,17 @@ class _SocoImportPageState extends State<SocoImportPage> {
             .trim();
         final safeNote =
             note.length > 180 ? '${note.substring(0, 180)}…' : note;
-        message(
-          safeNote.isNotEmpty
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(safeNote.isNotEmpty
               ? safeNote
-              : 'No playable line is available for this streamer.',
-        );
+              : 'No native video line was resolved.'),
+          action: (_isExperimentalSource &&
+                  (anchor['page_url'] ?? match['page_url']) != null)
+              ? SnackBarAction(
+                  label: 'DETECT',
+                  onPressed: () => _openSourceDetector(match, anchor, provider))
+              : null,
+        ));
         return;
       }
 
@@ -917,7 +1000,16 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
       if (!current()) return;
       final detail = e.toString().replaceFirst('Exception: ', '');
-      message('Could not load ${_sourceLabel(provider)} stream links. $detail');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+            'Could not load ${_sourceLabel(provider)} stream links. $detail'),
+        action: (_isExperimentalSource &&
+                (anchor['page_url'] ?? match['page_url']) != null)
+            ? SnackBarAction(
+                label: 'DETECT',
+                onPressed: () => _openSourceDetector(match, anchor, provider))
+            : null,
+      ));
     } finally {
       if (current() && _extractingAnchorKey == extractingKey) {
         setState(() => _extractingAnchorKey = null);
@@ -992,6 +1084,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
                       );
                     },
                   ),
+                ],
+                if (lines.any(
+                    (line) => line['discovery_mode'] == 'source_browser')) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                      'Detected in the source browser. Playback is not verified; session links may expire.',
+                      style: TextStyle(fontSize: 12)),
                 ],
                 const SizedBox(height: 12),
                 ...lines.map((line) {
@@ -1108,24 +1207,33 @@ class _SocoImportPageState extends State<SocoImportPage> {
                             tooltip: 'Copy link or headers',
                             icon: const Icon(Icons.copy_rounded),
                             itemBuilder: (_) => [
-                              const PopupMenuItem(value: 'url', child: Text('Copy video URL')),
+                              const PopupMenuItem(
+                                  value: 'url', child: Text('Copy video URL')),
                               if (referer.isNotEmpty)
-                                const PopupMenuItem(value: 'referer', child: Text('Copy Referer')),
+                                const PopupMenuItem(
+                                    value: 'referer',
+                                    child: Text('Copy Referer')),
                               if (origin.isNotEmpty)
-                                const PopupMenuItem(value: 'origin', child: Text('Copy Origin')),
-                              const PopupMenuItem(value: 'all', child: Text('Copy all details')),
+                                const PopupMenuItem(
+                                    value: 'origin',
+                                    child: Text('Copy Origin')),
+                              const PopupMenuItem(
+                                  value: 'all',
+                                  child: Text('Copy all details')),
                             ],
                             onSelected: (field) async {
                               final value = switch (field) {
                                 'referer' => referer,
                                 'origin' => origin,
-                                'all' => ['URL: $url',
-                                  if (referer.isNotEmpty) 'Referer: $referer',
-                                  if (origin.isNotEmpty) 'Origin: $origin',
-                                ].join('\n'),
+                                'all' => [
+                                    'URL: $url',
+                                    if (referer.isNotEmpty) 'Referer: $referer',
+                                    if (origin.isNotEmpty) 'Origin: $origin',
+                                  ].join('\n'),
                                 _ => url,
                               };
-                              await Clipboard.setData(ClipboardData(text: value));
+                              await Clipboard.setData(
+                                  ClipboardData(text: value));
                               unawaited(
                                 AnalyticsService.capture(
                                   'source link copied',
@@ -1139,8 +1247,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                 ),
                               );
                               final label = switch (field) {
-                                'referer' => 'Referer', 'origin' => 'Origin',
-                                'all' => 'Stream details', _ => '${_sourceLabel(source)} link',
+                                'referer' => 'Referer',
+                                'origin' => 'Origin',
+                                'all' => 'Stream details',
+                                _ => '${_sourceLabel(source)} link',
                               };
                               message('$label copied.');
                             },
@@ -1934,269 +2044,280 @@ class _SocoImportPageState extends State<SocoImportPage> {
           controller: kIsWeb ? _sourceScroll : null,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
           children: [
-                if (_isManualSource) _manualSourceCard(colors),
-                if (!_isManualSource) ...[
-                  TextField(
-                    key: const Key('source-match-search'),
-                    controller: _sourceSearch,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    textInputAction: TextInputAction.search,
-                    style: const TextStyle(fontSize: 13),
-                    onChanged: (value) => setState(() => _sourceQuery = value),
-                    decoration: InputDecoration(
-                      hintText: 'Search teams or leagues',
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      prefixIcon: const Icon(Icons.search, size: 19),
-                      suffixIcon: _sourceQuery.isEmpty ? null : IconButton(
-                        tooltip: 'Clear search', icon: const Icon(Icons.close, size: 18),
-                        onPressed: () => setState(() {
-                          _sourceSearch.clear(); _sourceQuery = '';
-                        }),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(visible.length == sourceMatches.length
+            if (_isManualSource) _manualSourceCard(colors),
+            if (!_isManualSource) ...[
+              TextField(
+                key: const Key('source-match-search'),
+                controller: _sourceSearch,
+                autocorrect: false,
+                enableSuggestions: false,
+                textInputAction: TextInputAction.search,
+                style: const TextStyle(fontSize: 13),
+                onChanged: (value) => setState(() => _sourceQuery = value),
+                decoration: InputDecoration(
+                  hintText: 'Search teams or leagues',
+                  isDense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  prefixIcon: const Icon(Icons.search, size: 19),
+                  suffixIcon: _sourceQuery.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear search',
+                          icon: const Icon(Icons.close, size: 18),
+                          onPressed: () => setState(() {
+                            _sourceSearch.clear();
+                            _sourceQuery = '';
+                          }),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                  visible.length == sourceMatches.length
                       ? '${sourceMatches.length} matches'
                       : '${visible.length} of ${sourceMatches.length} matches',
-                    style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
-                ],
-                if (!_isManualSource &&
-                    source != 'yyzb' && source != 'arena')
-                  SwitchListTile.adaptive(
-                    value: availableOnly,
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    title: Text(
-                      'Available only',
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    subtitle: Text('Hide matches that have no source yet.'),
-                    onChanged: (value) => setState(() => availableOnly = value),
-                  ),
-                const SizedBox(height: 4),
-                if (!_isManualSource &&
-                    source != 'fawa' &&
-                    source != 'cola')
-                  Row(
-                    children: [
-                      _dayButton('today', 'Today'),
-                      const SizedBox(width: 4),
-                      _dayButton('tomorrow', 'Tomorrow'),
-                      const SizedBox(width: 4),
-                      _dayButton('all', 'All'),
-                      const Spacer(),
-                      if (loading)
-                        const SizedBox(
-                          width: 19,
-                          height: 19,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                    ],
-                  )
-                else if (loading)
-                  const Align(
-                    alignment: Alignment.centerRight,
-                    child: SizedBox(
+                  style:
+                      TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+            ],
+            if (!_isManualSource && source != 'yyzb' && source != 'arena')
+              SwitchListTile.adaptive(
+                value: availableOnly,
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: Text(
+                  'Available only',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: Text('Hide matches that have no source yet.'),
+                onChanged: (value) => setState(() => availableOnly = value),
+              ),
+            const SizedBox(height: 4),
+            if (!_isManualSource && source != 'fawa' && source != 'cola')
+              Row(
+                children: [
+                  _dayButton('today', 'Today'),
+                  const SizedBox(width: 4),
+                  _dayButton('tomorrow', 'Tomorrow'),
+                  const SizedBox(width: 4),
+                  _dayButton('all', 'All'),
+                  const Spacer(),
+                  if (loading)
+                    const SizedBox(
                       width: 19,
                       height: 19,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
+                ],
+              )
+            else if (loading)
+              const Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(
+                  width: 19,
+                  height: 19,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            const SizedBox(height: 8),
+            if (errorText != null)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    errorText!,
+                    style: TextStyle(color: colors.error),
                   ),
-                const SizedBox(height: 8),
-                if (errorText != null)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Text(
-                        errorText!,
-                        style: TextStyle(color: colors.error),
-                      ),
-                    ),
+                ),
+              ),
+            if (!_isManualSource &&
+                !loading &&
+                visible.isEmpty &&
+                errorText == null)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Text(
+                    _sourceQuery.trim().isEmpty
+                        ? (_isExperimentalSource
+                            ? (_experimentalEmptyReason ??
+                                'No recognized football match data was returned by the website.')
+                            : 'No football matches in this source section.')
+                        : 'No matches found. Clear search to see all fixtures.',
                   ),
-                if (!_isManualSource &&
-                    !loading &&
-                    visible.isEmpty &&
-                    errorText == null)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: Text(
-                        _sourceQuery.trim().isEmpty
-                            ? (_isExperimentalSource
-                                ? (_experimentalEmptyReason ?? 'No recognized football match data was returned by the website.')
-                                : 'No football matches in this source section.')
-                            : 'No matches found. Clear search to see all fixtures.',
-                      ),
-                    ),
-                  ),
-                ...visible.map((match) {
-                  final parsedKickoff = DateTime.tryParse(
-                    match['match_time']?.toString() ?? '',
-                  );
-                  final kickoff = _isExperimentalSource && parsedKickoff != null
-                      ? parsedKickoff.toUtc().add(const Duration(hours: 6, minutes: 30))
-                      : parsedKickoff?.toLocal();
-                  final displayKickoff = kickoff;
-                  final anchors = List<Map<String, dynamic>>.from(
-                    match['anchors'] ?? const [],
-                  )..sort((a, b) {
-                      final aStatus = _anchorStatuses[_anchorKey(match, a)];
-                      final bStatus = _anchorStatuses[_anchorKey(match, b)];
-                      return _anchorStatusRank(aStatus)
-                          .compareTo(_anchorStatusRank(bStatus));
-                    });
+                ),
+              ),
+            ...visible.map((match) {
+              final parsedKickoff = DateTime.tryParse(
+                match['match_time']?.toString() ?? '',
+              );
+              final kickoff = _isExperimentalSource && parsedKickoff != null
+                  ? parsedKickoff
+                      .toUtc()
+                      .add(const Duration(hours: 6, minutes: 30))
+                  : parsedKickoff?.toLocal();
+              final displayKickoff = kickoff;
+              final anchors = List<Map<String, dynamic>>.from(
+                match['anchors'] ?? const [],
+              )..sort((a, b) {
+                  final aStatus = _anchorStatuses[_anchorKey(match, a)];
+                  final bStatus = _anchorStatuses[_anchorKey(match, b)];
+                  return _anchorStatusRank(aStatus)
+                      .compareTo(_anchorStatusRank(bStatus));
+                });
 
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+              return Card(
+                margin: const EdgeInsets.only(bottom: 10),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  (match['league'] ?? 'Football').toString(),
-                                  style: TextStyle(
-                                    color: colors.onSurfaceVariant,
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                          Expanded(
+                            child: Text(
+                              (match['league'] ?? 'Football').toString(),
+                              style: TextStyle(
+                                color: colors.onSurfaceVariant,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          if (match['hot'] == true)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: .1),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Text(
+                                'HOT',
+                                style: TextStyle(
+                                  color: Colors.redAccent,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
                                 ),
                               ),
-                              if (match['hot'] == true)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.withValues(alpha: .1),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: const Text(
-                                    'HOT',
-                                    style: TextStyle(
-                                      color: Colors.redAccent,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _sourceMatchTitle(match),
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          if (displayKickoff != null || !_isExperimentalSource) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            match['kind'] == 'channel'
-                                ? 'Broadcast channel'
-                                : displayKickoff == null
-                                    ? (match['time_label']?.toString().trim().isNotEmpty == true
-                                        ? match['time_label'].toString() : 'Unknown time')
-                                    : '${DateFormat('dd MMM • h:mm a', 'en_US').format(displayKickoff)}'
-                                      '${_isExperimentalSource ? ' MMT' : ''}'
-                                      '${match['kickoff_estimated'] == true ? ' • ESTIMATED' : ''}',
-                            style: TextStyle(color: colors.onSurfaceVariant),
-                          ),
-                          ],
-                          if (_isExperimentalSource && displayKickoff == null)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 4),
-                              child: Text('Source page only • schedule not verified',
-                                  style: TextStyle(fontSize: 11)),
-                            ),
-                          const SizedBox(height: 12),
-                          if (anchors.isEmpty)
-                            Text(
-                              'No streamer is listed yet.',
-                              style: TextStyle(color: colors.onSurfaceVariant),
-                            )
-                          else
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: anchors.map((anchor) {
-                                final name = (anchor['nick_name'] ?? 'Streamer')
-                                    .toString();
-                                final key = _anchorKey(match, anchor);
-                                final status =
-                                    _anchorStatuses[key] ?? 'unknown';
-                                final lineCount = _anchorLineCounts[key] ?? 0;
-
-                                final icon = switch (status) {
-                                  'live' => Icons.sensors_rounded,
-                                  'ready' => Icons.check_circle_rounded,
-                                  'offline' => Icons.cloud_off_rounded,
-                                  'checking' => Icons.sync_rounded,
-                                  _ => Icons.help_outline_rounded,
-                                };
-                                final suffix = switch (status) {
-                                  'live' => ' • LIVE',
-                                  'ready' => lineCount > 0
-                                      ? ' • READY ($lineCount)'
-                                      : ' • READY',
-                                  'offline' => ' • OFFLINE',
-                                  'checking' => ' • CHECKING (TAP)',
-                                  _ => ' • UNKNOWN',
-                                };
-                                final color = switch (status) {
-                                  'live' => Colors.redAccent,
-                                  'ready' => Colors.green,
-                                  'offline' => Colors.blueGrey,
-                                  'checking' => Colors.orange,
-                                  _ => colors.onSurfaceVariant,
-                                };
-
-                                final extracting = _extractingAnchorKey == key;
-
-                                return OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: color,
-                                    side: BorderSide(
-                                      color: color.withValues(alpha: .55),
-                                    ),
-                                  ),
-                                  onPressed: _extractingAnchorKey != null
-                                      ? null
-                                      : () => _openAnchor(match, anchor),
-                                  icon: extracting
-                                      ? SizedBox(
-                                          width: 17,
-                                          height: 17,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: color,
-                                          ),
-                                        )
-                                      : Icon(icon, size: 17),
-                                  label: Text(
-                                    extracting
-                                        ? '$name • LOADING'
-                                        : '$name$suffix',
-                                  ),
-                                );
-                              }).toList(),
                             ),
                         ],
                       ),
-                    ),
-                  );
-                }),
-              ],
-            ),
-          ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _sourceMatchTitle(match),
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      if (displayKickoff != null || !_isExperimentalSource) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          match['kind'] == 'channel'
+                              ? 'Broadcast channel'
+                              : displayKickoff == null
+                                  ? (match['time_label']
+                                              ?.toString()
+                                              .trim()
+                                              .isNotEmpty ==
+                                          true
+                                      ? match['time_label'].toString()
+                                      : 'Unknown time')
+                                  : '${DateFormat('dd MMM • h:mm a', 'en_US').format(displayKickoff)}'
+                                      '${_isExperimentalSource ? ' MMT' : ''}'
+                                      '${match['kickoff_estimated'] == true ? ' • ESTIMATED' : ''}',
+                          style: TextStyle(color: colors.onSurfaceVariant),
+                        ),
+                      ],
+                      if (_isExperimentalSource && displayKickoff == null)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Text(
+                              'Source page only • schedule not verified',
+                              style: TextStyle(fontSize: 11)),
+                        ),
+                      const SizedBox(height: 12),
+                      if (anchors.isEmpty)
+                        Text(
+                          'No streamer is listed yet.',
+                          style: TextStyle(color: colors.onSurfaceVariant),
+                        )
+                      else
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: anchors.map((anchor) {
+                            final name =
+                                (anchor['nick_name'] ?? 'Streamer').toString();
+                            final key = _anchorKey(match, anchor);
+                            final status = _anchorStatuses[key] ?? 'unknown';
+                            final lineCount = _anchorLineCounts[key] ?? 0;
+
+                            final icon = switch (status) {
+                              'live' => Icons.sensors_rounded,
+                              'ready' => Icons.check_circle_rounded,
+                              'offline' => Icons.cloud_off_rounded,
+                              'checking' => Icons.sync_rounded,
+                              _ => Icons.help_outline_rounded,
+                            };
+                            final suffix = switch (status) {
+                              'live' => ' • LIVE',
+                              'ready' => lineCount > 0
+                                  ? ' • READY ($lineCount)'
+                                  : ' • READY',
+                              'detected' => ' • DETECTED ($lineCount)',
+                              'offline' => ' • OFFLINE',
+                              'checking' => ' • CHECKING (TAP)',
+                              _ => ' • UNKNOWN',
+                            };
+                            final color = switch (status) {
+                              'live' => Colors.redAccent,
+                              'ready' => Colors.green,
+                              'detected' => Colors.orange,
+                              'offline' => Colors.blueGrey,
+                              'checking' => Colors.orange,
+                              _ => colors.onSurfaceVariant,
+                            };
+
+                            final extracting = _extractingAnchorKey == key;
+
+                            return OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: color,
+                                side: BorderSide(
+                                  color: color.withValues(alpha: .55),
+                                ),
+                              ),
+                              onPressed: _extractingAnchorKey != null
+                                  ? null
+                                  : () => _openAnchor(match, anchor),
+                              icon: extracting
+                                  ? SizedBox(
+                                      width: 17,
+                                      height: 17,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: color,
+                                      ),
+                                    )
+                                  : Icon(icon, size: 17),
+                              label: Text(
+                                extracting ? '$name • LOADING' : '$name$suffix',
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
     );
   }
 }
-

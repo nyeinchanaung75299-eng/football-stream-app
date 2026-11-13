@@ -1,3 +1,4 @@
+import { discoverPublicMedia } from '../../../supabase/functions/_shared/public_source_media.mjs';
 // Admin-only, bounded website source scanner. This is NOT a headless browser:
 // it can discover links in HTML and same-site JS but cannot observe JS runtime
 // requests or bypass DRM, paywalls, sign-in, or anti-bot restrictions.
@@ -250,10 +251,25 @@ export async function handleWebsiteStreamScan(request,env,{fetchImpl=fetch,allow
       }
       if(found.length>=35)break;
     }
+    let playerDiagnostics=null;
+    if(!found.length) {
+      const nested=await discoverPublicMedia(page.url,{firstHtml:page.text,
+        fetcher:(url,options)=>{
+          if(!rejectTarget(String(url)))throw new Error('Unsupported player target.');
+          return fetchImpl(url,options);
+        }});
+      for(const line of nested.lines) {
+        const type=line.stream_type||classifyStream(line.url);
+        if(type && !found.some(row=>row.url===line.url))found.push({...line,type});
+      }
+      playerDiagnostics={pages_checked:nested.pagesChecked,
+        access_denied:nested.failures.some(error=>/HTTP (?:401|403)/.test(error))};
+    }
     found=found.slice(0,35);
     return json({
       ok:true,mode:"html-scan",page_url:page.url,links:found,count:found.length,
       partial,
+      ...(playerDiagnostics?{diagnostics:playerDiagnostics}:{}),
       notes:(found.length
         ?"Found media URLs embedded in website source. Playback and expiry are not verified."
         :"No direct media URLs in the accessible HTML/scripts. JS-only players require a real browser network observer; this scanner cannot intercept playback requests.")

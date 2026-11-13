@@ -2,8 +2,66 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../lib/screens/stream_detector_page_web.dart';
+import '../lib/services/stream_detector_service.dart';
 
 void main() {
+  testWidgets(
+      'source handoff prefills the page and returns the selected native URL',
+      (tester) async {
+    DetectedStream? selected;
+    await tester.pumpWidget(MaterialApp(
+        home: Builder(
+            builder: (context) => Scaffold(
+                body: TextButton(
+                    onPressed: () async {
+                      selected = await Navigator.of(context)
+                          .push<DetectedStream>(MaterialPageRoute(
+                              builder: (_) => const StreamDetectorPage(
+                                  initialUrl: 'https://www.viprow.lc/event-2',
+                                  selectionMode: true)));
+                    },
+                    child: const Text('Open source detector'))))));
+    await tester.tap(find.text('Open source detector'));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('website-scan-url')))
+            .controller!
+            .text,
+        'https://www.viprow.lc/event-2');
+    await tester.scrollUntilVisible(
+        find.byKey(const Key('manual-mode-expander')), 180,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.byKey(const Key('manual-mode-expander')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('web-stream-url')));
+    await tester.enterText(find.byKey(const Key('web-stream-url')),
+        'https://cdn.example.org/master.m3u8');
+    await tester
+        .ensureVisible(find.widgetWithText(TextField, 'Referer (optional)'));
+    await tester.enterText(find.widgetWithText(TextField, 'Referer (optional)'),
+        'https://player.example.org/embed');
+    await tester
+        .ensureVisible(find.widgetWithText(TextField, 'Origin (optional)'));
+    await tester.enterText(find.widgetWithText(TextField, 'Origin (optional)'),
+        'https://player.example.org');
+    await tester.ensureVisible(find.byKey(const Key('web-check-stream')));
+    await tester.tap(find.byKey(const Key('web-check-stream')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('USE LINE'), 120,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text('Add to Servers'), findsNothing);
+    await tester.ensureVisible(find.text('USE LINE'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('USE LINE'));
+    await tester.pumpAndSettle();
+    expect(selected?.url, 'https://cdn.example.org/master.m3u8');
+    expect(selected?.type, 'hls');
+    expect(selected?.referer, 'https://player.example.org/embed');
+    expect(selected?.origin, 'https://player.example.org');
+    expect(find.text('Open source detector'), findsOneWidget);
+  });
+
   testWidgets('website scanner is the primary mode and requires consent',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
@@ -11,8 +69,8 @@ void main() {
     expect(find.text('Website Stream Detector'), findsOneWidget);
     expect(find.byKey(const Key('website-scan-url')), findsOneWidget);
     expect(find.byKey(const Key('scan-website')), findsOneWidget);
-    final button = tester.widget<FilledButton>(
-        find.byKey(const Key('scan-website')));
+    final button =
+        tester.widget<FilledButton>(find.byKey(const Key('scan-website')));
     expect(button.onPressed, isNull);
     expect(find.byKey(const Key('website-scan-mode')), findsOneWidget);
     expect(find.textContaining('Enter a website watch-page'), findsOneWidget);
@@ -22,7 +80,8 @@ void main() {
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
     await tester.enterText(
-      find.byKey(const Key('website-scan-url')), 'not a URL',
+      find.byKey(const Key('website-scan-url')),
+      'not a URL',
     );
     await tester.tap(find.byKey(const Key('scan-authorized')));
     await tester.pump();
@@ -35,7 +94,8 @@ void main() {
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
     await tester.scrollUntilVisible(
-      find.byKey(const Key('manual-mode-expander')), 180,
+      find.byKey(const Key('manual-mode-expander')),
+      180,
       scrollable: find.byType(Scrollable).first,
     );
     await tester.tap(find.byKey(const Key('manual-mode-expander')));
@@ -50,22 +110,24 @@ void main() {
     await tester.tap(find.byKey(const Key('web-check-stream')));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
-      find.text('Ready for testing'), 170,
+      find.text('Ready for testing'),
+      170,
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('Ready for testing'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('Add to Servers'), 100,
+      find.text('Add to Servers'),
+      100,
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('Add to Servers'), findsOneWidget);
   });
 
-  testWidgets('manual fallback rejects a website watch page',
-      (tester) async {
+  testWidgets('manual fallback rejects a website watch page', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: StreamDetectorPage()));
     await tester.scrollUntilVisible(
-      find.byKey(const Key('manual-mode-expander')), 180,
+      find.byKey(const Key('manual-mode-expander')),
+      180,
       scrollable: find.byType(Scrollable).first,
     );
     await tester.tap(find.byKey(const Key('manual-mode-expander')));

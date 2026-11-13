@@ -833,13 +833,13 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   if (!result.lines.length && result.failures.some(error=>error.includes('outside configured provider'))) {
     throw Error('Source redirected outside configured provider');
   }
-  const lines = result.lines.map((line, i) => ({
-    ...line,
-    label: site.label + " • " + (/\.mpd(?:\?|$)/i.test(line.url) ? "DASH / MPD" : /\.mp4(?:\?|$)/i.test(line.url) ? "MP4" : "HLS / M3U8") + " " + (i + 1),
-    stream_type: /\.mpd(?:\?|$)/i.test(line.url) ? "dash" : /\.mp4(?:\?|$)/i.test(line.url) ? "mp4" : "hls",
-    resolution: "Auto",
-    health_status: "unknown",
-  }));
+  const lines = result.lines.map((line, i) => {
+    const streamType = line.stream_type || (/\.mpd(?:\?|$)/i.test(line.url) ? "dash" : /\.mp4(?:\?|$)/i.test(line.url) ? "mp4" : "hls");
+    return {...line,
+      label: site.label + " • " + ({dash:"DASH / MPD",mp4:"MP4",hls:"HLS / M3U8"}[streamType] || "Media") + " " + (i+1),
+      stream_type: streamType, resolution:"Auto", health_status:"unknown",
+    };
+  });
   if (body?.status_only === true || body?.status_only === "true") {
     return {ok: true, source, ready: lines.length > 0, line_count: lines.length,
       live_status: false};
@@ -848,6 +848,7 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
     lines, line_count: lines.length, live_status: false,
     diagnostics:{pages_checked:result.pagesChecked,
       content_state:lines.length?'media_found':result.failures.length?'player_unavailable':'no_public_media',
+      access_denied:result.failures.some(error=>/HTTP (?:401|403)/.test(error)),
       playback_verified:false},
     message: lines.length ? "Check permission and playback before importing." :
       "No public HLS/DASH/MP4 URL found in the published page, public API or player chain. Player access may be unavailable.",

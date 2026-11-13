@@ -13,6 +13,22 @@ class DetectedStream {
   final String referer;
   final String origin;
 
+  String get copyDetails => [
+        'URL: $url',
+        if (referer.isNotEmpty) 'Referer: $referer',
+        if (origin.isNotEmpty) 'Origin: $origin',
+      ].join('\n');
+
+  DetectedStream withPublicRequestHeaders(Map<String, String> headers) {
+    final captured = fromRequest(url, headers: headers);
+    if (captured == null) return this;
+    return DetectedStream(
+        url: url,
+        type: type,
+        referer: captured.referer.isNotEmpty ? captured.referer : referer,
+        origin: captured.origin.isNotEmpty ? captured.origin : origin);
+  }
+
   static DetectedStream? fromRequest(
     String rawUrl, {
     String? pageUrl,
@@ -68,7 +84,8 @@ class DetectedStream {
       final value = candidate?.trim() ?? '';
       final candidateUri = Uri.tryParse(value);
       if (candidateUri == null ||
-          !const {'http', 'https'}.contains(candidateUri.scheme.toLowerCase()) ||
+          !const {'http', 'https'}
+              .contains(candidateUri.scheme.toLowerCase()) ||
           candidateUri.host.isEmpty ||
           candidateUri.userInfo.isNotEmpty) {
         return '';

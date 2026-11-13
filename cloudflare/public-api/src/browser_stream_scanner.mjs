@@ -36,14 +36,17 @@ export function createMediaCollector(pageUrl){
   if(!page)throw new Error("Invalid public page URL.");
   const found=new Map();
   return {
-    observe(url,mime=""){
+    observe(url,mime="",documentUrl=""){
       if(found.size>=MAX_RESULTS)return;
       const safe=rejectTarget(url);
       const type=browserMediaType(url,mime);
-      if(!safe||!type||found.has(safe.href))return;
-      // Reference page is a hint, not a captured request header.
+      if(!safe||!type)return;
+      const document=rejectTarget(documentUrl);
+      if(found.has(safe.href) && !document)return;
+      const context=document||page;
+      // Initiating document is a public context hint, not a request header.
       found.set(safe.href,{
-        url:safe.href,type,referer:page.href,origin:page.origin,
+        url:safe.href,type,referer:context.href,origin:context.origin,
       });
     },
     get links(){return [...found.values()];},
@@ -104,6 +107,7 @@ export async function captureBrowserMedia(env,pageUrl,{
   if(!target)throw new Error("Invalid public HTTP(S) page URL.");
   if(!env.BROWSER && !launch)throw new Error("Browser Run is not configured.");
   const collector=createMediaCollector(target.href);
+  const requestDocuments=new Map();
   // Bounded diagnostic counts only. Do not store visited subresource URLs,
   // cookies, Authorization headers or response bodies.
   const diagnostics={
@@ -149,7 +153,10 @@ export async function captureBrowserMedia(env,pageUrl,{
       if(msg.method==="Network.requestWillBeSent"){
         diagnostics.requestsObserved=Math.min(10000,diagnostics.requestsObserved+1);
         // Observe URL only; never inspect request.headers or Cookie.
-        collector.observe(msg.params?.request?.url||"");
+        const key=(msg.sessionId||'main')+':'+msg.params?.requestId;
+        const document=rejectTarget(msg.params?.documentURL||'');
+        if(document && requestDocuments.size<300)requestDocuments.set(key,document.href);
+        collector.observe(msg.params?.request?.url||"","",document?.href||"");
       }else if(msg.method==="Network.responseReceived"){
         diagnostics.responsesObserved=Math.min(10000,diagnostics.responsesObserved+1);
         if(msg.params?.type==="Document"){
@@ -159,7 +166,9 @@ export async function captureBrowserMedia(env,pageUrl,{
           if(Number.isInteger(status)&&status>=100&&status<=599)
             diagnostics.pageHttpStatus=status;
         }
-        collector.observe(msg.params?.response?.url||"",msg.params?.response?.mimeType||"");
+        const key=(msg.sessionId||'main')+':'+msg.params?.requestId;
+        collector.observe(msg.params?.response?.url||"",msg.params?.response?.mimeType||"",requestDocuments.get(key)||"");
+        requestDocuments.delete(key);
       }else if(msg.method==="Page.frameNavigated" && !msg.params?.frame?.parentId) {
         diagnostics.navigationConfirmed=true;
       }

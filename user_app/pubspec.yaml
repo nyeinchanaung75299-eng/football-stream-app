@@ -1,7 +1,7 @@
 name: football_viewer
 description: Football streaming viewer app starter.
 publish_to: "none"
-version: 9.8.1+2
+version: 9.8.2+3
 
 environment:
   sdk: ">=3.10.0 <4.0.0"
