@@ -329,7 +329,7 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
     final label = (source['label'] ?? source['resolution'] ?? '')
         .toString()
         .trim();
-    return label.isEmpty ? 'Line ${index + 1}' : label;
+    return label.isEmpty ? 'Line ${index + 1}' : shortMatchLineLabel(label);
   }
 
   Map<String, String> _headersFor(Map<String, dynamic> source) {
