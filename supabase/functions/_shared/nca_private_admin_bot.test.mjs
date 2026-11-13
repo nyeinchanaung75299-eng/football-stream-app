@@ -24,7 +24,7 @@ const request = (cmd, callback = false) =>
 const pulseRequest = (key) => new Request("https://example.supabase.co/functions/v1/telegram-admin",{
   method:"POST",headers:{"x-nca-pulse-key":key,"Content-Type":"application/json"},body:"{}",
 });
-function createMock({prefs=[],lines=[],channels=[],matches=[],messageFail=false,key=""}={}){
+function createMock({prefs=[],lines=[],channels=[],matches=[],messageFail=false,key="",highlightHtml=null}={}){
   const calls=[];
   const fetcher=async(url,options={})=>{
     const href=String(url);
@@ -40,6 +40,9 @@ function createMock({prefs=[],lines=[],channels=[],matches=[],messageFail=false,
         apk_url:releaseBase+(isAdmin?"NCA-admin-arm64-v8a-latest.apk":"NCA-arm64-v8a-latest.apk"),
       });
       return new Response(mockApk);
+    }
+    if(href==="https://dasfootball.com/") {
+      return new Response(highlightHtml ?? "",{headers:{"Content-Type":"text/html"}});
     }
     if(href.includes("api.telegram.org/bot")){
       const method=href.split("/").pop();
@@ -414,4 +417,28 @@ test("Unpaired user cannot access any private Admin APK, and no release is fetch
   assert.equal((await handler(request("/apk_admin"))).status,200);
   assert.equal(telegramCalls(mock.calls,"sendDocument").length,0);
   assert.equal(mock.calls.some(c=>c.url.startsWith(releaseBase)),false);
+});
+
+
+test("Private Admin /highlights returns only provider public highlight pages, not media links",async()=>{
+  const page="https://dasfootball.com/team-a-team-b-highlights-2026-11-14/";
+  const html='<script type="application/ld+json">'+JSON.stringify({
+    '@type':'VideoObject', name:'Team A vs Team B Highlights',
+    url:page, embedUrl:'https://cdn.example.org/private-clip.mp4',
+  })+'</script>';
+  const mock=createMock({highlightHtml:html});
+  const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+  assert.equal((await handler(request("/highlights"))).status,200);
+  const text=telegramCalls(mock.calls,"sendMessage")[0].body.text;
+  assert.match(text,/FOOTBALL HIGHLIGHTS/);
+  assert.match(text,/team-a-team-b-highlights-2026-11-14/);
+  assert.doesNotMatch(text,/cdn\.example|private-clip\.mp4|key_data|stream_url/);
+  assert.equal(mock.calls.filter(c=>c.url=== "https://dasfootball.com/").length,1);
+});
+
+test("Unpaired Telegram admin cannot fetch public highlight feed or see private highlights menu",async()=>{
+  const mock=createMock({highlightHtml:'<html></html>'});
+  const handler=createTelegramHandler({mode:"admin",env:botEnv("999"),fetcher:mock.fetcher});
+  assert.equal((await handler(request("/highlights"))).status,200);
+  assert.equal(mock.calls.length,0);
 });
