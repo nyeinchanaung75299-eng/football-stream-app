@@ -22,21 +22,9 @@ class StreamSourcePickerPage extends StatelessWidget {
     _SourceOption('fawa', 'Fawa', Icons.live_tv_rounded),
     _SourceOption('cola', 'ColaTV', Icons.tv_rounded),
     _SourceOption('arena', 'Arena Koora', Icons.stadium_rounded),
-    // Experimental public-site sources: show no line until the backend
-    // discovers an actual, explicitly published HLS/DASH media URL.
-    _SourceOption('camel', 'Camel Live', Icons.sports_soccer_rounded),
-    _SourceOption('xoilac', 'Xoilac TV', Icons.sports_soccer_rounded),
-    _SourceOption('livetv', 'LiveTV', Icons.sports_soccer_rounded),
+    // Only the provider explicitly retained for public link discovery.
+    // Other experimental sites had no verified usable media in the NCA tests.
     _SourceOption('rojadirecta', 'Rojadirecta', Icons.sports_soccer_rounded),
-    _SourceOption('crichd', 'CricHD', Icons.sports_soccer_rounded),
-    _SourceOption('roxie', 'RoxieStreams', Icons.sports_soccer_rounded),
-    _SourceOption('vipbox', 'VIPBox', Icons.sports_soccer_rounded),
-    _SourceOption('viprow', 'VIPRow', Icons.sports_soccer_rounded),
-    _SourceOption('score088', 'Score088TV', Icons.sports_soccer_rounded),
-    _SourceOption('sports808', 'LiveSports808', Icons.sports_soccer_rounded),
-    _SourceOption('livextv', 'LiveXTV', Icons.sports_soccer_rounded),
-    _SourceOption('streamfree', 'StreamFree', Icons.sports_soccer_rounded),
-    _SourceOption('ppv', 'PPV.st', Icons.sports_soccer_rounded),
   ];
 
   Future<void> _open(BuildContext context, _SourceOption source) async {
