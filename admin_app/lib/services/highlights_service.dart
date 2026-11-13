@@ -1,27 +1,11 @@
 import 'function_gateway.dart';
 
-class HighlightsProvider {
-  const HighlightsProvider(this.id, this.name, this.url, {this.websiteOnly = false});
-  final String id;
-  final String name;
-  final String url;
-  final bool websiteOnly;
-
-  static const all = [
-    HighlightsProvider('darkbyte', 'DarkByte', 'https://github.com/darkbyteprojects/iptv_png'),
-    HighlightsProvider('dasfootball', 'DasFootball', 'https://dasfootball.com/'),
-    HighlightsProvider('hoofoot', 'Hoofoot', 'https://hoofoot.net/'),
-    HighlightsProvider('reddit', 'Reddit', 'https://www.reddit.com/r/footballhighlights/'),
-    HighlightsProvider('soccerfullmatch', 'SoccerFullMatch', 'https://soccerfullmatch.com/', websiteOnly: true),
-    HighlightsProvider('scorebat', 'ScoreBat', 'https://www.scorebat.com/', websiteOnly: true),
-  ];
-}
-
 class HighlightsService {
   const HighlightsService();
+  static const provider = 'dasfootball';
 
   Future<Map<String, dynamic>> request(
-    String provider, String action, [Map<String, dynamic> fields = const {}]
+    String action, [Map<String, dynamic> fields = const {}]
   ) async {
     final result = await FunctionGateway.invoke('source-match-list', body: {
       'source': 'highlights', 'provider': provider, 'action': action, ...fields,
