@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -16,7 +17,7 @@ void main() {
     var requests = 0;
     await http.runWithClient(() async {
       await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
-      expect(find.byType(NavigationDestination), findsNWidgets(5));
+      expect(find.byType(NavigationDestination), findsNWidgets(kIsWeb ? 6 : 5));
       final destinations = tester
           .widgetList<NavigationDestination>(
             find.byType(NavigationDestination),
@@ -24,7 +25,7 @@ void main() {
           .toList();
       expect(
         destinations.map((destination) => destination.label),
-      ['Controls', 'Sources', 'Tools', 'TV Schedule', 'My Channels'],
+      ['Controls', 'Sources', 'Tools', 'TV Schedule', 'My Channels', if (kIsWeb) 'Highlights'],
       );
       expect(find.text('Stream Detector'), findsNothing);
       expect(find.text('Pick Big Matches'), findsOneWidget);

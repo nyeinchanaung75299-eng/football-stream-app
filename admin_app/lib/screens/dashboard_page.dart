@@ -22,6 +22,7 @@ import 'telegram_setup_page.dart';
 import 'repository_matches_page.dart';
 import 'epg_discrepancies_page.dart';
 import 'suppressed_source_lines_page.dart';
+import 'highlights_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -100,6 +101,7 @@ class _DashboardPageState extends State<DashboardPage> {
         embedded: true,
         active: _tab == 3,
       ),
+      5 => const HighlightsPage(),
       _ => MyChannelsGuidePage(
         key: ValueKey('admin-channels-$_guideRevision'),
         embedded: true,
@@ -151,6 +153,7 @@ class _DashboardPageState extends State<DashboardPage> {
             1 => 'stream-sources',
             2 => 'tools',
             3 => 'tv-schedule',
+            5 => 'highlights',
             _ => 'my-channels',
           };
           AnalyticsService.capture(
@@ -187,6 +190,11 @@ class _DashboardPageState extends State<DashboardPage> {
             icon: Icon(Icons.tv_outlined),
             selectedIcon: Icon(Icons.tv_rounded),
             label: 'My Channels',
+          ),
+          if (kIsWeb) NavigationDestination(
+            icon: Icon(Icons.video_library_outlined),
+            selectedIcon: Icon(Icons.video_library_rounded),
+            label: 'Highlights',
           ),
         ],
       ),

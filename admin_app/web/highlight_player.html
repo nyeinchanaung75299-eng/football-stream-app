@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NCA Highlight Preview</title>
+<style>
+body{margin:0;background:#09110e;color:#e4eee8;font:16px system-ui,sans-serif}main{max-width:1100px;margin:auto;padding:16px}h1{font-size:20px;overflow-wrap:anywhere}video{width:100%;max-height:75vh;background:#000}button,a{display:inline-block;padding:12px 16px;margin:8px 8px 0 0;border:1px solid #719d7d;border-radius:12px;background:#193923;color:#d9f2df;font:inherit;text-decoration:none}p{line-height:1.5}#status{color:#a9d5b4}
+</style></head><body><main><h1 id="title">Highlight preview</h1><video id="video" controls playsinline preload="none"></video>
+<p id="status" role="status">Press Load preview to test this video.</p><button id="load">Load preview</button><a id="source" hidden target="_blank" rel="noopener noreferrer">Open original website</a>
+<p>Preview tests this browser and connection. Some sources require their own player or playback headers.</p></main>
+<script>
+'use strict';
+const params=new URLSearchParams(location.hash.slice(1));
+const video=document.getElementById('video'),status=document.getElementById('status'),load=document.getElementById('load');
+function publicUrl(raw){try{const u=new URL(raw);return ['http:','https:'].includes(u.protocol)&&!u.username&&!u.password&&u.hostname.includes('.')?u:null;}catch{return null;}}
+const media=publicUrl(params.get('url')),source=publicUrl(params.get('source'));
+document.getElementById('title').textContent=params.get('title')||'Highlight preview';
+if(source){const a=document.getElementById('source');a.href=source.href;a.hidden=false;}
+let engine,engineReady;
+function ensureEngine(){return engineReady??=new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='../vendor/shaka-player.compiled.js';s.onload=resolve;s.onerror=reject;document.head.append(s);});}
+load.onclick=async()=>{
+  if(!media||! /\.(m3u8|mp4)$/i.test(media.pathname)){status.textContent='Invalid HLS / MP4 URL.';return;}
+  load.disabled=true;status.textContent='Loading preview…';
+  try{
+    if(engine){await engine.destroy();engine=null;}
+    if(/\.m3u8$/i.test(media.pathname)&&!video.canPlayType('application/vnd.apple.mpegurl')){
+      await ensureEngine();shaka.polyfill.installAll();engine=new shaka.Player();await engine.attach(video);
+      engine.addEventListener('error',()=>{status.textContent='Playback failed. Try the original website.';});
+      await engine.load(media.href);
+    }else{video.src=media.href;video.load();}
+    status.textContent='Source loaded. Press play to verify playback.';
+    video.play().catch(()=>{status.textContent='Press play to start the preview.';});
+  }catch{status.textContent='Could not load this source. Try the original website.';}
+  finally{load.disabled=false;load.textContent='Reload preview';}
+};
+video.addEventListener('playing',()=>{status.textContent='Playing in this browser.';});
+video.addEventListener('error',()=>{status.textContent='Video could not be played. Try the original website.';});
+addEventListener('pagehide',()=>{video.pause();if(engine)engine.destroy();});
+</script></body></html>

@@ -252,6 +252,7 @@ test('all four source providers skip Viewer probes without claiming healthy; def
     .replace('"../_shared/source_match_rows.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/source_match_rows.mjs', import.meta.url).href))
     .replace('"../_shared/football_names.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/football_names.mjs', import.meta.url).href))
     .replace("'../_shared/yyzb_schedule.mjs'", JSON.stringify(new URL('../supabase/functions/_shared/yyzb_schedule.mjs', import.meta.url).href))
+    .replace("'../_shared/football_highlights.mjs'", JSON.stringify(new URL('../supabase/functions/_shared/football_highlights.mjs', import.meta.url).href))
     .replace('"../_shared/source_team_logos.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/source_team_logos.mjs', import.meta.url).href));
   try {
     await import('data:text/javascript;base64,' + Buffer.from(stripTypeScriptTypes(ts)).toString('base64'));
