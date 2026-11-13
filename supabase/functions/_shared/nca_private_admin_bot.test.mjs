@@ -44,7 +44,7 @@ function createMock({prefs=[],lines=[],channels=[],matches=[],messageFail=false,
     if(href==="https://dasfootball.com/") {
       return new Response(highlightHtml ?? "",{headers:{"Content-Type":"text/html"}});
     }
-    if(href==="https://cdn.example.org/public-clip.mp4") {
+    if(href==="https://cdn.example.org/public-clip.mp4" || /^https:\/\/cdn\.example\.org\/public-clip-\d+\.mp4$/.test(href)) {
       // Minimal 24-byte ISO base-media header, sufficient for first-byte probe.
       const bytes=new Uint8Array(24);
       bytes.set([0x00,0x00,0x00,0x18,0x66,0x74,0x79,0x70,0x69,0x73,0x6f,0x6d]);
@@ -447,6 +447,56 @@ test("Private Admin /highlights returns verified public MP4 links, never web pag
   assert.doesNotMatch(result,/dasfootball\.com\/team-a|\.m3u8|key_data|stream_url|test-service-key/);
   assert.ok(mock.calls.some(c=>c.url==="https://cdn.example.org/public-clip.mp4"));
   assert.equal(mock.calls.filter(c=>c.url==="https://dasfootball.com/").length,1);
+});
+
+test("Telegram Highlights Next returns subsequent five matches and final page",async()=>{
+  const videos=Array.from({length:12},(_,i)=>({
+    '@type':'VideoObject', name:'Football Match '+i+' Highlights',
+    url:'https://dasfootball.com/football-match-'+i+'-highlights/',
+    contentUrl:'https://cdn.example.org/public-clip-'+i+'.mp4',
+  }));
+  const html='<script type="application/ld+json">'+JSON.stringify({'@graph':videos})+'</script>';
+  const mock=createMock({highlightHtml:html});
+  const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+
+  assert.equal((await handler(request("/highlights"))).status,200);
+  const first=telegramCalls(mock.calls,"sendMessage").at(-1).body;
+  assert.match(first.text,/Football Match 0 Highlights/);
+  assert.match(first.text,/Football Match 4 Highlights/);
+  assert.doesNotMatch(first.text,/Football Match 5 Highlights/);
+  assert.equal(first.reply_markup.inline_keyboard[0][0].callback_data,'hl:5');
+
+  assert.equal((await handler(request("hl:5",true))).status,200);
+  const second=telegramCalls(mock.calls,"editMessageText").at(-1).body;
+  assert.match(second.text,/Football Match 5 Highlights/);
+  assert.match(second.text,/Football Match 9 Highlights/);
+  assert.doesNotMatch(second.text,/Football Match 0 Highlights/);
+  assert.equal(second.reply_markup.inline_keyboard[0][0].callback_data,'hl:10');
+
+  assert.equal((await handler(request("hl:10",true))).status,200);
+  const third=telegramCalls(mock.calls,"editMessageText").at(-1).body;
+  assert.match(third.text,/Football Match 10 Highlights/);
+  assert.match(third.text,/Football Match 11 Highlights/);
+  assert.doesNotMatch(third.text,/Football Match 9 Highlights/);
+  assert.ok(third.reply_markup.inline_keyboard.flat().every(b=>!b.callback_data.startsWith('hl:')));
+});
+
+test("Telegram Highlights skips unreachable candidates without skipping subsequent matches",async()=>{
+  const videos=Array.from({length:9},(_,i)=>({
+    '@type':'VideoObject',name:'Fixture '+i+' Highlights',
+    url:'https://dasfootball.com/fixture-'+i+'-highlights/',
+    contentUrl:i<2?'https://cdn.example.org/broken.mp4':
+      'https://cdn.example.org/public-clip-'+i+'.mp4',
+  }));
+  const mock=createMock({highlightHtml:'<script type="application/ld+json">'+
+    JSON.stringify({'@graph':videos})+'</script>'});
+  const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+  assert.equal((await handler(request("/highlights"))).status,200);
+  const first=telegramCalls(mock.calls,"sendMessage").at(-1).body;
+  assert.doesNotMatch(first.text,/Fixture 0 Highlights|Fixture 1 Highlights/);
+  assert.match(first.text,/Fixture 2 Highlights/);
+  assert.match(first.text,/Fixture 6 Highlights/);
+  assert.equal(first.reply_markup.inline_keyboard[0][0].callback_data,'hl:7');
 });
 
 test("Telegram Highlights never sends protected, tokenized or invalid MP4 URLs",async()=>{
