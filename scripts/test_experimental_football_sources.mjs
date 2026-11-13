@@ -106,10 +106,9 @@ test("Rojadirecta without a public media URL never invents HLS", async () => {
 });
 
 test("Rojadirecta cannot use a foreign host as an event page", async () => {
-  await assert.rejects(
-    experimentalStreams("rojadirecta",{page_url:"https://foreign.invalid/event/one"},{
-      fetcher:pages({}),
-    }),
-    /|./,
-  );
+  const result = await experimentalStreams("rojadirecta",
+    {page_url:"https://foreign.invalid/event/one"},
+    {fetcher:pages({})});
+  assert.equal(result.ready, false);
+  assert.deepEqual(result.lines, []);
 });
