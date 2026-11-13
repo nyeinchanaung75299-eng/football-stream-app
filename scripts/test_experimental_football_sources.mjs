@@ -229,7 +229,7 @@ test("Public football SportsEvent with title and same-site URL is recognized", a
     startDate:"2026-11-11T19:00:00Z"
   })+'</script>';
   const data=await experimentalMatches("rojadirecta",{fetcher:pages({
-    "https://en.rojadirectaes.org/live-football":page,
+    "https://www.rojadirectavivo.me/live-football":page,
   })});
   assert.equal(data.results,1);
   assert.equal(data.matches[0].home_team,"Arsenal");
@@ -239,10 +239,10 @@ test("Public football SportsEvent with title and same-site URL is recognized", a
 
 test("Public JSON site metadata alone does not create fake football matches", async () => {
   const page = '<script type="application/ld+json">'+JSON.stringify({
-    "@type":"WebSite",name:"Sports Portal",url:"https://en.rojadirectaes.org/"
+    "@type":"WebSite",name:"Sports Portal",url:"https://www.rojadirectavivo.me/"
   })+'</script>';
   const data=await experimentalMatches("rojadirecta",{fetcher:pages({
-    "https://en.rojadirectaes.org/live-football":page,
+    "https://www.rojadirectavivo.me/live-football":page,
   })});
   assert.equal(data.results,0);
   assert.equal(data.diagnostics.embedded_json_documents,1);
@@ -257,7 +257,7 @@ test("Valid public SportsEvent without URL is schedule only, not a stream", asyn
     startDate:"2026-11-11T19:00:00Z",
   }) + '</script>';
   const data=await experimentalMatches("rojadirecta",{fetcher:pages({
-    "https://en.rojadirectaes.org/live-football":html,
+    "https://www.rojadirectavivo.me/live-football":html,
   })});
   assert.equal(data.results,1);
   assert.equal(data.matches[0].match_time,"2026-11-11T19:00:00.000Z");
@@ -274,7 +274,7 @@ test("Generic JSON without SportsEvent type and URL does not invent fixtures", a
     startDate:"2026-11-11T19:00:00Z",
   })+'</script>';
   const data=await experimentalMatches("rojadirecta",{fetcher:pages({
-    "https://en.rojadirectaes.org/live-football":html,
+    "https://www.rojadirectavivo.me/live-football":html,
   })});
   assert.equal(data.results,0);
 });
@@ -287,7 +287,7 @@ test("External links never turn into trusted schedule-only video sources", async
     url:"https://foreign.invalid/event/arsenal-vs-chelsea",
   })+'</script>';
   const data=await experimentalMatches("rojadirecta",{fetcher:pages({
-    "https://en.rojadirectaes.org/live-football":html,
+    "https://www.rojadirectavivo.me/live-football":html,
   })});
   assert.equal(data.results,0);
 });

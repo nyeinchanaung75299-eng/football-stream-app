@@ -107,6 +107,7 @@ Deno.serve(async (req) => {
       const checked = await probeLines(
         statusOnly ? (resolved.lines ?? []).slice(0, 2) : (resolved.lines ?? []),
         false,
+        true,
       );
       const lines = checked.filter((line: any) =>
         ["healthy", "slow"].includes(String(line.health_status)));
@@ -1081,16 +1082,16 @@ function skipProbeRequested(body: any) {
     body?.skip_probe === "1";
 }
 
-async function probeLines(lines: any[], skipProbe = false) {
+async function probeLines(lines: any[], skipProbe = false, strictManifest = false) {
   if (skipProbe) {
     return lines.map((line) => ({
       ...line, health_status: "unknown", health_http: null, checked_at: null,
     }));
   }
-  return await Promise.all(lines.map((line) => probeLine(line)));
+  return await Promise.all(lines.map((line) => probeLine(line, strictManifest)));
 }
 
-async function probeLine(line: any) {
+async function probeLine(line: any, strictManifest = false) {
   const value = String(line?.url ?? "").trim();
   if (!value) {
     return { ...line, health_status: "dead", health_http: null };
@@ -1110,8 +1111,10 @@ async function probeLine(line: any) {
     headers, timeoutMs: 5500,
     validateFirstChunk: type === "hls"
       ? (chunk: Uint8Array, status: number) =>
-        new TextDecoder().decode(chunk).includes("#EXTM3U") || status === 206
-      : null,
+        new TextDecoder().decode(chunk).includes("#EXTM3U") || (!strictManifest && status === 206)
+      : strictManifest && type === "dash"
+        ? (chunk: Uint8Array) => /<(?:[\w-]+:)?MPD(?:\s|>)/i.test(new TextDecoder().decode(chunk))
+        : null,
   });
   return {
     ...line,
