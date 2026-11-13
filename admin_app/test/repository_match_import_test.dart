@@ -14,22 +14,20 @@ void main() {
       'kickoff_at': '2026-11-13T19:00:00Z',
     },
   };
-  testWidgets('repository card selects a match in Pick Big Matches, not direct Live import',
+  testWidgets('Repository Matches only previews lines; publishing stays in Controls',
       (tester) async {
-    var opened = 0;
     var viewedLines = 0;
     await tester.binding.setSurfaceSize(const Size(320, 740));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: RepositoryMatchCard(
       entry: fixture,
       onViewLines: () => viewedLines++,
-      onImportMatch: () => opened++,
     ))));
     expect(find.text('ADD MATCH TO LIVE'), findsNothing);
-    await tester.tap(find.text('PICK IN BIG MATCHES'));
+    expect(find.text('PICK IN BIG MATCHES'), findsNothing);
+    await tester.tap(find.text('VIEW LINES'));
     await tester.pump();
-    expect(opened, 1);
-    expect(viewedLines, 0);
+    expect(viewedLines, 1);
     expect(tester.takeException(), isNull);
   });
   testWidgets('repository fixture review returns the exact published UTC kickoff',
