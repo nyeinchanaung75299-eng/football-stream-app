@@ -1,6 +1,7 @@
 import { probeStreamFirstChunk } from "./stream_probe.mjs";
 import { withTelegramUpdateDedup } from './telegram_update_dedup.mjs';
 import { sendTelegramReleaseApk, ReleaseDeliveryError } from './telegram_apk_delivery.mjs';
+import { footballHighlights } from './football_highlights.mjs';
 // NCA Telegram bots: private webhook commands backed by safe Supabase metadata.
 // NO stream URLs, key IDs, key data, DRM, service keys or session tokens in replies.
 export const VIEWER_SITE = "https://nyeinchanaung75299-eng.github.io/football-stream-app/";
@@ -28,6 +29,7 @@ export const ADMIN_TOOLS_MENU = {
     [{text:"🔎 Search",callback_data:"/search"},{text:"🟢 Health",callback_data:"/health"}],
     [{text:"⚽ Match readiness",callback_data:"/readiness"},{text:"🧪 Test bot",callback_data:"/testbot"}],
     [{text:"📊 Stats",callback_data:"/stats"},{text:"🧾 Logs",callback_data:"/logs"}],
+    [{text:"🎬 Highlights",callback_data:"/highlights"}],
     [{text:'🚩 Viewer reports',callback_data:'/reports'}],
     [{text:"🔒 Security",callback_data:"/security"},{text:"🛠 Builds",callback_data:"/build"}],
     [{text:"🏠 Main menu",callback_data:"/start"}],
@@ -113,6 +115,26 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     if (!Array.isArray(rows)) throw new Error("Invalid database metadata");
     return rows;
   }
+  // Only public highlight *pages* from the configured provider. Never expose
+  // native video/stream URLs, DRM, credentials, or arbitrary user-supplied URLs.
+  async function publicHighlightPages() {
+    const result = await footballHighlights({
+      provider: 'dasfootball', action: 'catalog',
+    }, {fetcher});
+    const links = (result.entries || []).flatMap(entry => {
+      try {
+        const url = new URL(entry.source_page_url);
+        if (url.protocol !== 'https:' || url.hostname !== 'dasfootball.com' ||
+            !/highlights/i.test(url.pathname) || url.search || url.hash) return [];
+        return [{title:text(entry.title || 'Football highlights', 96),url:url.href}];
+      } catch (_) { return []; }
+    }).slice(0,6);
+    if (!links.length) return '🎬 HIGHLIGHTS\nNo verified public highlight links available right now. Try again later.';
+    return '🎬 FOOTBALL HIGHLIGHTS (public pages)\n' +
+      links.map((link,i) => (i+1)+'. '+link.title+'\n'+link.url).join('\n\n') +
+      '\n\nDirect video URLs and DRM credentials are not sent in Telegram.';
+  }
+
   async function matches(command, env) {
     const data = await database("matches?select=league,home_team,away_team,kickoff_at,is_live" +
       "&is_active=eq.true&publish_state=eq.published&deleted_at=is.null" +
@@ -815,6 +837,8 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
           chatId: chat.id, token, fetcher,
         });
         documentSent = true;
+      } else if (cmd === "/highlights") {
+        responseText = await publicHighlightPages();
       } else if (cmd === "/testbot") {
         responseText=await testBot();
       } else if (cmd === "/diagnostics" || cmd === "/diag") {
