@@ -2,7 +2,6 @@
 // authentication, DRM, CAPTCHA, or a publisher's access restrictions.
 // Only expose HTTP(S) HLS/DASH URLs explicitly published by public players.
 import {publicSourceUrl, readPublicSource, discoverPublicMedia} from './public_source_media.mjs';
-import {hasPublicFootballFeed, publicFootballFeedMatches, publicFootballFeedPlayer, configuredPublicMedia} from './public_football_feeds.mjs';
 export const experimentalFootballSites = Object.freeze({
   rojadirecta: {label: "Rojadirecta",
     home: "https://www.rojadirectavivo.me/live-football",
@@ -350,45 +349,12 @@ function publicEmbeddedJson(html, source) {
     if (!body || body.length > 900000) continue;
     try { values.push(JSON.parse(body)); } catch (_) { /* JS expressions are not JSON. */ }
   }
-  if (source === 'camel') {
-    for (const hit of html.matchAll(/self\.__next_f\.push\((\[[\s\S]*?\])\)<\/script>/g)) {
-      try {
-        const chunk = JSON.parse(hit[1]);
-        if (typeof chunk[1] !== 'string') continue;
-        for (const frame of chunk[1].split('\n')) {
-          const colon = frame.indexOf(':');
-          if (colon < 0) continue;
-          try {
-            const queue=[JSON.parse(frame.slice(colon + 1))];
-            for (let i=0;i<queue.length && i<12000;i++) {
-              const node=queue[i];
-              if (!node || typeof node!=='object') continue;
-              if (node.match_time && node.home_team && node.away_team) { values.push(node); continue; }
-              queue.push(...Object.values(node).filter(v=>v && typeof v==='object'));
-            }
-          } catch (_) {}
-        }
-      } catch (_) {}
-    }
-  }
   // A limited set of applications include their state as a JSON literal
   // assignment, not a script with type=application/json. No eval and no JS.
   const state = /(?:window\.)?(?:__INITIAL_STATE__|__PRELOADED_STATE__)\s*=\s*(\{[^\n;]{1,100000}\})\s*;/gi;
   for (const hit of html.matchAll(state)) {
     if (values.length >= 20) break;
     try { values.push(JSON.parse(hit[1])); } catch (_) { /* Not a JSON literal. */ }
-  }
-  // Score088/LiveSports808 publish typed initialMatches plus the actual link
-  // for each slug. Join those fields; never synthesize a route from a slug.
-  const links = [...html.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi)].map(m=>m[1]);
-  for (const root of ['score088','sports808'].includes(source) ? [...values] : []) {
-    const rows = root?.props?.pageProps?.initialMatches;
-    if (!Array.isArray(rows)) continue;
-    values.push(rows.slice(0,150).flatMap(row => {
-      if (!row || typeof row !== 'object' || typeof row.slug !== 'string') return [];
-      const href = links.find(link=>link.split('?')[0].replace(/\/$/,'').endsWith('/'+row.slug));
-      return href ? [{...row,url:href,sport:'Soccer'}] : [];
-    }));
   }
   return values;
 }
@@ -482,8 +448,6 @@ function publicFixtureJsonRows(html, site, source, clock) {
     /(?:football|soccer)/i.test(new URL(site.home).pathname)) ||
     ["camel","xoilac"].includes(source);
   const state = publicEmbeddedJson(html, source);
-  const camelLinks = source === 'camel' ? new Map([...html.matchAll(/<a\b[^>]*\bhref=["']([^"']+)["']/gi)]
-    .map(hit=>[hit[1].split('?')[0].split('/').at(-1),hit[1]])) : new Map();
   let examined = 0;
   for (const root of state) {
     const queue = [{node:root, football:footballCatalog, depth:0}];
@@ -499,8 +463,7 @@ function publicFixtureJsonRows(html, site, source, clock) {
         node.category?.name ?? node.category?.slug ?? "");
       const categoryIsFootball = /(?:soccer|football)/i.test(sport);
       const categoryOtherSport = /(?:american\s+football|basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker|volleyball|badminton|esports|e-sports|mma|boxing)/i.test(sport);
-      const camelLink = source === 'camel' ? camelLinks.get(node.id) : null;
-      const linkValue = camelLink ?? node.url ?? node.href ?? node.page_url ?? node.matchUrl ??
+      const linkValue = node.url ?? node.href ?? node.page_url ?? node.matchUrl ??
         node.match_url ?? node.eventUrl ?? node.event_url ?? node.fixtureUrl ??
         node.fixture_url ?? node.permalink ?? node.link;
       const linkedPage = typeof linkValue === "string" ? allowedPageUrl(linkValue, site) : null;
@@ -611,64 +574,28 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
   const deadline=Date.now()+6500;
-  let feedError=null;
-  if(hasPublicFootballFeed(source)) {
-    try{return await publicFootballFeedMatches(source,{fetcher,now});}
-    catch(error){feedError=String(error?.message||error).slice(0,100);}
-  }
   const catalog = await publicHtml(site.home, fetcher, {withClock: true, now,
     allowedHost: site.host,timeoutMs:Math.max(50,deadline-Date.now())});
   const {html} = catalog;
   const embedded = publicFixtureJsonRows(html,site,source,catalog);
   if(source==='rojadirecta')for(const row of rojadirectaRows(html,site))embedded.rows.set(row.source_id,row);
-  if (source === "livetv") {
-    for (const row of publicLiveTvSoccerRows(html,site,source)) {
-      if (!embedded.rows.has(row.page_url)) embedded.rows.set(row.page_url,row);
-    }
-  }
-  if (source === 'xoilac') {
-    for (const hit of html.matchAll(/<a\b([^>]*\bclass=["'][^"']*wlb-card__phu[^"']*["'][^>]*)>/gi)) {
-      const href = hit[1].match(/\bhref=["']([^"']+)["']/i)?.[1];
-      const title = hit[1].match(/\baria-label=["']([^"']+)["']/i)?.[1];
-      const page = href && allowedPageUrl(href, site), teams = fixtureTitle(title);
-      if (!page || !teams) continue;
-      const time = new URL(page).pathname.match(/-luc-(\d{2})(\d{2})-ngay-(\d{2})-(\d{2})-(20\d{2})/);
-      const kickoff = time ? explicitKickoff(`${time[5]}-${time[4]}-${time[3]}T${time[1]}:${time[2]}:00+07:00`) : null;
-      embedded.rows.set(page, eventRecord(source,site,page,teams,kickoff,kickoff?'explicit':'none'));
-    }
-  }
   const candidates = new Map();
   const anchors = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   for (const hit of html.matchAll(anchors)) {
     if (candidates.size >= 250) break;
     // Football league links contain "vs" too. These are not fixture cards.
-    if (source === 'xoilac' && !/wlb-card__phu/.test(hit[1])) continue;
-    if (source === 'camel' && !/href=["'][^"']*\/football\/match-/i.test(hit[1])) continue;
     const href = hit[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
     const page = href && allowedPageUrl(href.replace(/&amp;/gi, "&"), site);
     if (!page || page === site.home || candidates.has(page)) continue;
-    if (source === 'camel' && embedded.rows.size && !embedded.rows.has(page)) continue;
     const card = matchCardMarkup(html, hit);
     const cardSport = explicitFixtureSport(card || hit[0]);
     const footballLink = /\b(?:soccer|football)\b/i.test(page);
-    // LiveTV has basketball and tennis links mixed into /soccer. For its
-    // legacy <li>/<article> form keep only one-event structured team cards
-    // with a soccer-specific URL. Table rows use the dedicated parser above.
-    if (source === "livetv" &&
-        (!card || !structuredCardTeams(card) || !footballLink ||
-          cardSport === "other")) continue;
     // Even a football-looking URL must not turn a labelled basketball
     // or cricket card into a football fixture.
     if (cardSport === "other") continue;
-    // On multi-sport home pages, a generic /event/... URL is allowed ONLY
-    // when that single match's own markup explicitly says football/soccer.
-    // Other generic links remain unverified, not invented as fixtures.
-    if (["ppv", "livextv", "streamfree"].includes(source) &&
-        !footballLink && cardSport !== "football") continue;
     const teams = teamsFromLink(page, hit[2]) ?? structuredCardTeams(card || hit[0]);
     if (!teams) continue;
-    const footballCatalog = /(?:football|soccer)/i.test(new URL(site.home).pathname) ||
-      ["camel","xoilac"].includes(source);
+    const footballCatalog = /(?:football|soccer)/i.test(new URL(site.home).pathname);
     if (!footballCatalog && !footballLink && cardSport !== "football") continue;
     // The timestamp must be inside this anchor or immediately preceding it,
     // with a preceding sibling anchor acting as a hard event boundary.
@@ -676,8 +603,7 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     const boundary = preceding.lastIndexOf("</a>");
     const local = boundary < 0 ? preceding : preceding.slice(boundary + 4);
     const explicit = pageKickoff(hit[0]) ?? pageKickoff(local) ??
-      (card ? pageKickoff(card) : null) ??
-      (source === 'roxie' ? pacificTableKickoff(card) : null);
+      (card ? pageKickoff(card) : null);
     const countdown = explicit ? null :
       countdownKickoff(hit[0], catalog.observedAt, catalog.clockFresh) ??
       (card ? countdownKickoff(card, catalog.observedAt, catalog.clockFresh) : null);
@@ -769,7 +695,6 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
       estimated_countdown_count: estimated,
       missing_kickoff_count: matches.length - confirmed - estimated,
       available_days_mmt: publishedDaysMMT,
-      ...(feedError ? {public_feed_error:feedError} : {}),
       note: "Countdown kickoffs are estimates from a fresh page response, not verified fixture times."},
     generated_at: new Date().toISOString(),
   };
