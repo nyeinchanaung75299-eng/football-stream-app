@@ -6,6 +6,8 @@ on:
     paths:
       - 'scripts/verify_android_update_signing.py'
       - 'scripts/test_android_update_signing.py'
+      - 'scripts/write_android_release_metadata.py'
+      - 'scripts/test_android_release_metadata.py'
       - '.github/workflows/build-apks.yml'
       - '.github/workflows/verify-android-update-signing.yml'
   workflow_dispatch:
@@ -25,3 +27,5 @@ jobs:
         run: python3 -m py_compile scripts/verify_android_update_signing.py scripts/test_android_update_signing.py
       - name: Test release integrity, certificate, package, and versionCode guards
         run: python3 -m unittest discover -s scripts -p 'test_android_update_signing.py' -v
+      - name: Test updater manifest version against installed ARM64 APK
+        run: python3 -m unittest discover -s scripts -p 'test_android_release_metadata.py' -v
