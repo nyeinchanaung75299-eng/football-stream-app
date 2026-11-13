@@ -79,7 +79,7 @@ reset role;
 -- fixture ID; deleted fixtures not selected must remain soft-deleted.
 set local role authenticated;
 select set_config('request.jwt.claim.sub','29000000-0000-0000-0000-000000000001',true);
-do $
+do $$
 declare r jsonb; id1 uuid; id2 uuid;
 begin
  r:=public.publish_featured_matches(jsonb_build_array(
@@ -103,7 +103,7 @@ begin
     or (select count(*) from public.matches where external_fixture_id=987001)<>1
  then raise exception 'Explicitly selected deleted Cola match did not safely restore: %',r;
  end if;
-end $;
+end $$;
 reset role;
 -- A failure on a later line must roll back the entire fixture and provenance.
 create function public.test_fail_repository_line() returns trigger language plpgsql as $$
