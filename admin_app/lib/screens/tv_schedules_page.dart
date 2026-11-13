@@ -22,6 +22,15 @@ class TvSchedulesPage extends StatefulWidget {
 }
 
 class _TvSchedulesPageState extends State<TvSchedulesPage> {
+  Object? _contentKey;
+  Widget? _retainedContent;
+  static final _guideTheme = ThemeData.dark(useMaterial3: true).copyWith(
+    colorScheme: ColorScheme.fromSeed(
+        seedColor: FootballGuideColors.mint,
+        brightness: Brightness.dark,
+        surface: FootballGuideColors.background),
+  );
+
   late Future<_ScheduleData> _schedule = _load();
   _ScheduleData? _lastSchedule;
   DateTime? _lastSuccessfulAt;
@@ -119,114 +128,122 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final page = FutureBuilder<_ScheduleData>(
-      future: _schedule,
-      builder: (context, snapshot) {
-        final data = snapshot.data ?? _lastSchedule;
-        if (data == null && snapshot.hasError) {
-          return _RetryState(
-            message: 'Could not load matches. Check the connection and retry.',
-            onRetry: _refresh,
-          );
-        }
-        if (data == null) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        // Keep the last success while revalidating; never replay deleted
-        // fixtures after a successful (possibly empty) response.
-        final matches = _visibleMatches(data.matches);
-        return FutureBuilder<_GuideResult>(
-          future: _guide,
-          builder: (context, guideSnapshot) {
-            final guide = guideSnapshot.data;
-            return RefreshIndicator(
-              onRefresh: () async => _refresh(),
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
-                children: [
-                  if (widget.embedded)
-                    _ScheduleHeader(
-                      guideError: guide?.error,
-                      onRefresh: _refresh,
-                    ),
-                  if (widget.embedded) const SizedBox(height: 10),
-                  if (snapshot.hasError && _lastSchedule != null) ...[
-                    Card(
-                      color: Theme.of(context).colorScheme.errorContainer,
-                      child: ListTile(
-                        leading: const Icon(Icons.cloud_off_rounded),
-                        title: const Text(
-                            'Match refresh failed — showing saved schedule'),
-                        subtitle: Text(_lastSuccessfulAt == null
-                            ? 'Last successful update unavailable'
-                            : 'Last successful: ${DateFormat('dd MMM HH:mm').format(_lastSuccessfulAt!.toLocal())}'),
-                        trailing: TextButton(
-                          onPressed: _refresh,
-                          child: const Text('RETRY'),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      ChoiceChip(
-                        label: const Text('Live & upcoming'),
-                        selected: _view == 'upcoming',
-                        onSelected: (_) => setState(() => _view = 'upcoming'),
-                      ),
-                      ChoiceChip(
-                        label: const Text('Live now'),
-                        selected: _view == 'live',
-                        onSelected: (_) => setState(() => _view = 'live'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    '${matches.length} MATCH${matches.length == 1 ? '' : 'ES'}',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: .7,
-                    ),
-                  ),
-                  const SizedBox(height: 7),
-                  if (matches.isEmpty)
-                    const _EmptySchedule()
-                  else
-                    ...matches.map(
-                      (match) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _MatchScheduleCard(
-                          match: match,
-                          guide: guide?.guide,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          },
-        );
-      },
+    // Ordinary tab switches retain the same subtree, not just its response.
+    // Filters, refreshes, catalog arrival and clock changes rebuild it.
+    final contentKey = (
+      _schedule,
+      _guide,
+      _view,
+      widget.embedded,
+      DateTime.now().millisecondsSinceEpoch ~/ 60000
     );
+    if (_contentKey != contentKey) {
+      _contentKey = contentKey;
+      _retainedContent = FutureBuilder<_ScheduleData>(
+        future: _schedule,
+        builder: (context, snapshot) {
+          final data = snapshot.data ?? _lastSchedule;
+          if (data == null && snapshot.hasError) {
+            return _RetryState(
+              message:
+                  'Could not load matches. Check the connection and retry.',
+              onRetry: _refresh,
+            );
+          }
+          if (data == null) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          // Keep the last success while revalidating; never replay deleted
+          // fixtures after a successful (possibly empty) response.
+          final matches = _visibleMatches(data.matches);
+          return FutureBuilder<_GuideResult>(
+            future: _guide,
+            builder: (context, guideSnapshot) {
+              final guide = guideSnapshot.data;
+              return RefreshIndicator(
+                onRefresh: () async => _refresh(),
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
+                  children: [
+                    if (widget.embedded)
+                      _ScheduleHeader(
+                        guideError: guide?.error,
+                        onRefresh: _refresh,
+                      ),
+                    if (widget.embedded) const SizedBox(height: 10),
+                    if (snapshot.hasError && _lastSchedule != null) ...[
+                      Card(
+                        color: Theme.of(context).colorScheme.errorContainer,
+                        child: ListTile(
+                          leading: const Icon(Icons.cloud_off_rounded),
+                          title: const Text(
+                              'Match refresh failed — showing saved schedule'),
+                          subtitle: Text(_lastSuccessfulAt == null
+                              ? 'Last successful update unavailable'
+                              : 'Last successful: ${DateFormat('dd MMM HH:mm').format(_lastSuccessfulAt!.toLocal())}'),
+                          trailing: TextButton(
+                            onPressed: _refresh,
+                            child: const Text('RETRY'),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Live & upcoming'),
+                          selected: _view == 'upcoming',
+                          onSelected: (_) => setState(() => _view = 'upcoming'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('Live now'),
+                          selected: _view == 'live',
+                          onSelected: (_) => setState(() => _view = 'live'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '${matches.length} MATCH${matches.length == 1 ? '' : 'ES'}',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: .7,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    if (matches.isEmpty)
+                      const _EmptySchedule()
+                    else
+                      ...matches.map(
+                        (match) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _MatchScheduleCard(
+                            match: match,
+                            guide: guide?.guide,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      );
+    }
+    final page = _retainedContent!;
 
     if (widget.embedded) {
       // Both guide tabs use a dark guide canvas even when the Admin app is
       // in light mode. Scope text, icons and dropdown colors to that canvas
       // so black-on-black labels never disappear.
       return Theme(
-        data: ThemeData.dark(useMaterial3: true).copyWith(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: FootballGuideColors.mint,
-            brightness: Brightness.dark,
-            surface: FootballGuideColors.background,
-          ),
-        ),
+        data: _guideTheme,
         child: ColoredBox(
           color: FootballGuideColors.background,
           child: page,

@@ -23,6 +23,15 @@ class MyChannelsGuidePage extends StatefulWidget {
 }
 
 class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
+  Object? _contentKey;
+  Widget? _retainedContent;
+  static final _guideTheme = ThemeData.dark(useMaterial3: true).copyWith(
+    colorScheme: ColorScheme.fromSeed(
+        seedColor: FootballGuideColors.mint,
+        brightness: Brightness.dark,
+        surface: FootballGuideColors.background),
+  );
+
   late Future<TvScheduleGuide> _guide = _load();
   TvScheduleGuide? _lastGuide = TvScheduleService.cachedGuide;
   bool _loadingGuide = true;
@@ -89,299 +98,314 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
 
   @override
   Widget build(BuildContext context) {
-    final content = FutureBuilder<TvScheduleGuide>(
-      future: _guide,
-      builder: (context, snapshot) {
-        final guide = snapshot.data ?? _lastGuide;
-        if (guide == null && snapshot.hasError) {
-          return _GuideRetry(onRetry: _refresh);
-        }
-        if (guide == null) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        // Keep the last successful page while network refresh fails. A new
-        // successful empty guide, however, replaces it authoritatively.
-        String categoryOf(TvScheduleChannel channel) =>
-            channel.category.trim().isEmpty ? 'Other' : channel.category.trim();
-        final counts = <String, int>{};
-        for (final channel in guide.channels) {
-          final group = categoryOf(channel);
-          counts[group] = (counts[group] ?? 0) + 1;
-        }
-        final allGroups = counts.keys.toList()
-          ..sort((a, b) {
-            final rank = (groupPositions[a] ?? 100000)
-                .compareTo(groupPositions[b] ?? 100000);
-            return rank != 0 ? rank : a.compareTo(b);
-          });
-        final activeGroup =
-            counts.containsKey(selectedGroup) ? selectedGroup : 'All';
-        final now = DateTime.now().toUtc();
-        final listingsByChannel = {
-          for (final channel in guide.channels)
-            channel.id:
-                guide.liveAndUpcomingMatchListingsForChannel(channel, now: now),
-        };
-        final coverage = {
-          for (final channel in guide.channels)
-            channel.id: channel.coverageAt(now)
-        };
-        final channelListings = guide.channels
-            .where((channel) =>
-                activeGroup == 'All' || categoryOf(channel) == activeGroup)
-            .where((channel) =>
-                epgFilter == 'all' || coverage[channel.id] == epgFilter)
-            .map(
-              (channel) => _ChannelGuideItems(
-                channel: channel,
-                listings: listingsByChannel[channel.id]!,
-              ),
-            )
-            .toList()
-          ..sort((a, b) {
-            final groupOrder = allGroups
-                .indexOf(categoryOf(a.channel))
-                .compareTo(allGroups.indexOf(categoryOf(b.channel)));
-            return groupOrder != 0
-                ? groupOrder
-                : a.channel.name.compareTo(b.channel.name);
-          });
+    // Ordinary tab switches retain the same subtree, not just its response.
+    // Filters, refreshes, catalog arrival and clock changes rebuild it.
+    final contentKey = (
+      _guide,
+      _lastGuide,
+      _loadingGuide,
+      selectedGroup,
+      epgFilter,
+      groupPositions,
+      widget.embedded,
+      DateTime.now().millisecondsSinceEpoch ~/ 60000
+    );
+    if (_contentKey != contentKey) {
+      _contentKey = contentKey;
+      _retainedContent = FutureBuilder<TvScheduleGuide>(
+        future: _guide,
+        builder: (context, snapshot) {
+          final guide = snapshot.data ?? _lastGuide;
+          if (guide == null && snapshot.hasError) {
+            return _GuideRetry(onRetry: _refresh);
+          }
+          if (guide == null) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          // Keep the last successful page while network refresh fails. A new
+          // successful empty guide, however, replaces it authoritatively.
+          String categoryOf(TvScheduleChannel channel) =>
+              channel.category.trim().isEmpty
+                  ? 'Other'
+                  : channel.category.trim();
+          final counts = <String, int>{};
+          for (final channel in guide.channels) {
+            final group = categoryOf(channel);
+            counts[group] = (counts[group] ?? 0) + 1;
+          }
+          final allGroups = counts.keys.toList()
+            ..sort((a, b) {
+              final rank = (groupPositions[a] ?? 100000)
+                  .compareTo(groupPositions[b] ?? 100000);
+              return rank != 0 ? rank : a.compareTo(b);
+            });
+          final activeGroup =
+              counts.containsKey(selectedGroup) ? selectedGroup : 'All';
+          final now = DateTime.now().toUtc();
+          final listingsByChannel = {
+            for (final channel in guide.channels)
+              channel.id: guide.liveAndUpcomingMatchListingsForChannel(channel,
+                  now: now),
+          };
+          final coverage = {
+            for (final channel in guide.channels)
+              channel.id: channel.coverageAt(now)
+          };
+          final channelListings = guide.channels
+              .where((channel) =>
+                  activeGroup == 'All' || categoryOf(channel) == activeGroup)
+              .where((channel) =>
+                  epgFilter == 'all' || coverage[channel.id] == epgFilter)
+              .map(
+                (channel) => _ChannelGuideItems(
+                  channel: channel,
+                  listings: listingsByChannel[channel.id]!,
+                ),
+              )
+              .toList()
+            ..sort((a, b) {
+              final groupOrder = allGroups
+                  .indexOf(categoryOf(a.channel))
+                  .compareTo(allGroups.indexOf(categoryOf(b.channel)));
+              return groupOrder != 0
+                  ? groupOrder
+                  : a.channel.name.compareTo(b.channel.name);
+            });
 
-        // This tab is CHANNEL-first. TV Schedule remains match-first.
-        final epgChannels = guide.channels.where((c) => c.hasGuide).length;
-        final footballChannels = guide.channels
-            .where((c) => listingsByChannel[c.id]!.isNotEmpty)
-            .length;
+          // This tab is CHANNEL-first. TV Schedule remains match-first.
+          final epgChannels = guide.channels.where((c) => c.hasGuide).length;
+          final footballChannels = guide.channels
+              .where((c) => listingsByChannel[c.id]!.isNotEmpty)
+              .length;
 
-        return RefreshIndicator(
-          onRefresh: () async => _refresh(),
-          child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-                sliver: SliverList.list(children: [
-                  if (widget.embedded)
-                    _GuideHeader(
-                      onRefresh: _refresh,
-                    ),
-                  if (widget.embedded) const SizedBox(height: 10),
-                  if (_loadingGuide)
-                    const ListTile(
-                      dense: true,
-                      leading: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2)),
-                      title: Text(
-                          'Updating TV guide… Channels are ready to browse.'),
-                    ),
-                  if (snapshot.hasError && _lastGuide != null) ...[
-                    Card(
-                      color: Theme.of(context).colorScheme.errorContainer,
-                      child: ListTile(
-                        leading: const Icon(Icons.cloud_off_rounded),
-                        title: const Text(
-                            'Refresh failed — showing saved channel guide'),
-                        subtitle: Text(_lastSuccessfulAt == null
-                            ? 'Last successful update unavailable'
-                            : 'Last successful: ${DateFormat('dd MMM HH:mm').format(_lastSuccessfulAt!.toLocal())}'),
-                        trailing: TextButton(
-                          onPressed: _refresh,
-                          child: const Text('RETRY'),
+          return RefreshIndicator(
+            onRefresh: () async => _refresh(),
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                  sliver: SliverList.list(children: [
+                    if (widget.embedded)
+                      _GuideHeader(
+                        onRefresh: _refresh,
+                      ),
+                    if (widget.embedded) const SizedBox(height: 10),
+                    if (_loadingGuide)
+                      const ListTile(
+                        dense: true,
+                        leading: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2)),
+                        title: Text(
+                            'Updating TV guide… Channels are ready to browse.'),
+                      ),
+                    if (snapshot.hasError && _lastGuide != null) ...[
+                      Card(
+                        color: Theme.of(context).colorScheme.errorContainer,
+                        child: ListTile(
+                          leading: const Icon(Icons.cloud_off_rounded),
+                          title: const Text(
+                              'Refresh failed — showing saved channel guide'),
+                          subtitle: Text(_lastSuccessfulAt == null
+                              ? 'Last successful update unavailable'
+                              : 'Last successful: ${DateFormat('dd MMM HH:mm').format(_lastSuccessfulAt!.toLocal())}'),
+                          trailing: TextButton(
+                            onPressed: _refresh,
+                            child: const Text('RETRY'),
+                          ),
                         ),
                       ),
+                      const SizedBox(height: 8),
+                    ],
+                    DropdownButtonFormField<String>(
+                      key: ValueKey('admin-guide-group-$activeGroup'),
+                      value: activeGroup,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Channel group',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        DropdownMenuItem(
+                          value: 'All',
+                          child:
+                              Text('All Channels (${guide.channels.length})'),
+                        ),
+                        for (final group in allGroups)
+                          DropdownMenuItem(
+                            value: group,
+                            child: Text('$group (${counts[group]})'),
+                          ),
+                      ],
+                      onChanged: (group) {
+                        if (group != null)
+                          setState(() => selectedGroup = group);
+                      },
                     ),
                     const SizedBox(height: 8),
-                  ],
-                  DropdownButtonFormField<String>(
-                    key: ValueKey('admin-guide-group-$activeGroup'),
-                    value: activeGroup,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Channel group',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: [
-                      DropdownMenuItem(
-                        value: 'All',
-                        child: Text('All Channels (${guide.channels.length})'),
-                      ),
-                      for (final group in allGroups)
-                        DropdownMenuItem(
-                          value: group,
-                          child: Text('$group (${counts[group]})'),
-                        ),
-                    ],
-                    onChanged: (group) {
-                      if (group != null) setState(() => selectedGroup = group);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Row(children: [
-                    Expanded(
-                        child: Text(
-                            '${guide.channels.where((c) => coverage[c.id] == "ready").length} EPG ready • ${guide.channels.where((c) => coverage[c.id] == "awaiting_guide").length} waiting • ${guide.channels.where((c) => coverage[c.id] == "not_linked").length} not linked',
-                            style: const TextStyle(fontSize: 11))),
-                    PopupMenuButton<String>(
-                        tooltip: 'Filter EPG status',
-                        icon: const Icon(Icons.filter_alt_outlined, size: 19),
-                        onSelected: (value) =>
-                            setState(() => epgFilter = value),
-                        itemBuilder: (_) => const [
-                              PopupMenuItem(
-                                  value: 'all',
-                                  child: Text('All EPG statuses')),
-                              PopupMenuItem(
-                                  value: 'ready', child: Text('EPG ready')),
-                              PopupMenuItem(
-                                  value: 'awaiting_guide',
-                                  child: Text('Linked • awaiting guide')),
-                              PopupMenuItem(
-                                  value: 'not_linked',
-                                  child: Text('Not linked')),
-                            ]),
-                  ]),
-                  SizedBox(
-                    height: 44,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      children: [
-                        for (final group in const [
-                          'All',
-                          'beIN Sports',
-                          'TNT Sports',
-                          'Fubo',
-                          'FanCode',
-                          'CazéTV',
-                          'Arena Sports',
-                          'FOX Sports',
-                        ])
-                          if (group == 'All' || counts.containsKey(group))
-                            Padding(
-                              padding: const EdgeInsets.only(right: 7),
-                              child: ChoiceChip(
-                                label: Text(group == 'All'
-                                    ? 'All (${guide.channels.length})'
-                                    : '$group (${counts[group]})'),
-                                selected: activeGroup == group,
-                                onSelected: (_) =>
-                                    setState(() => selectedGroup = group),
+                    Row(children: [
+                      Expanded(
+                          child: Text(
+                              '${guide.channels.where((c) => coverage[c.id] == "ready").length} EPG ready • ${guide.channels.where((c) => coverage[c.id] == "awaiting_guide").length} waiting • ${guide.channels.where((c) => coverage[c.id] == "not_linked").length} not linked',
+                              style: const TextStyle(fontSize: 11))),
+                      PopupMenuButton<String>(
+                          tooltip: 'Filter EPG status',
+                          icon: const Icon(Icons.filter_alt_outlined, size: 19),
+                          onSelected: (value) =>
+                              setState(() => epgFilter = value),
+                          itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                    value: 'all',
+                                    child: Text('All EPG statuses')),
+                                PopupMenuItem(
+                                    value: 'ready', child: Text('EPG ready')),
+                                PopupMenuItem(
+                                    value: 'awaiting_guide',
+                                    child: Text('Linked • awaiting guide')),
+                                PopupMenuItem(
+                                    value: 'not_linked',
+                                    child: Text('Not linked')),
+                              ]),
+                    ]),
+                    SizedBox(
+                      height: 44,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          for (final group in const [
+                            'All',
+                            'beIN Sports',
+                            'TNT Sports',
+                            'Fubo',
+                            'FanCode',
+                            'CazéTV',
+                            'Arena Sports',
+                            'FOX Sports',
+                          ])
+                            if (group == 'All' || counts.containsKey(group))
+                              Padding(
+                                padding: const EdgeInsets.only(right: 7),
+                                child: ChoiceChip(
+                                  label: Text(group == 'All'
+                                      ? 'All (${guide.channels.length})'
+                                      : '$group (${counts[group]})'),
+                                  selected: activeGroup == group,
+                                  onSelected: (_) =>
+                                      setState(() => selectedGroup = group),
+                                ),
                               ),
-                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 9,
+                      runSpacing: 9,
+                      children: [
+                        _GuideStat(
+                            label: 'Your TV Channels',
+                            value: '${guide.channels.length}',
+                            color: FootballGuideColors.mint),
+                        _GuideStat(
+                            label: 'Channels with TV Guide',
+                            value: '$epgChannels / ${guide.channels.length}',
+                            color: const Color(0xFF93BAFF)),
+                        _GuideStat(
+                            label: 'Live / Next Football EPG',
+                            value: '$footballChannels',
+                            color: const Color(0xFFE2D8FF)),
+                        _GuideStat(
+                            label: 'TV Guide Feeds Online',
+                            value:
+                                '${guide.onlineSources}/${guide.totalSources}',
+                            color: const Color(0xFFF5DB91)),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 9,
-                    runSpacing: 9,
-                    children: [
-                      _GuideStat(
-                          label: 'Your TV Channels',
-                          value: '${guide.channels.length}',
-                          color: FootballGuideColors.mint),
-                      _GuideStat(
-                          label: 'Channels with TV Guide',
-                          value: '$epgChannels / ${guide.channels.length}',
-                          color: const Color(0xFF93BAFF)),
-                      _GuideStat(
-                          label: 'Live / Next Football EPG',
-                          value: '$footballChannels',
-                          color: const Color(0xFFE2D8FF)),
-                      _GuideStat(
-                          label: 'TV Guide Feeds Online',
-                          value: '${guide.onlineSources}/${guide.totalSources}',
-                          color: const Color(0xFFF5DB91)),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'EPG coverage is live guide data, not a fixed 92-channel count. '
-                    'Other sports, replays and highlights are excluded.',
-                    style: const TextStyle(
-                        color: FootballGuideColors.muted,
-                        fontSize: 11,
-                        height: 1.5),
-                  ),
-                  const SizedBox(height: 14),
-                  const Text('📺 YOUR CHANNELS • FOOTBALL EPG',
-                      style: TextStyle(
-                          color: FootballGuideColors.mint,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 12,
-                          letterSpacing: .6)),
-                  const SizedBox(height: 9),
-                  Text(
-                    '${channelListings.length} CHANNEL${channelListings.length == 1 ? '' : 'S'} • LIVE & NEXT MATCHES',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: .65,
+                    const SizedBox(height: 8),
+                    Text(
+                      'EPG coverage is live guide data, not a fixed 92-channel count. '
+                      'Other sports, replays and highlights are excluded.',
+                      style: const TextStyle(
+                          color: FootballGuideColors.muted,
+                          fontSize: 11,
+                          height: 1.5),
                     ),
-                  ),
-                  const SizedBox(height: 7),
-                  if (channelListings.isEmpty) const _NoChannelMatches(),
-                ]),
-              ),
-              if (channelListings.isNotEmpty)
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  sliver: SliverList.builder(
-                    itemCount: channelListings.length,
-                    itemBuilder: (context, index) {
-                      final item = channelListings[index];
-                      final group = categoryOf(item.channel);
-                      final beginsGroup = index == 0 ||
-                          group !=
-                              categoryOf(channelListings[index - 1].channel);
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (beginsGroup)
+                    const SizedBox(height: 14),
+                    const Text('📺 YOUR CHANNELS • FOOTBALL EPG',
+                        style: TextStyle(
+                            color: FootballGuideColors.mint,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12,
+                            letterSpacing: .6)),
+                    const SizedBox(height: 9),
+                    Text(
+                      '${channelListings.length} CHANNEL${channelListings.length == 1 ? '' : 'S'} • LIVE & NEXT MATCHES',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: .65,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    if (channelListings.isEmpty) const _NoChannelMatches(),
+                  ]),
+                ),
+                if (channelListings.isNotEmpty)
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    sliver: SliverList.builder(
+                      itemCount: channelListings.length,
+                      itemBuilder: (context, index) {
+                        final item = channelListings[index];
+                        final group = categoryOf(item.channel);
+                        final beginsGroup = index == 0 ||
+                            group !=
+                                categoryOf(channelListings[index - 1].channel);
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (beginsGroup)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(3, 9, 3, 8),
+                                child: Text(
+                                  group,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.w800),
+                                ),
+                              ),
                             Padding(
-                              padding: const EdgeInsets.fromLTRB(3, 9, 3, 8),
-                              child: Text(
-                                group,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: _ChannelScheduleCard(
+                                channel: item.channel,
+                                listings: item.listings,
                               ),
                             ),
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _ChannelScheduleCard(
-                              channel: item.channel,
-                              listings: item.listings,
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+                          ],
+                        );
+                      },
+                    ),
                   ),
-                ),
-              const SliverToBoxAdapter(child: SizedBox(height: 24)),
-            ],
-          ),
-        );
-      },
-    );
+                const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              ],
+            ),
+          );
+        },
+      );
+    }
+    final content = _retainedContent!;
 
     if (widget.embedded) {
       // Both guide tabs use a dark guide canvas even when the Admin app is
       // in light mode. Scope text, icons and dropdown colors to that canvas
       // so black-on-black labels never disappear.
       return Theme(
-        data: ThemeData.dark(useMaterial3: true).copyWith(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: FootballGuideColors.mint,
-            brightness: Brightness.dark,
-            surface: FootballGuideColors.background,
-          ),
-        ),
+        data: _guideTheme,
         child: ColoredBox(
           color: FootballGuideColors.background,
           child: content,

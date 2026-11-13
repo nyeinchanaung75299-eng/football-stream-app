@@ -740,7 +740,7 @@ async function handleTvSchedule(request, env, incoming, ctx) {
       }),
     } : null;
     const supplements = [
-      ...(cached ? [{source:'cached-regional',ok:true,data:cached}] : []),
+      ...(cached ? [{source:'cached-regional',ok:true,data:withCatalog(cached)}] : []),
       ...enrichment.snapshot(),
       ...(verifiedPublished ? [{source:'github-epg',ok:true,data:verifiedPublished}] : []),
     ];
