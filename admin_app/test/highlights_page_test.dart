@@ -7,6 +7,7 @@ import 'package:football_admin/services/highlights_service.dart';
 class FakeHighlights extends HighlightsService {
   final requests = <String>[];
   bool fail = false;
+  bool noLinks = false;
   static final entry = {'id': 'one', 'provider': 'dasfootball', 'title': 'Home vs Away', 'lines': [
     {'id': 'line', 'label': 'Highlights', 'stream_type': 'hls', 'stream_url': 'https://cdn.example.org/video.m3u8',
       'referer': 'https://example.org/match', 'origin': 'https://example.org'}
@@ -16,7 +17,7 @@ class FakeHighlights extends HighlightsService {
     requests.add(action);
     if (fail) throw StateError('offline');
     if (action == 'check') return {'check': {'status': 'reachable', 'http': 206, 'ms': 10}};
-    if (action == 'details') return {'entry': entry};
+    if (action == 'details') return {'entry': noLinks ? {...entry, 'lines': []} : entry};
     return {'source': 'highlights', 'provider': 'dasfootball', 'updated_at': '2026-11-13T07:00:00Z', 'entries': [entry]};
   }
 }
@@ -36,6 +37,16 @@ void main() {
     await tester.tap(find.text('Retry')); await tester.pumpAndSettle();
     expect(find.text('Retry'), findsNothing);
     expect(find.text('Home vs Away'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('an extraction with no working links removes that row and exposes no fallback', (tester) async {
+    final service = FakeHighlights()..noLinks = true;
+    await tester.pumpWidget(MaterialApp(home: HighlightsPage(service: service))); await tester.pumpAndSettle();
+    await tester.tap(find.text('Home vs Away')); await tester.pumpAndSettle();
+    expect(find.text('Home vs Away'), findsNothing);
+    expect(find.text('Copy URL'), findsNothing);
+    expect(find.textContaining('No working direct link'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

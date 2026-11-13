@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import '../services/highlights_service.dart';
 
 /// Session-scoped, lazy direct-link catalogue. No media is downloaded until
-/// the Admin explicitly requests a first-byte link check.
+/// the Admin requests extracted links or an explicit first-byte link recheck.
 class HighlightsPage extends StatefulWidget {
   const HighlightsPage({super.key, this.service = const HighlightsService()});
   final HighlightsService service;
@@ -85,11 +85,19 @@ class _HighlightsPageState extends State<HighlightsPage> {
       final result = await widget.service.request('details', {'entry_id': row['id']});
       entry = Map<String, dynamic>.from(result['entry'] as Map);
     } catch (_) {
-      _notice('Could not refresh these links. Showing links already extracted from the list.');
-      entry = row;
+      _notice('Could not extract links. Please retry.');
+      return;
     } finally { if (mounted) setState(() => _opening = false); }
     if (!mounted) return;
     final lines = highlightMaps(entry['lines']);
+    setState(() {
+      final entries = highlightMaps(_data?['entries']);
+      _data = {...?_data, 'entries': [for (final item in entries) item['id'] == entry['id'] ? entry : item]};
+    });
+    if (lines.isEmpty) {
+      _notice('No working direct link was returned by this source. Refresh later to try again.');
+      return;
+    }
     final checks = <String, String>{};
     final checking = <String>{};
     await showModalBottomSheet<void>(context: context, showDragHandle: true,
@@ -109,7 +117,8 @@ class _HighlightsPageState extends State<HighlightsPage> {
                 for (final field in ['referer', 'origin', 'user_agent'])
                   if (line[field] != null) SelectableText('$field: ${line[field]}', style: const TextStyle(fontSize: 12), maxLines: 2),
                 const SizedBox(height: 8),
-                Text(checks[line['id']] ?? 'Link not checked', style: const TextStyle(fontSize: 12)),
+                Text(checks[line['id']] ?? (line['link_check'] is Map
+                  ? 'Link reachable • HTTP ${(line['link_check'] as Map)['http']}' : 'Link not checked'), style: const TextStyle(fontSize: 12)),
                 Wrap(spacing: 6, children: [
                   TextButton.icon(icon: const Icon(Icons.copy, size: 18), label: const Text('Copy URL'),
                     onPressed: () => _copy(line['stream_url'].toString())),

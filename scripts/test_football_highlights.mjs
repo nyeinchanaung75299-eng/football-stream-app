@@ -64,16 +64,18 @@ test('an initial source outage is explicit with no fabricated links or player fa
   const result=await footballHighlights({provider:'dasfootball',force:true},{fetcher:async()=>new Response('denied',{status:503})});
   assert.equal(result.unavailable,true);assert.deepEqual(result.entries,[]);
 });
-test('catalogue calls coalesce, details expose extracted links without media fetches, and refresh failures retain the prior list',async()=>{
+test('catalogue calls coalesce; extraction checks only requested link bytes and retains successful data after a failed refresh',async()=>{
   let calls=0,failed=false;
-  const fetcher=async target=>{calls++;assert.equal(target,'https://dasfootball.com/');
+  const fetcher=async target=>{calls++;if(target===video.embedUrl)return new Response(new Uint8Array([0,0,0,24,102,116,121,112]),{status:206});assert.equal(target,'https://dasfootball.com/');
     await new Promise(resolve=>setTimeout(resolve,5));
     return failed?new Response('unavailable',{status:503}):response(html([video]));};
   const a={provider:'dasfootball',force:true};
   const [one,two]=await Promise.all([footballHighlights(a,{fetcher}),footballHighlights(a,{fetcher})]);
   assert.equal(calls,1);assert.equal(one.total,1);assert.deepEqual(one,two);
   const details=await footballHighlights({provider:'dasfootball',action:'details',entry_id:one.entries[0].id},{fetcher});
-  assert.equal(details.entry.lines[0].stream_url,video.embedUrl);assert.equal(calls,1);
+  assert.equal(details.entry.lines[0].stream_url,video.embedUrl);assert.equal(calls,2);
+  assert.equal(details.entry.lines[0].link_check.status,'reachable');
+  await footballHighlights({provider:'dasfootball',action:'details',entry_id:one.entries[0].id},{fetcher});assert.equal(calls,2);
   failed=true;const stale=await footballHighlights(a,{fetcher});
   assert.equal(stale.stale,true);assert.equal(stale.entries.length,1);assert.equal(stale.updated_at,one.updated_at);
 });
@@ -81,6 +83,13 @@ test('unpublished entry and line URLs cannot turn extraction into an arbitrary U
   let calls=0;const fetcher=async url=>{calls++;assert.equal(url,'https://dasfootball.com/');return response(html([video]));};
   await assert.rejects(footballHighlights({provider:'dasfootball',action:'check',entry_id:'https://private.example.org/video.mp4',line_id:'fake'},{fetcher}));
   assert.equal(calls,0); // The previous fresh public catalogue is reused.
+});
+test('Get links excludes unreachable URLs instead of returning website or video-player fallbacks',async()=>{
+  const fetcher=async url=>url==='https://dasfootball.com/'?response(html([{...video,embedUrl:'https://cdn.example.org/deleted.mp4'}])):new Response('gone',{status:404});
+  const data=await footballHighlights({force:true},{fetcher});
+  const details=await footballHighlights({action:'details',entry_id:data.entries[0].id},{fetcher});
+  assert.deepEqual(details.entry.lines,[]);
+  const list=await footballHighlights({}, {fetcher});assert.deepEqual(list.entries,[]);
 });
 test('Highlights ships no player asset or player/browser-launch dependency',()=>{
   assert.equal(existsSync(new URL('../admin_app/web/highlight_player.html',import.meta.url)),false);

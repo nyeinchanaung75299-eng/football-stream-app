@@ -129,10 +129,23 @@ export async function footballHighlights(body,{fetcher=fetch}={}) {
   const action=String(body.action || 'catalog');
   if (!['catalog','details','check'].includes(action)) throw Error('Unsupported highlights action');
   const data=await catalogue(fetcher,body.force===true);
-  if (action==='catalog') return {ok:true,source:'highlights',provider,sources:highlightSources,...data,total:data.entries.length};
+  if (action==='catalog') {
+    const entries=data.entries.filter(row=>row.lines.length);
+    return {ok:true,source:'highlights',provider,sources:highlightSources,...data,entries,total:entries.length};
+  }
   const entry=data.entries.find(row=>row.id===body.entry_id);
   if (!entry) throw Error('This highlight is no longer in the source. Refresh the list.');
-  if (action==='details') return {ok:true,source:'highlights',provider,entry};
+  if (action==='details') {
+    if (!entry.links_checked_at || Date.now()-Date.parse(entry.links_checked_at)>300000) {
+      const checks=await Promise.all(entry.lines.slice(0,8).map(async line=>{
+        const link_check=await checkHighlightLine(line,{fetcher});
+        return link_check.status==='reachable'?{...line,health_status:'reachable',link_check}:null;
+      }));
+      entry.lines=checks.filter(Boolean);
+      entry.links_checked_at=new Date().toISOString();
+    }
+    return {ok:true,source:'highlights',provider,entry};
+  }
   const line=entry.lines.find(item=>item.id===body.line_id);
   if (!line) throw Error('This video link changed. Reopen the highlight.');
   return {ok:true,source:'highlights',provider,check:await checkHighlightLine(line,{fetcher})};
