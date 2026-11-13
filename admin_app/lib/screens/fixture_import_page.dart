@@ -557,6 +557,92 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     });
   }
 
+  Future<void> _publishRepositorySelection(
+      List<Map<String, dynamic>> chosen) async {
+    var published = 0;
+    var deleted = 0;
+    final errors = <String>[];
+    final ids = <String>[];
+    final client = Supabase.instance.client;
+    final userId = client.auth.currentUser?.id;
+    for (final row in chosen) {
+      if (!mounted || client.auth.currentUser?.id != userId) return;
+      final entryId = row['repository_entry_id']?.toString() ?? '';
+      final title = '${row['home_name']} vs ${row['away_name']}';
+      if (entryId.isEmpty) continue;
+      DateTime? kickoff = DateTime.tryParse(
+        row['kickoff_at']?.toString() ?? '',
+      )?.toUtc();
+      if (kickoff == null) {
+        final raw = row['repository_entry'];
+        if (raw is! Map) continue;
+        kickoff = await showModalBottomSheet<DateTime>(
+          context: context,
+          useSafeArea: true,
+          showDragHandle: true,
+          isScrollControlled: true,
+          builder: (_) => RepositoryMatchImportSheet(
+            entry: Map<String, dynamic>.from(raw),
+          ),
+        );
+        if (!mounted || client.auth.currentUser?.id != userId) return;
+        if (kickoff == null) {
+          errors.add('$title: kickoff was not selected');
+          continue;
+        }
+      }
+      try {
+        final response = await client.rpc('publish_repository_match', params: {
+          'p_entry_id': entryId,
+          'p_kickoff_at': kickoff.toUtc().toIso8601String(),
+        }).timeout(const Duration(seconds: 20));
+        if (!mounted || client.auth.currentUser?.id != userId) return;
+        final result = response is Map ? resultMap(response) : <String, dynamic>{};
+        if (result['ok'] == true) {
+          published++;
+          final id = result['match_id']?.toString() ?? '';
+          if (id.isNotEmpty) ids.add(id);
+        } else if (result['code'] == 'previously_deleted') {
+          deleted++;
+        } else {
+          final reason = switch (result['code']) {
+            'previously_finished' => 'existing match already finished',
+            'no_importable_lines' => 'no usable native stream lines',
+            'ambiguous_match' => 'more than one existing match matched',
+            'source_missing' => 'repository entry is no longer available',
+            'metadata_pending' => 'missing team names',
+            'kickoff_required' => 'kickoff confirmation required',
+            _ => 'not published',
+          };
+          errors.add('$title: $reason');
+        }
+      } catch (_) {
+        errors.add('$title: request failed; check Controls before retrying');
+      }
+    }
+    if (!mounted || client.auth.currentUser?.id != userId) return;
+    if (published > 0) widget.onPublished?.call();
+    setState(() => selectedIds.clear());
+    final details = <String>[
+      '$published Repository match(es) processed.',
+      if (deleted > 0)
+        '$deleted previously deleted match(es) were kept deleted. Restore explicitly in Controls.',
+      for (final issue in errors.take(3)) issue,
+    ].join(' ');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(details), duration: const Duration(seconds: 7)),
+    );
+    if (published == 1 && ids.isNotEmpty && errors.isEmpty && deleted == 0) {
+      await Navigator.of(context).push<void>(MaterialPageRoute(
+        settings: const RouteSettings(name: '/admin/stream-servers'),
+        builder: (_) => LiveLinksPage(initialMatchId: ids.first),
+      ));
+    }
+  }
+
+  Map<String, dynamic> resultMap(Map response) =>
+      Map<String, dynamic>.from(response);
+
   Future<void> importSelected() async {
     if (importing || loading) return;
     final chosen = fixtures
@@ -573,6 +659,10 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     setState(() => importing = true);
 
     try {
+      if (fixtureSource == 'repository') {
+        await _publishRepositorySelection(chosen);
+        return;
+      }
       final payload = chosen
           .map(
             (f) => <String, dynamic>{
@@ -723,6 +813,16 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           ),
         );
       }
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+      final deleted = e.message.contains('All selected matches were previously deleted');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(deleted
+            ? 'These matches were deleted in Controls. Nothing was republished. '
+              'Choose a different match or restore explicitly in Controls.'
+            : 'Publish failed: ${e.message}'),
+        duration: const Duration(seconds: 6),
+      ));
     } on TimeoutException {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
