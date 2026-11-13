@@ -191,3 +191,21 @@ test("small normal HTML is reported as fully scanned",async()=>{
   const data=await response.json();
   assert.equal(data.partial,false);
 });
+
+test('manual website scan follows public station JSON across hosts without leaking Admin credentials',async()=>{
+ const encoded=Buffer.from('https://cdn.example.org/station.m3u8').toString('base64');
+ const seen=[];
+ const fetchImpl=async (url,init)=>{
+  if(String(url).endsWith('/auth/v1/user'))return Response.json({id});
+  if(String(url).includes('/rest/v1/profiles?'))return Response.json([{role:'admin'}]);
+  seen.push({url:String(url),headers:new Headers(init?.headers)});
+  if(String(url)==='https://tv.example.org/station')return new Response('<script type="application/json">'+JSON.stringify({servers:[{playback_type:'iframe',server_url:'https://player.example.org/frame'}]})+'</script>',{headers:{'content-type':'text/html'}});
+  return new Response('<div data-uid="aplr_live_station" data-src="'+encoded+'"></div>',{headers:{'content-type':'text/html'}});
+ };
+ const request=new Request('https://worker.example/admin/stream-detect',{method:'POST',headers:{Authorization:'Bearer authorized-test-token-123'},body:JSON.stringify({url:'https://tv.example.org/station',authorized:true})});
+ const res=await handleWebsiteStreamScan(request,env,{fetchImpl});const body=await res.json();
+ assert.equal(body.links.length,1);assert.equal(body.links[0].url,'https://cdn.example.org/station.m3u8');
+ assert.equal(body.links[0].referer,'https://player.example.org/frame');
+ assert.ok(seen.some(x=>x.url==='https://player.example.org/frame'));
+ for(const {headers}of seen){assert.equal(headers.has('Authorization'),false);assert.equal(headers.has('apikey'),false);}
+});

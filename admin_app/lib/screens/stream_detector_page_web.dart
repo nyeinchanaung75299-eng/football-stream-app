@@ -15,7 +15,10 @@ import 'source_player_page.dart';
 /// Web edition: server-side HTML/source scan plus manual direct-link fallback.
 /// A web page cannot read cross-origin player network traffic on its own.
 class StreamDetectorPage extends StatefulWidget {
-  const StreamDetectorPage({super.key});
+  const StreamDetectorPage(
+      {super.key, this.initialUrl = '', this.selectionMode = false});
+  final String initialUrl;
+  final bool selectionMode;
 
   @override
   State<StreamDetectorPage> createState() => _StreamDetectorPageState();
@@ -41,6 +44,18 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
   DetectedStream? _manualResult;
 
   @override
+  void initState() {
+    super.initState();
+    final uri = Uri.tryParse(widget.initialUrl.trim());
+    if (uri != null &&
+        const {'http', 'https'}.contains(uri.scheme.toLowerCase()) &&
+        uri.host.isNotEmpty &&
+        uri.userInfo.isEmpty) {
+      _website.text = uri.toString();
+    }
+  }
+
+  @override
   void dispose() {
     _website.dispose();
     _manual.dispose();
@@ -55,7 +70,8 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
     final target = Uri.tryParse(rawUrl);
     if (target == null ||
         !const {'http', 'https'}.contains(target.scheme.toLowerCase()) ||
-        target.host.isEmpty || target.userInfo.isNotEmpty) {
+        target.host.isEmpty ||
+        target.userInfo.isNotEmpty) {
       setState(() => _scanError = 'Enter a full http(s) website URL.');
       return;
     }
@@ -68,16 +84,19 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
       _detected.clear();
     });
     try {
-      final result = await _scanner.scan(
-        rawUrl, browser: _scanMode == 'browser',
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => throw TimeoutException(
-          'Scan did not finish within 30 seconds. Check the network '
-          'or switch to HTML Scan. Avoid repeated Browser Run scans '
-          'to conserve the Free quota.',
-        ),
-      );
+      final result = await _scanner
+          .scan(
+            rawUrl,
+            browser: _scanMode == 'browser',
+          )
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () => throw TimeoutException(
+              'Scan did not finish within 30 seconds. Check the network '
+              'or switch to HTML Scan. Avoid repeated Browser Run scans '
+              'to conserve the Free quota.',
+            ),
+          );
       if (!mounted) return;
       final seen = <String>{};
       setState(() {
@@ -110,10 +129,12 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
     if (text.trim().isEmpty) return null;
     final uri = Uri.tryParse(text.trim());
     if (text.length > 2048 ||
-        text.contains('\n') || text.contains('\r') ||
+        text.contains('\n') ||
+        text.contains('\r') ||
         uri == null ||
         !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
-        uri.host.isEmpty || uri.userInfo.isNotEmpty) {
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
       return name + ' must be an HTTP(S) URL.';
     }
     return null;
@@ -163,7 +184,9 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
         referer: referer,
         origin: _origin.text.trim().isNotEmpty
             ? Uri.parse(_origin.text.trim()).origin
-            : referer.isEmpty ? '' : Uri.parse(referer).origin,
+            : referer.isEmpty
+                ? ''
+                : Uri.parse(referer).origin,
       );
     });
   }
@@ -251,6 +274,12 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                   icon: const Icon(Icons.copy),
                   label: const Text('Copy URL'),
                 ),
+                if (stream.referer.isNotEmpty || stream.origin.isNotEmpty)
+                  OutlinedButton.icon(
+                      onPressed: () => Clipboard.setData(
+                          ClipboardData(text: stream.copyDetails)),
+                      icon: const Icon(Icons.copy_all_rounded),
+                      label: const Text('Copy details')),
                 OutlinedButton.icon(
                   onPressed: () => _test(stream),
                   icon: const Icon(Icons.play_arrow),
@@ -270,9 +299,12 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                   ),
                 ],
                 FilledButton.icon(
-                  onPressed: () => _add(stream),
+                  onPressed: () => widget.selectionMode
+                      ? Navigator.pop(context, stream)
+                      : _add(stream),
                   icon: const Icon(Icons.add_link),
-                  label: const Text('Add to Servers'),
+                  label: Text(
+                      widget.selectionMode ? 'USE LINE' : 'Add to Servers'),
                 ),
               ],
             ),
@@ -339,16 +371,18 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                             child: Text('HTML Scan (no browser usage)'),
                           ),
                         ],
-                        onChanged: _scanning ? null : (value) {
-                          if (value == null) return;
-                          setState(() {
-                            _scanMode = value;
-                            _scanNote = null;
-                            _scanError = null;
-                            _partialScan = false;
-                            _detected.clear();
-                          });
-                        },
+                        onChanged: _scanning
+                            ? null
+                            : (value) {
+                                if (value == null) return;
+                                setState(() {
+                                  _scanMode = value;
+                                  _scanNote = null;
+                                  _scanError = null;
+                                  _partialScan = false;
+                                  _detected.clear();
+                                });
+                              },
                       ),
                       if (_scanMode == 'browser') ...[
                         const SizedBox(height: 6),
@@ -364,9 +398,11 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                         key: const Key('scan-authorized'),
                         contentPadding: EdgeInsets.zero,
                         value: _approved,
-                        onChanged: _scanning ? null : (v) =>
-                            setState(() => _approved = v ?? false),
-                        title: const Text('I have permission to inspect this page'),
+                        onChanged: _scanning
+                            ? null
+                            : (v) => setState(() => _approved = v ?? false),
+                        title: const Text(
+                            'I have permission to inspect this page'),
                         controlAffinity: ListTileControlAffinity.leading,
                         dense: true,
                       ),
@@ -382,17 +418,21 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                       const SizedBox(height: 8),
                       FilledButton.icon(
                         key: const Key('scan-website'),
-                        onPressed: _approved && !_scanning ? _scanWebsite : null,
+                        onPressed:
+                            _approved && !_scanning ? _scanWebsite : null,
                         icon: _scanning
                             ? const SizedBox(
                                 height: 18,
                                 width: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.radar),
-                        label: Text(_scanning ? 'SCANNING WEBSITE...'
-                            : _scanMode == 'browser' ? 'DETECT NETWORK STREAMS'
-                            : 'SCAN WEBSITE HTML'),
+                        label: Text(_scanning
+                            ? 'SCANNING WEBSITE...'
+                            : _scanMode == 'browser'
+                                ? 'DETECT NETWORK STREAMS'
+                                : 'SCAN WEBSITE HTML'),
                       ),
                     ],
                   ),
@@ -435,11 +475,11 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                         Text(
                           _scanMode == 'browser'
                               ? 'Some players need an explicit Play click, login '
-                                'or a licensed DRM session. Browser mode does not '
-                                'bypass these requirements.'
+                                  'or a licensed DRM session. Browser mode does not '
+                                  'bypass these requirements.'
                               : 'HTML mode cannot see media requests made after '
-                                'video playback. Select Browser Network Detect '
-                                'to observe those requests when authorized.',
+                                  'video playback. Select Browser Network Detect '
+                                  'to observe those requests when authorized.',
                         ),
                         if (_scanMode == 'browser' &&
                             _diagnostics.isNotEmpty) ...[
@@ -478,8 +518,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                               'Page HTTP status: ${_diagnostics['pageHttpStatus']}',
                             ),
                           const SizedBox(height: 8),
-                          if (_scanNote != null)
-                            Text(_scanNote!),
+                          if (_scanNote != null) Text(_scanNote!),
                         ],
                         const SizedBox(height: 10),
                         OutlinedButton.icon(
@@ -501,8 +540,8 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
               if (_scanNote != null || _detected.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Text(
-                  'Found streams (${_detected.length})'
-                  + (_partialScan ? ' · Partial scan' : ''),
+                  'Found streams (${_detected.length})' +
+                      (_partialScan ? ' · Partial scan' : ''),
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 if (_partialScan) ...[
@@ -527,7 +566,8 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                 child: ExpansionTile(
                   key: const Key('manual-mode-expander'),
                   title: const Text('Manual direct stream link'),
-                  subtitle: const Text('Optional: test a known M3U8 / MPD / MP4 URL'),
+                  subtitle:
+                      const Text('Optional: test a known M3U8 / MPD / MP4 URL'),
                   childrenPadding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
                   children: [
                     TextField(
@@ -545,11 +585,14 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                     DropdownButtonFormField<String>(
                       key: const Key('web-stream-type'),
                       value: _manualType,
-                      decoration: const InputDecoration(labelText: 'Stream type'),
+                      decoration:
+                          const InputDecoration(labelText: 'Stream type'),
                       items: const [
                         DropdownMenuItem(value: 'auto', child: Text('Auto')),
-                        DropdownMenuItem(value: 'hls', child: Text('HLS / M3U8')),
-                        DropdownMenuItem(value: 'dash', child: Text('DASH / MPD')),
+                        DropdownMenuItem(
+                            value: 'hls', child: Text('HLS / M3U8')),
+                        DropdownMenuItem(
+                            value: 'dash', child: Text('DASH / MPD')),
                         DropdownMenuItem(value: 'mp4', child: Text('MP4')),
                         DropdownMenuItem(value: 'flv', child: Text('FLV')),
                       ],
@@ -565,8 +608,8 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                     ),
                     TextField(
                       controller: _origin,
-                      decoration: const InputDecoration(
-                          labelText: 'Origin (optional)'),
+                      decoration:
+                          const InputDecoration(labelText: 'Origin (optional)'),
                     ),
                     const SizedBox(height: 12),
                     FilledButton.icon(

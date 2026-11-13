@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 
 import '../analytics_service.dart';
 import 'soco_import_page.dart';
+import 'stream_detector_page.dart'
+    if (dart.library.html) 'stream_detector_page_web.dart';
 
 /// Source selection lives in its own bottom navigation destination so source
 /// providers do not crowd the live-management controls.
 class StreamSourcePickerPage extends StatelessWidget {
-  const StreamSourcePickerPage({super.key, this.embedded = false, this.onSourceMutated});
+  const StreamSourcePickerPage(
+      {super.key, this.embedded = false, this.onSourceMutated});
 
   final bool embedded;
+
   /// Trigger guide invalidation only after a confirmed successful line save.
   final VoidCallback? onSourceMutated;
 
@@ -63,13 +67,27 @@ class StreamSourcePickerPage extends StatelessWidget {
         if (index == 0) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 4),
-            child: Text(
-              'Stream Sources',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -.4,
-                  ),
-            ),
+            child: Row(children: [
+              Expanded(
+                  child: Text(
+                'Stream Sources',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -.4),
+              )),
+              TextButton.icon(
+                onPressed: () =>
+                    Navigator.of(context).push<void>(MaterialPageRoute(
+                  settings: const RouteSettings(name: '/admin/stream-detector'),
+                  builder: (_) => const StreamDetectorPage(),
+                )),
+                icon: const Icon(Icons.link_rounded, size: 18),
+                label: const Text('PLAYER URL'),
+              ),
+            ]),
           );
         }
         final source = _sources[index - 1];

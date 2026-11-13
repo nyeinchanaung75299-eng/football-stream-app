@@ -151,3 +151,37 @@ test('sponsor and preroll videos are never exported as programme links',async()=
   '<script>var preroll="https://cdn.example.org/ads/pre-roll.mp4";var actual="https://cdn.example.org/adelaide-vs-sydney.mp4";</script>')});
  assert.deepEqual(r.lines.map(x=>x.url),['https://cdn.example.org/adelaide-vs-sydney.mp4']);
 });
+
+test('VIP server dropdown buttons and cross-origin script bootstrap are published player references',async()=>{
+ const r=await discoverPublicMedia('https://www.viprow.lc/event-2',{fetcher:async url=>{
+  if(url==='https://www.viprow.lc/event-2')return response('<script src="https://scripts.example.org/embed.min.js" data-play="event-42"></script><button data-uri="/event-1">Link 1 <span>HD</span></button>');
+  if(url==='https://scripts.example.org/embed.min.js')return response('','text/javascript');
+  if(url==='https://www.viprow.lc/event-1')return response('<iframe src=https://player.example.org/frame></iframe>');
+  return response('var file="https://cdn.example.org/live.m3u8";');
+ }});
+ assert.equal(r.lines[0].url,'https://cdn.example.org/live.m3u8');
+ assert.equal(r.lines[0].referer,'https://player.example.org/frame');
+});
+test('typed station JSON and AlbaPlayer source data resolve without running page JavaScript',async()=>{
+ const encoded=Buffer.from('https://cdn.example.org/one.m3u8,https://backup.example.org/two.m3u8').toString('base64');
+ const r=await discoverPublicMedia('https://hd1.hdkora.site/bein-6',{fetcher:async url=>{
+  if(url==='https://hd1.hdkora.site/bein-6')return response('<script type="application/json" data-station-player-data>'+JSON.stringify({servers:[{playback_type:'iframe',server_url:'https://player.example.org/station'}]})+'</script>');
+  return response('<div data-uid="aplr_live_42" data-src="'+encoded+'" data-type="clappr"></div>');
+ }});
+ assert.equal(r.lines.length,2);assert.equal(r.lines[0].referer,'https://player.example.org/station');
+ assert.equal(r.lines[1].url,'https://backup.example.org/two.m3u8');
+});
+test('extensionless player media is classified by response MIME and keeps DASH type and label',async()=>{
+ const page='https://crichd.pk/event/home-vs-away';
+ const r=await experimentalStreams('crichd',{page_url:page},{fetcher:async url=>
+  url===page?response('<iframe src="https://player.example.org/frame"></iframe>'):
+  url==='https://player.example.org/frame'?response('<video src="https://cdn.example.org/play?id=42"></video>'):
+  response('<MPD></MPD>','application/dash+xml')});
+ assert.equal(r.lines[0].stream_type,'dash');assert.match(r.lines[0].label,/DASH/);
+ assert.equal(r.lines[0].referer,'https://player.example.org/frame');
+});
+test('unrelated base64 data is not interpreted as a stream and a blocked bootstrap stays unready',async()=>{
+ const r=await discoverPublicMedia('https://www.viprow.lc/event',{fetcher:async url=>url.includes('embed.js')?
+  new Response('Blocked',{status:403}):response('<div data-src="'+Buffer.from('https://ads.example.org/fake.mp4').toString('base64')+'"></div><script src="https://scripts.example.org/embed.js" data-play="42"></script>')});
+ assert.equal(r.lines.length,0);assert.ok(r.failures.some(x=>x.includes('HTTP 403')));
+});

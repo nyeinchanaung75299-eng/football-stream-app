@@ -64,4 +64,24 @@ void main() {
     expect(item.url, isNot(contains('topsecret')));
     expect(item.referer, isNot(contains('topsecret')));
   });
+  test(
+      'late request headers replace page guesses without retaining credentials',
+      () {
+    final first = DetectedStream.fromRequest(
+        'https://cdn.example.com/live.m3u8',
+        pageUrl: 'https://catalog.example.com/match')!;
+    final updated = first.withPublicRequestHeaders({
+      'Referer': 'https://player.example.com/embed/1',
+      'Origin': 'https://player.example.com',
+      'Cookie': 'private-cookie',
+      'Authorization': 'Bearer private-auth',
+    });
+    expect(updated.referer, 'https://player.example.com/embed/1');
+    expect(updated.origin, 'https://player.example.com');
+    expect(updated.copyDetails,
+        contains('Referer: https://player.example.com/embed/1'));
+    expect(updated.copyDetails, isNot(contains('private-')));
+    expect(updated.withPublicRequestHeaders({'Cookie': 'other'}).referer,
+        updated.referer);
+  });
 }

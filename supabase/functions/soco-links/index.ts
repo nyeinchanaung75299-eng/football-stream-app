@@ -114,8 +114,9 @@ Deno.serve(async (req) => {
       const publishedCount = (resolved.lines ?? []).length;
       const accessDenied = checked.some((line: any) =>
         [401, 403].includes(Number(line.health_http)));
+      const blockedPlayer = resolved.diagnostics?.access_denied === true;
       const diagnosticCode = lines.length > 0 ? "manifest_reachable" :
-        publishedCount === 0 ? "no_public_manifest" :
+        publishedCount === 0 ? (blockedPlayer ? "player_access_denied" : "no_public_manifest") :
         accessDenied ? "manifest_access_denied" : "manifest_probe_failed";
       if (statusOnly) {
         return json({ ok: true, source, ready: lines.length > 0,
@@ -124,6 +125,8 @@ Deno.serve(async (req) => {
       }
       const explanation = lines.length > 0
         ? "Public manifest responded to the first-byte check. Verify actual playback before importing."
+        : publishedCount === 0 && blockedPlayer
+        ? "The public player script or frame denied this server request (HTTP 401/403). It may work in your browser, but no native media URL was confirmed."
         : publishedCount === 0
         ? "No public HLS/DASH/MP4 URL was found in the readable page HTML/JSON. This website may load video through its own player or authorized API."
         : accessDenied
