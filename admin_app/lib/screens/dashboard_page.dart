@@ -191,7 +191,7 @@ class _DashboardPageState extends State<DashboardPage> {
             selectedIcon: Icon(Icons.tv_rounded),
             label: 'My Channels',
           ),
-          if (kIsWeb) NavigationDestination(
+          NavigationDestination(
             icon: Icon(Icons.video_library_outlined),
             selectedIcon: Icon(Icons.video_library_rounded),
             label: 'Highlights',

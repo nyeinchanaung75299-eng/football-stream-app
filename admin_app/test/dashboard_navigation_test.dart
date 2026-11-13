@@ -1,23 +1,23 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:football_admin/screens/dashboard_page.dart';
+import 'package:football_admin/screens/highlights_page.dart';
 import 'package:football_admin/services/diagnostics_service.dart';
 
 void main() {
   testWidgets(
       'Bottom tabs keep controls usable and never scan automatically',
       (tester) async {
-    tester.view.physicalSize = const Size(390, 844);
+    tester.view.physicalSize = const Size(320, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     var requests = 0;
     await http.runWithClient(() async {
       await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
-      expect(find.byType(NavigationDestination), findsNWidgets(kIsWeb ? 6 : 5));
+      expect(find.byType(NavigationDestination), findsNWidgets(6));
       final destinations = tester
           .widgetList<NavigationDestination>(
             find.byType(NavigationDestination),
@@ -25,7 +25,7 @@ void main() {
           .toList();
       expect(
         destinations.map((destination) => destination.label),
-      ['Controls', 'Sources', 'Tools', 'TV Schedule', 'My Channels', if (kIsWeb) 'Highlights'],
+      ['Controls', 'Sources', 'Tools', 'TV Schedule', 'My Channels', 'Highlights'],
       );
       expect(find.text('Stream Detector'), findsNothing);
       expect(find.text('Pick Big Matches'), findsOneWidget);
@@ -74,6 +74,14 @@ void main() {
       expect(find.text('Channel Health'), findsNothing);
       // Tools should only rearrange navigation, not invoke any network sync.
       expect(requests, 0);
+      expect(find.byType(HighlightsPage), findsNothing);
+      await tester.tap(find.text('Highlights').last);
+      await tester.pumpAndSettle();
+      expect(find.byType(HighlightsPage), findsOneWidget);
+      expect(find.text('Search teams or highlights'), findsOneWidget);
+      await tester.tap(find.text('Controls').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Pick Big Matches'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },
