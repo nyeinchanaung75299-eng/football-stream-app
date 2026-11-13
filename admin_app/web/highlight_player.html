@@ -15,7 +15,7 @@ const media=publicUrl(params.get('url')),source=publicUrl(params.get('source'));
 document.getElementById('title').textContent=params.get('title')||'Highlight preview';
 if(source){const a=document.getElementById('source');a.href=source.href;a.hidden=false;}
 let engine,engineReady;
-function ensureEngine(){return engineReady??=new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='../vendor/shaka-player.compiled.js';s.onload=resolve;s.onerror=reject;document.head.append(s);});}
+function ensureEngine(){return engineReady??=new Promise((resolve,reject)=>{const s=document.createElement('script'),timer=setTimeout(()=>reject(Error('Player load timeout')),8000);s.src='../vendor/shaka-player.compiled.js';s.onload=()=>{clearTimeout(timer);resolve();};s.onerror=()=>{clearTimeout(timer);reject(Error('Player unavailable'));};document.head.append(s);}).catch(error=>{engineReady=null;throw error;});}
 load.onclick=async()=>{
   if(!media||! /\.(m3u8|mp4)$/i.test(media.pathname)){status.textContent='Invalid HLS / MP4 URL.';return;}
   load.disabled=true;status.textContent='Loading preview…';
@@ -23,11 +23,13 @@ load.onclick=async()=>{
     if(engine){await engine.destroy();engine=null;}
     if(/\.m3u8$/i.test(media.pathname)&&!video.canPlayType('application/vnd.apple.mpegurl')){
       await ensureEngine();shaka.polyfill.installAll();engine=new shaka.Player();await engine.attach(video);
+      engine.configure({manifest:{retryParameters:{maxAttempts:1,timeout:8000}},streaming:{retryParameters:{maxAttempts:1,timeout:10000}}});
       engine.addEventListener('error',()=>{status.textContent='Playback failed. Try the original website.';});
       await engine.load(media.href);
     }else{video.src=media.href;video.load();}
     status.textContent='Source loaded. Press play to verify playback.';
-    video.play().catch(()=>{status.textContent='Press play to start the preview.';});
+    video.play().catch(error=>{status.textContent=error.name==='NotAllowedError'&&!video.error?
+      'Press play to start the preview.':'Video could not be played. Try the original website.';});
   }catch{status.textContent='Could not load this source. Try the original website.';}
   finally{load.disabled=false;load.textContent='Reload preview';}
 };
