@@ -118,19 +118,7 @@ class SocoImportPage extends StatefulWidget {
 
 class _SocoImportPageState extends State<SocoImportPage> {
   static const _experimentalSourceNames = <String, String>{
-    'camel': 'Camel Live',
-    'xoilac': 'Xoilac TV',
-    'livetv': 'LiveTV',
     'rojadirecta': 'Rojadirecta',
-    'crichd': 'CricHD',
-    'roxie': 'RoxieStreams',
-    'vipbox': 'VIPBox',
-    'viprow': 'VIPRow',
-    'score088': 'Score088TV',
-    'sports808': 'LiveSports808',
-    'livextv': 'LiveXTV',
-    'streamfree': 'StreamFree',
-    'ppv': 'PPV.st',
   };
   bool get _isExperimentalSource =>
       _experimentalSourceNames.containsKey(source);
