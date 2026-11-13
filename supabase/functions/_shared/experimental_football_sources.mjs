@@ -4,19 +4,10 @@
 import {publicSourceUrl, readPublicSource, discoverPublicMedia} from './public_source_media.mjs';
 import {hasPublicFootballFeed, publicFootballFeedMatches, publicFootballFeedPlayer, configuredPublicMedia} from './public_football_feeds.mjs';
 export const experimentalFootballSites = Object.freeze({
-  camel:     { label: "Camel Live",       home: "https://www.camel1.tv/",                      host: "camel1.tv" },
-  xoilac:    { label: "Xoilac TV",        home: "https://xoilacls.tv/",                        host: "xoilacls.tv" },
-  livetv:    { label: "LiveTV",           home: "https://livetv.li/soccer",                   host: "livetv.li", aliases:["livetvsx.org"] },
-  rojadirecta:{label: "Rojadirecta",     home: "https://www.rojadirectavivo.me/live-football", host: "rojadirectavivo.me" },
-  crichd:    { label: "CricHD",           home: "https://crichd.pk/sports/soccer-streams",                         host: "crichd.pk" },
-  roxie:     { label: "RoxieStreams",     home: "https://roxiestreams.su/soccer",             host: "roxiestreams.su" },
-  vipbox:    { label: "VIPBox",           home: "https://www.vipboxtv.st/football-stream",    host: "vipboxtv.st" },
-  viprow:    { label: "VIPRow",           home: "https://www.viprow.lc/sports-football-online",host: "viprow.lc" },
-  score088:  { label: "Score088TV",       home: "https://www.score088tv.live/football",        host: "score088tv.live" },
-  sports808: { label: "LiveSports808",    home: "https://www.livesports808.cc/football?lang=2",host: "livesports808.cc" },
-  livextv:   { label: "LiveXTV",          home: "https://livextv.pro/",                       host: "livextv.pro" },
-  streamfree:{label: "StreamFree",       home: "https://strmfree.st/",                       host: "strmfree.st" },
-  ppv:       { label: "PPV.st",           home: "https://ppv.st/",                            host: "ppv.st" },
+  rojadirecta: {
+    label: "Rojadirecta", home: "https://www.rojadirectavivo.me/live-football",
+    host: "rojadirectavivo.me",
+  },
 });
 
 export const isExperimentalFootballSource = (source) =>
