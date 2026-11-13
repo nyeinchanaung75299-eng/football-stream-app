@@ -1063,12 +1063,16 @@ class NativePlayerActivity : Activity() {
             ?.trim()
             .orEmpty()
             .ifEmpty { source?.optString("resolution")?.trim().orEmpty() }
-        val unsafe = raw.length > 80 ||
-            Regex("[/?:=&@\\\\]").containsMatchIn(raw) ||
+        val name = raw.replaceFirst(
+            Regex("""(?i)^[^•·\n]{1,90}\s+(?:vs\.?|v)\s+[^•·\n]{1,90}\s*[•·]\s*(.+)$"""),
+            "$1"
+        ).trim()
+        val unsafe = name.length > 80 ||
+            Regex("[/?:=&@\\\\]").containsMatchIn(name) ||
             Regex("(?i)\\b(?:referer|origin|authorization|token|key|kid)\\s*[:=]")
-                .containsMatchIn(raw) ||
-            Regex("(?i)\\b[0-9a-f]{24,}\\b").containsMatchIn(raw)
-        return if (raw.isEmpty() || unsafe) "Line ${index + 1}"
+                .containsMatchIn(name) ||
+            Regex("(?i)\\b[0-9a-f]{24,}\\b").containsMatchIn(name)
+        return if (name.isEmpty() || unsafe) "Line ${index + 1}"
             else raw.replaceFirst(Regex("""(?i)^\s*([^·•|]+?)\s*[·•|]\s*\1(?=\s*[·•|]|$)"""), "$1").trim()
     }
 
