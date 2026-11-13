@@ -10,10 +10,14 @@ class RepositoryMatchCard extends StatelessWidget {
     super.key,
     required this.entry,
     required this.onViewLines,
+    this.onImportMatch,
+    this.importing = false,
   });
 
   final Map<String, dynamic> entry;
   final VoidCallback onViewLines;
+  final VoidCallback? onImportMatch;
+  final bool importing;
 
   @override
   Widget build(BuildContext context) {
@@ -103,6 +107,23 @@ class RepositoryMatchCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (onImportMatch != null || importing) ...[
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: importing ? null : onImportMatch,
+                    icon: importing
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.playlist_add_rounded, size: 20),
+                    label:
+                        Text(importing ? 'ADDING MATCH…' : 'ADD MATCH TO LIVE'),
+                  ),
+                ),
+              ],
               if (home.isEmpty || away.isEmpty) ...[
                 const SizedBox(height: 6),
                 Text(
@@ -144,27 +165,27 @@ class _RepositoryTeam extends StatelessWidget {
   final String name, logo;
   @override
   Widget build(BuildContext context) => Column(
-    children: [
-      SizedBox(
-        width: 48,
-        height: 48,
-        child: logo.isEmpty
-            ? const Icon(Icons.shield_outlined, size: 36)
-            : Image.network(
-                repositoryLogoUrl(logo),
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) =>
-                    const Icon(Icons.shield_outlined, size: 36),
-              ),
-      ),
-      const SizedBox(height: 5),
-      Text(
-        name,
-        textAlign: TextAlign.center,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
-      ),
-    ],
-  );
+        children: [
+          SizedBox(
+            width: 48,
+            height: 48,
+            child: logo.isEmpty
+                ? const Icon(Icons.shield_outlined, size: 36)
+                : Image.network(
+                    repositoryLogoUrl(logo),
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.shield_outlined, size: 36),
+                  ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            name,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+          ),
+        ],
+      );
 }
