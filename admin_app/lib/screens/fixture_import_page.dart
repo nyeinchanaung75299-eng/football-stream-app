@@ -15,9 +15,10 @@ import '../services/connected_channel_source.dart';
 import '../widgets/repository_match_import_sheet.dart';
 
 class FixtureImportPage extends StatefulWidget {
-  const FixtureImportPage({super.key, this.onPublished});
+  const FixtureImportPage({super.key, this.onPublished, this.initialSource = 'cola'});
   /// Called only after confirmed fixture IDs were written.
   final VoidCallback? onPublished;
+  final String initialSource;
 
   @override
   State<FixtureImportPage> createState() => _FixtureImportPageState();
@@ -39,7 +40,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       .add(const Duration(hours: 6, minutes: 30));
   String mode = 'date';
   static const _fixtureProviders = pickBigMatchProviders;
-  String fixtureSource = 'cola';
+  late String fixtureSource = isPickBigMatchProvider(widget.initialSource)
+      ? widget.initialSource : 'cola';
   final ConnectedChannelSource _repository = ConnectedChannelSource(source: 'repository');
 
   // Myanmar Standard Time is UTC+06:30 regardless of device time zone.
@@ -93,6 +95,17 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   List<dynamic>? _trustedColaBadgesCache;
   DateTime? _trustedColaBadgesCheckedAt;
   int _loadEpoch = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (fixtureSource == 'repository') {
+      mode = 'all';
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) loadFixtures();
+      });
+    }
+  }
 
   @override
   void dispose() {
