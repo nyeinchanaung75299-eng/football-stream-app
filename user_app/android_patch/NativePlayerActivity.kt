@@ -1073,7 +1073,7 @@ class NativePlayerActivity : Activity() {
                 .containsMatchIn(name) ||
             Regex("(?i)\\b[0-9a-f]{24,}\\b").containsMatchIn(name)
         return if (name.isEmpty() || unsafe) "Line ${index + 1}"
-            else raw.replaceFirst(Regex("""(?i)^\s*([^·•|]+?)\s*[·•|]\s*\1(?=\s*[·•|]|$)"""), "$1").trim()
+            else name.replaceFirst(Regex("""(?i)^\s*([^·•|]+?)\s*[·•|]\s*\1(?=\s*[·•|]|$)"""), "$1").trim()
     }
 
     private fun safeLineResolution(index: Int): String {
