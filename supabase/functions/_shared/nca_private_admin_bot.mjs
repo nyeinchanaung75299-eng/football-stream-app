@@ -130,7 +130,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
         try {
           const url = new URL(line.stream_url);
           if (url.protocol !== 'https:' || url.search || url.hash ||
-              !/\\.mp4$/i.test(url.pathname)) continue;
+              !/\.mp4$/i.test(url.pathname)) continue;
           candidates.push({
             title: text(entry.title || 'Football highlights', 96),
             url: url.href, line,
@@ -144,12 +144,12 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     }));
     const available = selected.filter(Boolean).slice(0, 6);
     if (!available.length) {
-      return '🎬 HIGHLIGHTS MP4\\nNo verified public direct MP4 video URL is available right now.';
+      return '🎬 HIGHLIGHTS MP4\nNo verified public direct MP4 video URL is available right now.';
     }
-    return '🎬 FOOTBALL HIGHLIGHTS — DIRECT MP4\\n' +
+    return '🎬 FOOTBALL HIGHLIGHTS — DIRECT MP4\n' +
       available.map((item, i) => (i + 1) + '. ' + item.title +
-        '\\n' + item.url).join('\\n\\n') +
-      '\\n\\nMP4 first bytes checked; full playback is not verified.';
+        '\n' + item.url).join('\n\n') +
+      '\n\nMP4 first bytes checked; full playback is not verified.';
   }
 
   async function matches(command, env) {
