@@ -15,10 +15,11 @@ import '../services/connected_channel_source.dart';
 import '../widgets/repository_match_import_sheet.dart';
 
 class FixtureImportPage extends StatefulWidget {
-  const FixtureImportPage({super.key, this.onPublished, this.initialSource = 'cola'});
+  const FixtureImportPage({super.key, this.onPublished, this.initialSource = 'cola', this.initialRepositoryEntryId});
   /// Called only after confirmed fixture IDs were written.
   final VoidCallback? onPublished;
   final String initialSource;
+  final String? initialRepositoryEntryId;
 
   @override
   State<FixtureImportPage> createState() => _FixtureImportPageState();
@@ -520,6 +521,13 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       if (!current()) return;
       setState(() {
         fixtures = timedRows;
+        if (fixtureSource == 'repository' && widget.initialRepositoryEntryId != null) {
+          for (final row in timedRows) {
+            if (row['repository_entry_id'] == widget.initialRepositoryEntryId) {
+              selectedIds.add(row['fixture_id'] as int);
+            }
+          }
+        }
         if (timedRows.isEmpty) {
           errorText = _sourceFixtureDiagnostic ??
               'No matches with confirmed or fresh countdown-based Myanmar kickoff times '
