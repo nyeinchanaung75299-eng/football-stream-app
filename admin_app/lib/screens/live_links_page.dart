@@ -6,6 +6,7 @@ import '../analytics_service.dart';
 import '../football_english.dart';
 import '../services/function_gateway.dart';
 import '../services/channel_source_service.dart';
+import '../services/match_line_label.dart';
 import '../widgets/match_stream_card.dart';
 import 'channel_source_picker_page.dart';
 
@@ -601,7 +602,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
   Future<void> editLink(Map<String, dynamic> row) async {
     final name = TextEditingController(
-      text: '${row['label'] ?? row['resolution'] ?? 'Server'}',
+      text: conciseMatchLineLabel('${row['label'] ?? row['resolution'] ?? 'Server'}'),
     );
     final url = TextEditingController(text: '${row['stream_url'] ?? ''}');
     final ref = TextEditingController(text: '${row['referer'] ?? ''}');
@@ -841,7 +842,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     ColorScheme colors, {
     int displayIndex = 0,
   }) {
-    final rawName = '${row['label'] ?? row['resolution'] ?? 'Server'}';
+    final rawName = conciseMatchLineLabel('${row['label'] ?? row['resolution'] ?? 'Server'}');
     final name = RegExp(r'^YYZB\b', caseSensitive: false).hasMatch(rawName)
         ? englishStreamLabel(rawName, index: displayIndex)
         : rawName;
