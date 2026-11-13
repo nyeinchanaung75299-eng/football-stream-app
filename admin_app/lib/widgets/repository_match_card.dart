@@ -10,10 +10,12 @@ class RepositoryMatchCard extends StatelessWidget {
     super.key,
     required this.entry,
     required this.onViewLines,
+    this.onCopyLogo,
   });
 
   final Map<String, dynamic> entry;
   final VoidCallback onViewLines;
+  final ValueChanged<String>? onCopyLogo;
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +56,8 @@ class RepositoryMatchCard extends StatelessWidget {
                     child: _RepositoryTeam(
                       name: home.isEmpty ? 'Home' : home,
                       logo: meta['home_logo_url']?.toString() ?? '',
+                      side: 'home',
+                      onCopyLogo: onCopyLogo,
                     ),
                   ),
                   SizedBox(
@@ -99,6 +103,8 @@ class RepositoryMatchCard extends StatelessWidget {
                     child: _RepositoryTeam(
                       name: away.isEmpty ? 'Away' : away,
                       logo: meta['away_logo_url']?.toString() ?? '',
+                      side: 'away',
+                      onCopyLogo: onCopyLogo,
                     ),
                   ),
                 ],
@@ -140,8 +146,28 @@ class RepositoryMatchCard extends StatelessWidget {
 }
 
 class _RepositoryTeam extends StatelessWidget {
-  const _RepositoryTeam({required this.name, required this.logo});
-  final String name, logo;
+  const _RepositoryTeam({
+    required this.name,
+    required this.logo,
+    required this.side,
+    this.onCopyLogo,
+  });
+  final String name, logo, side;
+  final ValueChanged<String>? onCopyLogo;
+
+  String? get copyUrl {
+    final value = logo.trim();
+    final uri = Uri.tryParse(value);
+    if (uri == null ||
+        !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty)
+      return null;
+    // Use the displayed URL so the copied badge also works in Live Edit,
+    // whose image fields do not apply the repository's Sofascore proxy.
+    return repositoryLogoUrl(value);
+  }
+
   @override
   Widget build(BuildContext context) => Column(
     children: [
@@ -165,6 +191,20 @@ class _RepositoryTeam extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
       ),
+      if (onCopyLogo != null && copyUrl != null)
+        Tooltip(
+          message: 'Copy $side logo URL',
+          child: TextButton.icon(
+            key: ValueKey('copy-$side-logo'),
+            onPressed: () => onCopyLogo!(copyUrl!),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              minimumSize: const Size(0, 36),
+            ),
+            icon: const Icon(Icons.copy_rounded, size: 14),
+            label: const Text('Copy logo', style: TextStyle(fontSize: 10)),
+          ),
+        ),
     ],
   );
 }

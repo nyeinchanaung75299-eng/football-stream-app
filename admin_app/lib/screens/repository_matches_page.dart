@@ -339,6 +339,7 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
                     return RepositoryMatchCard(
                       entry: Map<String, dynamic>.from(row),
                       onViewLines: () => details(row),
+                      onCopyLogo: kIsWeb ? copyField : null,
                     );
                   },
                 ),
