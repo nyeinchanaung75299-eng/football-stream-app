@@ -320,6 +320,20 @@ test('compact player toolbar and bottom controls show de-duplicated provider lin
   assert.equal(h.elements.get('football-player-title').textContent,'Test match');
 });
 
+test('repository line chooser keeps the server name, without fixture prefix', async () => {
+  const h=createHarness({ios:false});
+  await h.open([
+    source('dash','Serbia vs Germany • FUBO SPORTS - AQ'),
+    source('hls','Serbia vs Germany • BEIN ARABIC HD'),
+  ]);
+  h.elements.get('football-player-server').click();
+  const choices=h.elements.get('football-player-menu-items').children;
+  assert.match(choices[0].innerHTML,/FUBO SPORTS - AQ/);
+  assert.match(choices[1].innerHTML,/BEIN ARABIC HD/);
+  assert.doesNotMatch(choices[0].innerHTML,/Serbia vs Germany/);
+  assert.doesNotMatch(choices[1].innerHTML,/Serbia vs Germany/);
+});
+
 test('compact player seek buttons move 5 seconds back and 15 seconds forward',async()=>{
   const h=createHarness({ios:false});
   await h.open([source('mp4','Direct')]);

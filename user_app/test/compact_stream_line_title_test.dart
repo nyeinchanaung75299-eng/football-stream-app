@@ -2,6 +2,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:football_viewer/widgets/compact_stream_line_title.dart';
 
 void main() {
+  test('repository match labels show only source and quality', () {
+    expect(shortMatchLineLabel('Serbia vs Germany • FUBO SPORTS - AQ'),
+        'FUBO SPORTS - AQ');
+    expect(compactStreamLineTitle(
+      label: 'Serbia vs Germany • BEIN ARABIC HD',
+      streamType: 'hls',
+    ), 'BEIN ARABIC HD (HLS)');
+    expect(shortMatchLineLabel('BEIN ARABIC HD • 1080p'),
+        'BEIN ARABIC HD • 1080p');
+  });
   test('keeps provider plus quality and HLS on one line', () {
     expect(compactStreamLineTitle(
       label: 'Soco Server 2 HD',

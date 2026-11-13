@@ -11,8 +11,8 @@ import re
 from verify_android_update_signing import RELEASE_BASE, RELEASES, apk_identity
 
 NOTES = {
-    'Viewer': 'Compact current-line chooser and slim seek bar. Existing playback and VPN-free fallback are preserved.',
-    'Admin': 'Pick Big Matches now supports ColaTV and Repository Matches, including manually re-adding deleted fixtures. One-tap video URL copying for Soco, YYZB and ColaTV; Highlights tab and public Telegram highlight links.',
+    'Viewer': 'Repository stream lines now show concise server names in Web and Android players. Existing stream playback remains unchanged.',
+    'Admin': 'Repository match line names are shorter in Live Links and Viewer. Private Telegram Highlights now supports Next for more verified public MP4 matches.',
 }
 
 

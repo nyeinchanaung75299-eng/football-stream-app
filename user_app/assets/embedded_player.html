@@ -1103,7 +1103,9 @@
 
     function safeLineLabel(source,index){
       const fallback='Server '+(index+1);
-      const raw=String(source&&source.label||'').trim();
+      const original=String(source&&source.label||'').trim();
+      const match=original.match(/^[^•·\n]{1,90}\s+(?:vs\.?|v)\s+[^•·\n]{1,90}\s*[•·]\s*(.+)$/i);
+      const raw=(match&&match[1].trim())||original;
       if(!raw || raw.length>72)return fallback;
       // Labels are presentation-only. Never let a URL, hostname, header or
       // credential-shaped value become visible in the compact player UI.

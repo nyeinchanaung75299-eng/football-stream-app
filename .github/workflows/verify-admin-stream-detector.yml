@@ -57,6 +57,7 @@ jobs:
           node --test scripts/test_repository_matches.mjs scripts/test_repository_trees.mjs scripts/test_channel_media_probe.mjs scripts/test_channel_health_api.mjs
           node --test scripts/test_epg_host_match.mjs
           node --test scripts/test_football_highlights.mjs
+          node --test supabase/functions/_shared/nca_private_admin_bot.test.mjs
       - name: Set up Java
         uses: actions/setup-java@v4
         with:

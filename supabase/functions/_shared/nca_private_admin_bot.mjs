@@ -118,12 +118,18 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
   // Only directly published, public MP4 video URLs. Never send landing
   // pages, HLS playlists, tokenized links, DRM media, or header-bound videos.
   // Independently check the first bytes before offering the copyable URL.
-  async function publicHighlightMp4Links() {
+  // Five distinct matches per Telegram page. The callback cursor is a source
+  // entry offset, so unknown/failed MP4 links cannot pin navigation to page 1.
+  async function publicHighlightMp4Links(start = 0) {
+    if (!Number.isSafeInteger(start) || start < 0 || start > 150) {
+      return {responseText: 'Invalid Highlights page. Use /highlights to restart.'};
+    }
     const result = await footballHighlights({
-      provider: 'dasfootball', action: 'catalog', force: true,
+      provider: 'dasfootball', action: 'catalog', force: start === 0,
     }, {fetcher});
     const candidates = [];
     for (const entry of result.entries || []) {
+      const lines = [];
       for (const line of entry.lines || []) {
         if (line.stream_type !== 'mp4' ||
             line.referer || line.origin || line.user_agent) continue;
@@ -131,25 +137,50 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
           const url = new URL(line.stream_url);
           if (url.protocol !== 'https:' || url.search || url.hash ||
               !/\.mp4$/i.test(url.pathname)) continue;
-          candidates.push({
-            title: text(entry.title || 'Football highlights', 96),
-            url: url.href, line,
-          });
+          lines.push({...line, stream_url: url.href});
         } catch (_) { /* Ignore invalid or protected external video URLs. */ }
       }
+      if (lines.length) candidates.push({
+        title: text(entry.title || 'Football highlights', 96),
+        lines: lines.slice(0, 2),
+      });
     }
-    const selected = await Promise.all(candidates.slice(0, 8).map(async item => {
-      const check = await checkHighlightLine(item.line, {fetcher});
-      return check.status === 'reachable' ? item : null;
-    }));
-    const available = selected.filter(Boolean).slice(0, 6);
-    if (!available.length) {
-      return '🎬 HIGHLIGHTS MP4\nNo verified public direct MP4 video URL is available right now.';
+
+    const available = [];
+    let cursor = Math.min(start, candidates.length);
+    let scanned = 0;
+    // Bounded scans prevent a broken provider from tying up the webhook.
+    while (cursor < candidates.length && scanned < 12 && available.length < 5) {
+      const count = Math.min(5 - available.length, 12 - scanned, candidates.length - cursor);
+      const batch = candidates.slice(cursor, cursor + count);
+      cursor += count;
+      scanned += count;
+      const checked = await Promise.all(batch.map(async item => {
+        const results = await Promise.all(item.lines.map(async line => {
+          try {
+            const check = await checkHighlightLine(line, {fetcher});
+            return check.status === 'reachable' ? line.stream_url : null;
+          } catch (_) { return null; }
+        }));
+        const url = results.find(Boolean);
+        return url ? {title: item.title, url} : null;
+      }));
+      available.push(...checked.filter(Boolean));
     }
-    return '🎬 FOOTBALL HIGHLIGHTS — DIRECT MP4\n' +
-      available.map((item, i) => (i + 1) + '. ' + item.title +
-        '\n' + item.url).join('\n\n') +
-      '\n\nMP4 first bytes checked; full playback is not verified.';
+
+    const hasNext = cursor < candidates.length;
+    const heading = '🎬 FOOTBALL HIGHLIGHTS — DIRECT MP4';
+    const listing = available.length
+      ? available.map((item, i) => (i + 1) + '. ' + item.title +
+          '\n' + item.url).join('\n\n') +
+          '\n\nMP4 first bytes checked; full playback is not verified.'
+      : 'No verified public direct MP4 video URL on this page.';
+    const keyboard = {inline_keyboard: [
+      ...(hasNext ? [[{text:'➡️ Next 5',callback_data:'hl:' + cursor}]] : []),
+      [{text:'🔄 First page',callback_data:'/highlights'},
+       {text:'🧰 Tools',callback_data:'/tools'}],
+    ]};
+    return {responseText: heading + '\n' + listing, keyboard};
   }
 
   async function matches(command, env) {
@@ -854,8 +885,9 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
           chatId: chat.id, token, fetcher,
         });
         documentSent = true;
-      } else if (cmd === "/highlights") {
-        responseText = await publicHighlightMp4Links();
+      } else if (cmd === "/highlights" || /^hl:\d{1,3}$/.test(raw)) {
+        ({responseText, keyboard} = await publicHighlightMp4Links(
+          cmd === "/highlights" ? 0 : Number(raw.slice(3))));
       } else if (cmd === "/testbot") {
         responseText=await testBot();
       } else if (cmd === "/diagnostics" || cmd === "/diag") {
