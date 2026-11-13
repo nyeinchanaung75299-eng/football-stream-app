@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {readFileSync} from 'node:fs';
+import {readFileSync,existsSync} from 'node:fs';
 import {stripTypeScriptTypes} from 'node:module';
-import {highlightLine,parseDarkbyteHighlights,mergeHighlightEntries,parseDasHighlights,
-  parseHoofootHighlights,parseRedditHighlights,checkHighlightLine,footballHighlights} from '../supabase/functions/_shared/football_highlights.mjs';
+import {highlightSources,highlightLine,parseDasHighlights,checkHighlightLine,footballHighlights} from '../supabase/functions/_shared/football_highlights.mjs';
+const html = rows => '<script type="application/ld+json">'+JSON.stringify({'@type':'ItemList',itemListElement:rows})+'</script>';
+const video = {'@type':'VideoObject',name:'Home vs Away',url:'https://dasfootball.com/home-vs-away-highlights-2026-11-12/',embedUrl:'https://cdn.example.org/highlight.mp4'};
+const response = body => new Response(body,{headers:{'Content-Type':'text/html'}});
 
 test('only native highlight media and safe non-secret headers are accepted',()=>{
   const line=highlightLine({link:'https://cdn.example.org/h.mp4|Referer=https://site.example.org/game&Origin=https://site.example.org&User-agent=Player&Cookie=secret&accountToken=secret'});
@@ -13,23 +15,6 @@ test('only native highlight media and safe non-secret headers are accepted',()=>
     assert.equal(highlightLine({link}),null);
   assert.equal(highlightLine({link:'https://cdn.example.org/a.m3u8',drm_key:'configured-key'}),null);
 });
-test('DarkByte highlights exclude other sports and replay parts, preserving highlights and extended clips',()=>{
-  const formats=['HIGHLIGHTS','Extended in EN.','FULL MATCH','1st half','Ceremony'].map((title,i)=>({title,link:`https://cdn.example.org/${i}.m3u8`}));
-  const rows=[{title:'Home vs Away',cat:'UCL',formats,eventInfo:{startTime:'2026/10/20 19:00:00 +0000'}},
-    {title:'WWE Smackdown',cat:'WWE',formats},{title:'F1',cat:'F1',formats},{title:'Rugby',cat:'Rugby',formats}];
-  const result=parseDarkbyteHighlights('provider_6/highlights.json',rows);
-  assert.equal(result.length,1);assert.equal(result[0].lines.length,2);
-  assert.equal(result[0].published_at,null);assert.equal(result[0].lines[0].playback_verified,false);
-});
-test('duplicate DarkByte feeds merge once without losing distinct playback headers',()=>{
-  const one=parseDarkbyteHighlights('provider_2/categories/Fifa_Highlight.json',[
-    {title:'Home vs Away',resolved_streams:[{link:'https://cdn.example.org/a.m3u8'}]}]);
-  const two=parseDarkbyteHighlights('provider_5/categories/FIFA_WC26_Highlights.json',[
-    {name:'Home vs Away',streams:[{link:'https://cdn.example.org/a.m3u8'},
-      {link:'https://cdn.example.org/a.m3u8|Referer=https://site.example.org/'}]}]);
-  const merged=mergeHighlightEntries([...one,...two]);
-  assert.equal(merged.length,1);assert.equal(merged[0].lines.length,2);assert.equal(merged[0].source_files.length,2);
-});
 test('DasFootball public structured videos provide real upload dates and native links only',()=>{
   const data=[{'@type':'ItemList',itemListElement:[{'@type':'VideoObject',name:'Home vs Away',
     url:'https://dasfootball.com/home-vs-away-highlights-2026-11-12/',embedUrl:'https://cdn.example.org/highlight.mp4',
@@ -38,20 +23,6 @@ test('DasFootball public structured videos provide real upload dates and native 
   const result=parseDasHighlights('<script type="application/ld+json">'+JSON.stringify(data)+'</script>');
   assert.equal(result.length,1);assert.equal(result[0].lines[0].stream_type,'mp4');
   assert.equal(result[0].published_at,'2026-11-12T22:12:00.000Z');
-});
-test('Hoofoot discovers highlight pages, not category menus or external ads',()=>{
-  const html='<a href="/full-matches/uefa/home-vs-away-highlights-november-12-2026/">Watch</a>'.repeat(2)+
-    '<a href="https://ad.example.org/home-highlights-now/">Ad</a><a href="/full-matches/uefa/">Menu</a>';
-  const rows=parseHoofootHighlights(html);assert.equal(rows.length,1);assert.equal(rows[0].title,'Home Vs Away');
-  assert.deepEqual(rows[0].lines,[]);
-});
-test('Reddit native video is HLS; external links stay website-only and non-goal soccer posts are excluded',()=>{
-  const result=parseRedditHighlights({data:{children:[
-    {data:{id:'native',title:'Home [1]-0 Away Goal',permalink:'/r/soccer/comments/native/goal/',created_utc:1794520000,media:{reddit_video:{hls_url:'https://v.redd.it/123/HLSPlaylist.m3u8'}}}},
-    {data:{id:'embed',title:'Home 2-0 Away',permalink:'/r/soccer/comments/embed/goal/',url:'https://youtube.com/watch?v=123'}},
-    {data:{id:'news',title:'Manager interview',permalink:'/r/soccer/comments/news/interview/'}}
-  ]}},'soccer');
-  assert.equal(result.length,2);assert.equal(result[0].lines[0].stream_type,'hls');assert.equal(result[1].lines.length,0);
 });
 test('HTTP 200 HTML is invalid media, a real HLS manifest is reachable but never playback-verified',async()=>{
   const line=highlightLine({link:'https://cdn.example.org/a.m3u8'});
@@ -69,26 +40,52 @@ test('media probe validates MP4 signature and rejects a redirect into a private 
     fetcher:async()=>{calls++;return new Response(null,{status:302,headers:{location:'http://127.0.0.1/a.m3u8'}});}});
   assert.equal(denied.status,'failed');assert.equal(calls,1);
 });
-test('unknown providers and unpublished entry/line IDs cannot become arbitrary URL fetches',async()=>{
-  let calls=0;const fetcher=async()=>{calls++;return Response.json([]);};
-  await assert.rejects(footballHighlights({provider:'https://private.example.org/'},{fetcher}));
-  await assert.rejects(footballHighlights({provider:'soccerfullmatch',action:'check',entry_id:'fake',line_id:'https://cdn.example.org/a.mp4'},{fetcher}));
+test('unextractable website players are excluded; a native embed URL survives a non-native content URL',()=>{
+  const rows=parseDasHighlights(html([
+    {...video,contentUrl:'https://dasfootball.com/player/',embedUrl:'https://cdn.example.org/a.mp4'},
+    {...video,url:'https://dasfootball.com/other-highlights/',contentUrl:'https://youtube.com/watch?v=123',embedUrl:'https://youtube.com/embed/123'},
+    {...video,url:'https://dasfootball.com/replay-highlights/',name:'FULL MATCH Home vs Away'},
+  ]));
+  assert.equal(rows.length,1);assert.equal(rows[0].lines[0].stream_url,'https://cdn.example.org/a.mp4');
+});
+test('repeated pages and duplicate native URLs appear once while distinct HLS and MP4 links survive',()=>{
+  const rows=parseDasHighlights(html([video,{...video,contentUrl:video.embedUrl},
+    {...video,contentUrl:'https://cdn.example.org/highlight.m3u8'}]));
+  assert.equal(rows.length,1);assert.equal(rows[0].lines.length,2);
+});
+test('retired sources are removed and rejected before any network request',async()=>{
+  assert.deepEqual(highlightSources.map(x=>x.id),['dasfootball']);
+  let calls=0;const fetcher=async()=>{calls++;return response('');};
+  for(const provider of ['darkbyte','hoofoot','reddit','soccerfullmatch','scorebat','https://private.example.org/'])
+    await assert.rejects(footballHighlights({provider},{fetcher}),/Unsupported/);
   assert.equal(calls,0);
 });
-test('catalogue calls coalesce and a failed refresh keeps the last successful source snapshot',async()=>{
+test('an initial source outage is explicit with no fabricated links or player fallback',async()=>{
+  const result=await footballHighlights({provider:'dasfootball',force:true},{fetcher:async()=>new Response('denied',{status:503})});
+  assert.equal(result.unavailable,true);assert.deepEqual(result.entries,[]);
+});
+test('catalogue calls coalesce, details expose extracted links without media fetches, and refresh failures retain the prior list',async()=>{
   let calls=0,failed=false;
-  const fetcher=async()=>{calls++;await new Promise(resolve=>setTimeout(resolve,5));
-    if(failed) return new Response('unavailable',{status:503});
-    return Response.json([{title:'Home vs Away',name:'Home vs Away',cat:'UCL',formats:[{link:'https://cdn.example.org/a.m3u8'}]}]);};
-  const a={provider:'darkbyte',force:true};
+  const fetcher=async target=>{calls++;assert.equal(target,'https://dasfootball.com/');
+    await new Promise(resolve=>setTimeout(resolve,5));
+    return failed?new Response('unavailable',{status:503}):response(html([video]));};
+  const a={provider:'dasfootball',force:true};
   const [one,two]=await Promise.all([footballHighlights(a,{fetcher}),footballHighlights(a,{fetcher})]);
-  assert.equal(calls,3);assert.equal(one.total,1);assert.deepEqual(one,two);
+  assert.equal(calls,1);assert.equal(one.total,1);assert.deepEqual(one,two);
+  const details=await footballHighlights({provider:'dasfootball',action:'details',entry_id:one.entries[0].id},{fetcher});
+  assert.equal(details.entry.lines[0].stream_url,video.embedUrl);assert.equal(calls,1);
   failed=true;const stale=await footballHighlights(a,{fetcher});
   assert.equal(stale.stale,true);assert.equal(stale.entries.length,1);assert.equal(stale.updated_at,one.updated_at);
 });
-test('unavailable Reddit feed is explicit, with no fabricated video links',async()=>{
-  const result=await footballHighlights({provider:'reddit',force:true},{fetcher:async()=>new Response('denied',{status:403})});
-  assert.equal(result.unavailable,true);assert.deepEqual(result.entries,[]);assert.match(result.warnings[0],/Reddit/);
+test('unpublished entry and line URLs cannot turn extraction into an arbitrary URL fetch',async()=>{
+  let calls=0;const fetcher=async url=>{calls++;assert.equal(url,'https://dasfootball.com/');return response(html([video]));};
+  await assert.rejects(footballHighlights({provider:'dasfootball',action:'check',entry_id:'https://private.example.org/video.mp4',line_id:'fake'},{fetcher}));
+  assert.equal(calls,0); // The previous fresh public catalogue is reused.
+});
+test('Highlights ships no player asset or player/browser-launch dependency',()=>{
+  assert.equal(existsSync(new URL('../admin_app/web/highlight_player.html',import.meta.url)),false);
+  const page=readFileSync(new URL('../admin_app/lib/screens/highlights_page.dart',import.meta.url),'utf8');
+  assert.doesNotMatch(page,/url_launcher|stream_preview_page|stream_detector_service|launchUrl|highlight_player/);
 });
 test('highlight requests remain behind existing Admin authentication and role checks',async()=>{
   const path=new URL('../supabase/functions/source-match-list/index.ts',import.meta.url);
@@ -102,7 +99,7 @@ test('highlight requests remain behind existing Admin authentication and role ch
     await import('data:text/javascript;base64,'+Buffer.from(stripTypeScriptTypes(code)).toString('base64'));
     assert.equal((await handler(new Request('https://api.example.org/function',{method:'POST',body:'{"source":"highlights"}'}))).status,401);
     globalThis.__highlightTestRole=role;
-    const request=()=>new Request('https://api.example.org/function',{method:'POST',headers:{authorization:'Bearer fixture'},body:'{"source":"highlights","provider":"scorebat"}'});
+    const request=()=>new Request('https://api.example.org/function',{method:'POST',headers:{authorization:'Bearer fixture'},body:'{"source":"highlights","provider":"dasfootball"}'});
     assert.equal((await handler(request())).status,403);
     globalThis.__highlightTestRole='admin';
     const response=await handler(request());assert.equal(response.status,200);assert.equal((await response.json()).source,'highlights');

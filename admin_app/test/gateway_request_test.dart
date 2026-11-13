@@ -14,11 +14,11 @@ void main() {
         calls++;
         return http.Response(calls == 1
           ? '{"ok":true,"source":"highlights","provider":"hoofoot","entries":[]}'
-          : '{"ok":true,"source":"highlights","provider":"darkbyte","entries":[]}', 200);
+          : '{"ok":true,"source":"highlights","provider":"dasfootball","entries":[]}', 200);
       },
       refresh: () async => null,
       direct: () async => throw StateError('No direct fallback expected'),
-    ).run('source-match-list', 'test-token', body: {'source': 'highlights', 'provider': 'darkbyte', 'action': 'catalog'});
+    ).run('source-match-list', 'test-token', body: {'source': 'highlights', 'provider': 'dasfootball', 'action': 'catalog'});
     expect(calls, 2);
     expect(result.base, 'https://current.test');
     expect(result.data['entries'], isEmpty);
