@@ -2,21 +2,10 @@
 // authentication, DRM, CAPTCHA, or a publisher's access restrictions.
 // Only expose HTTP(S) HLS/DASH URLs explicitly published by public players.
 import {publicSourceUrl, readPublicSource, discoverPublicMedia} from './public_source_media.mjs';
-import {hasPublicFootballFeed, publicFootballFeedMatches, publicFootballFeedPlayer, configuredPublicMedia} from './public_football_feeds.mjs';
 export const experimentalFootballSites = Object.freeze({
-  camel:     { label: "Camel Live",       home: "https://www.camel1.tv/",                      host: "camel1.tv" },
-  xoilac:    { label: "Xoilac TV",        home: "https://xoilacls.tv/",                        host: "xoilacls.tv" },
-  livetv:    { label: "LiveTV",           home: "https://livetv.li/soccer",                   host: "livetv.li", aliases:["livetvsx.org"] },
-  rojadirecta:{label: "Rojadirecta",     home: "https://www.rojadirectavivo.me/live-football", host: "rojadirectavivo.me" },
-  crichd:    { label: "CricHD",           home: "https://crichd.pk/sports/soccer-streams",                         host: "crichd.pk" },
-  roxie:     { label: "RoxieStreams",     home: "https://roxiestreams.su/soccer",             host: "roxiestreams.su" },
-  vipbox:    { label: "VIPBox",           home: "https://www.vipboxtv.st/football-stream",    host: "vipboxtv.st" },
-  viprow:    { label: "VIPRow",           home: "https://www.viprow.lc/sports-football-online",host: "viprow.lc" },
-  score088:  { label: "Score088TV",       home: "https://www.score088tv.live/football",        host: "score088tv.live" },
-  sports808: { label: "LiveSports808",    home: "https://www.livesports808.cc/football?lang=2",host: "livesports808.cc" },
-  livextv:   { label: "LiveXTV",          home: "https://livextv.pro/",                       host: "livextv.pro" },
-  streamfree:{label: "StreamFree",       home: "https://strmfree.st/",                       host: "strmfree.st" },
-  ppv:       { label: "PPV.st",           home: "https://ppv.st/",                            host: "ppv.st" },
+  rojadirecta: {label: "Rojadirecta",
+    home: "https://www.rojadirectavivo.me/live-football",
+    host: "rojadirectavivo.me"},
 });
 
 export const isExperimentalFootballSource = (source) =>
@@ -226,43 +215,7 @@ function pageKickoff(markup) {
   return null;
 }
 
-function pacificTableKickoff(card) {
-  const text = normalizeText(card.match(/<td\b[^>]*class=["']event-start-time["'][^>]*>([^<]+)</i)?.[1]);
-  const match = text.match(/^([A-Za-z]+) (\d{1,2}), (20\d{2}) (\d{1,2}):(\d{2}) (AM|PM)$/);
-  if (!match) return null;
-  const month = ['january','february','march','april','may','june','july','august','september','october','november','december'].indexOf(match[1].toLowerCase());
-  if (month < 0) return null;
-  const hour = Number(match[4]) % 12 + (match[6] === 'PM' ? 12 : 0);
-  const wall = Date.UTC(Number(match[3]), month, Number(match[2]), hour, Number(match[5]));
-  const format = new Intl.DateTimeFormat('en-US',{timeZone:'America/Los_Angeles',hourCycle:'h23',
-    year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  const offset = utc => {
-    const p = Object.fromEntries(format.formatToParts(new Date(utc)).map(p=>[p.type,p.value]));
-    return Date.UTC(+p.year,+p.month-1,+p.day,+p.hour,+p.minute,+p.second)-utc;
-  };
-  let utc = wall-offset(wall); utc=wall-offset(utc);
-  return new Date(utc).toISOString();
-}
 
-// Estimated kickoff = timestamp of this actual HTTP read + countdown duration.
-// It must be bound to one match card; search-engine crawls and stale caches
-// must never be used to calculate a scheduled kickoff.
-export function countdownKickoff(fragment, observedAt, clockFresh = true) {
-  if (!clockFresh || !Number.isFinite(observedAt)) return null;
-  const text = normalizeText(fragment);
-  const match = text.match(/\b(?:starts?\s+in|kick[\s-]?off\s+in)\s*[:：]?\s*(\d{1,3}):([0-5]\d):([0-5]\d)\b/i);
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  const seconds = Number(match[3]);
-  const total = hours * 3600 + minutes * 60 + seconds;
-  if (total < 1 || total > 7 * 24 * 3600) return null;
-  return new Date(observedAt + total * 1000).toISOString();
-}
-
-
-// Team badges are optional metadata. Never manufacture an image URL from a
-// team name or silently use league badges / streamer avatars as team crests.
 function safePublishedTeamBadge(value, site) {
   if (value && typeof value === "object") {
     value = value.url ?? value.contentUrl ?? value.src ?? null;
@@ -360,45 +313,12 @@ function publicEmbeddedJson(html, source) {
     if (!body || body.length > 900000) continue;
     try { values.push(JSON.parse(body)); } catch (_) { /* JS expressions are not JSON. */ }
   }
-  if (source === 'camel') {
-    for (const hit of html.matchAll(/self\.__next_f\.push\((\[[\s\S]*?\])\)<\/script>/g)) {
-      try {
-        const chunk = JSON.parse(hit[1]);
-        if (typeof chunk[1] !== 'string') continue;
-        for (const frame of chunk[1].split('\n')) {
-          const colon = frame.indexOf(':');
-          if (colon < 0) continue;
-          try {
-            const queue=[JSON.parse(frame.slice(colon + 1))];
-            for (let i=0;i<queue.length && i<12000;i++) {
-              const node=queue[i];
-              if (!node || typeof node!=='object') continue;
-              if (node.match_time && node.home_team && node.away_team) { values.push(node); continue; }
-              queue.push(...Object.values(node).filter(v=>v && typeof v==='object'));
-            }
-          } catch (_) {}
-        }
-      } catch (_) {}
-    }
-  }
   // A limited set of applications include their state as a JSON literal
   // assignment, not a script with type=application/json. No eval and no JS.
   const state = /(?:window\.)?(?:__INITIAL_STATE__|__PRELOADED_STATE__)\s*=\s*(\{[^\n;]{1,100000}\})\s*;/gi;
   for (const hit of html.matchAll(state)) {
     if (values.length >= 20) break;
     try { values.push(JSON.parse(hit[1])); } catch (_) { /* Not a JSON literal. */ }
-  }
-  // Score088/LiveSports808 publish typed initialMatches plus the actual link
-  // for each slug. Join those fields; never synthesize a route from a slug.
-  const links = [...html.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi)].map(m=>m[1]);
-  for (const root of ['score088','sports808'].includes(source) ? [...values] : []) {
-    const rows = root?.props?.pageProps?.initialMatches;
-    if (!Array.isArray(rows)) continue;
-    values.push(rows.slice(0,150).flatMap(row => {
-      if (!row || typeof row !== 'object' || typeof row.slug !== 'string') return [];
-      const href = links.find(link=>link.split('?')[0].replace(/\/$/,'').endsWith('/'+row.slug));
-      return href ? [{...row,url:href,sport:'Soccer'}] : [];
-    }));
   }
   return values;
 }
@@ -488,12 +408,8 @@ function publicFixtureJsonRows(html, site, source, clock) {
   // associated with the event. Football-only catalogs can be accepted.
   // LiveTV /soccer is a mixed-sports HTML page in practice: its URL alone
   // is NOT proof that every embedded event is football.
-  const footballCatalog = (source !== "livetv" &&
-    /(?:football|soccer)/i.test(new URL(site.home).pathname)) ||
-    ["camel","xoilac"].includes(source);
+  const footballCatalog = /(?:football|soccer)/i.test(new URL(site.home).pathname);
   const state = publicEmbeddedJson(html, source);
-  const camelLinks = source === 'camel' ? new Map([...html.matchAll(/<a\b[^>]*\bhref=["']([^"']+)["']/gi)]
-    .map(hit=>[hit[1].split('?')[0].split('/').at(-1),hit[1]])) : new Map();
   let examined = 0;
   for (const root of state) {
     const queue = [{node:root, football:footballCatalog, depth:0}];
@@ -509,8 +425,7 @@ function publicFixtureJsonRows(html, site, source, clock) {
         node.category?.name ?? node.category?.slug ?? "");
       const categoryIsFootball = /(?:soccer|football)/i.test(sport);
       const categoryOtherSport = /(?:american\s+football|basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker|volleyball|badminton|esports|e-sports|mma|boxing)/i.test(sport);
-      const camelLink = source === 'camel' ? camelLinks.get(node.id) : null;
-      const linkValue = camelLink ?? node.url ?? node.href ?? node.page_url ?? node.matchUrl ??
+      const linkValue = node.url ?? node.href ?? node.page_url ?? node.matchUrl ??
         node.match_url ?? node.eventUrl ?? node.event_url ?? node.fixtureUrl ??
         node.fixture_url ?? node.permalink ?? node.link;
       const linkedPage = typeof linkValue === "string" ? allowedPageUrl(linkValue, site) : null;
@@ -559,38 +474,6 @@ function publicFixtureJsonRows(html, site, source, clock) {
 // only rows with their OWN explicit Soccer marker and a real same-site link.
 // The display clock ("19:45 (Soccer)") lacks a timezone, so it must not
 // become a fabricated UTC kickoff.
-function publicLiveTvSoccerRows(html, site, source) {
-  const rows = [];
-  const cards = /<div\b[^>]*\bclass\s*=\s*["'][^"']*\bside-match-item\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi;
-  for (const hit of html.matchAll(cards)) {
-    if (rows.length >= 80) break;
-    const card = hit[1];
-    const imageSports = [...card.matchAll(/<img\b[^>]*\balt\s*=\s*["']([^"']+)["']/gi)]
-      .map(m => m[1].trim());
-    const labelSports = [...card.matchAll(/<span\b[^>]*\bclass\s*=\s*["'][^"']*\bevdesc\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi)]
-      .map(m => normalizeText(m[1]).match(/\(([^()]+)\)/)?.[1]?.trim()).filter(Boolean);
-    const sports = [...imageSports,...labelSports];
-    const other = /^(?:basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker|boxing|mma|ufc|volleyball|badminton|esports|motorsport|american football)$/i;
-    if (sports.some(value => other.test(value)) ||
-        !sports.some(value => /^(?:soccer|football)$/i.test(value))) continue;
-    // Multiple fixture links in a shared wrapper are ambiguous: reject.
-    const anchors = [...card.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)]
-      .map(m => ({href:m[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1],
-        teams:fixtureTitle(m[2])}))
-      .filter(m => m.href && m.teams);
-    if (!anchors.length || anchors.some(a=>a.teams.home!==anchors[0].teams.home||a.teams.away!==anchors[0].teams.away)) continue;
-    const item = anchors[0];
-    const page = allowedPageUrl(item.href.replace(/&amp;/gi,"&"), site);
-    if (!page || page === site.home) continue;
-    const kickoff = pageKickoff(card);
-    const row=eventRecord(source,site,page,item.teams,kickoff,
-      kickoff ? "explicit" : "none",htmlTeamBadges(card,item.teams,site));
-    row.anchors=anchors.flatMap(a=>{const url=allowedPageUrl(a.href,site);return url?
-      [{room_num:sourceId(url),page_url:url,nick_name:site.label}]:[];});
-    rows.push(row);
-  }
-  return rows;
-}
 
 function rojadirectaRows(html, site) {
   const rows=[];
@@ -621,64 +504,28 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
   const deadline=Date.now()+6500;
-  let feedError=null;
-  if(hasPublicFootballFeed(source)) {
-    try{return await publicFootballFeedMatches(source,{fetcher,now});}
-    catch(error){feedError=String(error?.message||error).slice(0,100);}
-  }
   const catalog = await publicHtml(site.home, fetcher, {withClock: true, now,
     allowedHost: site.host,timeoutMs:Math.max(50,deadline-Date.now())});
   const {html} = catalog;
   const embedded = publicFixtureJsonRows(html,site,source,catalog);
   if(source==='rojadirecta')for(const row of rojadirectaRows(html,site))embedded.rows.set(row.source_id,row);
-  if (source === "livetv") {
-    for (const row of publicLiveTvSoccerRows(html,site,source)) {
-      if (!embedded.rows.has(row.page_url)) embedded.rows.set(row.page_url,row);
-    }
-  }
-  if (source === 'xoilac') {
-    for (const hit of html.matchAll(/<a\b([^>]*\bclass=["'][^"']*wlb-card__phu[^"']*["'][^>]*)>/gi)) {
-      const href = hit[1].match(/\bhref=["']([^"']+)["']/i)?.[1];
-      const title = hit[1].match(/\baria-label=["']([^"']+)["']/i)?.[1];
-      const page = href && allowedPageUrl(href, site), teams = fixtureTitle(title);
-      if (!page || !teams) continue;
-      const time = new URL(page).pathname.match(/-luc-(\d{2})(\d{2})-ngay-(\d{2})-(\d{2})-(20\d{2})/);
-      const kickoff = time ? explicitKickoff(`${time[5]}-${time[4]}-${time[3]}T${time[1]}:${time[2]}:00+07:00`) : null;
-      embedded.rows.set(page, eventRecord(source,site,page,teams,kickoff,kickoff?'explicit':'none'));
-    }
-  }
   const candidates = new Map();
   const anchors = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   for (const hit of html.matchAll(anchors)) {
     if (candidates.size >= 250) break;
     // Football league links contain "vs" too. These are not fixture cards.
-    if (source === 'xoilac' && !/wlb-card__phu/.test(hit[1])) continue;
-    if (source === 'camel' && !/href=["'][^"']*\/football\/match-/i.test(hit[1])) continue;
     const href = hit[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
     const page = href && allowedPageUrl(href.replace(/&amp;/gi, "&"), site);
     if (!page || page === site.home || candidates.has(page)) continue;
-    if (source === 'camel' && embedded.rows.size && !embedded.rows.has(page)) continue;
     const card = matchCardMarkup(html, hit);
     const cardSport = explicitFixtureSport(card || hit[0]);
     const footballLink = /\b(?:soccer|football)\b/i.test(page);
-    // LiveTV has basketball and tennis links mixed into /soccer. For its
-    // legacy <li>/<article> form keep only one-event structured team cards
-    // with a soccer-specific URL. Table rows use the dedicated parser above.
-    if (source === "livetv" &&
-        (!card || !structuredCardTeams(card) || !footballLink ||
-          cardSport === "other")) continue;
     // Even a football-looking URL must not turn a labelled basketball
     // or cricket card into a football fixture.
     if (cardSport === "other") continue;
-    // On multi-sport home pages, a generic /event/... URL is allowed ONLY
-    // when that single match's own markup explicitly says football/soccer.
-    // Other generic links remain unverified, not invented as fixtures.
-    if (["ppv", "livextv", "streamfree"].includes(source) &&
-        !footballLink && cardSport !== "football") continue;
     const teams = teamsFromLink(page, hit[2]) ?? structuredCardTeams(card || hit[0]);
     if (!teams) continue;
-    const footballCatalog = /(?:football|soccer)/i.test(new URL(site.home).pathname) ||
-      ["camel","xoilac"].includes(source);
+    const footballCatalog = /(?:football|soccer)/i.test(new URL(site.home).pathname);
     if (!footballCatalog && !footballLink && cardSport !== "football") continue;
     // The timestamp must be inside this anchor or immediately preceding it,
     // with a preceding sibling anchor acting as a hard event boundary.
@@ -686,8 +533,7 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     const boundary = preceding.lastIndexOf("</a>");
     const local = boundary < 0 ? preceding : preceding.slice(boundary + 4);
     const explicit = pageKickoff(hit[0]) ?? pageKickoff(local) ??
-      (card ? pageKickoff(card) : null) ??
-      (source === 'roxie' ? pacificTableKickoff(card) : null);
+      (card ? pageKickoff(card) : null);
     const countdown = explicit ? null :
       countdownKickoff(hit[0], catalog.observedAt, catalog.clockFresh) ??
       (card ? countdownKickoff(card, catalog.observedAt, catalog.clockFresh) : null);
@@ -779,7 +625,6 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
       estimated_countdown_count: estimated,
       missing_kickoff_count: matches.length - confirmed - estimated,
       available_days_mmt: publishedDaysMMT,
-      ...(feedError ? {public_feed_error:feedError} : {}),
       note: "Countdown kickoffs are estimates from a fresh page response, not verified fixture times."},
     generated_at: new Date().toISOString(),
   };
@@ -789,10 +634,8 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
   const deadline = Date.now() + 7000;
-  let page = hasPublicFootballFeed(source)
-    ? await publicFootballFeedPlayer(source,body,{fetcher})
-    : typeof body?.page_url === 'string' && body.page_url.trim()
-      ? allowedPageUrl(body.page_url, site) : null;
+  let page = typeof body?.page_url === 'string' && body.page_url.trim()
+    ? allowedPageUrl(body.page_url,site) : null;
   if(source==='rojadirecta'){
     const published=await experimentalMatches(source,{fetcher});
     const room=String(body?.room_num||'');
@@ -802,34 +645,8 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   }
   if (!page) return {ok: true, source, lines: [], line_count: 0,
     ready: false, message: "No verified public match page."};
-  let firstHtml=null,configured=[],extraPages=[];
-  if (['score088','sports808'].includes(source)) {
-    const read = await readPublicSource(page,{fetcher,allowedHosts:[site.host],timeoutMs:2500});
-    firstHtml=read.text;
-    const state = publicEmbeddedJson(firstHtml,source);
-    const props = state.find(row=>row?.props?.pageProps?.matchId)?.props?.pageProps;
-    const id = props?.matchId;
-    // The endpoint is published by these sites' own match-page bundle.
-    // Bind its event identity to the page data, never to a client-supplied ID.
-    if (typeof id === 'string' && /^[a-z0-9-]{5,200}$/i.test(id) &&
-        new URL(page).pathname.includes(id)) {
-      try {
-        const api = await readPublicSource('https://api.footypaper.top/api/soccer/events/'+encodeURIComponent(id),
-          {fetcher,kind:'json',allowedHosts:['api.footypaper.top'],timeoutMs:Math.min(2500,deadline-Date.now())});
-        const event = JSON.parse(api.text);
-        if (event.id === id && Array.isArray(event.urls))
-          extraPages=event.urls.map(url=>publicSourceUrl(url)).filter(Boolean).slice(0,4);
-      } catch (_) { /* A public event API may be temporarily unavailable. */ }
-    }
-  }
-  if (source==='roxie') {
-    const read=await readPublicSource(page,{fetcher,allowedHosts:[site.host],timeoutMs:2500});
-    firstHtml=read.text;
-    configured=await configuredPublicMedia(source,firstHtml,read.url,{fetcher});
-  }
-  const result = await discoverPublicMedia(page,{fetcher,deadline,firstHtml,extraPages,
-    initialAllowedHosts:hasPublicFootballFeed(source)||source==='rojadirecta'?null:[site.host,...(site.aliases||[])]});
-  result.lines=[...new Map([...result.lines,...configured].map(line=>[line.url,line])).values()];
+  const result = await discoverPublicMedia(page,{fetcher,deadline,
+    initialAllowedHosts:null});
   if (!result.lines.length && result.failures.some(error=>error.includes('outside configured provider'))) {
     throw Error('Source redirected outside configured provider');
   }

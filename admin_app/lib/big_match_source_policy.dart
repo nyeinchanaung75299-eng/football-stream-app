@@ -1,9 +1,8 @@
-// Provider restriction applies to Pick Big Matches only.
-// The Stream Sources screen retains every separately configured provider.
+// Pick Big Matches deliberately allows only the two maintained fixture feeds.
+// Repository Match links are published by the dedicated repository RPC.
 const pickBigMatchProviders = <String, String>{
   'cola': 'ColaTV',
-  'crichd': 'CricHD',
-  'score088': 'Score088TV',
+  'repository': 'Repository Match',
 };
 
 bool isPickBigMatchProvider(String provider) =>

@@ -11,11 +11,15 @@ import '../football_english.dart';
 import '../big_match_source_policy.dart';
 import '../services/fixture_badge_enrichment.dart';
 import '../services/function_gateway.dart';
+import '../services/connected_channel_source.dart';
+import '../widgets/repository_match_import_sheet.dart';
 
 class FixtureImportPage extends StatefulWidget {
-  const FixtureImportPage({super.key, this.onPublished});
+  const FixtureImportPage({super.key, this.onPublished, this.initialSource = 'cola', this.initialRepositoryEntryId});
   /// Called only after confirmed fixture IDs were written.
   final VoidCallback? onPublished;
+  final String initialSource;
+  final String? initialRepositoryEntryId;
 
   @override
   State<FixtureImportPage> createState() => _FixtureImportPageState();
@@ -37,7 +41,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       .add(const Duration(hours: 6, minutes: 30));
   String mode = 'date';
   static const _fixtureProviders = pickBigMatchProviders;
-  String fixtureSource = 'cola';
+  late String fixtureSource = isPickBigMatchProvider(widget.initialSource)
+      ? widget.initialSource : 'cola';
+  final ConnectedChannelSource _repository = ConnectedChannelSource(source: 'repository');
 
   // Myanmar Standard Time is UTC+06:30 regardless of device time zone.
   // Unknown or timezone-ambiguous kickoffs are never replaced by now.
@@ -90,6 +96,17 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   List<dynamic>? _trustedColaBadgesCache;
   DateTime? _trustedColaBadgesCheckedAt;
   int _loadEpoch = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (fixtureSource == 'repository') {
+      mode = 'all';
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) loadFixtures();
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -169,6 +186,73 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     throw Exception(lastError ?? 'ColaTV mirror is unavailable.');
   }
 
+  // Repository fixtures are metadata from the connected, admin-only catalog.
+  // Do not manufacture start times or stream URLs. Existing native lines
+  // continue through publish_repository_match, not publish_featured_matches.
+  Future<List<Map<String, dynamic>>> _loadRepositoryFixtures(
+      String requestedMode, DateTime requestedDate) async {
+    final entries = <Map<String, dynamic>>[];
+    // The server paginates 100 at a time. Bound to 5 requests/500 entries.
+    for (var page = 0; page < 5; page++) {
+      final payload = await _repository.request('catalog', {
+        'kind': 'event', 'page': page,
+      });
+      final raw = payload['entries'];
+      if (raw is! List) throw const FormatException('Repository catalog is invalid.');
+      for (final item in raw) {
+        if (item is Map) entries.add(Map<String, dynamic>.from(item));
+      }
+      final total = (payload['total'] as num?)?.toInt() ?? entries.length;
+      if (raw.isEmpty || entries.length >= total) break;
+    }
+
+    final rows = <Map<String, dynamic>>[];
+    final wanted = DateTime(requestedDate.year, requestedDate.month, requestedDate.day);
+    var missingTime = 0;
+    for (final item in entries) {
+      final meta = item['event_meta'];
+      if (meta is! Map) continue;
+      final home = (meta['home_team'] ?? '').toString().trim();
+      final away = (meta['away_team'] ?? '').toString().trim();
+      final id = (item['id'] ?? '').toString();
+      if (!id.startsWith('repo:match:') || home.isEmpty || away.isEmpty) continue;
+      final utc = meta['kickoff_at']?.toString() ?? '';
+      final mmt = _myanmarKickoff(utc);
+      // A missing time requires explicit MMT time selection on import;
+      // show these only in All, never claim they are live or on a given day.
+      if (mmt == null) {
+        missingTime++;
+        if (requestedMode != 'all') continue;
+      } else {
+        if (requestedMode == 'live') continue; // catalog has no verified live status
+        if (requestedMode == 'date' &&
+            DateTime(mmt.year, mmt.month, mmt.day) != wanted) continue;
+      }
+      rows.add({
+        'fixture_id': _stableSourceFixtureId('repository::$id'),
+        'provider': 'repository',
+        'repository_entry_id': id,
+        'repository_entry': item,
+        'league_name': (meta['league'] ?? 'Football').toString(),
+        'home_name': home, 'away_name': away,
+        'home_logo': meta['home_logo_url'], 'away_logo': meta['away_logo_url'],
+        'kickoff_at': mmt == null ? null : utc,
+        'status_short': mmt == null ? 'TIME PENDING' : 'NS',
+        'is_live': false,
+      });
+    }
+    rows.sort((a, b) =>
+        (a['kickoff_at']?.toString() ?? '9999').compareTo(
+            b['kickoff_at']?.toString() ?? '9999'));
+    if (rows.isEmpty && missingTime > 0 && requestedMode != 'all') {
+      _offerAllDates = true;
+      _sourceFixtureDiagnostic =
+          'Repository has $missingTime fixture(s) without a verified kickoff. '
+          'Choose All to set an MMT kickoff when publishing.';
+    }
+    return rows;
+  }
+
   Future<List<Map<String, dynamic>>> _loadSourceFixtures(
       String provider, String requestedMode, DateTime requestedDate) async {
     // Provider restriction is enforced at the network entrypoint as well as
@@ -176,6 +260,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     if (!isPickBigMatchProvider(provider)) {
       throw ArgumentError.value(provider, 'provider',
           'Provider is not enabled for Pick Big Matches.');
+    }
+    if (provider == 'repository') {
+      return _loadRepositoryFixtures(requestedMode, requestedDate);
     }
     dynamic data;
     if (!_enableNoVpnFallback) {
@@ -426,12 +513,21 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         },
       ));
 
-      // All providers, including the backup, require a confirmed kickoff.
+      // Cola/football API requires confirmed kickoff. Repository supports
+      // untimed events in All mode, but asks the Admin for an explicit MMT time.
       final timedRows = rows.where((row) =>
+          fixtureSource == 'repository' ||
           _myanmarKickoff(row['kickoff_at']) != null).toList();
       if (!current()) return;
       setState(() {
         fixtures = timedRows;
+        if (fixtureSource == 'repository' && widget.initialRepositoryEntryId != null) {
+          for (final row in timedRows) {
+            if (row['repository_entry_id'] == widget.initialRepositoryEntryId) {
+              selectedIds.add(row['fixture_id'] as int);
+            }
+          }
+        }
         if (timedRows.isEmpty) {
           errorText = _sourceFixtureDiagnostic ??
               'No matches with confirmed or fresh countdown-based Myanmar kickoff times '
@@ -482,6 +578,91 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     });
   }
 
+  Future<void> _publishRepositorySelection(
+      List<Map<String, dynamic>> chosen) async {
+    var published = 0;
+    var restored = 0;
+    final errors = <String>[];
+    final ids = <String>[];
+    final client = Supabase.instance.client;
+    final userId = client.auth.currentUser?.id;
+    for (final row in chosen) {
+      if (!mounted || client.auth.currentUser?.id != userId) return;
+      final entryId = row['repository_entry_id']?.toString() ?? '';
+      final title = '${row['home_name']} vs ${row['away_name']}';
+      if (entryId.isEmpty) continue;
+      DateTime? kickoff = DateTime.tryParse(
+        row['kickoff_at']?.toString() ?? '',
+      )?.toUtc();
+      if (kickoff == null) {
+        final raw = row['repository_entry'];
+        if (raw is! Map) continue;
+        kickoff = await showModalBottomSheet<DateTime>(
+          context: context,
+          useSafeArea: true,
+          showDragHandle: true,
+          isScrollControlled: true,
+          builder: (_) => RepositoryMatchImportSheet(
+            entry: Map<String, dynamic>.from(raw),
+          ),
+        );
+        if (!mounted || client.auth.currentUser?.id != userId) return;
+        if (kickoff == null) {
+          errors.add('$title: kickoff was not selected');
+          continue;
+        }
+      }
+      try {
+        final response = await client.rpc('publish_repository_match', params: {
+          'p_entry_id': entryId,
+          'p_kickoff_at': kickoff.toUtc().toIso8601String(),
+        }).timeout(const Duration(seconds: 20));
+        if (!mounted || client.auth.currentUser?.id != userId) return;
+        final result = response is Map ? resultMap(response) : <String, dynamic>{};
+        if (result['ok'] == true) {
+          published++;
+          final id = result['match_id']?.toString() ?? '';
+          if (id.isNotEmpty) ids.add(id);
+          if (result['restored'] == true) restored++;
+        } else {
+          final reason = switch (result['code']) {
+            'previously_finished' => 'existing match already finished',
+            'no_importable_lines' => 'no usable native stream lines',
+            'ambiguous_match' => 'more than one existing match matched',
+            'source_missing' => 'repository entry is no longer available',
+            'metadata_pending' => 'missing team names',
+            'kickoff_required' => 'kickoff confirmation required',
+            _ => 'not published',
+          };
+          errors.add('$title: $reason');
+        }
+      } catch (_) {
+        errors.add('$title: request failed; check Controls before retrying');
+      }
+    }
+    if (!mounted || client.auth.currentUser?.id != userId) return;
+    if (published > 0) widget.onPublished?.call();
+    setState(() => selectedIds.clear());
+    final details = <String>[
+      '$published Repository match(es) processed.',
+      if (restored > 0)
+        '$restored previously deleted match(es) restored and re-published.',
+      for (final issue in errors.take(3)) issue,
+    ].join(' ');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(details), duration: const Duration(seconds: 7)),
+    );
+    if (published == 1 && ids.isNotEmpty && errors.isEmpty) {
+      await Navigator.of(context).push<void>(MaterialPageRoute(
+        settings: const RouteSettings(name: '/admin/stream-servers'),
+        builder: (_) => LiveLinksPage(initialMatchId: ids.first),
+      ));
+    }
+  }
+
+  Map<String, dynamic> resultMap(Map response) =>
+      Map<String, dynamic>.from(response);
+
   Future<void> importSelected() async {
     if (importing || loading) return;
     final chosen = fixtures
@@ -498,6 +679,10 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     setState(() => importing = true);
 
     try {
+      if (fixtureSource == 'repository') {
+        await _publishRepositorySelection(chosen);
+        return;
+      }
       final payload = chosen
           .map(
             (f) => <String, dynamic>{
@@ -531,8 +716,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           .where((id) => id.isNotEmpty)
           .toList();
       final skippedDeleted =
-          (resultMap['skipped_deleted'] as num?)?.toInt() ??
-          (chosen.length - savedIds.length).clamp(0, chosen.length);
+          (resultMap['skipped_deleted'] as num?)?.toInt() ?? 0;
+      final restoredCount =
+          (resultMap['restored_count'] as num?)?.toInt() ?? 0;
       // A successful no-op (all fixtures skipped) must not invalidate a
       // retained guide on either Web or Android.
       if (savedIds.isNotEmpty && mounted) {
@@ -546,6 +732,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           'published_count':
               (resultMap['published_count'] as num?)?.toInt() ?? savedIds.length,
           'skipped_deleted': skippedDeleted,
+          'restored_count': restoredCount,
         },
       ));
 
@@ -553,6 +740,11 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 
       setState(() => selectedIds.clear());
 
+      if (restoredCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('$restoredCount deleted match(es) restored and re-published.'),
+        ));
+      }
       if (skippedDeleted > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -648,6 +840,16 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           ),
         );
       }
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+      final deleted = e.message.contains('All selected matches were previously deleted');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(deleted
+            ? 'These matches were deleted in Controls. Nothing was republished. '
+              'Choose a different match or restore explicitly in Controls.'
+            : 'Publish failed: ${e.message}'),
+        duration: const Duration(seconds: 6),
+      ));
     } on TimeoutException {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -765,9 +967,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
               if (value == null || value == fixtureSource) return;
               setState(() {
                 fixtureSource = value;
-                // New experimental feeds often have no fixtures for today.
-                // Show all confirmed dates first; Date remains selectable.
-                if (value != 'cola') mode = 'all';
+                // Repository also contains fixtures without a kickoff;
+                // these require manual confirmation and are shown in All.
+                if (value == 'repository') mode = 'all';
               });
               loadFixtures();
             },
@@ -888,7 +1090,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
             ...fixtures.map((f) {
               final id = f['fixture_id'] as int;
               final checked = selectedIds.contains(id);
-              final kickoff = _myanmarKickoff(f['kickoff_at'])!;
+              final kickoff = _myanmarKickoff(f['kickoff_at']);
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: 9),
@@ -935,9 +1137,11 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
                                 ),
                                 const SizedBox(height: 5),
                                 Text(
-                                  '${DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff)}'
-                                  ' MMT${f['kickoff_estimated'] == true ? ' • ESTIMATED' : ''}'
-                                  '${f['status_short'] == null ? '' : ' • ${f['status_short']}'}',
+                                  kickoff == null
+                                    ? 'Kickoff time pending • select MMT time when publishing'
+                                    : '${DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff)}'
+                                      ' MMT${f['kickoff_estimated'] == true ? ' • ESTIMATED' : ''}'
+                                      '${f['status_short'] == null ? '' : ' • ${f['status_short']}'}',
                                   style: TextStyle(
                                     fontSize: 12.5,
                                     color: colors.onSurfaceVariant,

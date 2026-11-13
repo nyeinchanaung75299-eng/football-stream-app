@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import '../services/repository_logo.dart';
 
 /// Repository fixture summary in the same compact layout as Live Edit & Delete.
-/// Actions remain read-only here; line copying/import stays in the existing sheet.
+/// Repository entries are selected and published in Pick Big Matches.
 class RepositoryMatchCard extends StatelessWidget {
   const RepositoryMatchCard({
     super.key,
@@ -120,7 +120,7 @@ class RepositoryMatchCard extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2))
                         : const Icon(Icons.playlist_add_rounded, size: 20),
                     label:
-                        Text(importing ? 'ADDING MATCH…' : 'ADD MATCH TO LIVE'),
+                        Text(importing ? 'OPENING…' : 'PICK IN BIG MATCHES'),
                   ),
                 ),
               ],

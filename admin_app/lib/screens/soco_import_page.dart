@@ -118,19 +118,7 @@ class SocoImportPage extends StatefulWidget {
 
 class _SocoImportPageState extends State<SocoImportPage> {
   static const _experimentalSourceNames = <String, String>{
-    'camel': 'Camel Live',
-    'xoilac': 'Xoilac TV',
-    'livetv': 'LiveTV',
     'rojadirecta': 'Rojadirecta',
-    'crichd': 'CricHD',
-    'roxie': 'RoxieStreams',
-    'vipbox': 'VIPBox',
-    'viprow': 'VIPRow',
-    'score088': 'Score088TV',
-    'sports808': 'LiveSports808',
-    'livextv': 'LiveXTV',
-    'streamfree': 'StreamFree',
-    'ppv': 'PPV.st',
   };
   bool get _isExperimentalSource =>
       _experimentalSourceNames.containsKey(source);
@@ -1203,7 +1191,25 @@ class _SocoImportPageState extends State<SocoImportPage> {
                               ],
                             ),
                           ),
-                          PopupMenuButton<String>(
+                          if (const {'soco', 'yyzb', 'cola'}.contains(source))
+                            IconButton(
+                              tooltip: 'Copy video URL',
+                              icon: const Icon(Icons.copy_rounded),
+                              onPressed: () async {
+                                await Clipboard.setData(ClipboardData(text: url));
+                                unawaited(AnalyticsService.capture(
+                                  'source link copied',
+                                  properties: {
+                                    'source': source,
+                                    'stream_type': (line['stream_type'] ?? 'auto').toString(),
+                                    'copied_field': 'url',
+                                  },
+                                ));
+                                message('Video URL copied.');
+                              },
+                            )
+                          else
+                            PopupMenuButton<String>(
                             tooltip: 'Copy link or headers',
                             icon: const Icon(Icons.copy_rounded),
                             itemBuilder: (_) => [
