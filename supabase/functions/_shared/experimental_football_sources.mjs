@@ -475,6 +475,31 @@ function publicFixtureJsonRows(html, site, source, clock) {
 // The display clock ("19:45 (Soccer)") lacks a timezone, so it must not
 // become a fabricated UTC kickoff.
 
+function rojadirectaRows(html, site) {
+  const rows=[];
+  let publishedLinks={};
+  const literal=html.match(/window\.LINKS_DATA\s*=\s*(\{[^\n]*\})\s*;/);
+  try { publishedLinks=literal ? JSON.parse(literal[1]) : {}; } catch (_) {}
+  for(const m of html.matchAll(/<details\b[^>]*\bclass\s*=\s*['"][^'"]*game-item-details[^'"]*['"][^>]*>([\s\S]*?)<\/details>/gi)) {
+    const card=m[1];
+    const name=card.match(/<span\b[^>]*\bclass\s*=\s*['"]game-teams['"][^>]*>([\s\S]*?)<\/summary>/i)?.[1];
+    if(!name)continue;
+    const plain=normalizeText(name).replace(/\s+\d+\s*☆?$/,'').replace(/[☆★]/g,'').trim();
+    const pair=fixtureTitle(plain);if(!pair)continue;
+    const kickoff=pageKickoff(card);
+    const row=eventRecord('rojadirecta',site,null,pair,kickoff,kickoff?'explicit':'none');
+    row.source_id=row.schedule_id=m[0].match(/data-game-id=['"]([\w-]+)['"]/)?.[1]||row.source_id;
+    const links=[...[...card.matchAll(/<a\b[^>]*href=['"]([^'"]+)['"]/gi)].map(a=>a[1]),
+      ...(Array.isArray(publishedLinks[row.source_id]) ? publishedLinks[row.source_id].map(link=>link?.link) : [])];
+    row.anchors=[...new Set(links.map(value=>publicSourceUrl(value,site.home)).filter(Boolean))]
+      .filter(url=>!/^(?:www\.)?youtube\.com$/i.test(new URL(url).hostname))
+      .slice(0,6).map(url=>({room_num:row.source_id+':'+sourceId(url),page_url:url,nick_name:site.label}));
+    row.page_url=row.anchors[0]?.page_url||null;row.schedule_only=!row.anchors.length;
+    rows.push(row);if(rows.length>=100)break;
+  }
+  return rows;
+}
+
 export async function experimentalMatches(source, {fetcher = fetch, now = Date.now} = {}) {
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
