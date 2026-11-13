@@ -379,6 +379,7 @@ class TvScheduleService {
   // Injected clients / explicit dates remain uncached for deterministic tests.
   static Future<TvScheduleGuide>? _sharedGuide;
   static Future<TvScheduleGuide>? _sharedCatalog;
+  static int _catalogGeneration = 0;
   static TvScheduleGuide? _lastGuide;
   static TvScheduleGuide? get cachedGuide => _lastGuide;
   static String? _sharedDate;
@@ -392,6 +393,7 @@ class TvScheduleService {
   /// Do not clear public guide metadata on an ordinary tab switch.
   static void invalidateShared() {
     _sharedGeneration++;
+    _catalogGeneration++;
     _sharedGuide = null;
     _sharedCatalog = null;
     _lastGuide = null;
@@ -459,9 +461,9 @@ class TvScheduleService {
     }
 
     if (_httpClient != null || _apiBases != null) return fetchCatalog();
-    final generation = _sharedGeneration;
+    final generation = _catalogGeneration;
     return _sharedCatalog ??= fetchCatalog().catchError((Object error) {
-      if (generation == _sharedGeneration) _sharedCatalog = null;
+      if (generation == _catalogGeneration) _sharedCatalog = null;
       throw error;
     });
   }
