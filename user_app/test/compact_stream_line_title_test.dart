@@ -12,7 +12,6 @@ void main() {
     expect(shortMatchLineLabel('BEIN ARABIC HD • 1080p'),
         'BEIN ARABIC HD • 1080p');
   });
-void main() {
   test('keeps provider plus quality and HLS on one line', () {
     expect(compactStreamLineTitle(
       label: 'Soco Server 2 HD',
