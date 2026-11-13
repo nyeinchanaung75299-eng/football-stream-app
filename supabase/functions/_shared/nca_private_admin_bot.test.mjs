@@ -44,6 +44,16 @@ function createMock({prefs=[],lines=[],channels=[],matches=[],messageFail=false,
     if(href==="https://dasfootball.com/") {
       return new Response(highlightHtml ?? "",{headers:{"Content-Type":"text/html"}});
     }
+    if(href==="https://cdn.example.org/public-clip.mp4") {
+      // Minimal 24-byte ISO base-media header, sufficient for first-byte probe.
+      const bytes=new Uint8Array(24);
+      bytes.set([0x00,0x00,0x00,0x18,0x66,0x74,0x79,0x70,0x69,0x73,0x6f,0x6d]);
+      return new Response(bytes,{status:206,headers:{"Content-Type":"video/mp4"}});
+    }
+    if(href==="https://cdn.example.org/broken.mp4") {
+      return new Response("Not an MP4",{status:200,headers:{"Content-Type":"text/plain"}});
+    }
+
     if(href.includes("api.telegram.org/bot")){
       const method=href.split("/").pop();
       if(method==="sendMessage" && messageFail)
@@ -420,20 +430,47 @@ test("Unpaired user cannot access any private Admin APK, and no release is fetch
 });
 
 
-test("Private Admin /highlights returns only provider public highlight pages, not media links",async()=>{
+
+test("Private Admin /highlights returns verified public MP4 links, never web pages or HLS",async()=>{
   const page="https://dasfootball.com/team-a-team-b-highlights-2026-11-14/";
   const html='<script type="application/ld+json">'+JSON.stringify({
     '@type':'VideoObject', name:'Team A vs Team B Highlights',
-    url:page, embedUrl:'https://cdn.example.org/private-clip.mp4',
+    url:page, contentUrl:'https://cdn.example.org/public-clip.mp4',
+    embedUrl:'https://cdn.example.org/stream.m3u8',
   })+'</script>';
   const mock=createMock({highlightHtml:html});
   const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
   assert.equal((await handler(request("/highlights"))).status,200);
-  const text=telegramCalls(mock.calls,"sendMessage")[0].body.text;
-  assert.match(text,/FOOTBALL HIGHLIGHTS/);
-  assert.match(text,/team-a-team-b-highlights-2026-11-14/);
-  assert.doesNotMatch(text,/cdn\.example|private-clip\.mp4|key_data|stream_url/);
-  assert.equal(mock.calls.filter(c=>c.url=== "https://dasfootball.com/").length,1);
+  const result=telegramCalls(mock.calls,"sendMessage")[0].body.text;
+  assert.match(result,/FOOTBALL HIGHLIGHTS — DIRECT MP4/);
+  assert.match(result,/https:\/\/cdn\.example\.org\/public-clip\.mp4/);
+  assert.doesNotMatch(result,/dasfootball\.com\/team-a|\.m3u8|key_data|stream_url|test-service-key/);
+  assert.ok(mock.calls.some(c=>c.url==="https://cdn.example.org/public-clip.mp4"));
+  assert.equal(mock.calls.filter(c=>c.url==="https://dasfootball.com/").length,1);
+});
+
+test("Telegram Highlights never sends protected, tokenized or invalid MP4 URLs",async()=>{
+  const videos=[
+    {name:"A vs B Highlights",url:"https://dasfootball.com/a-b-highlights/",
+     contentUrl:"https://cdn.example.org/secured.mp4?token=private"},
+    {name:"C vs D Highlights",url:"https://dasfootball.com/c-d-highlights/",
+     contentUrl:"https://cdn.example.org/broken.mp4"},
+    {name:"E vs F Highlights",url:"https://dasfootball.com/e-f-highlights/",
+     contentUrl:"https://cdn.example.org/stream.m3u8"},
+    {name:"G vs H Highlights",url:"https://dasfootball.com/g-h-highlights/",
+     contentUrl:"https://cdn.example.org/private.mp4",
+     // A published referer requirement means it is not a standalone URL.
+     referer:"https://dasfootball.com/"},
+  ];
+  const html='<script type="application/ld+json">'+JSON.stringify({
+    "@graph":videos.map(video=>({"@type":"VideoObject",...video})),
+  })+'</script>';
+  const mock=createMock({highlightHtml:html});
+  const handler=createTelegramHandler({mode:"admin",env:botEnv(),fetcher:mock.fetcher});
+  assert.equal((await handler(request("/highlights"))).status,200);
+  const result=telegramCalls(mock.calls,"sendMessage")[0].body.text;
+  assert.match(result,/No verified public direct MP4 video URL/);
+  assert.doesNotMatch(result,/token=private|secured\.mp4|broken\.mp4|stream\.m3u8/);
 });
 
 test("Unpaired Telegram admin cannot fetch public highlight feed or see private highlights menu",async()=>{
