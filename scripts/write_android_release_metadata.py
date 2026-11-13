@@ -12,7 +12,7 @@ from verify_android_update_signing import RELEASE_BASE, RELEASES, apk_identity
 
 NOTES = {
     'Viewer': 'Compact current-line chooser and slim seek bar. Existing playback and VPN-free fallback are preserved.',
-    'Admin': 'Import complete Repository Matches into Live with team logos, MMT kickoff and available unique lines; manage them from existing Live controls.',
+    'Admin': 'Highlights is now available in the Admin Android bottom navigation. Keeps lazy loading, extracted link copying and complete Repository Match imports.',
 }
 
 
