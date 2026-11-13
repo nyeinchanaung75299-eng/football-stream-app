@@ -38,7 +38,7 @@ void main() {
     );
   }
 
-  testWidgets('shows a horizontal selected line without credential metadata', (
+  testWidgets('shows a compact selected line without credential metadata', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(280, 240));
@@ -61,10 +61,15 @@ void main() {
       app(selectedIndex: 0, onSelected: (index) => picked = index),
     );
 
+    await tester.tap(find.byKey(const ValueKey('player-server-rail')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('player-line-chip-0')));
     await tester.pump();
     expect(picked, isNull);
 
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('player-server-rail')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('player-line-chip-1')));
     await tester.pump();
     expect(picked, 1);
@@ -77,6 +82,8 @@ void main() {
       app(selectedIndex: 1, failed: const {0}, loading: 1, onSelected: (_) {}),
     );
 
+    await tester.tap(find.byKey(const ValueKey('player-server-rail')));
+    await tester.pump(const Duration(milliseconds: 400));
     expect(find.byIcon(Icons.error_outline_rounded), findsOneWidget);
     expect(find.byKey(const ValueKey('player-line-check-1')), findsOneWidget);
     expect(find.byKey(const ValueKey('player-line-loading-1')), findsOneWidget);

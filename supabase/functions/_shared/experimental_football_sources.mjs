@@ -14,7 +14,6 @@ export const experimentalFootballSites = Object.freeze({
   viprow:    { label: "VIPRow",           home: "https://www.viprow.lc/sports-football-online",host: "viprow.lc" },
   score088:  { label: "Score088TV",       home: "https://www.score088tv.live/football",        host: "score088tv.live" },
   sports808: { label: "LiveSports808",    home: "https://www.livesports808.cc/football?lang=2",host: "livesports808.cc" },
-  kooralive: { label: "Koora Live",       home: "https://kooralive.watch/",                   host: "kooralive.watch" },
   livextv:   { label: "LiveXTV",          home: "https://livextv.pro/",                       host: "livextv.pro" },
   streamfree:{label: "StreamFree",       home: "https://strmfree.st/",                       host: "strmfree.st" },
   ppv:       { label: "PPV.st",           home: "https://ppv.st/",                            host: "ppv.st" },
@@ -173,7 +172,7 @@ function matchCardMarkup(html, hit) {
   // individual <div class="fixture-card"> / <section class="event-item">
   // cards. Only accept a bounded single-anchor wrapper, never a page-wide
   // parent that could leak another event's sport or kickoff into this match.
-  for (const tag of ["article", "li", "section", "div"]) {
+  for (const tag of ["article", "li", "tr", "section", "div"]) {
     let searchBefore = hit.index;
     for (let attempt = 0; attempt < 6 && searchBefore >= 0; attempt++) {
       const start = html.lastIndexOf("<" + tag, searchBefore);
@@ -205,7 +204,7 @@ function matchCardMarkup(html, hit) {
 // another event's timestamp, countdown and the server clock are NOT kickoffs.
 function pageKickoff(markup) {
   const patterns = [
-    /<time\b[^>]*\bdatetime\s*=\s*["']([^"']+)["'][^>]*>/gi,
+    /<time\b[^>]*\b(?:datetime|content)\s*=\s*["']([^"']+)["'][^>]*>/gi,
     /\bdata-(?:kickoff|start(?:-time|-date)?|timestamp)\s*=\s*["']([^"']+)["']/gi,
     /(?:startDate|start_date|startTime|kickoff_at|kickoffAt)\s*["']?\s*[:=]\s*["']([^"']+)["']/gi,
     /<meta\b[^>]*(?:name|property)\s*=\s*["'](?:event:start_time|startDate|event:start_date)["'][^>]*content\s*=\s*["']([^"']+)["']/gi,
@@ -225,6 +224,24 @@ function pageKickoff(markup) {
       return new Date(ms).toISOString();
   }
   return null;
+}
+
+function pacificTableKickoff(card) {
+  const text = normalizeText(card.match(/<td\b[^>]*class=["']event-start-time["'][^>]*>([^<]+)</i)?.[1]);
+  const match = text.match(/^([A-Za-z]+) (\d{1,2}), (20\d{2}) (\d{1,2}):(\d{2}) (AM|PM)$/);
+  if (!match) return null;
+  const month = ['january','february','march','april','may','june','july','august','september','october','november','december'].indexOf(match[1].toLowerCase());
+  if (month < 0) return null;
+  const hour = Number(match[4]) % 12 + (match[6] === 'PM' ? 12 : 0);
+  const wall = Date.UTC(Number(match[3]), month, Number(match[2]), hour, Number(match[5]));
+  const format = new Intl.DateTimeFormat('en-US',{timeZone:'America/Los_Angeles',hourCycle:'h23',
+    year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const offset = utc => {
+    const p = Object.fromEntries(format.formatToParts(new Date(utc)).map(p=>[p.type,p.value]));
+    return Date.UTC(+p.year,+p.month-1,+p.day,+p.hour,+p.minute,+p.second)-utc;
+  };
+  let utc = wall-offset(wall); utc=wall-offset(utc);
+  return new Date(utc).toISOString();
 }
 
 // Estimated kickoff = timestamp of this actual HTTP read + countdown duration.
@@ -343,6 +360,27 @@ function publicEmbeddedJson(html, source) {
     if (!body || body.length > 900000) continue;
     try { values.push(JSON.parse(body)); } catch (_) { /* JS expressions are not JSON. */ }
   }
+  if (source === 'camel') {
+    for (const hit of html.matchAll(/self\.__next_f\.push\((\[[\s\S]*?\])\)<\/script>/g)) {
+      try {
+        const chunk = JSON.parse(hit[1]);
+        if (typeof chunk[1] !== 'string') continue;
+        for (const frame of chunk[1].split('\n')) {
+          const colon = frame.indexOf(':');
+          if (colon < 0) continue;
+          try {
+            const queue=[JSON.parse(frame.slice(colon + 1))];
+            for (let i=0;i<queue.length && i<12000;i++) {
+              const node=queue[i];
+              if (!node || typeof node!=='object') continue;
+              if (node.match_time && node.home_team && node.away_team) { values.push(node); continue; }
+              queue.push(...Object.values(node).filter(v=>v && typeof v==='object'));
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+  }
   // A limited set of applications include their state as a JSON literal
   // assignment, not a script with type=application/json. No eval and no JS.
   const state = /(?:window\.)?(?:__INITIAL_STATE__|__PRELOADED_STATE__)\s*=\s*(\{[^\n;]{1,100000}\})\s*;/gi;
@@ -415,7 +453,8 @@ function kickoffFromJson(item, observedAt, clockFresh) {
     if (value) return {kickoff:value, timingSource:"explicit"};
   }
   const ts = item.startTimestamp ?? item.start_timestamp ??
-    item.startTimeUnix ?? item.kickoffTimestamp ?? item.kickoff_unix;
+    item.startTimeUnix ?? item.kickoffTimestamp ?? item.kickoff_unix ??
+    (typeof raw === "number" ? raw : null);
   if ((typeof ts === "number" || typeof ts === "string") && String(ts).trim()) {
     const n = Number(ts);
     if (Number.isFinite(n)) {
@@ -451,15 +490,17 @@ function publicFixtureJsonRows(html, site, source, clock) {
   // is NOT proof that every embedded event is football.
   const footballCatalog = (source !== "livetv" &&
     /(?:football|soccer)/i.test(new URL(site.home).pathname)) ||
-    ["camel","xoilac","kooralive"].includes(source);
+    ["camel","xoilac"].includes(source);
   const state = publicEmbeddedJson(html, source);
+  const camelLinks = source === 'camel' ? new Map([...html.matchAll(/<a\b[^>]*\bhref=["']([^"']+)["']/gi)]
+    .map(hit=>[hit[1].split('?')[0].split('/').at(-1),hit[1]])) : new Map();
   let examined = 0;
   for (const root of state) {
     const queue = [{node:root, football:footballCatalog, depth:0}];
     for (let head = 0; head < queue.length && examined < 4000; head++) {
       const {node, football, depth} = queue[head];
       examined++;
-      if (!node || typeof node !== "object" || depth > 10) continue;
+      if (!node || typeof node !== "object" || depth > 18) continue;
       if (Array.isArray(node)) {
         for (const child of node.slice(0, 150)) queue.push({node:child,football,depth:depth+1});
         continue;
@@ -468,7 +509,8 @@ function publicFixtureJsonRows(html, site, source, clock) {
         node.category?.name ?? node.category?.slug ?? "");
       const categoryIsFootball = /(?:soccer|football)/i.test(sport);
       const categoryOtherSport = /(?:american\s+football|basketball|cricket|tennis|rugby|hockey|baseball|golf|snooker|volleyball|badminton|esports|e-sports|mma|boxing)/i.test(sport);
-      const linkValue = node.url ?? node.href ?? node.page_url ?? node.matchUrl ??
+      const camelLink = source === 'camel' ? camelLinks.get(node.id) : null;
+      const linkValue = camelLink ?? node.url ?? node.href ?? node.page_url ?? node.matchUrl ??
         node.match_url ?? node.eventUrl ?? node.event_url ?? node.fixtureUrl ??
         node.fixture_url ?? node.permalink ?? node.link;
       const linkedPage = typeof linkValue === "string" ? allowedPageUrl(linkValue, site) : null;
@@ -486,7 +528,7 @@ function publicFixtureJsonRows(html, site, source, clock) {
       const rawLink = typeof link === "string" ? link.trim() : "";
       const schemaType = String(node["@type"] ?? node.type ?? "");
       const recognizedSchema = /(?:^|:)SportsEvent$/i.test(schemaType);
-      if (teams && eventIsFootball && output.size < 80) {
+      if (teams && eventIsFootball && output.size < 250) {
         const when = kickoffFromJson(node,clock.observedAt,clock.clockFresh);
         const scheduleOnly = !rawLink && recognizedSchema &&
           when.timingSource === "explicit";
@@ -552,6 +594,9 @@ function publicLiveTvSoccerRows(html, site, source) {
 
 function rojadirectaRows(html, site) {
   const rows=[];
+  let publishedLinks={};
+  const literal=html.match(/window\.LINKS_DATA\s*=\s*(\{[^\n]*\})\s*;/);
+  try { publishedLinks=literal ? JSON.parse(literal[1]) : {}; } catch (_) {}
   for(const m of html.matchAll(/<details\b[^>]*\bclass\s*=\s*['"][^'"]*game-item-details[^'"]*['"][^>]*>([\s\S]*?)<\/details>/gi)) {
     const card=m[1];
     const name=card.match(/<span\b[^>]*\bclass\s*=\s*['"]game-teams['"][^>]*>([\s\S]*?)<\/summary>/i)?.[1];
@@ -561,9 +606,11 @@ function rojadirectaRows(html, site) {
     const kickoff=pageKickoff(card);
     const row=eventRecord('rojadirecta',site,null,pair,kickoff,kickoff?'explicit':'none');
     row.source_id=row.schedule_id=m[0].match(/data-game-id=['"]([\w-]+)['"]/)?.[1]||row.source_id;
-    row.anchors=[...card.matchAll(/<a\b[^>]*href=['"]([^'"]+)['"]/gi)].flatMap(a=>{
-      const url=publicSourceUrl(a[1],site.home);return url?[{room_num:row.source_id+':'+sourceId(url),page_url:url,nick_name:site.label}]:[];
-    }).slice(0,6);
+    const links=[...[...card.matchAll(/<a\b[^>]*href=['"]([^'"]+)['"]/gi)].map(a=>a[1]),
+      ...(Array.isArray(publishedLinks[row.source_id]) ? publishedLinks[row.source_id].map(link=>link?.link) : [])];
+    row.anchors=[...new Set(links.map(value=>publicSourceUrl(value,site.home)).filter(Boolean))]
+      .filter(url=>!/^(?:www\.)?youtube\.com$/i.test(new URL(url).hostname))
+      .slice(0,6).map(url=>({room_num:row.source_id+':'+sourceId(url),page_url:url,nick_name:site.label}));
     row.page_url=row.anchors[0]?.page_url||null;row.schedule_only=!row.anchors.length;
     rows.push(row);if(rows.length>=100)break;
   }
@@ -589,13 +636,28 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
       if (!embedded.rows.has(row.page_url)) embedded.rows.set(row.page_url,row);
     }
   }
+  if (source === 'xoilac') {
+    for (const hit of html.matchAll(/<a\b([^>]*\bclass=["'][^"']*wlb-card__phu[^"']*["'][^>]*)>/gi)) {
+      const href = hit[1].match(/\bhref=["']([^"']+)["']/i)?.[1];
+      const title = hit[1].match(/\baria-label=["']([^"']+)["']/i)?.[1];
+      const page = href && allowedPageUrl(href, site), teams = fixtureTitle(title);
+      if (!page || !teams) continue;
+      const time = new URL(page).pathname.match(/-luc-(\d{2})(\d{2})-ngay-(\d{2})-(\d{2})-(20\d{2})/);
+      const kickoff = time ? explicitKickoff(`${time[5]}-${time[4]}-${time[3]}T${time[1]}:${time[2]}:00+07:00`) : null;
+      embedded.rows.set(page, eventRecord(source,site,page,teams,kickoff,kickoff?'explicit':'none'));
+    }
+  }
   const candidates = new Map();
   const anchors = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   for (const hit of html.matchAll(anchors)) {
-    if (candidates.size >= 80) break;
+    if (candidates.size >= 250) break;
+    // Football league links contain "vs" too. These are not fixture cards.
+    if (source === 'xoilac' && !/wlb-card__phu/.test(hit[1])) continue;
+    if (source === 'camel' && !/href=["'][^"']*\/football\/match-/i.test(hit[1])) continue;
     const href = hit[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
     const page = href && allowedPageUrl(href.replace(/&amp;/gi, "&"), site);
     if (!page || page === site.home || candidates.has(page)) continue;
+    if (source === 'camel' && embedded.rows.size && !embedded.rows.has(page)) continue;
     const card = matchCardMarkup(html, hit);
     const cardSport = explicitFixtureSport(card || hit[0]);
     const footballLink = /\b(?:soccer|football)\b/i.test(page);
@@ -616,7 +678,7 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     const teams = teamsFromLink(page, hit[2]) ?? structuredCardTeams(card || hit[0]);
     if (!teams) continue;
     const footballCatalog = /(?:football|soccer)/i.test(new URL(site.home).pathname) ||
-      ["camel","xoilac","kooralive"].includes(source);
+      ["camel","xoilac"].includes(source);
     if (!footballCatalog && !footballLink && cardSport !== "football") continue;
     // The timestamp must be inside this anchor or immediately preceding it,
     // with a preceding sibling anchor acting as a hard event boundary.
@@ -624,7 +686,8 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     const boundary = preceding.lastIndexOf("</a>");
     const local = boundary < 0 ? preceding : preceding.slice(boundary + 4);
     const explicit = pageKickoff(hit[0]) ?? pageKickoff(local) ??
-      (card ? pageKickoff(card) : null);
+      (card ? pageKickoff(card) : null) ??
+      (source === 'roxie' ? pacificTableKickoff(card) : null);
     const countdown = explicit ? null :
       countdownKickoff(hit[0], catalog.observedAt, catalog.clockFresh) ??
       (card ? countdownKickoff(card, catalog.observedAt, catalog.clockFresh) : null);
@@ -739,13 +802,32 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   }
   if (!page) return {ok: true, source, lines: [], line_count: 0,
     ready: false, message: "No verified public match page."};
-  let firstHtml=null,configured=[];
+  let firstHtml=null,configured=[],extraPages=[];
+  if (['score088','sports808'].includes(source)) {
+    const read = await readPublicSource(page,{fetcher,allowedHosts:[site.host],timeoutMs:2500});
+    firstHtml=read.text;
+    const state = publicEmbeddedJson(firstHtml,source);
+    const props = state.find(row=>row?.props?.pageProps?.matchId)?.props?.pageProps;
+    const id = props?.matchId;
+    // The endpoint is published by these sites' own match-page bundle.
+    // Bind its event identity to the page data, never to a client-supplied ID.
+    if (typeof id === 'string' && /^[a-z0-9-]{5,200}$/i.test(id) &&
+        new URL(page).pathname.includes(id)) {
+      try {
+        const api = await readPublicSource('https://api.footypaper.top/api/soccer/events/'+encodeURIComponent(id),
+          {fetcher,kind:'json',allowedHosts:['api.footypaper.top'],timeoutMs:Math.min(2500,deadline-Date.now())});
+        const event = JSON.parse(api.text);
+        if (event.id === id && Array.isArray(event.urls))
+          extraPages=event.urls.map(url=>publicSourceUrl(url)).filter(Boolean).slice(0,4);
+      } catch (_) { /* A public event API may be temporarily unavailable. */ }
+    }
+  }
   if (source==='roxie') {
     const read=await readPublicSource(page,{fetcher,allowedHosts:[site.host],timeoutMs:2500});
     firstHtml=read.text;
     configured=await configuredPublicMedia(source,firstHtml,read.url,{fetcher});
   }
-  const result = await discoverPublicMedia(page,{fetcher,deadline,firstHtml,
+  const result = await discoverPublicMedia(page,{fetcher,deadline,firstHtml,extraPages,
     initialAllowedHosts:hasPublicFootballFeed(source)||source==='rojadirecta'?null:[site.host,...(site.aliases||[])]});
   result.lines=[...new Map([...result.lines,...configured].map(line=>[line.url,line])).values()];
   if (!result.lines.length && result.failures.some(error=>error.includes('outside configured provider'))) {
@@ -753,8 +835,8 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   }
   const lines = result.lines.map((line, i) => ({
     ...line,
-    label: site.label + " • " + (/\.mpd(?:\?|$)/i.test(line.url) ? "DASH / MPD" : "HLS / M3U8") + " " + (i + 1),
-    stream_type: /\.mpd(?:\?|$)/i.test(line.url) ? "dash" : "hls",
+    label: site.label + " • " + (/\.mpd(?:\?|$)/i.test(line.url) ? "DASH / MPD" : /\.mp4(?:\?|$)/i.test(line.url) ? "MP4" : "HLS / M3U8") + " " + (i + 1),
+    stream_type: /\.mpd(?:\?|$)/i.test(line.url) ? "dash" : /\.mp4(?:\?|$)/i.test(line.url) ? "mp4" : "hls",
     resolution: "Auto",
     health_status: "unknown",
   }));
@@ -768,6 +850,6 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
       content_state:lines.length?'media_found':result.failures.length?'player_unavailable':'no_public_media',
       playback_verified:false},
     message: lines.length ? "Check permission and playback before importing." :
-      "No public HLS/DASH URL in static page. Login, scripts or player restrictions are not bypassed.",
+      "No public HLS/DASH/MP4 URL found in the published page, public API or player chain. Player access may be unavailable.",
     generated_at: new Date().toISOString()};
 }

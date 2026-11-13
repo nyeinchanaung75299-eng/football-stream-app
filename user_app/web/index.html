@@ -415,14 +415,22 @@
       z-index:6; /* The selected line row is just above the seek controls. */
     }
     #football-player-overlay #football-player-video-wrap #nca-player-progress{
-      height:3px;min-height:3px;max-height:3px;accent-color:#47e59e;
+      appearance:none;-webkit-appearance:none;background:transparent;
+      height:32px;min-height:32px;max-height:32px;accent-color:#47e59e;
     }
     #football-player-overlay #football-player-video-wrap #nca-player-progress::-webkit-slider-runnable-track{
-      height:3px;border-radius:4px;
+      height:3px;border-radius:4px;background:#78817d;
     }
     #football-player-overlay #football-player-video-wrap #nca-player-progress::-webkit-slider-thumb{
-      width:11px;height:11px;margin-top:-4px;
+      -webkit-appearance:none;width:11px;height:11px;margin-top:-4px;
+      border:0;border-radius:50%;background:#fff;
     }
+    #football-player-overlay #nca-player-progress::-moz-range-track{height:3px;background:#78817d;border-radius:4px}
+    #football-player-overlay #nca-player-progress::-moz-range-progress{height:3px;background:#47e59e}
+    #football-player-overlay #nca-player-progress::-moz-range-thumb{width:11px;height:11px;border:0;border-radius:50%;background:#fff}
+    #football-player-overlay #football-player-video-wrap .football-line-chip{max-width:min(340px,90vw)}
+    #football-player-overlay #football-player-video-wrap .football-line-chip-label{max-width:290px}
+    #football-player-overlay .football-menu-item-label{white-space:normal;overflow-wrap:anywhere}
     /* Chooser/settings always paint above line chips and dim overlays. */
     #football-player-overlay #football-player-menu{z-index:12!important}
     /* A tap should never leave an invisible topbar intercepting the picture. */
@@ -1187,42 +1195,20 @@
       lineItems.innerHTML='';
       const visible=visibleLineEntries();
       const singleChannel=visible.length<=1;
-      lineRail.classList.toggle('hidden',visible.length===0||singleChannel);
+      lineRail.classList.toggle('hidden',singleChannel);
       serverButton.style.display=singleChannel?'none':'';
-      visible.forEach(({source,index})=>{
-        const item=document.createElement('button');
-        const selected=index===displayLineIndex();
-        const label=safeLineLabel(source,index);
-        const resolution=safeLineResolution(source);
-        const type=sourceType(source).toUpperCase();
-        // Keep provider names small and truncated; always expose format
-        // and resolution separately, including on 16+ horizontal lines.
-        const shownResolution=resolution || '';
-        const shownType=['HLS','DASH','MP4','FLV'].includes(type)?type:'';
-        item.type='button';
-        item.className='football-line-chip'+(selected?' current':'');
-        item.setAttribute('role','listitem');
-        item.setAttribute('aria-pressed',selected?'true':'false');
-        item.setAttribute('aria-label',label+' • '+type);
-        item.innerHTML=
-          '<span class="football-line-chip-mark" aria-hidden="true">✓</span>'+
-          '<span class="football-line-chip-copy">'+
-          '<span class="football-line-chip-label">'+escapeHtml(label)+'</span>'+
-          '<span class="football-line-chip-meta">'+
-          (shownResolution?'<span>'+escapeHtml(shownResolution)+'</span>':'')+
-          (shownType?'<span class="football-line-chip-format '+shownType.toLowerCase()+'">'+shownType+'</span>':'')+
-          '</span></span>';
-        item.addEventListener('click',()=>{
-          revealControls();
-          capturePlayerEvent('playback line selected',{
-            selected_index:index,
-            line_count:sources.length,
-            stream_type:sourceType(source)
-          });
-          loadSource(index,true);
-        });
-        lineItems.appendChild(item);
-      });
+      if(singleChannel)return;
+      const index=displayLineIndex(), source=sources[index]||{};
+      const label=safeLineLabel(source,index), type=sourceType(source).toUpperCase();
+      const item=document.createElement('button');
+      item.type='button';
+      item.className='football-line-chip current';
+      item.setAttribute('aria-label','Current line '+label+'. Change line');
+      item.innerHTML='<span class="football-line-chip-copy">'+
+        '<span class="football-line-chip-label">✓ '+escapeHtml(label)+'</span>'+
+        '<span class="football-line-chip-meta">'+escapeHtml([safeLineResolution(source),type].filter(Boolean).join(' · '))+' · ▾ Change line</span></span>';
+      item.addEventListener('click',openLineMenu);
+      lineItems.appendChild(item);
     }
 
     function openLineMenu(){
@@ -1242,7 +1228,7 @@
           '<span class="football-menu-item-main">'+
           '<span class="football-menu-item-label">'+escapeHtml(label)+'</span>'+
           '<span class="football-menu-item-sub">'+escapeHtml(
-            support.reason || (type==='AUTO'?'Auto / Direct':type)
+            [safeLineResolution(source),support.reason || (type==='AUTO'?'Auto / Direct':type)].filter(Boolean).join(' · ')
           )+'</span>'+
           '</span>'+
           (index===displayLineIndex()?'<span class="football-menu-item-badge">PLAYING</span>':'');

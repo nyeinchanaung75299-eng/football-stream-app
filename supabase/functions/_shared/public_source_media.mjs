@@ -48,16 +48,16 @@ export async function readPublicSource(value, {fetcher = fetch, timeoutMs = 5000
 }
 
 export function publishedMediaUrls(html, page) {
-  const clean = html.replace(/\\\//g, '/').replace(/&amp;/gi, '&');
+  const clean = html.replace(/\\\//g, '/').replace(/\\u002f/gi,'/').replace(/\\u0026/gi,'&').replace(/&amp;/gi, '&');
   const found = new Set();
   const patterns = [
-    /(?:https?:\/\/|\/\/)[^\s"'<>\\]+?\.(?:m3u8|mpd)(?:\?[^\s"'<>\\]*)?/gi,
-    /\b(?:src|href|data-src|data-file|data-hls|data-dash)\s*=\s*["']([^"']+\.(?:m3u8|mpd)(?:\?[^"']*)?)["']/gi,
-    /["'](?:file|src|hls|dash|manifest|playlist|source)["']\s*:\s*["']([^"'<>\s]+\.(?:m3u8|mpd)(?:\?[^"'<>\s]*)?)["']/gi,
+    /(?:https?:\/\/|\/\/)[^\s"'<>\\]+?\.(?:m3u8|mpd|mp4)(?:\?[^\s"'<>\\]*)?/gi,
+    /\b(?:src|href|data-src|data-file|data-hls|data-dash|data-video|data-stream|data-stream-url)\s*=\s*["']([^"']+\.(?:m3u8|mpd|mp4)(?:\?[^"']*)?)["']/gi,
+    /["'](?:file|src|hls|dash|manifest|playlist|source|video)["']\s*:\s*["']([^"'<>\s]+\.(?:m3u8|mpd|mp4)(?:\?[^"'<>\s]*)?)["']/gi,
   ];
   for (const pattern of patterns) for (const hit of clean.matchAll(pattern)) {
     const url = publicSourceUrl(hit[1] || hit[0], page);
-    if (url && /\.(?:m3u8|mpd)$/i.test(new URL(url).pathname)) found.add(url);
+    if (url && /\.(?:m3u8|mpd|mp4)$/i.test(new URL(url).pathname)) found.add(url);
   }
   return [...found].slice(0, 12);
 }
@@ -76,20 +76,30 @@ function playerPages(html, page) {
     const href = hit[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
     if (href) add(href);
   }
+  for (const hit of html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/gi)) {
+    const url = publicSourceUrl(hit[1],page);
+    if (url && new URL(url).origin===new URL(page).origin &&
+        /(?:player|embed|stream|video)[^/]*\.(?:js|json)(?:[?]|$)/i.test(url)) add(url);
+  }
   return [...found].slice(0, 6);
 }
 
 export async function discoverPublicMedia(page, {fetcher = fetch, firstHtml = null,
-  deadline = Date.now() + 6500, initialAllowedHosts = null} = {}) {
-  const queue = [{url: page, depth: 0}], seen = new Set(), lines = new Map(), failures = [];
+  deadline = Date.now() + 6500, initialAllowedHosts = null, extraPages = []} = {}) {
+  const queue = [{url: page, depth: 0}, ...extraPages.map(url=>({url,depth:1}))], seen = new Set(), lines = new Map(), failures = [];
   while (queue.length && seen.size < 6 && Date.now() < deadline && lines.size < 12) {
     const job = queue.shift();
     if (seen.has(job.url)) continue;
     seen.add(job.url);
+    if (/\.(?:m3u8|mpd|mp4)$/i.test(new URL(job.url).pathname)) {
+      lines.set(job.url,{url:job.url,referer:page,origin:new URL(page).origin});
+      continue; // The independent media probe validates this published URL.
+    }
     try {
       const read = job.depth === 0 && firstHtml !== null ? {text:firstHtml,url:job.url} :
         await readPublicSource(job.url, {fetcher, timeoutMs:Math.min(2500, deadline-Date.now()),
-          allowedHosts:job.depth===0?initialAllowedHosts:null});
+          allowedHosts:job.depth===0?initialAllowedHosts:null,
+          kind:/\.(?:js|json)(?:[?]|$)/i.test(job.url)?'text':'html'});
       const html = read.text;
       for (const url of publishedMediaUrls(html, read.url)) if (!lines.has(url)) {
         lines.set(url, {url, referer: read.url, origin:new URL(read.url).origin});

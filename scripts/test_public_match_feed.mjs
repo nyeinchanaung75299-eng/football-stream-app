@@ -401,3 +401,25 @@ test('Australian and Mexican saved guides keep their exact source and station id
   assert.equal((await run()).channels[0].matchedEPG,true);
  }finally{globalThis.fetch=original;}
 });
+
+test('warm regional guide returns before slow primary refresh and reconciles deleted channels',async()=>{
+ const original=globalThis.fetch,previousCaches=globalThis.caches;
+ let release;const pending=new Promise(resolve=>release=resolve),background=[];
+ const cached={channels:[{id:'keep',name:'NBC',matchedEPG:true,programmes:[{start:Date.parse('2026-11-13T17:00:00Z'),title:'Moldova vs Kazakhstan'}]},
+  {id:'deleted',name:'Deleted channel',matchedEPG:true,programmes:[]}]};
+ globalThis.caches={default:{match:async()=>Response.json(cached),put:async()=>{}}};
+ let primaryStarted=false;
+ globalThis.fetch=async target=>{
+  const u=new URL(target);
+  if(u.pathname==='/rest/v1/channels')return Response.json([{id:'keep',name:'NBC'}]);
+  if(u.hostname==='raw.githubusercontent.com')return Response.json({ok:true,updated_at:new Date().toISOString(),channels:[]});
+  if(u.pathname==='/api/schedule'){primaryStarted=true;await pending;return Response.json(cached);}
+  return Response.json({channels:[]});
+ };
+ try{
+  const response=await worker.fetch(new Request('https://worker.example/tv-schedule?date=2026-11-13'),env,{waitUntil:p=>background.push(p)});
+  const payload=await response.json();
+  assert.deepEqual(payload.channels.map(x=>x.id),['keep']);
+  assert.equal(payload.channels[0].programmes.length,1);assert.equal(primaryStarted,true);
+ }finally{release();await Promise.all(background);globalThis.fetch=original;globalThis.caches=previousCaches;}
+});

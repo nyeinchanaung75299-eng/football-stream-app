@@ -30,7 +30,6 @@ class StreamSourcePickerPage extends StatelessWidget {
     _SourceOption('viprow', 'VIPRow', Icons.sports_soccer_rounded),
     _SourceOption('score088', 'Score088TV', Icons.sports_soccer_rounded),
     _SourceOption('sports808', 'LiveSports808', Icons.sports_soccer_rounded),
-    _SourceOption('kooralive', 'Koora Live', Icons.sports_soccer_rounded),
     _SourceOption('livextv', 'LiveXTV', Icons.sports_soccer_rounded),
     _SourceOption('streamfree', 'StreamFree', Icons.sports_soccer_rounded),
     _SourceOption('ppv', 'PPV.st', Icons.sports_soccer_rounded),

@@ -26,21 +26,25 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
   _ScheduleData? _lastSchedule;
   DateTime? _lastSuccessfulAt;
   late Future<_GuideResult> _guide = _loadGuide();
+  _GuideResult? _lastGuide;
   String _view = 'upcoming';
   DateTime _lastRefreshAt = DateTime.now();
 
-  void _refresh() => setState(() {
+  void _refresh({bool force = true}) => setState(() {
         _lastRefreshAt = DateTime.now();
         _schedule = _load();
-        _guide = _loadGuide(refresh: true);
+        _guide = _loadGuide(refresh: force);
       });
 
   @override
   void didUpdateWidget(covariant TvSchedulesPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.active && !oldWidget.active &&
-        DateTime.now().difference(_lastRefreshAt) >= const Duration(minutes: 2)) {
-      _refresh(); // FutureBuilder holds last good rows while fetching.
+    if (widget.active &&
+        !oldWidget.active &&
+        DateTime.now().difference(_lastRefreshAt) >=
+            const Duration(minutes: 2)) {
+      _refresh(
+          force: false); // FutureBuilder holds last good rows while fetching.
     }
   }
 
@@ -54,10 +58,12 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
 
   Future<_GuideResult> _loadGuide({bool refresh = false}) async {
     try {
-      return _GuideResult(
-          guide: await TvScheduleService().load(refresh: refresh));
+      return _lastGuide =
+          _GuideResult(guide: await TvScheduleService().load(refresh: refresh));
     } catch (_) {
-      return const _GuideResult(error: 'TV guide is temporarily unavailable.');
+      return _GuideResult(
+          guide: _lastGuide?.guide,
+          error: 'TV guide refresh failed — showing last successful guide.');
     }
   }
 
@@ -93,10 +99,13 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
   ) {
     final now = DateTime.now().toUtc();
     return matches.where((match) {
-      final label = '${match['league']} ${match['home_team']} ${match['away_team']}';
+      final label =
+          '${match['league']} ${match['home_team']} ${match['away_team']}';
       // Schedule is football-only, never replay/highlight or other sports.
-      if (RegExp(r'\b(replay|highlight|recap|cricket|tennis|basketball|formula 1|motorsport|rugby)\b',
-          caseSensitive: false).hasMatch(label)) return false;
+      if (RegExp(
+              r'\b(replay|highlight|recap|cricket|tennis|basketball|formula 1|motorsport|rugby)\b',
+              caseSensitive: false)
+          .hasMatch(label)) return false;
       if (match['is_active'] == false ||
           (match['publish_state'] ?? 'published') != 'published') {
         return false;
@@ -131,75 +140,76 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
           builder: (context, guideSnapshot) {
             final guide = guideSnapshot.data;
             return RefreshIndicator(
-          onRefresh: () async => _refresh(),
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
-            children: [
-              if (widget.embedded)
-                _ScheduleHeader(
-                  guideError: guide?.error,
-                  onRefresh: _refresh,
-                ),
-              if (widget.embedded) const SizedBox(height: 10),
-              if (snapshot.hasError && _lastSchedule != null) ...[
-                Card(
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  child: ListTile(
-                    leading: const Icon(Icons.cloud_off_rounded),
-                    title: const Text('Match refresh failed — showing saved schedule'),
-                    subtitle: Text(_lastSuccessfulAt == null
-                        ? 'Last successful update unavailable'
-                        : 'Last successful: ${DateFormat('dd MMM HH:mm').format(_lastSuccessfulAt!.toLocal())}'),
-                    trailing: TextButton(
-                      onPressed: _refresh,
-                      child: const Text('RETRY'),
+              onRefresh: () async => _refresh(),
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
+                children: [
+                  if (widget.embedded)
+                    _ScheduleHeader(
+                      guideError: guide?.error,
+                      onRefresh: _refresh,
+                    ),
+                  if (widget.embedded) const SizedBox(height: 10),
+                  if (snapshot.hasError && _lastSchedule != null) ...[
+                    Card(
+                      color: Theme.of(context).colorScheme.errorContainer,
+                      child: ListTile(
+                        leading: const Icon(Icons.cloud_off_rounded),
+                        title: const Text(
+                            'Match refresh failed — showing saved schedule'),
+                        subtitle: Text(_lastSuccessfulAt == null
+                            ? 'Last successful update unavailable'
+                            : 'Last successful: ${DateFormat('dd MMM HH:mm').format(_lastSuccessfulAt!.toLocal())}'),
+                        trailing: TextButton(
+                          onPressed: _refresh,
+                          child: const Text('RETRY'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Live & upcoming'),
+                        selected: _view == 'upcoming',
+                        onSelected: (_) => setState(() => _view = 'upcoming'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Live now'),
+                        selected: _view == 'live',
+                        onSelected: (_) => setState(() => _view = 'live'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    '${matches.length} MATCH${matches.length == 1 ? '' : 'ES'}',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: .7,
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
-              ],
-              Wrap(
-                spacing: 8,
-                children: [
-                  ChoiceChip(
-                    label: const Text('Live & upcoming'),
-                    selected: _view == 'upcoming',
-                    onSelected: (_) => setState(() => _view = 'upcoming'),
-                  ),
-                  ChoiceChip(
-                    label: const Text('Live now'),
-                    selected: _view == 'live',
-                    onSelected: (_) => setState(() => _view = 'live'),
-                  ),
+                  const SizedBox(height: 7),
+                  if (matches.isEmpty)
+                    const _EmptySchedule()
+                  else
+                    ...matches.map(
+                      (match) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _MatchScheduleCard(
+                          match: match,
+                          guide: guide?.guide,
+                        ),
+                      ),
+                    ),
                 ],
               ),
-              const SizedBox(height: 10),
-              Text(
-                '${matches.length} MATCH${matches.length == 1 ? '' : 'ES'}',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: .7,
-                ),
-              ),
-              const SizedBox(height: 7),
-              if (matches.isEmpty)
-                const _EmptySchedule()
-              else
-                ...matches.map(
-                  (match) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _MatchScheduleCard(
-                      match: match,
-                      guide: guide?.guide,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        );
+            );
           },
         );
       },
@@ -283,8 +293,9 @@ class _ScheduleHeader extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color:
-                      guideError == null ? colors.onSurfaceVariant : colors.error,
+                  color: guideError == null
+                      ? colors.onSurfaceVariant
+                      : colors.error,
                   fontSize: 12,
                 ),
               ),
@@ -315,13 +326,16 @@ class _MatchScheduleCard extends StatelessWidget {
       match['away_team']?.toString() ?? 'Away',
     );
     final league = englishKnownFootballName(
-      match['league']?.toString() ?? 'Football', kind: 'league',
+      match['league']?.toString() ?? 'Football',
+      kind: 'league',
     );
     final normalizedMatch = {
-      ...match, 'home_team': home, 'away_team': away,
+      ...match,
+      'home_team': home,
+      'away_team': away,
     };
-    final airings = guide?.airingsForMatch(normalizedMatch) ??
-        const <TvScheduleAiring>[];
+    final airings =
+        guide?.airingsForMatch(normalizedMatch) ?? const <TvScheduleAiring>[];
     final possibleAirings = guide?.possibleAiringsForMatch(normalizedMatch) ??
         const <TvScheduleAiring>[];
     return FootballMatchGuideCard(
@@ -332,14 +346,18 @@ class _MatchScheduleCard extends StatelessWidget {
       airings: [
         for (final airing in airings)
           FootballGuideAiring(
-            channel: airing.channel, when: airing.when, region: airing.region,
+            channel: airing.channel,
+            when: airing.when,
+            region: airing.region,
             title: airing.title,
           ),
       ],
       possibleAirings: [
         for (final airing in possibleAirings)
           FootballGuideAiring(
-            channel: airing.channel, when: airing.when, region: airing.region,
+            channel: airing.channel,
+            when: airing.when,
+            region: airing.region,
             title: airing.title,
           ),
       ],
@@ -392,5 +410,3 @@ class _RetryState extends StatelessWidget {
         ),
       );
 }
-
-
