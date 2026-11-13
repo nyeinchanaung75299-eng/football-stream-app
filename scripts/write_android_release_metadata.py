@@ -12,7 +12,7 @@ from verify_android_update_signing import RELEASE_BASE, RELEASES, apk_identity
 
 NOTES = {
     'Viewer': 'Compact current-line chooser and slim seek bar. Existing playback and VPN-free fallback are preserved.',
-    'Admin': 'Highlights is now available in the Admin Android bottom navigation. Keeps lazy loading, extracted link copying and complete Repository Match imports.',
+    'Admin': 'Pick Big Matches now supports ColaTV and Repository Matches, including manually re-adding deleted fixtures. One-tap video URL copying for Soco, YYZB and ColaTV; Highlights tab and public Telegram highlight links.',
 }
 
 
