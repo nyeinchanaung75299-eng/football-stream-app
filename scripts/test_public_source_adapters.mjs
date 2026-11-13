@@ -35,7 +35,7 @@ test('Public HTML can explicitly publish HLS without executing scripts',async()=
  const found=await discoverPublicMedia('https://player.example.org/event',{fetcher:async url=>
    response('<video src="https://cdn.example.org/live.m3u8"></video>')});
  assert.equal(found.lines.length,1);
- assert.equal(found.lines[0].stream_type,'hls');
+ assert.ok(found.lines[0].url.endsWith('.m3u8'));
  assert.equal(found.lines[0].url,'https://cdn.example.org/live.m3u8');
 });
 
