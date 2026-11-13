@@ -6,6 +6,24 @@ import 'package:football_admin/services/gateway_request.dart';
 import 'package:football_admin/services/function_gateway.dart';
 
 void main() {
+  test('highlights validate provider and action payload without requiring live match rows', () async {
+    var calls = 0;
+    final result = await GatewayRequest(
+      bases: ['https://stale.test', 'https://current.test'],
+      send: (_, __, ___) async {
+        calls++;
+        return http.Response(calls == 1
+          ? '{"ok":true,"source":"highlights","provider":"hoofoot","entries":[]}'
+          : '{"ok":true,"source":"highlights","provider":"darkbyte","entries":[]}', 200);
+      },
+      refresh: () async => null,
+      direct: () async => throw StateError('No direct fallback expected'),
+    ).run('source-match-list', 'test-token', body: {'source': 'highlights', 'provider': 'darkbyte', 'action': 'catalog'});
+    expect(calls, 2);
+    expect(result.base, 'https://current.test');
+    expect(result.data['entries'], isEmpty);
+  });
+
   test('known healthy gateway is preferred only when present in allowlist',
       () {
     final known = ['https://vercel.test', 'https://worker.test', 'https://direct.test'];
