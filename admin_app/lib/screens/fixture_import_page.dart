@@ -581,7 +581,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   Future<void> _publishRepositorySelection(
       List<Map<String, dynamic>> chosen) async {
     var published = 0;
-    var deleted = 0;
+    var restored = 0;
     final errors = <String>[];
     final ids = <String>[];
     final client = Supabase.instance.client;
@@ -623,8 +623,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           published++;
           final id = result['match_id']?.toString() ?? '';
           if (id.isNotEmpty) ids.add(id);
-        } else if (result['code'] == 'previously_deleted') {
-          deleted++;
+          if (result['restored'] == true) restored++;
         } else {
           final reason = switch (result['code']) {
             'previously_finished' => 'existing match already finished',
@@ -646,14 +645,14 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     setState(() => selectedIds.clear());
     final details = <String>[
       '$published Repository match(es) processed.',
-      if (deleted > 0)
-        '$deleted previously deleted match(es) were kept deleted. Restore explicitly in Controls.',
+      if (restored > 0)
+        '$restored previously deleted match(es) restored and re-published.',
       for (final issue in errors.take(3)) issue,
     ].join(' ');
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(details), duration: const Duration(seconds: 7)),
     );
-    if (published == 1 && ids.isNotEmpty && errors.isEmpty && deleted == 0) {
+    if (published == 1 && ids.isNotEmpty && errors.isEmpty) {
       await Navigator.of(context).push<void>(MaterialPageRoute(
         settings: const RouteSettings(name: '/admin/stream-servers'),
         builder: (_) => LiveLinksPage(initialMatchId: ids.first),
@@ -717,8 +716,9 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           .where((id) => id.isNotEmpty)
           .toList();
       final skippedDeleted =
-          (resultMap['skipped_deleted'] as num?)?.toInt() ??
-          (chosen.length - savedIds.length).clamp(0, chosen.length);
+          (resultMap['skipped_deleted'] as num?)?.toInt() ?? 0;
+      final restoredCount =
+          (resultMap['restored_count'] as num?)?.toInt() ?? 0;
       // A successful no-op (all fixtures skipped) must not invalidate a
       // retained guide on either Web or Android.
       if (savedIds.isNotEmpty && mounted) {
@@ -732,6 +732,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
           'published_count':
               (resultMap['published_count'] as num?)?.toInt() ?? savedIds.length,
           'skipped_deleted': skippedDeleted,
+          'restored_count': restoredCount,
         },
       ));
 
@@ -739,6 +740,11 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
 
       setState(() => selectedIds.clear());
 
+      if (restoredCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('$restoredCount deleted match(es) restored and re-published.'),
+        ));
+      }
       if (skippedDeleted > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
