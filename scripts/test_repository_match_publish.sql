@@ -59,11 +59,51 @@ begin
  if r->>'created'<>'true' or not exists(select from public.matches where id=(r->>'match_id')::uuid and kickoff_at='2026-11-21T12:30:00Z'::timestamptz) then raise exception 'Explicit MMT kickoff lost';end if;
  r:=public.publish_repository_match('repo:match:'||repeat('d',28));
  if r->>'code'<>'no_importable_lines' or exists(select from public.matches where home_team='Test D') then raise exception 'Missing DRM published an empty match';end if;
- -- Simulate the existing Controls soft-delete operation.
- update public.matches set deleted_at=now(),is_active=false,is_featured=false,publish_state='draft' where id=mid;
+ -- Simulate Controls: soft-delete the match AND remove its old live lines.
+ update public.matches set deleted_at=now(),is_active=false,is_featured=false,
+   publish_state='draft' where id=mid;
+ delete from public.stream_links where match_id=mid;
  r:=public.publish_repository_match('repo:match:'||repeat('b',28));
- if r->>'code'<>'previously_deleted' or exists(select from public.matches where id=mid and is_active) then raise exception 'Deleted match revived';end if;
+ if r->>'ok'<>'true' or r->>'restored'<>'true' or (r->>'match_id')::uuid<>mid
+   or r->>'created'<>'false' then
+   raise exception 'Explicitly selected deleted Repository match did not restore: %',r;
+ end if;
+ if not exists(select from public.matches where id=mid and deleted_at is null
+   and is_active and is_featured and publish_state='published' and not is_finished)
+   or (select count(*) from public.matches where id=mid)<>1
+   or not exists(select from public.stream_links where match_id=mid)
+ then raise exception 'Repository restored fixture or fresh lines missing';end if;
 end $$;
+reset role;
+-- Explicitly republishing a deleted Cola fixture restores ONLY the selected
+-- fixture ID; deleted fixtures not selected must remain soft-deleted.
+set local role authenticated;
+select set_config('request.jwt.claim.sub','29000000-0000-0000-0000-000000000001',true);
+do $
+declare r jsonb; id1 uuid; id2 uuid;
+begin
+ r:=public.publish_featured_matches(jsonb_build_array(
+  jsonb_build_object('fixture_id',987001,'provider','cola','league_name','Friendly',
+    'home_name','Cola Home','away_name','Cola Away','kickoff_at','2026-11-22T19:00:00Z'),
+  jsonb_build_object('fixture_id',987002,'provider','cola','league_name','Friendly',
+    'home_name','Deleted Home','away_name','Deleted Away','kickoff_at','2026-11-22T20:00:00Z')));
+ if (r->>'published_count')::int<>2 then raise exception 'Could not create Cola fixture tests';end if;
+ select id into id1 from public.matches where external_fixture_id=987001;
+ select id into id2 from public.matches where external_fixture_id=987002;
+ update public.matches set deleted_at=now(),is_active=false,is_featured=false,
+   publish_state='draft' where id in(id1,id2);
+ r:=public.publish_featured_matches(jsonb_build_array(
+  jsonb_build_object('fixture_id',987001,'provider','cola','league_name','Friendly',
+    'home_name','Cola Home','away_name','Cola Away','kickoff_at','2026-11-22T19:00:00Z')));
+ if (r->>'restored_count')::int<>1 or (r->'saved_ids'->>0)::uuid<>id1
+    or not exists(select from public.matches where id=id1 and deleted_at is null
+      and is_active and is_featured and publish_state='published')
+    or not exists(select from public.matches where id=id2 and deleted_at is not null
+      and not is_active and not is_featured)
+    or (select count(*) from public.matches where external_fixture_id=987001)<>1
+ then raise exception 'Explicitly selected deleted Cola match did not safely restore: %',r;
+ end if;
+end $;
 reset role;
 -- A failure on a later line must roll back the entire fixture and provenance.
 create function public.test_fail_repository_line() returns trigger language plpgsql as $$
