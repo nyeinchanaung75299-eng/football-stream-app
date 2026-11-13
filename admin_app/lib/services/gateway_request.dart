@@ -68,6 +68,16 @@ class GatewayRequest {
     }
     if (functionName != 'source-match-list') return true;
 
+    if (expected == 'highlights') {
+      if (body is! Map || data['provider'] != body['provider'] || data['ok'] != true) return false;
+      return switch (body['action'] ?? 'catalog') {
+        'catalog' => data['entries'] is List,
+        'details' => data['entry'] is Map,
+        'check' => data['check'] is Map,
+        _ => false,
+      };
+    }
+
     final matches = data['matches'];
     if (matches is! List) return false;
     return matches.every(

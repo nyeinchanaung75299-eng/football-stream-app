@@ -5,6 +5,7 @@ import { englishFootballName, firstFootballName, providerEnglishName, sourceFoot
 import { sourceMatchRows, isFootballSourceRow, hasPublishedSourceRoom } from "../_shared/source_match_rows.mjs";
 import { sourceLogo } from "../_shared/source_team_logos.mjs";
 import { loadYyzbFootballCatalogue } from '../_shared/yyzb_schedule.mjs';
+import { footballHighlights } from '../_shared/football_highlights.mjs';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -62,6 +63,9 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({}));
+    if (body.source === 'highlights') {
+      return json(await footballHighlights(body));
+    }
     const source = normalizeSource(body.source);
     if (source === null) {
       return json({ error: "Unsupported source." }, 400);

@@ -56,6 +56,7 @@ jobs:
           node --test scripts/test_repository_mpd.mjs
           node --test scripts/test_repository_matches.mjs scripts/test_repository_trees.mjs scripts/test_channel_media_probe.mjs scripts/test_channel_health_api.mjs
           node --test scripts/test_epg_host_match.mjs
+          node --test scripts/test_football_highlights.mjs
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -101,6 +102,13 @@ jobs:
           python3 ../scripts/stamp_flutter_web_cache.py build/web "$GITHUB_SHA"
           grep -q 'main.dart.js?v=' build/web/flutter_bootstrap.js
           grep -q 'flutter_bootstrap.js?v=' build/web/index.html
+      - name: Upload reviewable Admin Web preview
+        if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[admin-web-only]') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-web-preview
+          path: admin_app/build/web/
+          retention-days: 3
       - name: Compile debug APK
         # Web-only PRs must not build any APK, even a debug artifact.
         if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.pull_request.title, '[admin-web-only]') }}
