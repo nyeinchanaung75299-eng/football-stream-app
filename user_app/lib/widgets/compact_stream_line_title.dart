@@ -1,3 +1,14 @@
+/// Keeps the stream provider name while removing a repository fixture prefix.
+String shortMatchLineLabel(String label) {
+  final original = label.trim();
+  final match = RegExp(
+    r'^[^•·\n]{1,90}\s+(?:vs\.?|v)\s+[^•·\n]{1,90}\s*[•·]\s*(.+)$',
+    caseSensitive: false,
+  ).firstMatch(original);
+  final server = match?.group(1)?.trim() ?? '';
+  return server.isEmpty ? original : server;
+}
+
 /// Compact, public-only line text for all Viewer source choosers.
 ///
 /// Never append probe/HTTP/debug diagnostics to the visible selection rows.
@@ -9,7 +20,7 @@ String compactStreamLineTitle({
   String resolution = '',
   int index = 0,
 }) {
-  final raw = label.trim();
+  final raw = shortMatchLineLabel(label);
   final unsafe = raw.length > 120 ||
       RegExp(r'https?://|(?:authorization|token|referer|keydata|keyid)\s*[:=]', caseSensitive: false)
           .hasMatch(raw);
