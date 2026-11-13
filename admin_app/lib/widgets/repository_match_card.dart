@@ -4,20 +4,16 @@ import 'package:intl/intl.dart';
 import '../services/repository_logo.dart';
 
 /// Repository fixture summary in the same compact layout as Live Edit & Delete.
-/// Repository entries are selected and published in Pick Big Matches.
+/// Match publication happens only from Controls → Pick Big Matches.
 class RepositoryMatchCard extends StatelessWidget {
   const RepositoryMatchCard({
     super.key,
     required this.entry,
     required this.onViewLines,
-    this.onImportMatch,
-    this.importing = false,
   });
 
   final Map<String, dynamic> entry;
   final VoidCallback onViewLines;
-  final VoidCallback? onImportMatch;
-  final bool importing;
 
   @override
   Widget build(BuildContext context) {
@@ -107,23 +103,6 @@ class RepositoryMatchCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (onImportMatch != null || importing) ...[
-                const SizedBox(height: 4),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: importing ? null : onImportMatch,
-                    icon: importing
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.playlist_add_rounded, size: 20),
-                    label:
-                        Text(importing ? 'OPENING…' : 'PICK IN BIG MATCHES'),
-                  ),
-                ),
-              ],
               if (home.isEmpty || away.isEmpty) ...[
                 const SizedBox(height: 6),
                 Text(
