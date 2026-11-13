@@ -1203,7 +1203,25 @@ class _SocoImportPageState extends State<SocoImportPage> {
                               ],
                             ),
                           ),
-                          PopupMenuButton<String>(
+                          if (const {'soco', 'yyzb', 'cola'}.contains(source))
+                            IconButton(
+                              tooltip: 'Copy video URL',
+                              icon: const Icon(Icons.copy_rounded),
+                              onPressed: () async {
+                                await Clipboard.setData(ClipboardData(text: url));
+                                unawaited(AnalyticsService.capture(
+                                  'source link copied',
+                                  properties: {
+                                    'source': source,
+                                    'stream_type': (line['stream_type'] ?? 'auto').toString(),
+                                    'copied_field': 'url',
+                                  },
+                                ));
+                                message('Video URL copied.');
+                              },
+                            )
+                          else
+                            PopupMenuButton<String>(
                             tooltip: 'Copy link or headers',
                             icon: const Icon(Icons.copy_rounded),
                             itemBuilder: (_) => [
