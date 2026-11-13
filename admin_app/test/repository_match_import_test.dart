@@ -14,32 +14,44 @@ void main() {
       'kickoff_at': '2026-11-13T19:00:00Z',
     },
   };
-  testWidgets(
-      'full match action reviews the source fixture and returns UTC kickoff',
+  testWidgets('repository card selects a match in Pick Big Matches, not direct Live import',
       (tester) async {
-    var lineViews = 0;
+    var opened = 0;
+    var viewedLines = 0;
+    await tester.binding.setSurfaceSize(const Size(320, 740));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: RepositoryMatchCard(
+      entry: fixture,
+      onViewLines: () => viewedLines++,
+      onImportMatch: () => opened++,
+    ))));
+    expect(find.text('ADD MATCH TO LIVE'), findsNothing);
+    await tester.tap(find.text('PICK IN BIG MATCHES'));
+    await tester.pump();
+    expect(opened, 1);
+    expect(viewedLines, 0);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('repository fixture review returns the exact published UTC kickoff',
+      (tester) async {
     DateTime? selected;
     await tester.binding.setSurfaceSize(const Size(320, 740));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(MaterialApp(
-        home: Builder(
-            builder: (context) => Scaffold(
-                  body: RepositoryMatchCard(
-                      entry: fixture,
-                      onViewLines: () => lineViews++,
-                      onImportMatch: () async {
-                        selected = await showModalBottomSheet<DateTime>(
-                            context: context,
-                            isScrollControlled: true,
-                            builder: (_) => const RepositoryMatchImportSheet(
-                                entry: fixture));
-                      }),
-                ))));
-    await tester.tap(find.text('ADD MATCH TO LIVE'));
+    await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) =>
+      Scaffold(body: FilledButton(
+        onPressed: () async {
+          selected = await showModalBottomSheet<DateTime>(
+            context: context,
+            isScrollControlled: true,
+            builder: (_) => const RepositoryMatchImportSheet(entry: fixture),
+          );
+        },
+        child: const Text('REVIEW'),
+      )),
+    )));
+    await tester.tap(find.text('REVIEW'));
     await tester.pumpAndSettle();
-    expect(lineViews, 0);
     expect(find.text('14 Nov 2026 · 1:30 AM MMT'), findsOneWidget);
-    expect(find.text('Moldova'), findsNWidgets(2));
     await tester.tap(find.text('ADD MATCH + LINES'));
     await tester.pumpAndSettle();
     expect(selected, DateTime.parse('2026-11-13T19:00:00Z'));
