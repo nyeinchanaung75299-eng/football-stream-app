@@ -7,12 +7,14 @@ on:
       - 'supabase/schema.sql'
       - 'supabase/migrations/**'
       - 'scripts/test_database_security.*'
+      - 'scripts/test_repository_match_publish.sql'
       - '.github/workflows/check-database.yml'
   pull_request:
     paths:
       - 'supabase/schema.sql'
       - 'supabase/migrations/**'
       - 'scripts/test_database_security.*'
+      - 'scripts/test_repository_match_publish.sql'
       - '.github/workflows/check-database.yml'
 
 permissions:
