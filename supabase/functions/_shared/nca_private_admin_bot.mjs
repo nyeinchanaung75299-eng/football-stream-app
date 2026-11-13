@@ -1,7 +1,7 @@
 import { probeStreamFirstChunk } from "./stream_probe.mjs";
 import { withTelegramUpdateDedup } from './telegram_update_dedup.mjs';
 import { sendTelegramReleaseApk, ReleaseDeliveryError } from './telegram_apk_delivery.mjs';
-import { footballHighlights } from './football_highlights.mjs';
+import { footballHighlights, checkHighlightLine } from './football_highlights.mjs';
 // NCA Telegram bots: private webhook commands backed by safe Supabase metadata.
 // NO stream URLs, key IDs, key data, DRM, service keys or session tokens in replies.
 export const VIEWER_SITE = "https://nyeinchanaung75299-eng.github.io/football-stream-app/";
@@ -115,24 +115,41 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     if (!Array.isArray(rows)) throw new Error("Invalid database metadata");
     return rows;
   }
-  // Only public highlight *pages* from the configured provider. Never expose
-  // native video/stream URLs, DRM, credentials, or arbitrary user-supplied URLs.
-  async function publicHighlightPages() {
+  // Only directly published, public MP4 video URLs. Never send landing
+  // pages, HLS playlists, tokenized links, DRM media, or header-bound videos.
+  // Independently check the first bytes before offering the copyable URL.
+  async function publicHighlightMp4Links() {
     const result = await footballHighlights({
       provider: 'dasfootball', action: 'catalog',
     }, {fetcher});
-    const links = (result.entries || []).flatMap(entry => {
-      try {
-        const url = new URL(entry.source_page_url);
-        if (url.protocol !== 'https:' || url.hostname !== 'dasfootball.com' ||
-            !/highlights/i.test(url.pathname) || url.search || url.hash) return [];
-        return [{title:text(entry.title || 'Football highlights', 96),url:url.href}];
-      } catch (_) { return []; }
-    }).slice(0,6);
-    if (!links.length) return '🎬 HIGHLIGHTS\nNo verified public highlight links available right now. Try again later.';
-    return '🎬 FOOTBALL HIGHLIGHTS (public pages)\n' +
-      links.map((link,i) => (i+1)+'. '+link.title+'\n'+link.url).join('\n\n') +
-      '\n\nDirect video URLs and DRM credentials are not sent in Telegram.';
+    const candidates = [];
+    for (const entry of result.entries || []) {
+      for (const line of entry.lines || []) {
+        if (line.stream_type !== 'mp4' ||
+            line.referer || line.origin || line.user_agent) continue;
+        try {
+          const url = new URL(line.stream_url);
+          if (url.protocol !== 'https:' || url.search || url.hash ||
+              !/\\.mp4$/i.test(url.pathname)) continue;
+          candidates.push({
+            title: text(entry.title || 'Football highlights', 96),
+            url: url.href, line,
+          });
+        } catch (_) { /* Ignore invalid or protected external video URLs. */ }
+      }
+    }
+    const selected = await Promise.all(candidates.slice(0, 8).map(async item => {
+      const check = await checkHighlightLine(item.line, {fetcher});
+      return check.status === 'reachable' ? item : null;
+    }));
+    const available = selected.filter(Boolean).slice(0, 6);
+    if (!available.length) {
+      return '🎬 HIGHLIGHTS MP4\\nNo verified public direct MP4 video URL is available right now.';
+    }
+    return '🎬 FOOTBALL HIGHLIGHTS — DIRECT MP4\\n' +
+      available.map((item, i) => (i + 1) + '. ' + item.title +
+        '\\n' + item.url).join('\\n\\n') +
+      '\\n\\nMP4 first bytes checked; full playback is not verified.';
   }
 
   async function matches(command, env) {
@@ -838,7 +855,7 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
         });
         documentSent = true;
       } else if (cmd === "/highlights") {
-        responseText = await publicHighlightPages();
+        responseText = await publicHighlightMp4Links();
       } else if (cmd === "/testbot") {
         responseText=await testBot();
       } else if (cmd === "/diagnostics" || cmd === "/diag") {
