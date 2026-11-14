@@ -65,3 +65,28 @@ test('redirects, failures, non-JSON metadata and excessive responses are never c
   const r=await handle(request('/channels'));assert.equal(r.status,status);assert.equal(r.headers.get('Cache-Control'),'no-store');assert.equal(r.headers.get('Location'),null);
  }
 });
+
+test('Soco source failures recover only through the fixed public catalog and strip raw private fields',async()=>{
+ let calls=0;const now=Date.now();
+ const handle=createViewerNetworkApi({apiKey:key,fetcher:async(url,init)=>{
+  calls++;if(url.startsWith('https://football-api.'))return Response.json({error:'Unavailable'},{status:502});
+  assert.equal(url,'https://json.vnres.co/matches.json');assert.equal(new Headers(init.headers).get('apikey'),null);
+  return new Response('matches('+JSON.stringify({code:200,data:[{scheduleId:'public-soco',categoryId:1,hostName:'Arsenal',guestName:'Everton',matchTime:now,key_data:'private-key',anchors:[{roomNum:'real-room'}]}]})+')');
+ }});
+ const r=await handle(request('/sources/soco/matches'));assert.equal(r.status,200);
+ const data=await r.json();assert.equal(data.matches.length,1);assert.equal(data.matches[0].anchors[0].room_num,'real-room');assert(!JSON.stringify(data).includes('private-key'));assert.equal(calls,2);
+});
+
+test('Soco can use only a recent successful public snapshot when both live server routes fail',async()=>{
+ const now=Date.now();let old=false;
+ const handle=createViewerNetworkApi({apiKey:key,now:()=>now,fetcher:async(url)=>{
+  if(url.startsWith('https://football-api.'))return Response.json({error:'Unavailable'},{status:502});
+  if(url.startsWith('https://json.vnres.co'))return new Response('Unavailable',{status:403});
+  if(new URL(url).pathname.endsWith('/source-status.json'))return Response.json({sources:{soco:{last_successful_update_at:new Date(now-(old?16:1)*60000).toISOString()}}});
+  assert(new URL(url).pathname.endsWith('/sources/soco.json'));
+  return Response.json({ok:true,matches:[{schedule_id:'snapshot-id',home_team:'Arsenal',away_team:'Everton',match_time:new Date(now).toISOString(),key_data:'private-key',anchors:[{room_num:'snapshot-room'}]}]});
+ }});
+ const r=await handle(request('/sources/soco/matches'));assert.equal(r.status,200);const d=await r.json();
+ assert.equal(d.matches.length,1);assert.equal(d.matches[0].anchors[0].room_num,'snapshot-room');assert.equal(d.fallback_transport,'github_snapshot');assert(!JSON.stringify(d).includes('private-key'));
+ old=true;assert.equal((await handle(request('/sources/soco/matches?fresh=1'))).status,502);
+});

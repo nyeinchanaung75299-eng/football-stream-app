@@ -9,6 +9,7 @@ on:
       - "scripts/test_supabase_relay.mjs"
       - "scripts/test_public_match_feed.mjs"
       - "scripts/test_quota_reduction.mjs"
+      - "scripts/test_soco_transport_fallback.mjs"
       - "scripts/channel_epg.py"
       - "scripts/test_channel_epg.py"
       - ".github/workflows/sync-channel-epg.yml"
@@ -32,7 +33,7 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_channel_epg.py'
           node --test scripts/test_protected_dash_proxy.mjs
           node --test scripts/test_supabase_relay.mjs
-          node --test scripts/test_public_match_feed.mjs scripts/test_quota_reduction.mjs
+          node --test scripts/test_public_match_feed.mjs scripts/test_quota_reduction.mjs scripts/test_soco_transport_fallback.mjs
           node --test scripts/test_website_sources.mjs
           node --test scripts/test_arena_source.mjs scripts/test_website_sources.mjs
           node --test scripts/test_website_stream_scanner.mjs

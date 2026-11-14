@@ -60,8 +60,42 @@ export function createViewerNetworkApi({apiKey,fetcher=globalThis.fetch,now=Date
     JSON.parse(body);headers['Content-Type']='application/json';
    }
    if(fresh)headers['Cache-Control']='no-cache';
-   const response=await fetcher(upstream.href,{method:request.method==='HEAD'?'GET':request.method,headers,body,
+   let response=await fetcher(upstream.href,{method:request.method==='HEAD'?'GET':request.method,headers,body,
     redirect:'manual',signal:controller.signal});
+   if(!response.ok&&path==='/sources/soco/matches'&&request.method!=='POST'){
+    await response.body?.cancel();
+    // Recover only the one fixed public Soco feed. Never accept a caller URL
+    // or publish raw JSONP/provider fields in the catalog response.
+    const catalog=await fetcher('https://json.vnres.co/matches.json',{
+      headers:{Accept:'application/javascript,application/json','User-Agent':'Mozilla/5.0'},
+      redirect:'manual',signal:controller.signal,
+    });
+    if(catalog.ok){
+      const {socoCatalog}=await import('./soco_catalog.mjs');
+      const raw=await readBounded(catalog.body,6*1024*1024);
+      response=Response.json(socoCatalog(new TextDecoder().decode(raw),{now:now()}));
+    }else{
+      await catalog.body?.cancel();
+      // A provider may reject this server network. Reuse a recent verified
+      // public snapshot; an outage/error file must never become empty success.
+      const base='https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/';
+      const options={headers:{Accept:'application/json'},redirect:'manual',signal:controller.signal};
+      const stamp=await fetcher(base+'source-status.json?t='+Math.floor(now()/60000),options);
+      if(!stamp.ok){await stamp.body?.cancel();throw Error('Snapshot status unavailable');}
+      const health=JSON.parse(new TextDecoder().decode(await readBounded(stamp.body,32768)));
+      const updated=health?.sources?.soco?.last_successful_update_at;
+      const age=now()-Date.parse(updated||'');
+      if(!Number.isFinite(age)||age< -60000||age>15*60000)throw Error('Snapshot expired');
+      const snapshotResponse=await fetcher(base+'sources/soco.json?t='+Math.floor(now()/60000),options);
+      if(!snapshotResponse.ok){await snapshotResponse.body?.cancel();throw Error('Snapshot unavailable');}
+      const snapshot=JSON.parse(new TextDecoder().decode(await readBounded(snapshotResponse.body,2097152)));
+      if(snapshot?.ok!==true||!Array.isArray(snapshot.matches))throw Error('Invalid snapshot');
+      const {socoCatalog}=await import('./soco_catalog.mjs');
+      const publicData=socoCatalog(JSON.stringify({code:200,data:snapshot.matches.map(row=>({...row,hostName:row.home_team,guestName:row.away_team}))}),{now:now()});
+      publicData.generated_at=updated;publicData.fallback_transport='github_snapshot';
+      response=Response.json(publicData);
+    }
+   }
    if(!response.ok){await response.body?.cancel();return json({error:'Public source temporarily unavailable.'},response.status>=400&&response.status<600?response.status:502);}
    const type=response.headers.get('Content-Type')||'';
    if(spec.image?!/^image\/(?:png|jpe?g|webp)(?:;|$)/i.test(type):!/application\/json/i.test(type)){

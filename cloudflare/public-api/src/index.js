@@ -585,9 +585,23 @@ async function handleSourceBrowserMatches(request, source, env) {
   }
 
   try {
-    const payload = await invokeViewerSourceFunction(env, {
-      action: "matches", source,
-    });
+    let payload;
+    try {
+      payload = await invokeViewerSourceFunction(env, {action: "matches", source});
+    } catch (error) {
+      if (source !== 'soco') throw error;
+      // The source function can fail while the same
+      // fixed public catalog remains reachable through another network.
+      // Parse/whitelist metadata here; never relay raw provider payloads.
+      const {socoCatalog} = await import('./soco_catalog.mjs');
+      const response = await fetch('https://json.vnres.co/matches.json', {
+        headers: {Accept:'application/javascript,application/json', 'User-Agent':'Mozilla/5.0'},
+        redirect:'manual', signal:AbortSignal.timeout(7000),
+        cf:{cacheTtl:15,cacheEverything:true},
+      });
+      if (!response.ok) {await response.body?.cancel(); throw error;}
+      payload = socoCatalog(await readBoundedText(response, 6*1024*1024));
+    }
     const matches = Array.isArray(payload?.matches) ? payload.matches : [];
     return json({
       ok: true,
