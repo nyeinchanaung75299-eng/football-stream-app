@@ -25,8 +25,11 @@ Future<String> resolveSupabaseUrl({
       (
         base: relay,
         health: Uri.parse(
-          relay == vercelBackupBase ? '$relay/backend-health' :
-              relay == cloudflarePublicBase ? '$relay/auth/v1/health' : '$relay/health',
+          relay == vercelBackupBase
+              ? '$relay/backend-health'
+              : relay == cloudflarePublicBase
+              ? '$relay/auth/v1/health'
+              : '$relay/health',
         ),
         direct: false,
       ),
@@ -55,7 +58,8 @@ Future<String> resolveSupabaseUrl({
               candidate.health,
               headers: {
                 'Accept': 'application/json',
-                if (candidate.direct) 'apikey': publishableKey,
+                if (candidate.direct || candidate.base == cloudflarePublicBase)
+                  'apikey': publishableKey,
               },
             )
             .timeout(
@@ -65,8 +69,11 @@ Future<String> resolveSupabaseUrl({
         final decoded = jsonDecode(response.body);
         final healthy =
             candidate.direct ||
-            (candidate.base == cloudflarePublicBase && decoded is Map && decoded['name'] == 'GoTrue') ||
-            (candidate.base != cloudflarePublicBase && decoded is Map &&
+            (candidate.base == cloudflarePublicBase &&
+                decoded is Map &&
+                decoded['name'] == 'GoTrue') ||
+            (candidate.base != cloudflarePublicBase &&
+                decoded is Map &&
                 decoded['ok'] == true &&
                 decoded['service'] == 'supabase-relay');
         if (!completer.isCompleted &&
