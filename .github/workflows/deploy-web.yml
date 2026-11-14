@@ -9,6 +9,7 @@ on:
       - "admin_app/**"
       - "tools/operator-check/**"
       - "scripts/test_web_player.mjs"
+      - "scripts/test_performance_regressions.mjs"
       - "scripts/stamp_flutter_web_cache.py"
       - "scripts/test_stamp_flutter_web_cache.py"
       - "scripts/generate_embedded_player.py"
