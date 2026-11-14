@@ -44,6 +44,10 @@ function coalesceViewerLookup(env, key, load) {
 }
 
 export default {
+  async scheduled(_controller,env,ctx) {
+    const {refreshSocoSnapshot}=await import('./soco_snapshot.mjs');
+    ctx.waitUntil(refreshSocoSnapshot(env).then(result=>console.log(JSON.stringify({event:'soco_snapshot_refresh',...result}))));
+  },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
@@ -586,8 +590,12 @@ async function handleSourceBrowserMatches(request, source, env) {
 
   try {
     let payload;
+    if(source==='soco' && env.SOURCE_SNAPSHOTS){
+      const {readSocoSnapshot}=await import('./soco_snapshot.mjs');
+      payload=await readSocoSnapshot(env);
+    }
     try {
-      payload = await invokeViewerSourceFunction(env, {action: "matches", source});
+      payload ??= await invokeViewerSourceFunction(env, {action: "matches", source});
     } catch (error) {
       if (source !== 'soco') throw error;
       // The source function can fail while the same
