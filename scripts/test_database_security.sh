@@ -33,5 +33,6 @@ for migration in "$repo_root"/supabase/migrations/*.sql; do
 done
 run_sql < "$repo_root/scripts/test_database_security.sql"
 run_sql < "$repo_root/scripts/test_channel_station_names.sql"
+run_sql < "$repo_root/scripts/test_channel_logo_sync.sql"
 
 run_sql < "$repo_root/scripts/test_repository_match_publish.sql"

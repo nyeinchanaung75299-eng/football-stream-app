@@ -587,6 +587,9 @@ class _ChannelEditorState extends State<_ChannelEditor> {
         'category': category.text.trim(),
         'category_locked': true,
         'image_url': image.text.trim().isEmpty ? null : image.text.trim(),
+        if (image.text.trim() !=
+            (widget.channel?['image_url']?.toString() ?? '').trim())
+          'image_locked': true,
         'sort_order': int.tryParse(order.text) ?? 0,
         'is_active': widget.channel == null ? false : active,
       };

@@ -64,6 +64,16 @@ class ChannelEpgTests(unittest.TestCase):
         self.assertEqual(epg.saved_feed('MX1'),'share_MX1')
         self.assertIsNone(epg.saved_feed('unknown'))
 
+    def test_uk_directory_and_feed_suffix_match_gb_hints_without_changing_ids(self):
+        official,aliases=epg.official_directory(b'id,name,alt_names,country,closed,replaced_by\nMUTV.uk,MUTV,,UK,,\n')
+        feed={'id':'MUTV.uk','names':['MUTV UK'],'country':'GB',
+              'feed':'share_UK1','programmes':[{'start':1}]}
+        index=epg.candidate_index([feed],official,aliases)
+        selected,_=epg.propose_binding({'name':'MUTV UK'},index,official,aliases)
+        self.assertEqual(selected['id'],'MUTV.uk')
+        self.assertEqual(selected['country'],'GB')
+        self.assertIsNone(epg.propose_binding({'name':'MUTV Australia'},index,official,aliases)[0])
+
     def test_bein_english_service_uses_only_the_numbered_published_english_station(self):
         with tempfile.TemporaryDirectory() as folder:
             data='<tv>'
