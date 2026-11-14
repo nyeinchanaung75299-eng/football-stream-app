@@ -115,15 +115,26 @@ jobs:
           data["matches"] = fresh_rows
           rows = fresh_rows
 
-          # Remove volatile timestamps so the feed branch only changes when
-          # actual source data changes.
+          # A cached upstream catalog must retain its real acquisition time;
+          # fetching it again must not extend the mirror's freshness window.
+          acquired_at = now
+          if source == "soco":
+              acquired_at = datetime.fromisoformat(str(data.get("generated_at", "")).replace("Z", "+00:00"))
+              if acquired_at.tzinfo is None:
+                  raise ValueError("Soco acquisition timestamp has no timezone")
+              acquired_at = acquired_at.astimezone(timezone.utc)
+              age = (now - acquired_at).total_seconds()
+              if age < -60 or age > 15 * 60:
+                  raise ValueError("Soco acquisition timestamp is stale")
+          # Keep volatile timestamps in source-status.json, outside the source
+          # catalog, so timestamp-only refreshes do not rebuild the Web bundle.
           data.pop("generated_at", None)
           out = Path(f"/tmp/source-feeds/{source}.json")
           out.write_text(
               json.dumps(data, ensure_ascii=False, separators=(",", ":")),
               encoding="utf-8",
           )
-          Path(f"/tmp/source-feeds/{source}.success").write_text(now.isoformat())
+          Path(f"/tmp/source-feeds/{source}.success").write_text(acquired_at.isoformat())
           print(f"{source} mirror matches: {len(rows)}")
           PY
               then

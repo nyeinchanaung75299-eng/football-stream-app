@@ -46,7 +46,11 @@ function coalesceViewerLookup(env, key, load) {
 export default {
   async scheduled(_controller,env,ctx) {
     const {refreshSocoSnapshot}=await import('./soco_snapshot.mjs');
-    ctx.waitUntil(refreshSocoSnapshot(env).then(result=>console.log(JSON.stringify({event:'soco_snapshot_refresh',...result}))));
+    ctx.waitUntil(refreshSocoSnapshot(env).then(async result=>{
+      const status={event:'soco_snapshot_refresh',attempted_at:new Date().toISOString(),...result};
+      if(env.SOURCE_SNAPSHOTS)await env.SOURCE_SNAPSHOTS.put('soco-refresh-status',JSON.stringify(status),{expirationTtl:172800});
+      console.log(JSON.stringify(status));
+    }));
   },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
