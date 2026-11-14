@@ -218,6 +218,7 @@ async function handleChannelLogo(request, id, env) {
       headers: {Accept: 'image/png,image/jpeg,image/webp', 'User-Agent': 'Mozilla/5.0'},
       signal: AbortSignal.timeout(7500), cf: {cacheTtl: 86400, cacheEverything: true}});
     if (!response.ok || Number(response.headers.get('Content-Length') || 0) > 1048576) {
+      failure = response.ok ? 'image_too_large' : 'upstream_http_' + response.status;
       await response.body?.cancel(); throw Error('Image unavailable');
     }
     failure = 'invalid_image';
@@ -243,7 +244,7 @@ async function handleChannelLogo(request, id, env) {
       'Cache-Control': 'public, max-age=3600'}});
     if (cache) await cache.put(key, image.clone()).catch(() => {});
     return request.method === 'HEAD' ? new Response(null, image) : image;
-  } catch (_) { return json({error: 'Channel logo unavailable', code: failure}, 502, {'Cache-Control': 'no-store'}); }
+  } catch (error) { return json({error: 'Channel logo unavailable', code: failure, category: error?.name || 'Error'}, 502, {'Cache-Control': 'no-store'}); }
 }
 
 async function handleTeamLogo(request,id){
