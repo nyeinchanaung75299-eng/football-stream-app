@@ -67,7 +67,7 @@ export function createViewerNetworkApi({apiKey,fetcher=globalThis.fetch,now=Date
     // Recover only the one fixed public Soco feed. Never accept a caller URL
     // or publish raw JSONP/provider fields in the catalog response.
     const catalog=await fetcher('https://json.vnres.co/matches.json',{
-      headers:{Accept:'application/javascript,application/json','User-Agent':'Mozilla/5.0'},
+      headers:{Accept:'application/javascript,application/json','User-Agent':'Mozilla/5.0',Origin:'https://m.sutbongtv.com',Referer:'https://m.sutbongtv.com/'},
       redirect:'manual',signal:controller.signal,
     });
     if(catalog.ok){

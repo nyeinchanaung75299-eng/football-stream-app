@@ -35,3 +35,12 @@ test('a Supabase provider failure recovers via the fixed public Worker fetch wit
   assert.equal(r.status,200);assert.equal((await r.json()).matches.length,1);assert.equal(provider,1);
  }finally{globalThis.fetch=before;}
 });
+
+test('the scheduled public Soco publisher uses one fixed source and emits no raw private provider fields',async()=>{
+ const {fetchSocoSnapshot}=await import('./publish_soco_snapshot.mjs');
+ const d=await fetchSocoSnapshot(async(url,init)=>{
+  assert.equal(url,'https://json.vnres.co/matches.json');assert.equal(new Headers(init.headers).get('apikey'),null);
+  assert.equal(init.redirect,'manual');return new Response('matches('+JSON.stringify(data)+')');
+ });
+ assert.equal(d.matches.length,1);assert(!JSON.stringify(d).includes('private-'));
+});
