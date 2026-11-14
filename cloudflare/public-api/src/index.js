@@ -590,8 +590,8 @@ async function handleSourceBrowserMatches(request, source, env) {
       payload = await invokeViewerSourceFunction(env, {action: "matches", source});
     } catch (error) {
       if (source !== 'soco') throw error;
-      // The provider currently rejects the Supabase egress route. The same
-      // fixed public catalog remains reachable from the Worker network.
+      // The source function can fail while the same
+      // fixed public catalog remains reachable through another network.
       // Parse/whitelist metadata here; never relay raw provider payloads.
       const {socoCatalog} = await import('./soco_catalog.mjs');
       const response = await fetch('https://json.vnres.co/matches.json', {
