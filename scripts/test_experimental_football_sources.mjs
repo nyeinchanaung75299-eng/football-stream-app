@@ -81,7 +81,7 @@ test('Roxie literal configuration is read without evaluating player JS',async()=
 test('Roxie table clock follows published Pacific timezone including daylight saving',async()=>{
  for(const [date,utc] of [['November 13, 2026 9:00 AM','2026-11-13T17:00:00.000Z'],['July 13, 2026 9:00 AM','2026-07-13T16:00:00.000Z']]) {
   const html='<tr><td>Moldova vs Kazakhstan</td><td class="event-start-time">'+date+'</td><td><a href="/soccer/moldova-vs-kazakhstan">Moldova vs Kazakhstan</a></td></tr>';
-  const r=await experimentalMatches('roxie',{fetcher:async()=>new Response(html)});assert.equal(r.matches[0].match_time,utc);
+  const r=await experimentalMatches('roxie',{fetcher:async()=>new Response(html,{headers:{'content-type':'text/html'}})});assert.equal(r.matches[0].match_time,utc);
  }
 });
 test('Roxie refuses non-publisher and credentialed player page URLs',async()=>{
