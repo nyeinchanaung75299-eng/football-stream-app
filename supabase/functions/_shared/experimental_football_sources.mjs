@@ -3,9 +3,9 @@
 // Only expose HTTP(S) HLS/DASH URLs explicitly published by public players.
 import {publicSourceUrl, readPublicSource, discoverPublicMedia} from './public_source_media.mjs';
 export const experimentalFootballSites = Object.freeze({
-  rojadirecta: {label: "Rojadirecta",
-    home: "https://www.rojadirectavivo.me/live-football",
-    host: "rojadirectavivo.me"},
+  roxie: {label: "RoxieStreams",
+    home: "https://roxiestreams.su/soccer",
+    host: "roxiestreams.su"},
 });
 
 export const isExperimentalFootballSource = (source) =>
@@ -213,6 +213,41 @@ function pageKickoff(markup) {
       return new Date(ms).toISOString();
   }
   return null;
+}
+
+
+function pacificTableKickoff(card) {
+  const text = normalizeText(card.match(/<td\b[^>]*class=["']event-start-time["'][^>]*>([^<]+)</i)?.[1]);
+  const match = text.match(/^([A-Za-z]+) (\d{1,2}), (20\d{2}) (\d{1,2}):(\d{2}) (AM|PM)$/);
+  if (!match) return null;
+  const month = ['january','february','march','april','may','june','july','august','september','october','november','december'].indexOf(match[1].toLowerCase());
+  if (month < 0) return null;
+  const hour = Number(match[4]) % 12 + (match[6] === 'PM' ? 12 : 0);
+  const wall = Date.UTC(Number(match[3]), month, Number(match[2]), hour, Number(match[5]));
+  const format = new Intl.DateTimeFormat('en-US',{timeZone:'America/Los_Angeles',hourCycle:'h23',
+    year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const offset = utc => {
+    const p = Object.fromEntries(format.formatToParts(new Date(utc)).map(p=>[p.type,p.value]));
+    return Date.UTC(+p.year,+p.month-1,+p.day,+p.hour,+p.minute,+p.second)-utc;
+  };
+  let utc = wall-offset(wall); utc=wall-offset(utc);
+  return new Date(utc).toISOString();
+}
+
+// Estimated kickoff = timestamp of this actual HTTP read + countdown duration.
+// It must be bound to one match card; search-engine crawls and stale caches
+// must never be used to calculate a scheduled kickoff.
+export function countdownKickoff(fragment, observedAt, clockFresh = true) {
+  if (!clockFresh || !Number.isFinite(observedAt)) return null;
+  const text = normalizeText(fragment);
+  const match = text.match(/\b(?:starts?\s+in|kick[\s-]?off\s+in)\s*[:：]?\s*(\d{1,3}):([0-5]\d):([0-5]\d)\b/i);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3]);
+  const total = hours * 3600 + minutes * 60 + seconds;
+  if (total < 1 || total > 7 * 24 * 3600) return null;
+  return new Date(observedAt + total * 1000).toISOString();
 }
 
 
@@ -475,31 +510,6 @@ function publicFixtureJsonRows(html, site, source, clock) {
 // The display clock ("19:45 (Soccer)") lacks a timezone, so it must not
 // become a fabricated UTC kickoff.
 
-function rojadirectaRows(html, site) {
-  const rows=[];
-  let publishedLinks={};
-  const literal=html.match(/window\.LINKS_DATA\s*=\s*(\{[^\n]*\})\s*;/);
-  try { publishedLinks=literal ? JSON.parse(literal[1]) : {}; } catch (_) {}
-  for(const m of html.matchAll(/<details\b[^>]*\bclass\s*=\s*['"][^'"]*game-item-details[^'"]*['"][^>]*>([\s\S]*?)<\/details>/gi)) {
-    const card=m[1];
-    const name=card.match(/<span\b[^>]*\bclass\s*=\s*['"]game-teams['"][^>]*>([\s\S]*?)<\/summary>/i)?.[1];
-    if(!name)continue;
-    const plain=normalizeText(name).replace(/\s+\d+\s*☆?$/,'').replace(/[☆★]/g,'').trim();
-    const pair=fixtureTitle(plain);if(!pair)continue;
-    const kickoff=pageKickoff(card);
-    const row=eventRecord('rojadirecta',site,null,pair,kickoff,kickoff?'explicit':'none');
-    row.source_id=row.schedule_id=m[0].match(/data-game-id=['"]([\w-]+)['"]/)?.[1]||row.source_id;
-    const links=[...[...card.matchAll(/<a\b[^>]*href=['"]([^'"]+)['"]/gi)].map(a=>a[1]),
-      ...(Array.isArray(publishedLinks[row.source_id]) ? publishedLinks[row.source_id].map(link=>link?.link) : [])];
-    row.anchors=[...new Set(links.map(value=>publicSourceUrl(value,site.home)).filter(Boolean))]
-      .filter(url=>!/^(?:www\.)?youtube\.com$/i.test(new URL(url).hostname))
-      .slice(0,6).map(url=>({room_num:row.source_id+':'+sourceId(url),page_url:url,nick_name:site.label}));
-    row.page_url=row.anchors[0]?.page_url||null;row.schedule_only=!row.anchors.length;
-    rows.push(row);if(rows.length>=100)break;
-  }
-  return rows;
-}
-
 export async function experimentalMatches(source, {fetcher = fetch, now = Date.now} = {}) {
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
@@ -508,7 +518,6 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     allowedHost: site.host,timeoutMs:Math.max(50,deadline-Date.now())});
   const {html} = catalog;
   const embedded = publicFixtureJsonRows(html,site,source,catalog);
-  if(source==='rojadirecta')for(const row of rojadirectaRows(html,site))embedded.rows.set(row.source_id,row);
   const candidates = new Map();
   const anchors = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   for (const hit of html.matchAll(anchors)) {
@@ -533,7 +542,8 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     const boundary = preceding.lastIndexOf("</a>");
     const local = boundary < 0 ? preceding : preceding.slice(boundary + 4);
     const explicit = pageKickoff(hit[0]) ?? pageKickoff(local) ??
-      (card ? pageKickoff(card) : null);
+      (card ? pageKickoff(card) : null) ??
+      (source === 'roxie' ? pacificTableKickoff(card) : null);
     const countdown = explicit ? null :
       countdownKickoff(hit[0], catalog.observedAt, catalog.clockFresh) ??
       (card ? countdownKickoff(card, catalog.observedAt, catalog.clockFresh) : null);
@@ -630,23 +640,48 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
   };
 }
 
+// Roxie publishes a small stream-path + host-list player configuration. Read
+// those literal values only; never evaluate its player/advertising JavaScript.
+export async function configuredRoxiePublicMedia(source, html, page, {fetcher = fetch} = {}) {
+  if (source!=='roxie') return [];
+  const root=html.match(/return\s*`https:\/\/\$\{subdomain\}\.([a-z0-9.-]+)\/\$\{streamPath\}`/i)?.[1];
+  const fallback=html.match(/function\s+getRandomStream\s*\(\s*streamPath\s*,\s*subdomain\s*=\s*['"]([a-z0-9-]+)['"]/i)?.[1];
+  if (!root||!fallback) return [];
+  const domains=[root];
+  const file=html.match(/fetch\(\s*['"]([^'"]+\.txt)['"]\s*\)/i)?.[1];
+  const listUrl=file&&publicSourceUrl(file,page);
+  if (listUrl&&new URL(listUrl).hostname===new URL(page).hostname) {
+    try {const r=await readPublicSource(listUrl,{fetcher,kind:'text',timeoutMs:1200});
+      for(const host of r.text.split(/[\s,]+/))if(/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(host))domains.push(host);
+    }catch(_){/* The publisher's explicit fallback remains available. */}
+  }
+  const urls=new Set();
+  for(const m of html.matchAll(/getRandomStream\(\s*['"]([a-z0-9_-]+\.m3u8)['"]\s*(?:,\s*['"]([a-z0-9-]+)['"])?\s*\)/gi)) {
+    for(const domain of [...new Set(domains)].slice(0,3)) {
+      const url=publicSourceUrl('https://'+(m[2]||fallback)+'.'+domain+'/'+m[1]);
+      if(url)urls.add(url);
+    }
+  }
+  return [...urls].slice(0,6).map(url=>({url,referer:page,origin:new URL(page).origin}));
+}
+
 export async function experimentalStreams(source, body, {fetcher = fetch} = {}) {
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
   const deadline = Date.now() + 7000;
   let page = typeof body?.page_url === 'string' && body.page_url.trim()
     ? allowedPageUrl(body.page_url,site) : null;
-  if(source==='rojadirecta'){
-    const published=await experimentalMatches(source,{fetcher});
-    const room=String(body?.room_num||'');
-    page=published.matches.flatMap(row=>row.anchors||[]).find(a=>a.room_num===room)?.page_url||page;
-    // A client URL is accepted only if it is one of this index's players.
-    if(page&&!published.matches.some(row=>(row.anchors||[]).some(a=>a.page_url===page)))page=null;
-  }
   if (!page) return {ok: true, source, lines: [], line_count: 0,
     ready: false, message: "No verified public match page."};
-  const result = await discoverPublicMedia(page,{fetcher,deadline,
-    initialAllowedHosts:null});
+  let firstHtml = null, configured = [];
+  if (source === 'roxie') {
+    const read = await readPublicSource(page,{fetcher,allowedHosts:[site.host],timeoutMs:2500});
+    firstHtml = read.text;
+    configured = await configuredRoxiePublicMedia(source,firstHtml,read.url,{fetcher});
+  }
+  const result = await discoverPublicMedia(page,{fetcher,deadline,firstHtml,
+    initialAllowedHosts:[site.host]});
+  result.lines = [...new Map([...result.lines,...configured].map(line=>[line.url,line])).values()];
   if (!result.lines.length && result.failures.some(error=>error.includes('outside configured provider'))) {
     throw Error('Source redirected outside configured provider');
   }
