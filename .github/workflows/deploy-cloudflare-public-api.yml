@@ -8,6 +8,7 @@ on:
       - "cloudflare/public-api/**"
       - "scripts/test_public_match_feed.mjs"
       - "scripts/test_quota_reduction.mjs"
+      - "scripts/test_soco_transport_fallback.mjs"
       - "scripts/test_backend_startup.mjs"
       - "scripts/test_football_names.mjs"
       - "supabase/functions/_shared/football_names.mjs"
@@ -77,7 +78,7 @@ jobs:
         run: node --test scripts/test_experimental_football_sources.mjs scripts/test_public_source_adapters.mjs
 
       - name: Test public match feed
-        run: node --test scripts/test_public_match_feed.mjs scripts/test_quota_reduction.mjs
+        run: node --test scripts/test_public_match_feed.mjs scripts/test_quota_reduction.mjs scripts/test_soco_transport_fallback.mjs
 
       - name: Test metadata deadlines and first-chunk health probes
         run: node --test scripts/test_backend_startup.mjs
