@@ -44,3 +44,16 @@ test('the scheduled public Soco publisher uses one fixed source and emits no raw
  });
  assert.equal(d.matches.length,1);assert(!JSON.stringify(d).includes('private-'));
 });
+
+test('scheduled browser fallback strips provider fields and does not repeat within the refresh interval',async()=>{
+ const {fetchSocoPublishedSnapshot}=await import('./publish_soco_snapshot.mjs');
+ let browser=0;const fetcher=async(url,init)=>{
+  if(url==='https://json.vnres.co/matches.json')return new Response('Unavailable',{status:403});
+  browser++;assert.equal(new URL(url).hostname,'api.cloudflare.com');assert.equal(init.redirect,'manual');
+  assert.equal(JSON.parse(init.body).setJavaScriptEnabled,false);
+  return Response.json({success:true,result:'<html><body><pre>matches('+JSON.stringify(data).replace(/&/g,'&amp;').replace(/</g,'&lt;')+')</pre></body></html>'});
+ };
+ const options={fetcher,accountId:'a'.repeat(32),apiToken:'test-only',now};
+ const result=await fetchSocoPublishedSnapshot(options);assert.equal(result.matches.length,1);assert(!JSON.stringify(result).includes('private-'));
+ await assert.rejects(()=>fetchSocoPublishedSnapshot({...options,lastSuccessful:new Date(now-5*60000).toISOString()}));assert.equal(browser,1);
+});
