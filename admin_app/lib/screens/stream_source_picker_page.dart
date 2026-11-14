@@ -22,7 +22,7 @@ class StreamSourcePickerPage extends StatelessWidget {
     _SourceOption('fawa', 'Fawa', Icons.live_tv_rounded),
     _SourceOption('cola', 'ColaTV', Icons.tv_rounded),
     _SourceOption('arena', 'Arena Koora', Icons.stadium_rounded),
-    _SourceOption('rojadirecta', 'Rojadirecta', Icons.sports_soccer_rounded),
+    _SourceOption('roxie', 'RoxieStreams', Icons.sports_soccer_rounded),
   ];
 
   Future<void> _open(BuildContext context, _SourceOption source) async {
