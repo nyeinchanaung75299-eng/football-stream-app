@@ -21,7 +21,7 @@ begin
  if not found then
   if p_refresh_only then return jsonb_build_object('updated_lines',0); end if;
   if not e.is_present or e.stream_count=0 then raise exception 'No native stream in source entry'; end if;
-  
+
   if p_target_channel_id is null and jsonb_array_length(e.streams)=1 then
    select cl.channel_id into p_target_channel_id from public.channel_lines cl
    join public.channels channel on channel.id=cl.channel_id
@@ -32,7 +32,7 @@ begin
    order by channel.is_active desc,(channel.epg_id is not null and channel.epg_source is not null) desc,cl.created_at,cl.id limit 1;
   end if;
   if p_target_channel_id is null then
- 
+
    insert into public.channels(name,category,image_url)
     values(e.name,e.category,e.image_url) returning id into p_target_channel_id;
    insert into public.channel_source_links(entry_id,channel_id,owns_channel)
