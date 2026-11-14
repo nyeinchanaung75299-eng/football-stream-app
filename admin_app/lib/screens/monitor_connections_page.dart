@@ -37,7 +37,7 @@ class _MonitorConnectionsPageState extends State<MonitorConnectionsPage> {
       _first.text = switch (value) {
         'posthog' => '646885',
         'cloudflare' => 'a072aef61b3053983e84755527ef8f39',
-        'vercel' => 'nca-network-backup-test',
+        'vercel' => 'nca25-live-relay',
         _ => '',
       };
       _second.text = switch (value) {

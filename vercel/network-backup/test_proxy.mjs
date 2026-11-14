@@ -363,3 +363,13 @@ test('Telegram connector forwards only an Admin bearer session to the trusted Su
     assert.equal(response.status,404);
   });
 });
+
+test('the relay uses its server identity instead of forwarding a rejected client fingerprint',async()=>{
+ await withFetch(async(url,init)=>{
+  assert.equal(init.headers.get('User-Agent'),'NCA-Relay/1.0');
+  return Response.json({ok:true});
+ },async()=>{
+  const r=await proxy(new Request(origin+'/health',{headers:{'User-Agent':'Python-urllib/3.12'}}));
+  assert.equal(r.status,200);await r.body.cancel();
+ });
+});

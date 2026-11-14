@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 
 class WebsiteScanResult {
@@ -42,15 +41,15 @@ class WebsiteDetectorService {
       // Browser Run spends scarce Free browser minutes. Never fan out a
       // long-running scan across several gateways: the other gateways would
       // start duplicate Cloudflare browser sessions for the same page.
-      // Use the direct Worker first, Vercel only if connection fails quickly.
+      // Use Vercel first for explicit extraction, not for background lists.
       final bases = browser
           ? <String>[
-              cloudflarePublicBase,
               vercelBackupBase,
+              cloudflarePublicBase,
             ]
           : publicApiBases(
               primary: 'https://football-api.nyeinchanaung.us.ci',
-              preferVercel: usesVercelBackend,
+              preferVercel: true,
             );
       final clock = Stopwatch()..start();
       String lastFailure = 'No scanner gateway responded.';

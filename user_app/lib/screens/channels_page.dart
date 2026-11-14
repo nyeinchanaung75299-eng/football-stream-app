@@ -202,8 +202,10 @@ class _ChannelsPageState extends State<ChannelsPage> {
   Future<Map<String, dynamic>> request(
     String path, {
     Duration timeout = const Duration(seconds: 7),
+    bool viaVercel = false,
   }) async {
-    final bases = publicApiBases();
+    final bases = viaVercel ? [vercelBackupBase] :
+        publicApiBases().where((base) => base != vercelBackupBase).toList();
     final result = Completer<Map<String, dynamic>>();
     Object? lastError;
     var next = 0;
@@ -229,7 +231,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
             throw const FormatException('Invalid channel response');
           }
           if (!result.isCompleted) {
-            rememberVerifiedPublicApiBase(base);
+            if (!viaVercel) rememberVerifiedPublicApiBase(base);
             result.complete(Map<String, dynamic>.from(decoded));
           }
         } catch (error) {
@@ -344,7 +346,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
     }
   }
 
-  Future<void> watch(Map<String, dynamic> channel) async {
+  Future<void> watch(Map<String, dynamic> channel, {bool viaVercel = false}) async {
     if (opening) return;
     FocusManager.instance.primaryFocus?.unfocus();
     final id = channel['id']?.toString() ?? '';
@@ -356,6 +358,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
       // while the existing Vercel/Cloudflare hedges are still active.
       final data = await request(
         '/channels/$id/streams',
+        viaVercel: viaVercel,
         timeout: const Duration(seconds: 12),
       );
       if (data['streams'] is! List)
@@ -392,12 +395,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
         );
         return;
       }
-      // Keep one selectable entry per Admin line while retaining a hidden
-      // Vercel copy immediately after protected Cloudflare routes. The player
-      // tries that copy only after the primary route fails, which lets Channels
-      // open on networks where Cloudflare is unreachable without showing every
-      // configured line twice in the server picker.
-      final playerLines = addVpnFreePlaybackFallbacks(lines);
+      // Normal channel playback does not spend Vercel video transfer.
+      // Opt in for this play attempt through the channel menu.
+      final playerLines = playbackSources(lines, useVercel: viaVercel);
       NativePlayer.prewarm(sources: playerLines);
       unawaited(library.recordRecent(id).catchError((Object _) {}));
       await NativePlayer.open(
@@ -416,8 +416,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
               'Channel connection failed. Check the network and retry.',
             ),
             action: SnackBarAction(
-              label: 'RETRY',
-              onPressed: () => unawaited(watch(channel)),
+              label: viaVercel ? 'RETRY' : 'OTHER CONNECTION',
+              onPressed: () => unawaited(watch(channel, viaVercel: true)),
             ),
           ),
         );
@@ -458,6 +458,10 @@ class _ChannelsPageState extends State<ChannelsPage> {
   Future<void> _channelAction(String action, Map<String, dynamic> channel) async {
     final id = channel['id'].toString();
     try {
+      if (action == 'vercel') {
+        await watch(channel, viaVercel: true);
+        return;
+      }
       if (action == 'favorite') {
         await library.toggleFavorite(id);
         if (mounted) setState(() {});
@@ -801,6 +805,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                                         PopupMenuItem(value: 'favorite', child: Text(
                                           library.favorites.contains(channel['id'].toString())
                                               ? 'Remove favorite' : 'Add favorite')),
+                                        const PopupMenuItem(value: 'vercel', child: Text('Try another connection')),
                                         const PopupMenuItem(value: 'report', child: Text('Report broken line')),
                                       ],
                                     )),

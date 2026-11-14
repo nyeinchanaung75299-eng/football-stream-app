@@ -22,7 +22,7 @@ const match = <String, dynamic>{
 void main() {
   setUp(() {
     ViewerTabCache.clearForTesting();
-    rememberVerifiedPublicApiBase('https://nca-network-backup-test.vercel.app');
+    rememberVerifiedPublicApiBase('https://nca25-live-relay.vercel.app');
     SharedPreferences.setMockInitialValues({});
     PackageInfo.setMockInitialValues(
       appName: 'NCA',
@@ -50,8 +50,8 @@ void main() {
           );
           await tester.pumpAndSettle();
           expect(find.text('Team Alpha'), findsOneWidget);
-          expect(hosts.first, 'nca-network-backup-test.vercel.app');
-          expect(hosts, contains('nca-network-backup-test.vercel.app'));
+          expect(hosts.first, 'nca25-live-relay.vercel.app');
+          expect(hosts, contains('nca25-live-relay.vercel.app'));
           hosts.clear();
           // Live retains 60-second polling. Source tabs honor the 75-second
           // cache TTL, but an explicit user Refresh must always fetch.
@@ -62,7 +62,7 @@ void main() {
             await tester.pump(const Duration(seconds: 61));
             await tester.pumpAndSettle();
           }
-          expect(hosts.first, 'nca-network-backup-test.vercel.app',
+          expect(hosts.first, 'nca25-live-relay.vercel.app',
               reason: 'Refresh should reuse the last verified API route.');
           expect(hosts, isNot(contains('football-api.nyeinchanaung.us.ci')));
           await tester.pumpWidget(const SizedBox());

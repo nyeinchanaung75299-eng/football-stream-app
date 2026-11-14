@@ -1,6 +1,7 @@
 import 'dart:async';
 
-const vercelBackupBase = 'https://nca-network-backup-test.vercel.app';
+const vercelBackupBase = 'https://nca25-live-relay.vercel.app';
+const legacyVercelBase = 'https://nca-network-backup-test.vercel.app';
 const cloudflarePublicBase = 'https://football-api.nyeinchanaung.us.ci';
 const independentPublicBase =
     'https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/viewer-network-api';

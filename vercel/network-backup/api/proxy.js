@@ -90,7 +90,9 @@ async function proxy(request) {
   upstream.search = incoming.search;
   const headers = new Headers({
     Accept: request.headers.get("Accept") || "*/*",
-    "User-Agent": request.headers.get("User-Agent") || "Dart/3.13.5 (dart:io)",
+    // A server relay has its own identity. Forwarding Python/tool/client
+    // fingerprints made the owned API reject valid requests with BIC 1010.
+    "User-Agent": "NCA-Relay/1.0",
   });
   for (const name of ["Range", "Content-Type", "Authorization", "apikey", "Prefer", "X-Client-Info",
     "X-Supabase-Api-Version", "Accept-Profile", "Content-Profile", "X-Upsert", "If-Match", "If-None-Match"]) {

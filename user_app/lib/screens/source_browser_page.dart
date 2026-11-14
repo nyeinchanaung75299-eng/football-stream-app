@@ -7,7 +7,6 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../analytics_service.dart';
-import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 import '../playback_routes.dart';
 import '../native_player.dart';
@@ -97,7 +96,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final routes = publicApiBases(
       primary: _primary,
       // Keep the same Cloudflare-first ordering as the Live feed.
-      preferVercel: usesVercelBackend,
+      preferVercel: false,
     );
     return routes;
   }
@@ -701,128 +700,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         .toList();
   }
 
-  Future<List<Map<String, dynamic>>> _anchorFromSupabase(
-    Map<String, dynamic> m,
-    Map<String, dynamic> anchor, {
-    String? sourceName,
-  }) async {
-    final provider = sourceName ?? source;
-    final response = await http
-        .get(
-          Uri.parse(_supabaseFunction).replace(
-            queryParameters: {
-              'viewer_public': '1',
-              'skip_probe': '1',
-              'action': 'streams',
-              'source': provider,
-              'room_num':
-                  (anchor['room_num'] ??
-                          m['source_id'] ??
-                          m['schedule_id'] ??
-                          '')
-                      .toString(),
-              'schedule_id': (m['schedule_id'] ?? m['source_id'] ?? '')
-                  .toString(),
-              'source_id': (m['source_id'] ?? '').toString(),
-              'page_url': (anchor['page_url'] ?? m['page_url'] ?? '')
-                  .toString(),
-              if (anchor['player_url'] != null) 'player_url': anchor['player_url'].toString(),
-              't': DateTime.now().millisecondsSinceEpoch.toString(),
-            },
-          ),
-          headers: const {'Accept': 'application/json'},
-        )
-        .timeout(const Duration(seconds: 10));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        'Direct stream fallback HTTP ' + response.statusCode.toString(),
-      );
-    }
-    final decoded = jsonDecode(response.body);
-    final raw = decoded is Map ? decoded['lines'] : null;
-    if (raw is! List) throw const FormatException('Invalid direct streams.');
-    final name =
-        (anchor['nick_name'] ?? anchor['name'] ?? anchor['room_num'] ?? '')
-            .toString()
-            .trim();
-    final room =
-        (anchor['room_num'] ?? m['source_id'] ?? m['schedule_id'] ?? '')
-            .toString();
-    final schedule = (m['schedule_id'] ?? m['source_id'] ?? 'match').toString();
-
-    return raw
-        .asMap()
-        .entries
-        .map((entry) {
-          final row = Map<String, dynamic>.from(entry.value as Map);
-          final url = (row['url'] ?? row['stream_url'] ?? '').toString().trim();
-          final providerLabel =
-              (row['label'] ??
-                      row['resolution'] ??
-                      ('Line ' + (entry.key + 1).toString()))
-                  .toString();
-          final rawLabel = provider == 'yyzb'
-              ? englishStreamLabel(providerLabel, index: entry.key)
-              : providerLabel;
-          return <String, dynamic>{
-            'id':
-                provider +
-                ':' +
-                schedule +
-                ':' +
-                room +
-                ':' +
-                entry.key.toString(),
-            'label': name.isEmpty ? rawLabel : name + ' • ' + rawLabel,
-            'resolution': row['resolution'],
-            'stream_type': row['stream_type'] ?? 'auto',
-            'stream_url': url,
-            'referer': row['referer'],
-            'origin': row['origin'],
-            'key_id': null,
-            'key_data': null,
-            'is_active': true,
-            'priority': row['priority'] ?? 100,
-            'health_status': row['health_status'] ?? 'unknown',
-            'health_http_status': row['health_http_status'],
-            'playback_status': row['playback_status'],
-          };
-        })
-        .where((x) => (x['stream_url']?.toString() ?? '').isNotEmpty)
-        .toList();
-  }
-
   Future<List<Map<String, dynamic>>> _anchor(
     Map<String, dynamic> m,
     Map<String, dynamic> anchor,
-  ) {
-    final provider = source;
-    if (!_enableNoVpnFallback) {
-      if (bases.isEmpty) {
-        return Future.error(StateError('No live source API is configured.'));
-      }
-      return _hedged(
-        bases
-            .map<Future<List<Map<String, dynamic>>> Function()>(
-              (base) =>
-                  () => _anchorFrom(base, m, anchor, sourceName: provider),
-            )
-            .toList(),
-      );
-    }
-
-    return _hedged([
-      if (bases.isNotEmpty)
-        () => _anchorFrom(bases.first, m, anchor, sourceName: provider),
-      () => _anchorFromSupabase(m, anchor, sourceName: provider),
-      ...bases
-          .skip(1)
-          .map<Future<List<Map<String, dynamic>>> Function()>(
-            (base) =>
-                () => _anchorFrom(base, m, anchor, sourceName: provider),
-          ),
-    ]);
-  }
+  ) => _anchorFrom(vercelBackupBase, m, anchor);
 
   int _compareLines(Map<String, dynamic> a, Map<String, dynamic> b) {
     int rank(Map<String, dynamic> x) {
@@ -869,7 +750,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   );
 
   List<Map<String, dynamic>> _playerSources(SourceLines rows) =>
-      addVpnFreePlaybackFallbacks(
+      playbackSources(
         rows
             .map(
               (x) => <String, dynamic>{
