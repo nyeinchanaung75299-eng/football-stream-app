@@ -1,10 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../network_endpoints.dart';
+import '../services/function_gateway.dart';
 
 /// Registers both Telegram webhooks from already configured Supabase secrets.
 /// No BotFather token or Telegram secret ever reaches the Admin browser.
@@ -33,24 +30,11 @@ class _TelegramSetupPageState extends State<TelegramSetupPage> {
       connected = false;
     });
     try {
-      final response = await http.post(
-        Uri.parse('$vercelBackupBase/functions/v1/telegram-connect'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'apikey': const String.fromEnvironment(
-            'SUPABASE_PUBLISHABLE_KEY',
-            defaultValue: 'sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O',
-          ),
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: '{}',
-      ).timeout(const Duration(seconds: 25));
-      final data = jsonDecode(response.body);
+      final data = await FunctionGateway.invoke('telegram-connect', body: const {});
       if (data is! Map<String, dynamic>) {
         throw const FormatException('Unexpected connection status');
       }
-      final ok = response.statusCode == 200 && data['connected'] == true;
+      final ok = data['connected'] == true;
       if (!mounted) return;
       setState(() {
         connected = ok;

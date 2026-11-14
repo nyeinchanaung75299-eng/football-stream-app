@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/repository_logo.dart';
 import 'package:intl/intl.dart';
 
 import '../services/tv_schedule_service.dart';
@@ -656,7 +657,7 @@ class _ChannelImage extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: Image.network(
-        image,
+        channelLogoUrl(image, channelId: channel.id),
         width: 38,
         height: 38,
         fit: BoxFit.contain,

@@ -21,15 +21,21 @@ jobs:
         run: python3 -m unittest discover -s scripts -p 'test_channel_epg.py'
       - name: Read public channel bindings
         run: |
-          # A main push also deploys the API. Wait for its public binding fields.
-          for attempt in $(seq 1 12); do
-            if curl --fail --silent --show-error --max-time 30 https://nca-network-backup-test.vercel.app/channels -o /tmp/nca-channel-catalog.json &&
-              python3 -c 'import json; p=json.load(open("/tmp/nca-channel-catalog.json")); assert p.get("ok") and p.get("channels") and all("epg_source" in c for c in p["channels"])'; then
-              break
-            fi
-            if [ "$attempt" = 12 ]; then exit 1; fi
+          # A paused Vercel team must not stop GitHub's scheduled EPG refresh.
+          # Only public station bindings are read; no playback configuration.
+          catalog_ready=false
+          for attempt in $(seq 1 4); do
+            for origin in https://football-api.nyeinchanaung.us.ci https://football-api.nyeinchanaung.ccwu.cc https://nca-network-backup-test.vercel.app; do
+              if curl --fail --silent --show-error --max-time 20 "$origin/channels?fresh=1" -o /tmp/nca-channel-catalog.json &&
+                python3 -c 'import json; p=json.load(open("/tmp/nca-channel-catalog.json")); assert p.get("ok") and p.get("channels") and all("epg_source" in c for c in p["channels"])'; then
+                catalog_ready=true
+                break
+              fi
+            done
+            if [ "$catalog_ready" = true ]; then break; fi
             sleep 10
           done
+          if [ "$catalog_ready" != true ]; then exit 1; fi
           git fetch origin feed:refs/remotes/origin/feed
           git worktree add /tmp/nca-epg-feed origin/feed
       - name: Refresh public programme metadata

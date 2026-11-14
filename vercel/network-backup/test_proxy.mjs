@@ -5,9 +5,9 @@ import { GET as logo } from './api/channel-logo.js';
 
 const origin = 'https://backup.example';
 
-test('team logos download from the fixed image host on Vercel without forwarding caller credentials', async () => {
+test('team logos use the cached Worker image without forwarding caller credentials', async () => {
   await withFetch(async (url, init) => {
-    assert.equal(String(url), 'https://img.sofascore.com/api/v1/team/2964/image');
+    assert.equal(String(url), 'https://football-api.nyeinchanaung.us.ci/team-logos/2964');
     assert.equal(init.headers.Authorization, undefined);
     assert.equal(init.redirect, 'error');
     return new Response(Buffer.from('89504e470d0a1a0a', 'hex'), {headers:{'Content-Type':'image/png'}});

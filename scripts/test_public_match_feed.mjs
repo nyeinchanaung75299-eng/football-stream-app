@@ -242,7 +242,7 @@ test('TV schedule joins the public MX and UK extended feeds by existing channel 
   let firstFetch = null;
   globalThis.fetch = async url => {
     const request = new URL(url);
-    if (firstFetch == null) firstFetch = request.pathname;
+    if (firstFetch == null && request.hostname.endsWith('.vercel.app')) firstFetch = request.pathname;
     if (request.pathname === '/api/schedule') {
       return Response.json({
         sources: [{ name: 'uk', ok: true }],
@@ -323,7 +323,8 @@ test('cold NBC guide does not wait for unrelated feeds and survives a later isol
   const first=await response.json();assert.equal(first.channels[0].matchedEPG,true);
   assert.equal(first.channels[0].programmes[0].description,'Nottingham Forest host Manchester City.');
   release();await Promise.all(background);
-  assert.equal(stored.size,1);assert(!(await [...stored.values()][0].clone().text()).includes('never-cache-this'));
+  assert.equal(stored.size,2, 'catalog and regional guide have separate bounded caches');
+  for (const response of stored.values()) assert(!(await response.clone().text()).includes('never-cache-this'));
   globalThis.fetch=async target=>new URL(target).pathname==='/api/schedule'?Response.json(baseline):Promise.reject(Error('Regional feed down'));
   const second=await worker.fetch(request,env,{waitUntil:p=>background.push(p)});
   assert.equal((await second.json()).channels[0].matchedEPG,true);
@@ -420,6 +421,6 @@ test('warm regional guide returns before slow primary refresh and reconciles del
   const response=await worker.fetch(new Request('https://worker.example/tv-schedule?date=2026-11-13'),env,{waitUntil:p=>background.push(p)});
   const payload=await response.json();
   assert.deepEqual(payload.channels.map(x=>x.id),['keep']);
-  assert.equal(payload.channels[0].programmes.length,1);assert.equal(primaryStarted,true);
+  assert.equal(payload.channels[0].programmes.length,1);assert.equal(primaryStarted,false, 'a warm guide must not invoke Vercel again');
  }finally{release();await Promise.all(background);globalThis.fetch=original;globalThis.caches=previousCaches;}
 });

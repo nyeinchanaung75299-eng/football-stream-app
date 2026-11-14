@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'network_endpoints.dart';
 
 const vpnFreeSupabaseRelays = <String>[
+  cloudflarePublicBase,
   'https://supabase-api.nyeinchanaung.ccwu.cc',
   'https://supabase-api.nyeinchanaung.us.ci',
   vercelBackupBase,
@@ -24,7 +25,8 @@ Future<String> resolveSupabaseUrl({
       (
         base: relay,
         health: Uri.parse(
-          relay == vercelBackupBase ? '$relay/backend-health' : '$relay/health',
+          relay == vercelBackupBase ? '$relay/backend-health' :
+              relay == cloudflarePublicBase ? '$relay/auth/v1/health' : '$relay/health',
         ),
         direct: false,
       ),
@@ -44,6 +46,10 @@ Future<String> resolveSupabaseUrl({
     clients.add(client);
     () async {
       try {
+        if (candidate.base == vercelBackupBase) {
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+          if (completer.isCompleted) return;
+        }
         final response = await client
             .get(
               candidate.health,
@@ -59,7 +65,8 @@ Future<String> resolveSupabaseUrl({
         final decoded = jsonDecode(response.body);
         final healthy =
             candidate.direct ||
-            (decoded is Map &&
+            (candidate.base == cloudflarePublicBase && decoded is Map && decoded['name'] == 'GoTrue') ||
+            (candidate.base != cloudflarePublicBase && decoded is Map &&
                 decoded['ok'] == true &&
                 decoded['service'] == 'supabase-relay');
         if (!completer.isCompleted &&

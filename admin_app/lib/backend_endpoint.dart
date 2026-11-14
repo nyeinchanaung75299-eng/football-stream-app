@@ -7,6 +7,7 @@ import 'network_endpoints.dart';
 // Admin authentication must use a verified Supabase Auth endpoint. A generic
 // public /health response is not proof that a relay can serve GoTrue sign-in.
 const vpnFreeSupabaseRelays = <String>[
+  cloudflarePublicBase,
   vercelBackupBase,
   'https://supabase-api.nyeinchanaung.ccwu.cc',
   'https://supabase-api.nyeinchanaung.us.ci',
@@ -26,12 +27,7 @@ Future<String> resolveSupabaseUrl({
 }) async {
   final direct = directUrl.replaceAll(RegExp(r'/+$'), '');
   final candidates = <({String base, Uri health, Duration timeout})>[
-    (
-      base: vercelBackupBase,
-      health: Uri.parse('$vercelBackupBase/backend-health'),
-      timeout: const Duration(seconds: 4),
-    ),
-    for (final relay in vpnFreeSupabaseRelays.skip(1))
+    for (final relay in vpnFreeSupabaseRelays.where((base) => base != vercelBackupBase))
       (
         base: relay,
         health: Uri.parse('$relay/auth/v1/health'),
@@ -41,6 +37,11 @@ Future<String> resolveSupabaseUrl({
       base: direct,
       health: Uri.parse('$direct/auth/v1/health'),
       timeout: const Duration(seconds: 3),
+    ),
+    (
+      base: vercelBackupBase,
+      health: Uri.parse('$vercelBackupBase/backend-health'),
+      timeout: const Duration(seconds: 4),
     ),
   ];
 
@@ -86,7 +87,8 @@ Future<String> resolveSupabaseUrl({
   }
 
   for (final candidate in unique) {
-    if (preferred != null && candidate.base != preferred) {
+    if ((preferred != null && candidate.base != preferred) ||
+        (preferred == null && candidate.base == vercelBackupBase)) {
       unawaited(Future<void>.delayed(
         const Duration(milliseconds: 150),
         () => probe(candidate),

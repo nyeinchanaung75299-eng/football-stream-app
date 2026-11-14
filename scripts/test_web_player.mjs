@@ -349,6 +349,7 @@ test('four original ColaTV lines remain four visible entries while protected rel
   const all=[];
   for(let i=0;i<4;i++){
     all.push({...source('hls','ColaTV '+i),id:'cola-'+i});
+    all.push({...source('hls','ColaTV '+i+' • Network backup'),id:'cola-'+i+'-cloudflare-alt',transport:'cloudflare-fallback'});
     all.push({...source('hls','ColaTV '+i+' • VPN-free backup'),id:'cola-'+i+'-vpn-free',transport:'vercel-fallback'});
   }
   await h.open(all);

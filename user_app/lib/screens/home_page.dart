@@ -89,9 +89,8 @@ class _HomePageState extends State<HomePage> {
   List<String> get _publicApiBases {
     final bases = publicApiBases(
       primary: _publicApiBase,
-      // Vercel is reachable without VPN on the tested operator. Cloudflare
-      // remains in the route list for automatic fallback/VPN use.
-      preferVercel: true,
+      // Prefer Cloudflare and keep the operator backup for blocked networks.
+      preferVercel: usesVercelBackend,
     );
     return bases;
   }
@@ -194,16 +193,14 @@ class _HomePageState extends State<HomePage> {
 
   List<Future<T> Function()> _apiJobs<T>(Future<T> Function(String) load) {
     var winnerRecorded = false;
-    return _publicApiBases
-        .map<Future<T> Function()>((base) => () async {
-              final value = await load(base);
-              if (!winnerRecorded) {
-                winnerRecorded = true;
-                rememberVerifiedPublicApiBase(base);
-              }
-              return value;
-            })
-        .toList();
+    return publicApiRequests<T>(
+      _publicApiBases, load, onHealthy: (base) {
+        if (!winnerRecorded) {
+          winnerRecorded = true;
+          rememberVerifiedPublicApiBase(base);
+        }
+      },
+    );
   }
 
   @override

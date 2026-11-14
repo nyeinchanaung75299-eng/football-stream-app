@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 
 class WebsiteScanResult {
@@ -44,12 +45,12 @@ class WebsiteDetectorService {
       // Use the direct Worker first, Vercel only if connection fails quickly.
       final bases = browser
           ? <String>[
-              'https://football-public-api.nyeinchanaung75299-eng.workers.dev',
+              cloudflarePublicBase,
               vercelBackupBase,
             ]
           : publicApiBases(
               primary: 'https://football-api.nyeinchanaung.us.ci',
-              preferVercel: true,
+              preferVercel: usesVercelBackend,
             );
       final clock = Stopwatch()..start();
       String lastFailure = 'No scanner gateway responded.';
@@ -74,7 +75,7 @@ class WebsiteDetectorService {
           try {
             payload = jsonDecode(response.body);
           } catch (_) {
-            if (response.statusCode == 404 || response.statusCode >= 500) {
+            if (response.statusCode == 402 || response.statusCode == 404 || response.statusCode >= 500) {
               lastFailure = 'Gateway returned HTTP ${response.statusCode}.';
               continue;
             }
