@@ -25,3 +25,8 @@ verify_jwt = false
 # before reading BotFather secrets or registering webhooks.
 [functions.telegram-connect]
 verify_jwt = false
+
+# Public listing/image fallback authenticates the project publishable key in
+# its handler. It cannot route Admin/Auth/REST requests or video bytes.
+[functions.viewer-network-api]
+verify_jwt = false

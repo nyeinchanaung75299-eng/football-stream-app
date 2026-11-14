@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'resilient_logo.dart';
 import 'package:intl/intl.dart';
 
 class PremiumMatchCard extends StatelessWidget {
@@ -268,12 +269,9 @@ class _Team extends StatelessWidget {
             ),
           ),
           child: hasLogo
-              ? Image.network(
-                  logo!,
-                  fit: BoxFit.contain,
-                  webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                  filterQuality: FilterQuality.medium,
-                  errorBuilder: (_, __, ___) => Icon(
+              ? ResilientLogo(
+                  value: logo!,
+                  fallback: Icon(
                     Icons.shield_outlined,
                     color: colors.onSurfaceVariant,
                     size: 23,

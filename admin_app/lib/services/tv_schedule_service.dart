@@ -448,12 +448,12 @@ class TvScheduleService {
     Future<TvScheduleGuide> fetchCatalog() async {
       final client = _httpClient ?? http.Client();
       try {
-        for (final base in (_apiBases ?? publicApiBases(preferVercel: usesVercelBackend)).toSet()) {
+        for (final base in (_apiBases ?? publicDataApiBases(preferVercel: usesVercelBackend)).toSet()) {
           try {
             final response = await client
                 .get(Uri.parse('$base/channels').replace(
                   queryParameters: _needsFreshMetadata ? {'fresh': '1'} : null,
-                ))
+                ), headers: publicApiHeaders(base))
                 .timeout(const Duration(seconds: 8));
             if (response.statusCode != 200) continue;
             final json = jsonDecode(response.body);
@@ -481,7 +481,7 @@ class TvScheduleService {
     try {
       // Use the configured custom domain first. The workers.dev hostname can
       // serve an older deployment while the production route is updated.
-      final bases = _apiBases ?? publicApiBases(preferVercel: usesVercelBackend);
+      final bases = _apiBases ?? publicDataApiBases(preferVercel: usesVercelBackend);
       for (final rawBase in bases.toSet()) {
         final base = rawBase.trim().replaceAll(RegExp(r'/+$'), '');
         if (base.isEmpty) continue;
@@ -490,9 +490,7 @@ class TvScheduleService {
             queryParameters: {'date': date, 'days': '$guideDays',
               if (fresh) 'fresh': '1'},
           );
-          final response = await client.get(uri, headers: const {
-            'Accept': 'application/json'
-          }).timeout(const Duration(seconds: 16));
+          final response = await client.get(uri, headers: publicApiHeaders(base)).timeout(const Duration(seconds: 16));
           if (response.statusCode < 200 || response.statusCode >= 300) {
             throw StateError(
                 'TV schedule returned HTTP ${response.statusCode}.');

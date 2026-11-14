@@ -413,7 +413,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               't': DateTime.now().millisecondsSinceEpoch.toString(),
             },
           ),
-          headers: const {'Accept': 'application/json'},
+          headers: publicApiHeaders(base),
         )
         .timeout(const Duration(seconds: 9));
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -661,10 +661,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final response = await http
         .post(
           Uri.parse(base + '/sources/' + (sourceName ?? source) + '/streams'),
-          headers: const {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
+          headers: publicApiHeaders(base, extra: const {'Content-Type': 'application/json'}),
           body: jsonEncode({
             'skip_probe': true,
             'room_num':

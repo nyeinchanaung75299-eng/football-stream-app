@@ -368,10 +368,7 @@ class _HomePageState extends State<HomePage> {
               't': DateTime.now().millisecondsSinceEpoch.toString(),
             },
           ),
-          headers: const {
-            'Accept': 'application/json',
-            'Cache-Control': 'no-cache',
-          },
+          headers: publicApiHeaders(base, extra: const {'Cache-Control': 'no-cache'}),
         )
         .timeout(const Duration(seconds: 5));
 
@@ -413,10 +410,7 @@ class _HomePageState extends State<HomePage> {
     final response = await http
         .get(
           uri,
-          headers: const {
-            'Accept': 'application/json',
-            'Cache-Control': 'no-cache',
-          },
+          headers: publicApiHeaders(base, extra: const {'Cache-Control': 'no-cache'}),
         )
         .timeout(const Duration(seconds: 4));
 

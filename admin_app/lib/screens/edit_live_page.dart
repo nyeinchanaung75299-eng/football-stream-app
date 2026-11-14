@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../analytics_service.dart';
+import '../widgets/resilient_logo.dart';
 import 'live_links_page.dart';
 
 /// Compact admin management for every non-deleted live fixture.
@@ -427,11 +428,8 @@ class _TeamLogo extends StatelessWidget {
     return SizedBox(
       width: 52,
       height: 52,
-      child: Image.network(
-        url,
-        fit: BoxFit.contain,
-        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-        errorBuilder: (_, __, ___) => Center(child: fallback),
+      child: ResilientLogo(
+        value: url, fallback: Center(child: fallback),
       ),
     );
   }

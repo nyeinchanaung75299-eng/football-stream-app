@@ -2,6 +2,28 @@ import 'dart:async';
 
 const vercelBackupBase = 'https://nca-network-backup-test.vercel.app';
 const cloudflarePublicBase = 'https://football-api.nyeinchanaung.us.ci';
+const independentPublicBase =
+    'https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/viewer-network-api';
+const viewerPublicApiKey = 'sb_publishable_ka-rZxHdJUMYng6WJDDQUg_ZcWZJl3O';
+
+Map<String, String> publicApiHeaders(
+  String base, {
+  Map<String, String> extra = const {},
+}) => {
+  'Accept': 'application/json',
+  if (base == independentPublicBase) 'apikey': viewerPublicApiKey,
+  ...extra,
+};
+
+String independentImageUrl(String path, {String? version}) =>
+    Uri.parse('$independentPublicBase$path')
+        .replace(
+          queryParameters: {
+            'apikey': viewerPublicApiKey,
+            if (version != null) 'v': version,
+          },
+        )
+        .toString();
 
 // Keep only currently supported public routes in the new Viewer build.
 // The disabled workers.dev alias is not a useful automatic hedge.
@@ -26,6 +48,7 @@ List<String> _knownPublicApiBases({
   return <String>{
     if (preferVercel) vercelBackupBase,
     if (first.isNotEmpty) first,
+    independentPublicBase,
     'https://football-api.nyeinchanaung.ccwu.cc',
     if (!preferVercel) vercelBackupBase,
   }.toList();

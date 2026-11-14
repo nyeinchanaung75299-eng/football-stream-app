@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../football_english.dart';
+import 'resilient_logo.dart';
 
 /// A whole match is one tap target for adding its live links.
 class MatchStreamCard extends StatelessWidget {
@@ -26,12 +27,8 @@ class MatchStreamCard extends StatelessWidget {
             height: 48,
             width: 48,
             child: logo.startsWith('https://')
-                ? Image.network(
-                    logo,
-                    fit: BoxFit.contain,
-                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                    errorBuilder: (_, __, ___) =>
-                        const Icon(Icons.sports_soccer, size: 36),
+                ? ResilientLogo(
+                    value: logo, fallback: const Icon(Icons.sports_soccer, size: 36),
                   )
                 : const Icon(Icons.sports_soccer, size: 36),
           ),
