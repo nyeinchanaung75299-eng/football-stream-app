@@ -12,26 +12,30 @@ void main() {
         '$vercelBackupBase/api/channel-logo?id=$id&v=${Uri.encodeComponent(asset)}';
     expect(channelLogoUrl(old, channelId: id), asset);
   });
-  test(
-      'direct images stay direct while legacy relays use a fixed channel lookup',
-      () {
+  test('direct images stay direct while legacy relays use a fixed channel lookup', () {
     const external = 'https://images.example/logo.png';
     expect(channelLogoUrl(external, channelId: id), external);
     final legacy =
         '$vercelBackupBase/api/channel-logo?id=$id&v=${Uri.encodeComponent(external)}';
     final url = Uri.parse(channelLogoUrl(legacy, channelId: id));
-    expect(url.origin, cloudflarePublicBase);
-    expect(url.path, '/channel-logos/$id');
-    expect(url.queryParameters.keys, ['v']);
+    expect(url.origin, Uri.parse(independentPublicBase).origin);
+    expect(
+      url.path,
+      '${Uri.parse(independentPublicBase).path}/channel-logos/$id',
+    );
+    expect(url.queryParameters.keys, containsAll(['apikey', 'v']));
+    expect(url.queryParameters['apikey'], viewerPublicApiKey);
     expect(url.queryParameters['v'], matches(RegExp(r'^[a-f0-9]{24}$')));
-    expect(repositoryLogoUrl('https://img.sofascore.com/api/v1/team/123/image'),
-        '$cloudflarePublicBase/team-logos/123');
-    expect(repositoryLogoUrl('$vercelBackupBase/team-logos/123'),
-        '$cloudflarePublicBase/team-logos/123');
+    expect(
+      repositoryLogoUrl('https://img.sofascore.com/api/v1/team/123/image'),
+      independentImageUrl('/team-logos/123'),
+    );
+    expect(
+      repositoryLogoUrl('$vercelBackupBase/team-logos/123'),
+      independentImageUrl('/team-logos/123'),
+    );
   });
-  test(
-      'supported Cloudflare aliases precede Vercel without dropping the operator backup',
-      () {
+  test('supported Cloudflare aliases precede Vercel without dropping the operator backup', () {
     final bases = publicApiBases();
     expect(bases.first, cloudflarePublicBase);
     expect(bases.last, vercelBackupBase);

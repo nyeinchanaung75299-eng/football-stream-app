@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/repository_logo.dart';
+import '../widgets/resilient_logo.dart';
 import 'package:intl/intl.dart';
 
 import '../services/tv_schedule_service.dart';
@@ -656,12 +656,12 @@ class _ChannelImage extends StatelessWidget {
     if (!image.startsWith('http')) return fallback;
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
-      child: Image.network(
-        channelLogoUrl(image, channelId: channel.id),
+      child: ResilientLogo(
+        value: image, channelId: channel.id,
         width: 38,
         height: 38,
         fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) => fallback,
+        fallback: fallback,
       ),
     );
   }

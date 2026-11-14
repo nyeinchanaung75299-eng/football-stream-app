@@ -10,6 +10,7 @@ import '../analytics_service.dart';
 import '../football_english.dart';
 import '../big_match_source_policy.dart';
 import '../services/fixture_badge_enrichment.dart';
+import '../widgets/resilient_logo.dart';
 import '../services/function_gateway.dart';
 import '../services/connected_channel_source.dart';
 import '../widgets/repository_match_import_sheet.dart';
@@ -1206,28 +1207,11 @@ class _TeamLogo extends StatelessWidget {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
-      child: Image.network(
-        primary ?? backup!,
-        width: 28,
-        height: 28,
-        fit: BoxFit.contain,
-        // A valid public WebP/PNG may fail Flutter Web's byte fetch due to CORS.
-        // Use an HTML <img> only on failure; no proxy or access bypass.
-        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-        // A publisher may hotlink-block a URL despite publishing it in JSON.
-        // Fall back only to the exact same fixture's independently sourced
-        // verified team badge, never a guessed CDN name or unrelated shield.
-        errorBuilder: (_, __, ___) =>
-            backup != null && backup != primary
-                ? Image.network(
-                    backup,
-                    width: 28,
-                    height: 28,
-                    fit: BoxFit.contain,
-                    webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                    errorBuilder: (_, __, ___) => _unavailable,
-                  )
-                : _unavailable,
+      child: ResilientLogo(
+        value: primary ?? backup!, width: 28, height: 28,
+        fallback: backup != null && backup != primary
+          ? ResilientLogo(value: backup, width: 28, height: 28, fallback: _unavailable)
+          : _unavailable,
       ),
     );
   }

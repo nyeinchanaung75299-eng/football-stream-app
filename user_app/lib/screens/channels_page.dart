@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import '../repository_logo.dart';
+import '../widgets/resilient_logo.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -218,7 +218,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
           final response = await http
               .get(
                 Uri.parse('$base$path'),
-                headers: const {'Accept': 'application/json'},
+                headers: publicApiHeaders(base),
               )
               .timeout(timeout);
           if (response.statusCode != 200) {
@@ -310,7 +310,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
 
   Future<List<Map<String, dynamic>>> load({bool force = false}) async {
     final rows = await ViewerTabCache.loadChannels(() async {
-      final data = await request('/channels');
+      final data = await request(force ? '/channels?fresh=1' : '/channels');
       if (data['channels'] is! List) {
         throw const FormatException('Invalid channel catalog');
       }
@@ -524,7 +524,11 @@ class _ChannelsPageState extends State<ChannelsPage> {
         }
         if (rows == null) {
           return Center(
-            child: Text('Channel catalog unavailable: ${snapshot.error}'),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Channels could not load. Check your connection and retry.'),
+              const SizedBox(height: 12),
+              FilledButton.icon(onPressed: () => refresh(), icon: const Icon(Icons.refresh), label: const Text('Retry')),
+            ]),
           );
         }
         String groupOf(Map<String, dynamic> row) {
@@ -783,11 +787,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
                                   clipBehavior: Clip.antiAlias,
                                   child: Stack(fit: StackFit.expand, children: [
                                     Center(child: image.startsWith('https://')
-                                        ? Image.network(
-                                            channelLogoUrl(image, channelId: channel['id']?.toString()),
-                                            fit: BoxFit.contain,
-                                            errorBuilder: (_, __, ___) =>
-                                                const Icon(Icons.tv),
+                                        ? ResilientLogo(
+                                            value: image, channelId: channel['id']?.toString(),
+                                            fallback: const Icon(Icons.tv),
                                           )
                                         : const Icon(Icons.tv, size: 38)),
                                     Positioned(top: 0, right: 0, child: PopupMenuButton<String>(
