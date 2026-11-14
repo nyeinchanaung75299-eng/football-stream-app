@@ -62,10 +62,6 @@ jobs:
         run: node scripts/publish_repository_trees.mjs /tmp/repository-trees.json
 
       - name: Fetch source-list snapshots for VPN-off fallback
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_BROWSER_API_TOKEN: ${{ secrets.CLOUDFLARE_BROWSER_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -u
           mkdir -p /tmp/source-feeds
