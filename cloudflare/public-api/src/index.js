@@ -213,7 +213,7 @@ async function handleChannelLogo(request, id, env) {
       return json({error: 'Channel logo unavailable'}, 404, {'Cache-Control': 'no-store'});
     }
     const response = await fetch(source, {redirect: 'error',
-      headers: {Accept: 'image/png,image/jpeg,image/webp'},
+      headers: {Accept: 'image/png,image/jpeg,image/webp', 'User-Agent': 'Mozilla/5.0'},
       signal: AbortSignal.timeout(7500), cf: {cacheTtl: 86400, cacheEverything: true}});
     if (!response.ok || Number(response.headers.get('Content-Length') || 0) > 1048576) {
       await response.body?.cancel(); throw Error('Image unavailable');

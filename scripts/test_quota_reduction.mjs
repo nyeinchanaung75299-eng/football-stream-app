@@ -66,6 +66,7 @@ test('a thumbnail looks up one active channel once, caches image bytes and never
   }
   assert.equal(url.href,'https://images.example/known.png');images++;
   assert.equal(new Headers(init?.headers).get('apikey'),null);
+  assert.equal(new Headers(init?.headers).get('User-Agent'),'Mozilla/5.0');
   return new Response(Uint8Array.from([137,80,78,71,13,10,26,10]),{headers:{'Content-Type':'image/png'}});
  },async()=>{
   const get=()=>worker.fetch(new Request('https://worker.example/channel-logos/'+id,
