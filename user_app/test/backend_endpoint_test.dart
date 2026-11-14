@@ -5,9 +5,7 @@ import 'package:football_viewer/backend_endpoint.dart';
 import 'package:football_viewer/network_endpoints.dart';
 
 void main() {
-  setUp(() => rememberVerifiedPublicApiBase(
-        cloudflarePublicBase,
-      ));
+  setUp(() => rememberVerifiedPublicApiBase(cloudflarePublicBase));
 
   test('Cloudflare first for public data, Vercel retained as fallback', () {
     final bases = publicApiBases(primary: 'https://football-api.example/');
@@ -16,19 +14,54 @@ void main() {
     expect(bases.toSet().length, bases.length);
   });
 
-  test('Only a configured, recently healthy public API can lead the route list', () {
-    final original = publicApiBases();
-    expect(original.first, cloudflarePublicBase);
-    rememberVerifiedPublicApiBase('https://untrusted.invalid');
-    expect(publicApiBases().first, cloudflarePublicBase);
-    rememberVerifiedPublicApiBase('https://football-api.nyeinchanaung.us.ci');
-    expect(publicApiBases().first, 'https://football-api.nyeinchanaung.us.ci');
-    expect(publicApiBases().contains(vercelBackupBase), isTrue);
-    expect(publicApiBases().toSet().length, publicApiBases().length);
-    expect(publicApiBases().contains(
-        'https://football-public-api.nyeinchanaung75299-eng.workers.dev'),
-        isFalse);
-  });
+  test(
+    'Only a configured, recently healthy public API can lead the route list',
+    () {
+      final original = publicApiBases();
+      expect(original.first, cloudflarePublicBase);
+      rememberVerifiedPublicApiBase('https://untrusted.invalid');
+      expect(publicApiBases().first, cloudflarePublicBase);
+      rememberVerifiedPublicApiBase('https://football-api.nyeinchanaung.us.ci');
+      expect(
+        publicApiBases().first,
+        'https://football-api.nyeinchanaung.us.ci',
+      );
+      expect(publicApiBases().contains(vercelBackupBase), isTrue);
+      expect(publicApiBases().toSet().length, publicApiBases().length);
+      expect(
+        publicApiBases().contains(
+          'https://football-public-api.nyeinchanaung75299-eng.workers.dev',
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'Cloudflare Auth probes include the public API key required by GoTrue',
+    () async {
+      await http.runWithClient(
+        () async {
+          final result = await resolveSupabaseUrl(
+            directUrl: 'https://database.example',
+            publishableKey: 'test-public-key',
+          );
+          expect(result, cloudflarePublicBase);
+          expect(usesVercelBackend, isFalse);
+        },
+        () => MockClient((request) async {
+          if (request.url.host == Uri.parse(cloudflarePublicBase).host) {
+            expect(request.url.path, '/auth/v1/health');
+            if (request.headers['apikey'] != 'test-public-key') {
+              return http.Response('{}', 401);
+            }
+            return http.Response('{"name":"GoTrue"}', 200);
+          }
+          throw http.ClientException('Blocked alternative');
+        }),
+      );
+    },
+  );
 
   test(
     'a fast rejected health response cannot beat a healthy backend',
