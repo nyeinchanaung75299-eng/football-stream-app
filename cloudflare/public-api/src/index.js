@@ -195,11 +195,11 @@ async function handleChannelLogo(request, id, env) {
       return json({error: 'Too many logo requests'}, 429, {'Cache-Control':'no-store'});
     }
     // Select one saved public image, never a whole catalog per thumbnail.
-    const url = new URL(env.SUPABASE_URL.replace(/\/+$/, '') + '/rest/v1/channels');
+    const url = new URL(env.SUPABASE_URL.trim().replace(/\/+$/, '') + '/rest/v1/channels');
     url.search = new URLSearchParams({select: 'image_url', id: 'eq.' + id,
       is_active: 'eq.true', limit: '1'}).toString();
     const {data} = await fetchJsonWithTimeout(url, {
-      headers: {apikey: env.SUPABASE_PUBLISHABLE_KEY, Accept: 'application/json'},
+      headers: {apikey: env.SUPABASE_PUBLISHABLE_KEY.trim(), Accept: 'application/json'},
     }, METADATA_TIMEOUT_MS);
     let source = new URL(data?.[0]?.image_url || '');
     if (source.hostname === 'nca-network-backup-test.vercel.app' &&

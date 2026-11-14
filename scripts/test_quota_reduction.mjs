@@ -62,7 +62,7 @@ test('a thumbnail looks up one active channel once, caches image bytes and never
  await using(async(target,init)=>{
   const url=new URL(target);assert.equal(new Headers(init?.headers).get('Authorization'),null);
   if(url.hostname==='database.example'){
-   database++;assert.equal(url.searchParams.get('select'),'image_url');assert.equal(url.searchParams.get('id'),'eq.'+id);
+   database++;assert.equal(new Headers(init.headers).get('apikey'),'public-test-key');assert.equal(url.searchParams.get('select'),'image_url');assert.equal(url.searchParams.get('id'),'eq.'+id);
    return Response.json([{image_url:'https://images.example/known.png'}]);
   }
   assert.equal(url.href,'https://images.example/known.png');images++;
@@ -71,7 +71,7 @@ test('a thumbnail looks up one active channel once, caches image bytes and never
   return new Response(Uint8Array.from([137,80,78,71,13,10,26,10]),{headers:{'Content-Type':'image/png'}});
  },async()=>{
   const get=()=>worker.fetch(new Request('https://worker.example/channel-logos/'+id,
-   {headers:{Authorization:'Bearer private-session'}}),env,{});
+   {headers:{Authorization:'Bearer private-session'}}),{...env,SUPABASE_URL:env.SUPABASE_URL+'\n',SUPABASE_PUBLISHABLE_KEY:env.SUPABASE_PUBLISHABLE_KEY+'\n'},{});
   for(let i=0;i<2;i++){const r=await get();assert.equal(r.status,200);assert.equal((await r.arrayBuffer()).byteLength,8);}
   assert.equal(database,1);assert.equal(images,1);
  });
