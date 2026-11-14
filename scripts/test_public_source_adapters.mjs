@@ -1,29 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {publicSourceUrl,readPublicSource,discoverPublicMedia} from '../supabase/functions/_shared/public_source_media.mjs';
-import {experimentalMatches,experimentalFootballSites} from '../supabase/functions/_shared/experimental_football_sources.mjs';
+import {experimentalMatches,experimentalFootballSites,configuredRoxiePublicMedia} from '../supabase/functions/_shared/experimental_football_sources.mjs';
 
 const response=(value,type='text/html')=>new Response(value,{headers:{'content-type':type}});
 
-test('Retired football source adapters have no active provider configuration',()=>{
- assert.deepEqual(Object.keys(experimentalFootballSites),['rojadirecta']);
+test('Only RoxieStreams remains; Rojadirecta is retired',()=>{
+ assert.deepEqual(Object.keys(experimentalFootballSites),['roxie']);
 });
 
-test('Rojadirecta binds a game only to its own public player ID',async()=>{
- const html='<details class="game-item-details" data-game-id="42"><summary>'+
-  '<span class="game-teams">Moldova - Kazakhstan</span></summary>'+
-  '<div class="game-links-container"></div></details>'+
-  '<script>window.LINKS_DATA = '+JSON.stringify({
-    42:[{link:'https://player.example.org/event'},{link:'acestream://not-native'}],
-    99:[{link:'https://other.example.org/unrelated'}],
-  })+';</script>';
- const r=await experimentalMatches('rojadirecta',{fetcher:async()=>response(html)});
- assert.equal(r.matches.length,1);
- assert.equal(r.matches[0].anchors.length,1);
- assert.equal(r.matches[0].anchors[0].page_url,'https://player.example.org/event');
- assert.equal(r.matches[0].match_time,null);
+test('Roxie literal configuration is read without evaluating player JS',async()=>{
+ const html="<button onclick=\"getRandomStream('live.m3u8','admin2')\">Stream 1</button>"+
+ "<script>function getRandomStream(streamPath, subdomain = 'admin2'){return `https://${subdomain}.media.example.org/${streamPath}`;}</script>";
+ const r=await configuredRoxiePublicMedia('roxie',html,'https://roxiestreams.su/soccer-streams-1');
+ assert.equal(r.length,1);assert.equal(r[0].url,'https://admin2.media.example.org/live.m3u8');
+ assert.equal((await configuredRoxiePublicMedia('camel',html,'https://www.camel1.tv/')).length,0);
 });
-
 test('No private network, credential URL or local host can be a source target',()=>{
  for(const url of ['http://127.0.0.1/live.m3u8','http://[::1]/a.mpd',
   'https://user:password@cdn.example.org/a.m3u8','https://example.local/a.mp4']) {
@@ -47,8 +39,8 @@ test('Sponsor or preroll clips are never emitted as programme links',async()=>{
 });
 
 test('Public page redirect cannot cross configured publisher host',async()=>{
- await assert.rejects(readPublicSource('https://www.rojadirectavivo.me/live-football',{
-  allowedHosts:['rojadirectavivo.me'],
+ await assert.rejects(readPublicSource('https://roxiestreams.su/soccer',{
+  allowedHosts:['roxiestreams.su'],
   fetcher:async()=>new Response('Moved',{status:302,
     headers:{location:'http://127.0.0.1/secret'}}),
  }),/Unsupported public source URL/);
