@@ -55,11 +55,13 @@ void main() {
     expect(channelLogoUrl(old, channelId: id), asset);
   });
   test(
-    'external images use a fixed channel lookup, never an arbitrary URL proxy',
+    'direct images stay direct while legacy relays use a fixed channel lookup',
     () {
-      final url = Uri.parse(
-        channelLogoUrl('https://images.example/logo.png', channelId: id),
-      );
+      const external = 'https://images.example/logo.png';
+      expect(channelLogoUrl(external, channelId: id), external);
+      final legacy =
+          '$vercelBackupBase/api/channel-logo?id=$id&v=${Uri.encodeComponent(external)}';
+      final url = Uri.parse(channelLogoUrl(legacy, channelId: id));
       expect(url.origin, cloudflarePublicBase);
       expect(url.path, '/channel-logos/$id');
       expect(url.queryParameters.keys, ['v']);

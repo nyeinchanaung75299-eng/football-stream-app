@@ -783,7 +783,13 @@ async function handleTvSchedule(request, env, incoming, ctx) {
       try {
         const hit = await cache.match(responseKey);
         if (hit?.headers.get('X-NCA-Cached-Guide') === '1' && hit.status === 200) {
-          return new Response(hit.body, hit);
+          // Cache API may add the zone's browser TTL to stored responses.
+          // Keep the public guide's short freshness bound on cache hits too.
+          const headers = new Headers(hit.headers);
+          headers.set('Cache-Control', 'public, max-age=30');
+          headers.delete('Age');
+          headers.delete('CF-Cache-Status');
+          return new Response(hit.body, {status: 200, headers});
         }
       } catch (_) {}
     }

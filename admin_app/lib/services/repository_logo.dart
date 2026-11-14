@@ -22,6 +22,10 @@ String channelLogoUrl(String value, {String? channelId}) {
         uri.queryParameters['v'] ?? uri.queryParameters['url'] ?? '');
     if (nested != null && _staticChannelAsset(nested)) return nested.toString();
     id ??= uri.queryParameters['id'];
+  } else {
+    // Existing provider CDNs already avoid Vercel. Keep their browser path:
+    // some image providers reject server-to-server image requests.
+    return value;
   }
   if (id != null && RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)) {
     final version =

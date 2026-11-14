@@ -36,7 +36,8 @@ test('fresh published EPG serves current saved stations without calling any Verc
   const body=await response.json();assert.equal(body.channels.length,1);
   assert.equal(body.channels[0].matchedEPG,true);assert(!JSON.stringify(body).includes('private'));
   const cached=await worker.fetch(new Request('https://worker.example/tv-schedule'),env,{});
-  assert.equal(cached.headers.get('X-NCA-Cached-Guide'),'1');assert.equal((await cached.json()).channels.length,1);
+  assert.equal(cached.headers.get('X-NCA-Cached-Guide'),'1');
+  assert.equal(cached.headers.get('Cache-Control'),'public, max-age=30');assert.equal((await cached.json()).channels.length,1);
   assert.equal(database,1);assert.equal(snapshots,1);
   rows=[];
   const fresh=await worker.fetch(new Request('https://worker.example/tv-schedule?fresh=1'),env,{});
@@ -124,4 +125,16 @@ test('legacy Vercel thumbnails make one cached Worker request, with no catalog d
   const r=await logo(new Request(origin+'/api/channel-logo?id='+id));assert.equal(r.status,200);
   assert.equal(r.headers.get('Vercel-CDN-Cache-Control'),'public, s-maxage=86400');await r.body.cancel();assert.equal(calls,1);
  });
+});
+
+test('guide cache hits restore the short browser TTL instead of inheriting the zone default',async()=>{
+ const cached={async match(request){
+  if(new URL(request.url).pathname==='/_published-guide-response')return Response.json({channels:[]},{headers:{'X-NCA-Cached-Guide':'1','Cache-Control':'public, max-age=14400','Age':'12','CF-Cache-Status':'HIT'}});
+ },async put(){throw Error('A cache hit must not reprocess the guide');}};
+ await using(async()=>{throw Error('A cache hit must not fetch upstreams');},async()=>{
+  const r=await worker.fetch(new Request('https://worker.example/tv-schedule'),env,{});
+  assert.equal(r.status,200);assert.equal(r.headers.get('Cache-Control'),'public, max-age=30');
+  assert.equal(r.headers.get('Age'),null);assert.equal(r.headers.get('CF-Cache-Status'),null);
+  assert.deepEqual(await r.json(),{channels:[]});
+ },cached);
 });
