@@ -118,7 +118,7 @@ class SocoImportPage extends StatefulWidget {
 
 class _SocoImportPageState extends State<SocoImportPage> {
   static const _experimentalSourceNames = <String, String>{
-    'rojadirecta': 'Rojadirecta',
+    'roxie': 'RoxieStreams',
   };
   bool get _isExperimentalSource =>
       _experimentalSourceNames.containsKey(source);
