@@ -107,20 +107,27 @@ void main() {
     }, () => MockClient((_) async => http.Response('{}', 503)));
   });
 
-  testWidgets('channel stream network failure offers safe Retry, not raw URL',
+  testWidgets('channel failure uses Vercel only after an explicit alternative-connection tap',
       (tester) async {
     const channelId = '00000000-0000-0000-0000-000000000012';
+    var vercelReads = 0;
     await http.runWithClient(() async {
       await tester.pumpWidget(const MaterialApp(home: ChannelsPage()));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Offline Channel'));
       await tester.pumpAndSettle();
       expect(find.textContaining('Channel connection failed'), findsOneWidget);
+      expect(vercelReads, 0);
+      expect(find.text('OTHER CONNECTION'), findsOneWidget);
+      await tester.tap(find.text('OTHER CONNECTION'));
+      await tester.pumpAndSettle();
+      expect(vercelReads, 1);
       expect(find.text('RETRY'), findsOneWidget);
       expect(find.textContaining('Channel service unavailable'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     }, () => MockClient((request) async {
       if (request.url.path.endsWith('/streams')) {
+        if (request.url.host == 'nca25-live-relay.vercel.app') vercelReads++;
         return http.Response('private-server-token', 503);
       }
       if (request.url.path == '/channels') {

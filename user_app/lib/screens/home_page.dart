@@ -69,7 +69,6 @@ class _HomePageState extends State<HomePage> {
   RealtimeChannel? _channel;
   Timer? _debounce;
   Timer? _feedRefresh;
-  Timer? _streamWarmup;
   DateTime? _lastBackgroundPoll;
   DateTime? _lastLiveSuccess;
   bool get _liveNeedsRefresh => _lastLiveSuccess == null ||
@@ -90,7 +89,7 @@ class _HomePageState extends State<HomePage> {
     final bases = publicApiBases(
       primary: _publicApiBase,
       // Prefer Cloudflare and keep the operator backup for blocked networks.
-      preferVercel: usesVercelBackend,
+      preferVercel: false,
     );
     return bases;
   }
@@ -412,7 +411,7 @@ class _HomePageState extends State<HomePage> {
           uri,
           headers: publicApiHeaders(base, extra: const {'Cache-Control': 'no-cache'}),
         )
-        .timeout(const Duration(seconds: 4));
+        .timeout(const Duration(seconds: 12));
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('Public stream API returned HTTP ${response.statusCode}');
@@ -448,10 +447,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadPublicApiStreams(String matchId) {
-    return _hedged(
-      _apiJobs((base) => _loadPublicApiStreamsFrom(base, matchId)),
-      delay: const Duration(milliseconds: 250),
-    );
+    return _loadPublicApiStreamsFrom(vercelBackupBase, matchId);
   }
 
   Future<List<Map<String, dynamic>>> _resolveLinks(
@@ -569,42 +565,6 @@ class _HomePageState extends State<HomePage> {
 
     _streamLinkInflight[matchId] = request;
     return request;
-  }
-
-  void _scheduleWarmStreamLinks(List<Map<String, dynamic>> matches) {
-    // Cancel on refresh / dispose so no delayed work survives a closed page.
-    _streamWarmup?.cancel();
-    _streamWarmup = Timer(const Duration(milliseconds: 900), () {
-      _streamWarmup = null;
-      if (mounted && !_openingPlayer) {
-        unawaited(_warmStreamLinks(matches));
-      }
-    });
-  }
-
-  Future<void> _warmStreamLinks(List<Map<String, dynamic>> matches) async {
-    if (!mounted || _openingPlayer) return;
-    final candidates = matches
-        .where(
-          (match) =>
-              ((match['stream_count'] as num?)?.toInt() ?? 0) > 0 &&
-              (match['id']?.toString().trim().isNotEmpty ?? false),
-        )
-        .take(2)
-        .toList();
-
-    if (candidates.isEmpty) return;
-    await Future.wait(
-      candidates.map((match) async {
-        try {
-          await _resolveLinks(match);
-        } catch (_) {
-          // A failed prefetch must not become an unhandled background error.
-          // WATCH retries the live request with visible error feedback.
-        }
-      }),
-      eagerError: false,
-    );
   }
 
   Future<void> _saveAuthoritativeCache(List<Map<String, dynamic>> rows) async {
@@ -835,7 +795,6 @@ class _HomePageState extends State<HomePage> {
           },
         ),
       );
-      _scheduleWarmStreamLinks(rows);
       unawaited(_saveAuthoritativeCache(rows)); // Empty [] is authoritative.
       return rows;
     }
@@ -923,7 +882,6 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    _scheduleWarmStreamLinks(result.rows);
     return result.rows;
   }
 
@@ -1127,7 +1085,7 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    final nativeSources = addVpnFreePlaybackFallbacks(
+    final nativeSources = playbackSources(
       links
           .where((x) => x['use_webview'] != true)
           .toList()
@@ -1484,7 +1442,6 @@ class _HomePageState extends State<HomePage> {
     _feed.dispose();
     _debounce?.cancel();
     _feedRefresh?.cancel();
-    _streamWarmup?.cancel();
     final c = _channel;
     final supabase = _supabaseClientOrNull();
     if (c != null && supabase != null) supabase.removeChannel(c);

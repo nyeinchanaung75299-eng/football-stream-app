@@ -1,10 +1,11 @@
 # NCA network backup
 
-Production URL: https://nca-network-backup-test.vercel.app
+Production URL: https://nca25-live-relay.vercel.app
 
-The linked private repository `nyeinchanaung75299-eng/nca-network-backup-test`
-auto-deploys its `main` branch. This directory is the reviewable source copy.
-Deploy it with Node.js 24 in Singapore, using the included Vercel configuration.
+The production project is `nca25/nca25-live-relay`. This directory is the
+reviewable source copy. Deploy with Node.js 24 using the included configuration.
+Git auto-deployment requires the new Vercel account's GitHub Login Connection;
+until that is connected, publish the reviewed files with the Vercel API.
 No service-role key, playback secret, or OAuth credential belongs in this project.
 
 The proxy forwards only fixed public API/source routes, authenticated Admin
@@ -26,3 +27,11 @@ continues to refresh by polling when the selected backend is Vercel.
 
 ATOM mobile data with VPN off verified health, matches, stream API, DASH manifest
 (HTTP 200) and a media sample (HTTP 206) on 2026-10-08 before app integration.
+
+Viewer events resolve links through this relay only after a user requests them.
+Protected video uses one Vercel URL per real line, including manifest children;
+no alias copies appear in the line chooser. Channels use their normal route by
+default and can opt into the relay for a single play attempt through the channel
+menu. Catalogs, logos and EPG retain their independent metadata transport.
+The relay uses its own `NCA-Relay/1.0` User-Agent for upstream requests instead of
+forwarding client fingerprints that Browser Integrity Check rejects.

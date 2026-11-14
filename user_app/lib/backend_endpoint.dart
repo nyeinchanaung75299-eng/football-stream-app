@@ -58,7 +58,8 @@ Future<String> resolveSupabaseUrl({
               candidate.health,
               headers: {
                 'Accept': 'application/json',
-                if (candidate.direct || candidate.base == cloudflarePublicBase)
+                if (candidate.direct || candidate.base == cloudflarePublicBase ||
+                    candidate.base == vercelBackupBase)
                   'apikey': publishableKey,
               },
             )
@@ -69,10 +70,10 @@ Future<String> resolveSupabaseUrl({
         final decoded = jsonDecode(response.body);
         final healthy =
             candidate.direct ||
-            (candidate.base == cloudflarePublicBase &&
+            ((candidate.base == cloudflarePublicBase || candidate.base == vercelBackupBase) &&
                 decoded is Map &&
                 decoded['name'] == 'GoTrue') ||
-            (candidate.base != cloudflarePublicBase &&
+            (candidate.base != cloudflarePublicBase && candidate.base != vercelBackupBase &&
                 decoded is Map &&
                 decoded['ok'] == true &&
                 decoded['service'] == 'supabase-relay');

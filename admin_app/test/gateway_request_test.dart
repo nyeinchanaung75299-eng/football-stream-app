@@ -7,6 +7,16 @@ import 'package:football_admin/network_endpoints.dart';
 import 'package:football_admin/services/function_gateway.dart';
 
 void main() {
+  test('explicit source link extraction is distinct from catalogs and mutations', () {
+    for (final name in ['soco-links', 'source-match-list']) {
+      expect(isSourceLinkResolution(name, {'action':'streams'}), isTrue);
+      expect(isSourceLinkResolution(name, {'action':'matches'}), isFalse);
+      expect(isSourceLinkResolution(name, {'action':'catalog'}), isFalse);
+    }
+    expect(isSourceLinkResolution('channel-source-sync', {'action':'import'}), isFalse);
+    expect(isSourceLinkResolution('soco-links', null), isFalse);
+  });
+
   test('quota rejection fails over reads without refreshing an otherwise valid session', () async {
     var calls = 0;
     final result = await GatewayRequest(

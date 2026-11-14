@@ -1013,13 +1013,13 @@ class NativePlayerActivity : Activity() {
 
     private fun visibleServerIndices(): List<Int> =
         (0 until sources.length()).filter { index ->
-            sources.optJSONObject(index)?.optString("transport") != "vercel-fallback"
+            sources.optJSONObject(index)?.optString("transport") !in setOf("vercel-fallback", "cloudflare-fallback")
         }
 
     private fun displayServerIndex(): Int {
-        val source = sources.optJSONObject(selectedServerIndex)
-        if (source?.optString("transport") != "vercel-fallback") return selectedServerIndex
-        val originalId = source.optString("id").removeSuffix("-vpn-free")
+        val source = sources.optJSONObject(selectedServerIndex) ?: return selectedServerIndex
+        if (source.optString("transport") !in setOf("vercel-fallback", "cloudflare-fallback")) return selectedServerIndex
+        val originalId = source.optString("id").removeSuffix("-vpn-free").removeSuffix("-cloudflare-alt")
         return visibleServerIndices().firstOrNull {
             sources.optJSONObject(it)?.optString("id") == originalId
         } ?: selectedServerIndex

@@ -5,60 +5,54 @@ const _protectedPlaybackHosts = <String>{
   'football-api.nyeinchanaung.ccwu.cc',
   'football-public-api.nyeinchanaung75299-eng.workers.dev',
   'nca-network-backup-test.vercel.app',
+  'nca25-live-relay.vercel.app',
 };
 const _relayTransports = {'vercel-fallback', 'cloudflare-fallback'};
 
-/// Try supported Cloudflare aliases before spending Vercel media CPU. The
-/// operator relay remains the last option when both aliases are unreachable.
-/// Only the hostname changes: tokens, request headers and DRM stay intact.
-List<Map<String, dynamic>> addVpnFreePlaybackFallbacks(
-  List<Map<String, dynamic>> sources,
-) {
+/// One selectable row per actual stream. Event playback uses the verified
+/// Vercel relay; Channels opt in explicitly. Do not manufacture alias backups.
+/// Rewriting a protected route preserves its encrypted token, headers and DRM.
+List<Map<String, dynamic>> playbackSources(
+  List<Map<String, dynamic>> sources, {
+  bool useVercel = true,
+}) {
   final output = <Map<String, dynamic>>[];
   final seen = <String>{};
-  final originals = sources
-      .where((s) => !_relayTransports.contains(s['transport']))
-      .toList();
+  final originals = sources.where(isVisiblePlaybackLine).toList();
   for (final source in originals.isEmpty ? sources.take(1) : originals) {
-    final direct = Map<String, dynamic>.from(source);
-    final uri = Uri.tryParse(_sourceUrl(direct));
+    final row = Map<String, dynamic>.from(source);
+    final raw = _sourceUrl(row);
+    final uri = Uri.tryParse(raw);
     final protected =
         uri != null &&
         uri.scheme == 'https' &&
+        uri.userInfo.isEmpty &&
         _protectedPlaybackHosts.contains(uri.host) &&
         uri.path.startsWith('/p/');
-    if (!protected) {
-      if (seen.add(_sourceUrl(direct))) output.add(direct);
-      continue;
+    final url = protected
+        ? uri
+              .replace(
+                host: Uri.parse(
+                  useVercel ? vercelBackupBase : cloudflarePublicBase,
+                ).host,
+              )
+              .toString()
+        : raw;
+    if (!seen.add(url)) continue;
+    if (row.containsKey('url')) row['url'] = url;
+    if (row.containsKey('stream_url')) row['stream_url'] = url;
+    if (_relayTransports.contains(row['transport'])) {
+      row['id'] = (row['id'] ?? '').toString().replaceFirst(
+        RegExp(r'-(vpn-free|cloudflare-alt)$'),
+        '',
+      );
+      row['label'] = (row['label'] ?? 'Server').toString().replaceFirst(
+        RegExp(r' • (VPN-free backup|Network backup)$'),
+        '',
+      );
     }
-    final hosts = <String>{
-      if (uri.host != Uri.parse(vercelBackupBase).host &&
-          !uri.host.endsWith('.workers.dev'))
-        uri.host,
-      Uri.parse(cloudflarePublicBase).host,
-      'football-api.nyeinchanaung.ccwu.cc',
-      Uri.parse(vercelBackupBase).host,
-    };
-    var first = true;
-    for (final host in hosts) {
-      final url = uri.replace(host: host).toString();
-      if (!seen.add(url)) continue;
-      final row = Map<String, dynamic>.from(direct);
-      if (row.containsKey('url')) row['url'] = url;
-      if (row.containsKey('stream_url')) row['stream_url'] = url;
-      if (first) {
-        row.remove('transport');
-      } else {
-        final vercel = host == Uri.parse(vercelBackupBase).host;
-        row['transport'] = vercel ? 'vercel-fallback' : 'cloudflare-fallback';
-        row['id'] =
-            '${direct['id'] ?? 'stream'}-${vercel ? 'vpn-free' : 'cloudflare-alt'}';
-        row['label'] =
-            '${direct['label'] ?? 'Server'} • ${vercel ? 'VPN-free backup' : 'Network backup'}';
-      }
-      output.add(row);
-      first = false;
-    }
+    row.remove('transport');
+    output.add(row);
   }
   return output;
 }

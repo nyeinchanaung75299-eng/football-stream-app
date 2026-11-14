@@ -18,6 +18,10 @@ List<String> prioritizeKnownGateway(List<String> known, String? preferred) {
   return [preferred, ...known.where((base) => base != preferred)];
 }
 
+bool isSourceLinkResolution(String functionName, Object? body) =>
+    const {'soco-links', 'source-match-list'}.contains(functionName) &&
+    body is Map && body['action'] == 'streams';
+
 class FunctionGateway {
   static String? _lastHealthyReadBase;
   static DateTime? _lastHealthyReadAt;
@@ -32,6 +36,9 @@ class FunctionGateway {
 
   static List<String> _basesFor(String functionName, Object? body) {
     final known = _gatewayBases;
+    if (isSourceLinkResolution(functionName, body)) {
+      return prioritizeKnownGateway(known, vercelBackupBase);
+    }
     // Only read-only functions are replayed and route-optimized. An uncertain
     // write must continue on its original single-first route.
     if (!GatewayRequest.canRetry(functionName, body)) return known;
@@ -86,7 +93,8 @@ class FunctionGateway {
             properties: {'function': functionName, 'reason': reason})),
       ).run(functionName, token, body: body);
 
-      if (result.base != null && GatewayRequest.canRetry(functionName, body)) {
+      if (result.base != null && GatewayRequest.canRetry(functionName, body) &&
+          !isSourceLinkResolution(functionName, body)) {
         _lastHealthyReadBase = result.base;
         _lastHealthyReadAt = DateTime.now();
       }

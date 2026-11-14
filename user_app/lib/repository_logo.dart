@@ -32,7 +32,10 @@ String channelLogoUrl(String value, {String? channelId}) {
       );
   }
   var id = channelId;
-  if (uri.host == Uri.parse(vercelBackupBase).host &&
+  if ({
+        Uri.parse(vercelBackupBase).host,
+        Uri.parse(legacyVercelBase).host,
+      }.contains(uri.host) &&
       uri.path == '/api/channel-logo') {
     final nested = Uri.tryParse(
       uri.queryParameters['v'] ?? uri.queryParameters['url'] ?? '',
@@ -59,6 +62,7 @@ String repositoryLogoUrl(String value) {
   if (uri == null) return value;
   final relay = {
     Uri.parse(vercelBackupBase).host,
+    Uri.parse(legacyVercelBase).host,
     Uri.parse(cloudflarePublicBase).host,
     'football-api.nyeinchanaung.ccwu.cc',
     'football-public-api.nyeinchanaung75299-eng.workers.dev',

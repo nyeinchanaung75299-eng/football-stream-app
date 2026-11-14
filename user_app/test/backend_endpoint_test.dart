@@ -105,7 +105,8 @@ void main() {
         () => MockClient((request) async {
           if (request.url.host == Uri.parse(vercelBackupBase).host) {
             expect(request.url.path, '/backend-health');
-            return http.Response('{"ok":true,"service":"supabase-relay"}', 200);
+            expect(request.headers['apikey'], 'test-public-key');
+            return http.Response('{"name":"GoTrue"}', 200);
           }
           throw http.ClientException('Blocked fixture route');
         }),
