@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../services/repository_logo.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/channel_source_service.dart';
 import '../services/channel_group_order_service.dart';
@@ -368,7 +369,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                       enabled: addingChannelId == null,
                       leading: image.startsWith('https://')
                           ? Image.network(
-                              image,
+                              channelLogoUrl(image, channelId: row['id']?.toString()),
                               width: 52,
                               height: 42,
                               fit: BoxFit.contain,

@@ -17,25 +17,18 @@ export function imageSource(value) {
   return url;
 }
 
-async function savedChannelImage(request, id) {
-  const response = await fetch('https://football-api.nyeinchanaung.us.ci/channels', {
-    signal: AbortSignal.timeout(7500),
-    headers: { Accept: 'application/json' },
+async function cachedWorkerImage(request, path) {
+  const response = await fetch('https://football-api.nyeinchanaung.us.ci' + path, {
+    signal: AbortSignal.any([request.signal, AbortSignal.timeout(7500)]),
+    headers: {Accept: 'image/png,image/jpeg,image/webp'}, redirect: 'error',
   });
-  if (!response.ok) throw new Error('Channel catalog unavailable');
-  const catalog = await response.json();
-  const row = catalog.channels?.find(item => item.id === id);
-  if (!row?.image_url) return null;
-  let value = row.image_url;
-  // Old rows use the first, host-limited relay URL. Unwrap only that URL.
-  const legacy = new URL(value);
-  if (legacy.origin === 'https://nca-network-backup-test.vercel.app' &&
-      legacy.pathname === '/api/channel-logo' && legacy.searchParams.has('url')) {
-    const original = imageSource(legacy.searchParams.get('url'));
-    if (!original || !legacyHosts.has(original.hostname)) return null;
-    value = original.href;
+  const type = response.headers.get('Content-Type') || '';
+  if (!response.ok || !/^image\/(png|jpe?g|webp)(?:;|$)/i.test(type)) {
+    await response.body?.cancel(); throw Error('Image unavailable');
   }
-  return imageSource(value);
+  return new Response(response.body, {headers: {...publicHeaders,
+    'Content-Type': type, 'Cache-Control': 'public, max-age=3600',
+    'Vercel-CDN-Cache-Control': 'public, s-maxage=86400'}});
 }
 
 export function imageType(data) {
@@ -75,6 +68,7 @@ async function downloadImage(source) {
     ...publicHeaders,
     'Content-Type': type,
     'Cache-Control': 'public, max-age=3600',
+    'Vercel-CDN-Cache-Control': 'public, s-maxage=86400',
   } });
 }
 
@@ -86,9 +80,12 @@ export async function GET(request) {
     let source;
     if (team !== null) {
       if (!/^\d{1,12}$/.test(team)) return reply('Team image unavailable', 404);
-      source = new URL('https://img.sofascore.com/api/v1/team/' + team + '/image');
+      return await cachedWorkerImage(request, '/team-logos/' + team);
     } else if (id && /^[0-9a-fA-F-]{36}$/.test(id)) {
-      source = await savedChannelImage(request, id);
+      const version = query.get('v');
+      const suffix = version && /^[a-f0-9]{24,64}$/.test(version)
+        ? '?v=' + version : '';
+      return await cachedWorkerImage(request, '/channel-logos/' + id + suffix);
     } else if (!id && query.has('url')) {
       // Keep previously published URLs working without an open URL proxy.
       source = imageSource(query.get('url'));

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import '../network_endpoints.dart';
 
 class GatewayResult {
   const GatewayResult(this.data, {this.base, this.statusCode});
@@ -168,8 +169,13 @@ class GatewayRequest {
         );
       }
       final missing = response.statusCode == 404;
-      final unavailable = const {502, 503, 504}.contains(response.statusCode);
-      if (missing || (repeatable && unavailable)) {
+      final unavailable = const {402, 502, 503, 504}.contains(response.statusCode);
+      // This platform response is emitted before Vercel invokes our function.
+      // It is safe to fail over even a write that provably never executed.
+      final deploymentDisabled = base == vercelBackupBase &&
+          response.statusCode == 402 &&
+          response.body.contains('DEPLOYMENT_DISABLED');
+      if (missing || deploymentDisabled || (repeatable && unavailable)) {
         onFallback?.call('gateway_http_${response.statusCode}');
         remaining();
         continue;

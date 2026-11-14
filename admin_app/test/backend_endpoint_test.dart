@@ -7,10 +7,10 @@ import 'package:football_admin/backend_endpoint.dart';
 import 'package:football_admin/network_endpoints.dart';
 
 void main() {
-  test('Vercel first for public data, Cloudflare retained as fallback', () {
+  test('Cloudflare first for public data, Vercel retained as fallback', () {
     final bases = publicApiBases(primary: 'https://football-api.example/');
-    expect(bases.first, vercelBackupBase);
-    expect(bases[1], 'https://football-api.example');
+    expect(bases.first, 'https://football-api.example');
+    expect(bases.last, vercelBackupBase);
     expect(bases.toSet().length, bases.length);
   });
 
@@ -59,14 +59,14 @@ void main() {
   });
 
   test(
-      'A healthy Vercel Auth route takes priority even when direct Supabase is fast',
+      'A healthy direct Auth route avoids an unnecessary Vercel health call',
       () async {
     await http.runWithClient(() async {
       final result = await resolveSupabaseUrl(
           directUrl: 'https://database.example/',
           publishableKey: 'test-public-key');
-      expect(result, vercelBackupBase);
-      expect(usesVercelBackend, isTrue);
+      expect(result, 'https://database.example');
+      expect(usesVercelBackend, isFalse);
     }, () => MockClient((request) async {
       if (request.url.host == Uri.parse(vercelBackupBase).host) {
         expect(request.headers['apikey'], 'test-public-key');

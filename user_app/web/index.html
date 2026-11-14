@@ -1184,13 +1184,13 @@
 
     function visibleLineEntries(){
       return sources.flatMap((source,index)=>
-        source.transport==='vercel-fallback'?[]:[{source,index}]);
+        ['vercel-fallback','cloudflare-fallback'].includes(source.transport)?[]:[{source,index}]);
     }
     function displayLineIndex(){
       const current=sources[currentSourceIndex]||{};
-      if(current.transport!=='vercel-fallback')return currentSourceIndex;
-      const originalId=String(current.id||'').replace(/-vpn-free$/,'');
-      const primary=sources.findIndex(v=>v.transport!=='vercel-fallback'&&String(v.id||'')===originalId);
+      if(!['vercel-fallback','cloudflare-fallback'].includes(current.transport))return currentSourceIndex;
+      const originalId=String(current.id||'').replace(/-(vpn-free|cloudflare-alt)$/,'');
+      const primary=sources.findIndex(v=>!['vercel-fallback','cloudflare-fallback'].includes(v.transport)&&String(v.id||'')===originalId);
       return primary>=0?primary:currentSourceIndex;
     }
     function renderLineRail(){

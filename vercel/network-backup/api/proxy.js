@@ -102,6 +102,7 @@ async function proxy(request) {
   const controller = new AbortController();
   const signal = AbortSignal.any([request.signal, controller.signal]);
   const timer = setTimeout(() => controller.abort(), path.endsWith('/channel-source-sync') ? 50000 : 20000);
+  let bodyOwnsTimer = false;
   try {
     const method = request.method === "HEAD" && !path.startsWith("/p/") ? "GET" : request.method;
     const init = { method, headers, signal, redirect: "manual" };
@@ -113,7 +114,10 @@ async function proxy(request) {
     const outputHeaders = new Headers(cors);
     // Cache only safe public GET metadata. Never cache signed playback
     // manifests/segments, Admin functions, auth, user data or stream URLs.
-    if (!backend && kind === "public" && method === "GET" && response.ok) {
+    const fresh = incoming.searchParams.get('fresh') === '1' ||
+      /(?:^|,)\s*no-cache\b/i.test(request.headers.get('Cache-Control') || '');
+    if (!backend && kind === "public" && method === "GET" && response.ok &&
+        !fresh && !request.headers.has('Authorization') && !request.headers.has('Cookie')) {
       if (path === "/tv-schedule") {
         outputHeaders.set("Cache-Control",
           response.headers.get("Cache-Control")?.startsWith("public,")
@@ -123,6 +127,15 @@ async function proxy(request) {
         outputHeaders.set("Cache-Control", "public, max-age=15");
       } else if(path.startsWith('/team-logos/')) {
         outputHeaders.set('Cache-Control','public, max-age=86400');
+      } else if (path === '/matches' || /^\/sources\/[a-z]+\/matches$/.test(path)) {
+        outputHeaders.set('Cache-Control', 'public, max-age=15');
+      }
+      // max-age alone caches only in the browser. Explicit CDN caching avoids
+      // invoking this Node function for repeated public catalog/guide reads.
+      if (outputHeaders.get('Cache-Control') !== 'no-store') {
+        const ttl = path === '/channels' ? 30 : path === '/tv-schedule' ? 60 :
+          path.startsWith('/team-logos/') ? 86400 : 15;
+        outputHeaders.set('Vercel-CDN-Cache-Control', `public, s-maxage=${ttl}`);
       }
     }
     for (const name of ["Content-Type", "Content-Range", "Accept-Ranges", "Content-Location", "Retry-After"]) {
@@ -141,7 +154,8 @@ async function proxy(request) {
       return new Response(null, { status: response.status, headers: outputHeaders });
     }
     const type = response.headers.get("Content-Type") || "";
-    if (response.body && (/json/i.test(type) || (!backend && /mpegurl|dash\+xml/i.test(type) && response.ok))) {
+    if (response.body && !backend && path.startsWith('/p/') &&
+        /mpegurl|dash\+xml/i.test(type) && response.ok) {
       const reader = response.body.getReader();
       const parts = []; let size = 0;
       try {
@@ -163,21 +177,41 @@ async function proxy(request) {
       if (path.startsWith("/p/") && /mpegurl|dash\+xml/i.test(type)) {
         text = text.replaceAll(publicOrigin + "/p/", incoming.origin + "/p/");
       }
-      if (path === "/channels" && response.ok && /json/i.test(type)) {
-        try {
-          const catalog = JSON.parse(text);
-          if (Array.isArray(catalog.channels)) {
-            for (const channel of catalog.channels) {
-              if (channel.id && channel.image_url) {
-                channel.image_url = "https://nca-network-backup-test.vercel.app/api/channel-logo?id=" +
-                  encodeURIComponent(channel.id) + "&v=" + encodeURIComponent(channel.image_url);
-              }
-            }
-            text = JSON.stringify(catalog);
-          }
-        } catch (_) { /* Return the upstream response unchanged. */ }
-      }
       return new Response(text, { status: response.status, headers: outputHeaders });
+    }
+    if (response.body && /json/i.test(type)) {
+      // Keep canonical Cloudflare playback URLs and static image URLs intact.
+      // Count bytes while streaming, without decoding/parsing a whole catalog,
+      // guide, Auth session or private REST response in Node.
+      const reader = response.body.getReader();
+      const first = await reader.read();
+      let size = first.value?.byteLength || 0;
+      if (size > 2 * 1024 * 1024) {await reader.cancel(); throw Error('Metadata response too large');}
+      bodyOwnsTimer = !first.done;
+      const bounded = new ReadableStream({
+        start(stream) {
+          if (first.done) {clearTimeout(timer); stream.close();}
+          else stream.enqueue(first.value);
+        },
+        async pull(stream) {
+          try {
+            const chunk = await reader.read();
+            if (chunk.done) {clearTimeout(timer); stream.close(); return;}
+            size += chunk.value.byteLength;
+            if (size > 2 * 1024 * 1024) throw Error('Metadata response too large');
+            stream.enqueue(chunk.value);
+          } catch (error) {
+            clearTimeout(timer); controller.abort();
+            await reader.cancel().catch(() => {});
+            stream.error(error);
+          }
+        },
+        cancel(reason) {
+          clearTimeout(timer); controller.abort();
+          return reader.cancel(reason).catch(() => {});
+        },
+      });
+      return new Response(bounded, {status: response.status, headers: outputHeaders});
     }
     // A media response can remain open after its headers arrive. A header
     // timeout must not terminate an otherwise healthy continuous FLV stream.
@@ -186,7 +220,7 @@ async function proxy(request) {
   } catch (error) {
     console.error("Network backup upstream failure", { category: error?.name || "Error", kind });
     return failure(signal.aborted ? "Upstream timed out or was cancelled." : "Upstream connection failed.", signal.aborted ? 504 : 502);
-  } finally { clearTimeout(timer); }
+  } finally { if (!bodyOwnsTimer) clearTimeout(timer); }
 }
 
 export const GET = proxy;

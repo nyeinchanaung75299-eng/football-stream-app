@@ -3,9 +3,41 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:football_admin/services/gateway_request.dart';
+import 'package:football_admin/network_endpoints.dart';
 import 'package:football_admin/services/function_gateway.dart';
 
 void main() {
+  test('quota rejection fails over reads without refreshing an otherwise valid session', () async {
+    var calls = 0;
+    final result = await GatewayRequest(
+      bases: [vercelBackupBase, cloudflarePublicBase],
+      send: (_, token, __) async {
+        expect(token, 'valid-session');
+        return ++calls == 1 ? http.Response('DEPLOYMENT_DISABLED', 402) : http.Response('{"ok":true}', 200);
+      },
+      refresh: () async => throw StateError('Quota is not an Auth error'),
+      direct: () async => throw StateError('No SDK fallback expected'),
+    ).run('system-monitor', 'valid-session', body: {'action':'summary'});
+    expect(calls, 2); expect(result.base, cloudflarePublicBase);
+  });
+  test('only a definite Vercel platform rejection permits moving a write to another route', () async {
+    for (final disabled in [true, false]) {
+      var calls = 0;
+      final request = GatewayRequest(
+        bases: [vercelBackupBase, cloudflarePublicBase],
+        send: (_, __, ___) async => ++calls == 1
+            ? http.Response(disabled ? 'Payment required\nDEPLOYMENT_DISABLED' : '{"error":"Payment required"}', 402)
+            : http.Response('{"ok":true}', 200),
+        refresh: () async => null,
+        direct: () async => throw StateError('No SDK fallback expected'),
+      ).run('channel-source-sync', 'valid-session', body: {'action':'import'});
+      if (disabled) {
+        expect((await request).base, cloudflarePublicBase); expect(calls, 2);
+      } else {
+        await expectLater(request, throwsA(isA<StateError>())); expect(calls, 1);
+      }
+    }
+  });
   test('highlights validate provider and action payload without requiring live match rows', () async {
     var calls = 0;
     final result = await GatewayRequest(

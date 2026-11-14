@@ -4,57 +4,70 @@ const _protectedPlaybackHosts = <String>{
   'football-api.nyeinchanaung.us.ci',
   'football-api.nyeinchanaung.ccwu.cc',
   'football-public-api.nyeinchanaung75299-eng.workers.dev',
+  'nca-network-backup-test.vercel.app',
 };
+const _relayTransports = {'vercel-fallback', 'cloudflare-fallback'};
 
-/// Keeps the direct Cloudflare stream first and places a Vercel relay copy
-/// immediately after it. Players only open the relay after the direct source
-/// fails, so a healthy stream never pays for the extra network hop.
+/// Try supported Cloudflare aliases before spending Vercel media CPU. The
+/// operator relay remains the last option when both aliases are unreachable.
+/// Only the hostname changes: tokens, request headers and DRM stay intact.
 List<Map<String, dynamic>> addVpnFreePlaybackFallbacks(
   List<Map<String, dynamic>> sources,
 ) {
   final output = <Map<String, dynamic>>[];
   final seen = <String>{};
-
-  for (final source in sources) {
+  final originals = sources
+      .where((s) => !_relayTransports.contains(s['transport']))
+      .toList();
+  for (final source in originals.isEmpty ? sources.take(1) : originals) {
     final direct = Map<String, dynamic>.from(source);
-    final key = _sourceUrl(direct);
-    if (key.isEmpty || seen.add(key)) output.add(direct);
-
-    final uri = Uri.tryParse(key);
-    if (uri == null ||
-        uri.scheme != 'https' ||
-        !_protectedPlaybackHosts.contains(uri.host) ||
-        !uri.path.startsWith('/p/')) {
+    final uri = Uri.tryParse(_sourceUrl(direct));
+    final protected =
+        uri != null &&
+        uri.scheme == 'https' &&
+        _protectedPlaybackHosts.contains(uri.host) &&
+        uri.path.startsWith('/p/');
+    if (!protected) {
+      if (seen.add(_sourceUrl(direct))) output.add(direct);
       continue;
     }
-
-    final fallbackUrl = uri
-        .replace(scheme: 'https', host: Uri.parse(vercelBackupBase).host)
-        .toString();
-    if (!seen.add(fallbackUrl)) continue;
-
-    final fallback = Map<String, dynamic>.from(direct);
-    if (fallback.containsKey('url')) fallback['url'] = fallbackUrl;
-    if (fallback.containsKey('stream_url')) {
-      fallback['stream_url'] = fallbackUrl;
+    final hosts = <String>{
+      if (uri.host != Uri.parse(vercelBackupBase).host &&
+          !uri.host.endsWith('.workers.dev'))
+        uri.host,
+      Uri.parse(cloudflarePublicBase).host,
+      'football-api.nyeinchanaung.ccwu.cc',
+      Uri.parse(vercelBackupBase).host,
+    };
+    var first = true;
+    for (final host in hosts) {
+      final url = uri.replace(host: host).toString();
+      if (!seen.add(url)) continue;
+      final row = Map<String, dynamic>.from(direct);
+      if (row.containsKey('url')) row['url'] = url;
+      if (row.containsKey('stream_url')) row['stream_url'] = url;
+      if (first) {
+        row.remove('transport');
+      } else {
+        final vercel = host == Uri.parse(vercelBackupBase).host;
+        row['transport'] = vercel ? 'vercel-fallback' : 'cloudflare-fallback';
+        row['id'] =
+            '${direct['id'] ?? 'stream'}-${vercel ? 'vpn-free' : 'cloudflare-alt'}';
+        row['label'] =
+            '${direct['label'] ?? 'Server'} • ${vercel ? 'VPN-free backup' : 'Network backup'}';
+      }
+      output.add(row);
+      first = false;
     }
-    fallback['id'] = '${fallback['id'] ?? 'stream'}-vpn-free';
-    final label = (fallback['label'] ?? 'Server').toString().trim();
-    fallback['label'] = '${label.isEmpty ? 'Server' : label} • VPN-free backup';
-    fallback['transport'] = 'vercel-fallback';
-    output.add(fallback);
   }
-
   return output;
 }
 
 String _sourceUrl(Map<String, dynamic> source) =>
     (source['url'] ?? source['stream_url'] ?? '').toString().trim();
 
-/// Only primary sources belong in visible line pickers. Network relay copies
-/// remain in the player session for automatic failover if direct playback fails.
 bool isVisiblePlaybackLine(Map<String, dynamic> source) =>
-    source['transport']?.toString() != 'vercel-fallback';
+    !_relayTransports.contains(source['transport']);
 
 List<int> visiblePlaybackIndices(List<Map<String, dynamic>> sources) => [
   for (var index = 0; index < sources.length; index++)

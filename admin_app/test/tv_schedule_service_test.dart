@@ -7,6 +7,28 @@ import 'package:http/testing.dart';
 import 'package:football_admin/services/tv_schedule_service.dart';
 
 void main() {
+  test(
+      'confirmed mutations and manual guide refresh bypass the public server cache',
+      () async {
+    final requests = <Uri>[];
+    final service = TvScheduleService(
+      apiBases: ['https://api.example'],
+      httpClient: MockClient((request) async {
+        requests.add(request.url);
+        return http.Response(jsonEncode({'channels': []}), 200);
+      }),
+    );
+    await service.load(refresh: true);
+    expect(requests.last.queryParameters['fresh'], '1');
+    TvScheduleService.invalidateShared();
+    await service.loadCatalog();
+    expect(requests.last.path, '/channels');
+    expect(requests.last.queryParameters['fresh'], '1');
+    await service.load();
+    expect(requests.last.path, '/tv-schedule');
+    expect(requests.last.queryParameters['fresh'], '1');
+  });
+
   test('catalog can finish while the full guide is still pending', () async {
     final response = Completer<http.Response>();
     final service = TvScheduleService(

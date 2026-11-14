@@ -47,8 +47,15 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    if (url.hostname.startsWith("supabase-api.")) {
+    if (url.hostname.startsWith("supabase-api.") ||
+        /^\/(auth|rest|functions|storage|realtime)\/v1(?:\/|$)/.test(url.pathname)) {
       return handleSupabaseRelay(request, env);
+    }
+
+    if (url.pathname === '/backend-health') {
+      const health = new URL(request.url);
+      health.pathname = '/auth/v1/health';
+      return handleSupabaseRelay(new Request(health, request), env);
     }
 
     if (request.method === "OPTIONS") {
@@ -71,7 +78,7 @@ export default {
     }
 
     const adminFunctionRoute = url.pathname.match(
-      /^\/admin\/functions\/(football-fixtures|stream-health|soco-links|source-match-list|channel-source-sync|system-monitor)$/,
+      /^\/admin\/functions\/(football-fixtures|stream-health|soco-links|source-match-list|channel-source-sync|system-monitor|telegram-connect)$/,
     );
     if (adminFunctionRoute && request.method === "POST") {
       return handleAdminFunction(request, adminFunctionRoute[1], env);
@@ -107,6 +114,10 @@ export default {
 
     const teamLogo=url.pathname.match(/^\/team-logos\/(\d{1,12})$/);
     if(teamLogo&&(request.method==='GET'||request.method==='HEAD'))return handleTeamLogo(request,teamLogo[1]);
+    const channelLogo = url.pathname.match(/^\/channel-logos\/([0-9a-fA-F-]{36})$/);
+    if (channelLogo && ['GET', 'HEAD'].includes(request.method)) {
+      return handleChannelLogo(request, channelLogo[1], env);
+    }
     if (request.method !== "GET") {
       return json({ error: "Method not allowed." }, 405);
     }
@@ -129,7 +140,7 @@ export default {
       return handleMatches(env);
     }
 
-    if (url.pathname === "/channels") return handleChannels(env);
+    if (url.pathname === "/channels") return handleChannels(env, request);
     const channelRoute = url.pathname.match(/^\/channels\/([0-9a-fA-F-]{36})\/streams$/);
     if (channelRoute) return handleChannelStreams(request, channelRoute[1], env, url.origin);
 
@@ -164,6 +175,73 @@ export default {
     return json({ error: "Not found." }, 404);
   },
 };
+
+function bypassPublicCache(request) {
+  return request && (request.headers.has('Authorization') || request.headers.has('Cookie') ||
+    new URL(request.url).searchParams.get('fresh') === '1' ||
+    /(?:^|,)\s*no-cache\b/i.test(request.headers.get('Cache-Control') || ''));
+}
+
+async function handleChannelLogo(request, id, env) {
+  const cache = globalThis.caches?.default;
+  const imageKey = new URL(request.url);
+  const version = imageKey.searchParams.get('v');
+  imageKey.search = version && /^[a-f0-9]{24,64}$/.test(version) ? '?v=' + version : '';
+  const key = new Request(imageKey, {method: 'GET'});
+  try {
+    const hit = cache && await cache.match(key);
+    if (hit) return new Response(request.method === 'HEAD' ? null : hit.body, hit);
+    if (!(await allowRequest(request, env, 'channel-logo-miss', 300))) {
+      return json({error: 'Too many logo requests'}, 429, {'Cache-Control':'no-store'});
+    }
+    // Select one saved public image, never a whole catalog per thumbnail.
+    const url = new URL(env.SUPABASE_URL.replace(/\/+$/, '') + '/rest/v1/channels');
+    url.search = new URLSearchParams({select: 'image_url', id: 'eq.' + id,
+      is_active: 'eq.true', limit: '1'}).toString();
+    const {data} = await fetchJsonWithTimeout(url, {
+      headers: {apikey: env.SUPABASE_PUBLISHABLE_KEY, Accept: 'application/json'},
+    }, METADATA_TIMEOUT_MS);
+    let source = new URL(data?.[0]?.image_url || '');
+    if (source.hostname === 'nca-network-backup-test.vercel.app' &&
+        source.pathname === '/api/channel-logo') {
+      source = new URL(source.searchParams.get('url') || source.searchParams.get('v') || '');
+    }
+    if (source.protocol !== 'https:' || source.port || source.username || source.password ||
+        !source.hostname.includes('.') || /^\d+(?:\.\d+){3}$/.test(source.hostname) ||
+        source.hostname.includes(':') || /(?:^|\.)(?:localhost|local|internal|test|invalid)$/.test(source.hostname) ||
+        source.hostname === 'nca-network-backup-test.vercel.app') {
+      return json({error: 'Channel logo unavailable'}, 404, {'Cache-Control': 'no-store'});
+    }
+    const response = await fetch(source, {redirect: 'error',
+      headers: {Accept: 'image/png,image/jpeg,image/webp'},
+      signal: AbortSignal.timeout(7500), cf: {cacheTtl: 86400, cacheEverything: true}});
+    if (!response.ok || Number(response.headers.get('Content-Length') || 0) > 1048576) {
+      await response.body?.cancel(); throw Error('Image unavailable');
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw Error('Empty image');
+    const chunks = []; let size = 0;
+    try {
+      while (true) {
+        const {done, value} = await reader.read(); if (done) break;
+        size += value.byteLength; if (size > 1048576) throw Error('Image too large');
+        chunks.push(value);
+      }
+    } finally { await reader.cancel().catch(() => {}); }
+    const bytes = new Uint8Array(size); let offset = 0;
+    for (const chunk of chunks) {bytes.set(chunk, offset); offset += chunk.length;}
+    const type = [137,80,78,71,13,10,26,10].every((byte, index) => bytes[index] === byte) ? 'image/png' :
+      bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 ? 'image/jpeg' :
+      new TextDecoder().decode(bytes.slice(0, 4)) === 'RIFF' &&
+      new TextDecoder().decode(bytes.slice(8, 12)) === 'WEBP' ? 'image/webp' : null;
+    if (!type) throw Error('Invalid image');
+    const image = new Response(bytes, {headers: {...corsHeaders(),
+      'Content-Type': type, 'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'public, max-age=3600'}});
+    if (cache) await cache.put(key, image.clone()).catch(() => {});
+    return request.method === 'HEAD' ? new Response(null, image) : image;
+  } catch (_) { return json({error: 'Channel logo unavailable'}, 502, {'Cache-Control': 'no-store'}); }
+}
 
 async function handleTeamLogo(request,id){
  try{
@@ -631,10 +709,21 @@ async function handleStreams(request, matchId, env, publicOrigin) {
   }
 }
 
-async function loadChannelRows(env) {
+async function loadChannelRows(env, {fresh = false} = {}) {
   const base = env.SUPABASE_URL?.trim() || "";
   const key = env.SUPABASE_PUBLISHABLE_KEY?.trim() || "";
   if (!base || !key) throw new Error("Channel catalog is not configured.");
+    const cache = globalThis.caches?.default;
+    const cacheRequest = new Request('https://football-api.nyeinchanaung.us.ci/_channel-catalog/' + new URL(base).hostname);
+    if (cache && !fresh) {
+      try {
+        const hit = await cache.match(cacheRequest);
+        if (hit) {
+          const rows = await hit.json();
+          if (Array.isArray(rows)) return rows;
+        }
+      } catch (_) {}
+    }
     const url = new URL(base.replace(/\/+$/, "") + "/rest/v1/channels");
     url.searchParams.set("select", "id,name,category,image_url,sort_order,epg_id,epg_source");
     url.searchParams.set("is_active", "eq.true");
@@ -651,13 +740,18 @@ async function loadChannelRows(env) {
       data.push(...page);
       if (page.length < 500) break;
     }
+    if (cache) {
+      await cache.put(cacheRequest, Response.json(data, {
+        headers: {'Cache-Control': 'public, max-age=15'},
+      })).catch(() => {});
+    }
     return data;
 }
 
-async function handleChannels(env) {
+async function handleChannels(env, request) {
   try {
-    return json({ok: true, channels: await loadChannelRows(env)}, 200,
-      {"Cache-Control": "public, max-age=15"});
+    return json({ok: true, channels: await loadChannelRows(env, {fresh: bypassPublicCache(request)})}, 200,
+      {"Cache-Control": bypassPublicCache(request) ? 'no-store' : "public, max-age=15"});
   } catch (_) {
     return json({error: "Channel catalog is unavailable."}, 502);
   }
@@ -682,26 +776,29 @@ async function handleTvSchedule(request, env, incoming, ctx) {
 
   try {
     const cache = globalThis.caches?.default;
+    const responseUrl = new URL('https://football-api.nyeinchanaung.us.ci/_published-guide-response');
+    responseUrl.search = new URLSearchParams({date, days:String(days)}).toString();
+    const responseKey = new Request(responseUrl);
+    if (cache && !bypassPublicCache(request)) {
+      try {
+        const hit = await cache.match(responseKey);
+        if (hit?.headers.get('X-NCA-Cached-Guide') === '1' && hit.status === 200) {
+          return new Response(hit.body, hit);
+        }
+      } catch (_) {}
+    }
     const cacheUrl = new URL('/_nca-public-epg-cache', request.url);
     cacheUrl.searchParams.set('date', date); cacheUrl.searchParams.set('days', String(days));
     const cacheRequest = new Request(cacheUrl);
     let cached = null;
     try { const hit = cache && await cache.match(cacheRequest); if (hit) cached = await hit.json(); } catch (_) {}
-    const upstream = new URL("/api/schedule", TV_GUIDE_ORIGIN);
-    upstream.searchParams.set("date", date);
-    upstream.searchParams.set("days", String(days));
-    // Read the primary guide BEFORE launching optional region fan-out.
-    // Cloudflare may limit concurrent connections to a single upstream host:
-    // starting 18 optional lookups first previously starved this required
-    // request and produced a 502 even though the primary guide was healthy.
-    const [{data}, catalog, publishedEpg] = await Promise.all([
-      cached ? Promise.resolve({data: cached}) :
-        fetchJsonWithTimeout(upstream, {headers: {Accept: "application/json"}}, METADATA_TIMEOUT_MS),
-      loadChannelRows(env).catch(() => null),
+    // Reuse published programme metadata without invoking the paused Vercel
+    // guide deployment. Saved identities are still checked against today's
+    // catalog, including after a channel was deleted or rebound.
+    const [catalog, publishedEpg] = await Promise.all([
+      loadChannelRows(env, {fresh: bypassPublicCache(request)}).catch(() => null),
       loadPublishedChannelEpg(),
     ]);
-    // The upstream guide may have an older catalog snapshot. Keep every
-    // current saved channel, including newly imported lines with no EPG yet.
     const withCatalog = guide => {
       if (catalog === null) return guide;
       const byId = new Map(guide.channels.map(row => [row.id, row]));
@@ -712,6 +809,40 @@ async function handleTvSchedule(request, env, incoming, ctx) {
         return {...(sameBinding && savedGuide || {matchedEPG:false,programmes:[]}), ...channel};
       })};
     };
+    if (publishedEpg && catalog !== null) {
+      const byId = new Map(catalog.map(row => [row.id, row]));
+      const verified = {...publishedEpg, channels: publishedEpg.channels.filter(row => {
+        const saved = byId.get(row.id);
+        const age = Date.now() - Date.parse(row.verified_at || publishedEpg.updated_at);
+        return Number.isFinite(age) && age >= -600000 && age <= 18*3600000 &&
+          (saved?.epg_source?.startsWith('GH:') || ['US2','UK1','CZ1','SK1','MY1','BR1','AU1','MX1'].includes(saved?.epg_source)) &&
+          saved.epg_source === row.epg_source && saved.epg_id === row.epg_id;
+      })};
+      const baseline = withCatalog(sanitizeTvSchedule(cached || {}, date, days));
+      const guide = withCatalog(sanitizeTvSchedule(mergeTvScheduleSources(baseline,
+        [{source:'github-epg', ok:true, data:verified}]), date, days));
+      const response = json(guide, 200, {'Cache-Control': bypassPublicCache(request) ? 'no-store' : 'public, max-age=30'});
+      if (cache && !bypassPublicCache(request)) {
+        const cachedResponse = response.clone();
+        cachedResponse.headers.set('X-NCA-Cached-Guide', '1');
+        const store = cache.put(responseKey, cachedResponse).catch(() => {});
+        if (ctx?.waitUntil) ctx.waitUntil(store); else await store;
+      }
+      return response;
+    }
+    if (cached && catalog !== null && !bypassPublicCache(request)) {
+      return json(withCatalog(sanitizeTvSchedule(cached, date, days)), 200,
+        {'Cache-Control': 'public, max-age=60'});
+    }
+    const upstream = new URL("/api/schedule", TV_GUIDE_ORIGIN);
+    upstream.searchParams.set("date", date);
+    upstream.searchParams.set("days", String(days));
+    // Read the primary guide BEFORE launching optional region fan-out.
+    // Cloudflare may limit concurrent connections to a single upstream host:
+    // starting 18 optional lookups first previously starved this required
+    // request and produced a 502 even though the primary guide was healthy.
+    const {data} = await fetchJsonWithTimeout(upstream,
+      {headers: {Accept: "application/json"}}, METADATA_TIMEOUT_MS);
     // Seed the guide with the current catalog before applying supplements.
     // A recently added station may not exist in the upstream catalog yet.
     const baseline = withCatalog(sanitizeTvSchedule(data, date, days));
@@ -729,20 +860,9 @@ async function handleTvSchedule(request, env, incoming, ctx) {
         enrichment.canadian,
       ]), new Promise(resolve => setTimeout(resolve, 2600))]),
     ]);
-    const catalogById = new Map((catalog || []).map(row => [row.id, row]));
-    const verifiedPublished = publishedEpg && catalog !== null ? {
-      ...publishedEpg, channels: publishedEpg.channels.filter(row => {
-        const saved = catalogById.get(row.id);
-        const age = Date.now() - Date.parse(row.verified_at || publishedEpg.updated_at);
-        return Number.isFinite(age) && age >= -600000 && age <= 18*3600000 &&
-          (saved?.epg_source?.startsWith('GH:') || ['US2','UK1','CZ1','SK1','MY1','BR1','AU1','MX1'].includes(saved?.epg_source)) &&
-          saved.epg_source === row.epg_source && saved.epg_id === row.epg_id;
-      }),
-    } : null;
     const supplements = [
       ...(cached ? [{source:'cached-regional',ok:true,data:withCatalog(cached)}] : []),
       ...enrichment.snapshot(),
-      ...(verifiedPublished ? [{source:'github-epg',ok:true,data:verifiedPublished}] : []),
     ];
     const schedule = withCatalog(sanitizeTvSchedule(mergeTvScheduleSources(baseline, supplements), date, days));
     const complete = Promise.all([
@@ -762,7 +882,7 @@ async function handleTvSchedule(request, env, incoming, ctx) {
     return json(schedule, 200, {
       // A baseline-only response gets a short TTL so regional enrichment can
       // appear on the next request; full guides stay cacheable for 2 minutes.
-      "Cache-Control": schedule.channels.some(channel => channel.name === 'NBC' && channel.matchedEPG) || cached
+      "Cache-Control": bypassPublicCache(request) ? 'no-store' : schedule.channels.some(channel => channel.name === 'NBC' && channel.matchedEPG) || cached
         ? "public, max-age=120" : "public, max-age=10",
     });
   } catch (_) {
@@ -776,10 +896,10 @@ async function loadPublishedChannelEpg() {
   try {
     const {data} = await fetchJsonWithTimeout(
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/channel-epg.json',
-      {headers:{Accept:'application/json'}}, 3000,
+      {headers:{Accept:'application/json'}, cf:{cacheTtl:300, cacheEverything:true}}, 3000,
     );
     const age = Date.now() - Date.parse(data?.updated_at || '');
-    if (data?.ok !== true || !Array.isArray(data.channels) || !Number.isFinite(age) || age < -600000 || age > 18*3600000) return null;
+    if (data?.ok !== true || !Array.isArray(data.channels) || !data.channels.length || !Number.isFinite(age) || age < -600000 || age > 18*3600000) return null;
     return data;
   } catch (_) { return null; }
 }

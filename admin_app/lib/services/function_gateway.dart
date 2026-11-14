@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../analytics_service.dart';
+import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 import 'gateway_request.dart';
 
@@ -25,10 +26,9 @@ class FunctionGateway {
     'PUBLIC_API_BASE',
     defaultValue: 'https://football-api.nyeinchanaung.us.ci',
   );
-  // Metadata/Admin calls use the operator-reachable Vercel route first and
-  // retain the direct Cloudflare routes for VPN users and failover.
+  // Prefer Cloudflare for Admin traffic; the operator backup remains available.
   static List<String> get _gatewayBases =>
-      publicApiBases(primary: _publicApiBase, preferVercel: true);
+      publicApiBases(primary: _publicApiBase, preferVercel: usesVercelBackend);
 
   static List<String> _basesFor(String functionName, Object? body) {
     final known = _gatewayBases;

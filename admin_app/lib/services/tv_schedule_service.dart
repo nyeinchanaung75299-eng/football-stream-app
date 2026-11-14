@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 
 /// Public programme metadata for a channel in the Admin catalog.
@@ -387,11 +388,15 @@ class TvScheduleService {
   static int _sharedGeneration = 0;
   static const guideDays = 3;
   static const _sharedTtl = Duration(minutes: 2);
+  static DateTime? _mutationFreshUntil;
+  static bool get _needsFreshMetadata =>
+      _mutationFreshUntil?.isAfter(DateTime.now()) == true;
 
   /// Called on Admin editing route exit so a saved/deleted match or channel
   /// can never reappear from the old shared guide when entering a tab again.
   /// Do not clear public guide metadata on an ordinary tab switch.
   static void invalidateShared() {
+    _mutationFreshUntil = DateTime.now().add(const Duration(seconds: 30));
     _sharedGeneration++;
     _catalogGeneration++;
     _sharedGuide = null;
@@ -404,7 +409,7 @@ class TvScheduleService {
   Future<TvScheduleGuide> load({DateTime? now, bool refresh = false}) {
     final date = _yangonDate(now ?? DateTime.now());
     if (_httpClient != null || _apiBases != null || now != null) {
-      return _fetch(date);
+      return _fetch(date, fresh: refresh || _needsFreshMetadata);
     }
     final loaded = _sharedLoadedAt;
     if (!refresh &&
@@ -418,7 +423,7 @@ class TvScheduleService {
     _sharedLoadedAt = null;
     Future<TvScheduleGuide> getAndRemember() async {
       try {
-        final guide = await _fetch(date);
+        final guide = await _fetch(date, fresh: refresh || _needsFreshMetadata);
         if (generation == _sharedGeneration) {
           _sharedLoadedAt = DateTime.now();
           _lastGuide = guide;
@@ -443,10 +448,12 @@ class TvScheduleService {
     Future<TvScheduleGuide> fetchCatalog() async {
       final client = _httpClient ?? http.Client();
       try {
-        for (final base in (_apiBases ?? publicApiBases()).toSet()) {
+        for (final base in (_apiBases ?? publicApiBases(preferVercel: usesVercelBackend)).toSet()) {
           try {
             final response = await client
-                .get(Uri.parse('$base/channels'))
+                .get(Uri.parse('$base/channels').replace(
+                  queryParameters: _needsFreshMetadata ? {'fresh': '1'} : null,
+                ))
                 .timeout(const Duration(seconds: 8));
             if (response.statusCode != 200) continue;
             final json = jsonDecode(response.body);
@@ -468,19 +475,20 @@ class TvScheduleService {
     });
   }
 
-  Future<TvScheduleGuide> _fetch(String date) async {
+  Future<TvScheduleGuide> _fetch(String date, {bool fresh = false}) async {
     final client = _httpClient ?? http.Client();
     final ownsClient = _httpClient == null;
     try {
       // Use the configured custom domain first. The workers.dev hostname can
       // serve an older deployment while the production route is updated.
-      final bases = _apiBases ?? publicApiBases();
+      final bases = _apiBases ?? publicApiBases(preferVercel: usesVercelBackend);
       for (final rawBase in bases.toSet()) {
         final base = rawBase.trim().replaceAll(RegExp(r'/+$'), '');
         if (base.isEmpty) continue;
         try {
           final uri = Uri.parse('$base/tv-schedule').replace(
-            queryParameters: {'date': date, 'days': '$guideDays'},
+            queryParameters: {'date': date, 'days': '$guideDays',
+              if (fresh) 'fresh': '1'},
           );
           final response = await client.get(uri, headers: const {
             'Accept': 'application/json'

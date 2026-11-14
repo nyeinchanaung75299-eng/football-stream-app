@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../repository_logo.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -783,7 +784,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
                                   child: Stack(fit: StackFit.expand, children: [
                                     Center(child: image.startsWith('https://')
                                         ? Image.network(
-                                            image,
+                                            channelLogoUrl(image, channelId: channel['id']?.toString()),
                                             fit: BoxFit.contain,
                                             errorBuilder: (_, __, ___) =>
                                                 const Icon(Icons.tv),

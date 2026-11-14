@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../analytics_service.dart';
+import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
 import '../playback_routes.dart';
 import '../native_player.dart';
@@ -82,23 +83,21 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     Future<List<Map<String, dynamic>>> Function(String) load,
   ) {
     var winnerRecorded = false;
-    return bases
-        .map<Future<List<Map<String, dynamic>>> Function()>((base) => () async {
-              final rows = await load(base);
-              if (!winnerRecorded) {
-                winnerRecorded = true;
-                rememberVerifiedPublicApiBase(base);
-              }
-              return rows;
-            })
-        .toList();
+    return publicApiRequests<List<Map<String, dynamic>>>(
+      bases, load, onHealthy: (base) {
+        if (!winnerRecorded) {
+          winnerRecorded = true;
+          rememberVerifiedPublicApiBase(base);
+        }
+      },
+    );
   }
 
   List<String> get bases {
     final routes = publicApiBases(
       primary: _primary,
-      // Keep the same VPN-free-first ordering as the Live feed.
-      preferVercel: true,
+      // Keep the same Cloudflare-first ordering as the Live feed.
+      preferVercel: usesVercelBackend,
     );
     return routes;
   }

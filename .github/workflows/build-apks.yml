@@ -237,7 +237,7 @@ jobs:
           BUILD_NUMBER=$((40000 + GITHUB_RUN_NUMBER))
           test "$BUILD_NUMBER" -gt 32748
           flutter build apk --release --split-per-abi \
-            --build-name 2.5.11 --build-number "$BUILD_NUMBER"
+            --build-name 2.5.12 --build-number "$BUILD_NUMBER"
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk /tmp/NCA-admin-arm64-v8a-latest.apk
           echo "NCA_ADMIN_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "NCA_ADMIN_APK_SHA256=$(sha256sum /tmp/NCA-admin-arm64-v8a-latest.apk | awk '{print $1}')" >> "$GITHUB_ENV"
@@ -446,7 +446,7 @@ jobs:
           BUILD_NUMBER=$((40000 + GITHUB_RUN_NUMBER))
           test "$BUILD_NUMBER" -gt 32748
           flutter build apk --release --split-per-abi \
-            --build-name 9.8.6 \
+            --build-name 9.8.7 \
             --build-number "$BUILD_NUMBER"
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk /tmp/NCA-arm64-v8a-latest.apk
           APK_SHA256="$(sha256sum /tmp/NCA-arm64-v8a-latest.apk | awk '{print $1}')"
@@ -502,7 +502,7 @@ jobs:
             --output-dir public/releases \
             --viewer-apk /tmp/NCA-arm64-v8a-latest.apk \
             --admin-apk /tmp/NCA-admin-arm64-v8a-latest.apk \
-            --viewer-version 9.8.6 --admin-version 2.5.11 \
+            --viewer-version 9.8.7 --admin-version 2.5.12 \
             --apksigner "${ANDROID_BUILD_TOOLS}/apksigner" \
             --aapt "${ANDROID_BUILD_TOOLS}/aapt"
 
