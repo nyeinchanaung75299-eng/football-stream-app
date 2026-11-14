@@ -68,6 +68,7 @@ test('a thumbnail looks up one active channel once, caches image bytes and never
   assert.equal(url.href,'https://images.example/known.png');images++;
   assert.equal(new Headers(init?.headers).get('apikey'),null);
   assert.equal(new Headers(init?.headers).get('User-Agent'),'Mozilla/5.0');
+  assert.equal(init.redirect,'manual');
   return new Response(Uint8Array.from([137,80,78,71,13,10,26,10]),{headers:{'Content-Type':'image/png'}});
  },async()=>{
   const get=()=>worker.fetch(new Request('https://worker.example/channel-logos/'+id,
@@ -137,4 +138,17 @@ test('guide cache hits restore the short browser TTL instead of inheriting the z
   assert.equal(r.headers.get('Age'),null);assert.equal(r.headers.get('CF-Cache-Status'),null);
   assert.deepEqual(await r.json(),{channels:[]});
  },cached);
+});
+
+test('Worker team images use supported manual redirects and never follow a redirected upstream',async()=>{
+ let redirect=false;
+ await using(async(target,init)=>{
+  assert.equal(init.redirect,'manual');
+  if(redirect)return new Response(null,{status:302,headers:{Location:'https://127.0.0.1/private'}});
+  return new Response(new Uint8Array([137,80,78,71,13,10,26,10]),{headers:{'Content-Type':'image/png'}});
+ },async()=>{
+  const get=()=>worker.fetch(new Request('https://worker.example/team-logos/123'),env,{});
+  const image=await get();assert.equal(image.status,200);assert.equal((await image.arrayBuffer()).byteLength,8);
+  redirect=true;const blocked=await get();assert.equal(blocked.status,502);assert.equal(blocked.headers.get('Location'),null);
+ });
 });

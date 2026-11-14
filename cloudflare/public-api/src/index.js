@@ -213,8 +213,10 @@ async function handleChannelLogo(request, id, env) {
         source.hostname === 'nca-network-backup-test.vercel.app') {
       return json({error: 'Channel logo unavailable'}, 404, {'Cache-Control': 'no-store'});
     }
+    // Workers supports manual/follow only. Reject redirects via status,
+    // rather than the unsupported Fetch-standard redirect:error mode.
     failure = 'upstream_unavailable';
-    const response = await fetch(source, {redirect: 'error',
+    const response = await fetch(source, {redirect: 'manual',
       headers: {Accept: 'image/png,image/jpeg,image/webp', 'User-Agent': 'Mozilla/5.0'},
       signal: AbortSignal.timeout(7500), cf: {cacheTtl: 86400, cacheEverything: true}});
     if (!response.ok || Number(response.headers.get('Content-Length') || 0) > 1048576) {
@@ -250,7 +252,7 @@ async function handleChannelLogo(request, id, env) {
 async function handleTeamLogo(request,id){
  try{
   const response=await fetch('https://img.sofascore.com/api/v1/team/'+id+'/image',{
-   headers:{Accept:'image/png,image/webp,image/jpeg', 'User-Agent':'Mozilla/5.0'},redirect:'error',
+   headers:{Accept:'image/png,image/webp,image/jpeg', 'User-Agent':'Mozilla/5.0'},redirect:'manual',
    signal:AbortSignal.timeout(6000),cf:{cacheTtl:86400,cacheEverything:true}});
   const type=response.headers.get('Content-Type')||'';
   if(!response.ok||!/^image\/(png|jpe?g|webp|gif)(?:;|$)/i.test(type)){await response.body?.cancel();throw Error('Unavailable image');}
