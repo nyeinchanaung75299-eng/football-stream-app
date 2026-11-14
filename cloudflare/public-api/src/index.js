@@ -188,6 +188,7 @@ async function handleChannelLogo(request, id, env) {
   const version = imageKey.searchParams.get('v');
   imageKey.search = version && /^[a-f0-9]{24,64}$/.test(version) ? '?v=' + version : '';
   const key = new Request(imageKey, {method: 'GET'});
+  let failure = 'lookup_failed';
   try {
     const hit = cache && await cache.match(key);
     if (hit) return new Response(request.method === 'HEAD' ? null : hit.body, hit);
@@ -212,12 +213,14 @@ async function handleChannelLogo(request, id, env) {
         source.hostname === 'nca-network-backup-test.vercel.app') {
       return json({error: 'Channel logo unavailable'}, 404, {'Cache-Control': 'no-store'});
     }
+    failure = 'upstream_unavailable';
     const response = await fetch(source, {redirect: 'error',
       headers: {Accept: 'image/png,image/jpeg,image/webp', 'User-Agent': 'Mozilla/5.0'},
       signal: AbortSignal.timeout(7500), cf: {cacheTtl: 86400, cacheEverything: true}});
     if (!response.ok || Number(response.headers.get('Content-Length') || 0) > 1048576) {
       await response.body?.cancel(); throw Error('Image unavailable');
     }
+    failure = 'invalid_image';
     const reader = response.body?.getReader();
     if (!reader) throw Error('Empty image');
     const chunks = []; let size = 0;
@@ -240,7 +243,7 @@ async function handleChannelLogo(request, id, env) {
       'Cache-Control': 'public, max-age=3600'}});
     if (cache) await cache.put(key, image.clone()).catch(() => {});
     return request.method === 'HEAD' ? new Response(null, image) : image;
-  } catch (_) { return json({error: 'Channel logo unavailable'}, 502, {'Cache-Control': 'no-store'}); }
+  } catch (_) { return json({error: 'Channel logo unavailable', code: failure}, 502, {'Cache-Control': 'no-store'}); }
 }
 
 async function handleTeamLogo(request,id){
