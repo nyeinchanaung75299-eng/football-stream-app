@@ -13,3 +13,9 @@ Named replacement images:
 - `thairath-tv.png`: https://commons.wikimedia.org/wiki/File:Thairath_TV32.svg (Netipikat, CC BY-SA 4.0).
 
 These replace a shared LyngSat placeholder that was returned instead of the intended channel logos. The downloaded source images were checked visually as well as for valid image bytes.
+
+`verified-logo-sources.json` records the station identity and original public
+URL for the November 2026 logo corrections. These raster assets were checked
+for valid image bytes and visually reviewed. Generic network wordmarks are
+used when a numbered or regional service cannot be confirmed. A club badge
+is never used as the logo for its broadcaster.

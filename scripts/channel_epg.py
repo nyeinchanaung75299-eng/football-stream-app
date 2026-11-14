@@ -52,6 +52,12 @@ COUNTRY_CODES = {'UK':'GB','USA':'US','AUS':'AU','IND':'IN',
 def text(value, limit=300):
     return re.sub(r'\s+', ' ', re.sub(r'<[^>]*>', ' ', str(value or ''))).strip()[:limit]
 
+def country_code(value):
+    # The public station directory uses UK; feeds and explicit hints also use
+    # GB. Normalize geography without changing any published station IDs.
+    value = str(value or '').upper()
+    return COUNTRY_CODES.get(value, value)
+
 def timestamp(value):
     match = re.fullmatch(r'(\d{14})\s*([+-]\d{4}|Z)', value or '')
     if not match:
@@ -129,6 +135,7 @@ def official_directory(data):
     ids={}; aliases=defaultdict(set)
     for row in csv.DictReader(io.StringIO(data.decode('utf-8-sig'))):
         if row.get('closed') or row.get('replaced_by'): continue
+        row['country']=country_code(row['country'])
         ids[row['id']]=row
         # Historical aliases can represent a rebrand with different content
         # (e.g. Ten Cricket versus today's Hindi Sony Ten 3). Only equivalent
@@ -186,11 +193,11 @@ def candidate_index(feeds, official, aliases):
     for row in feeds:
         keys={station_name(name) for name in row['names']}
         match=re.search(r'[._-]([a-z]{2})(?:[0-9]+)?$',row['id'],re.I)
-        suffix=match[1].upper() if match and match[1].lower() not in ('org','com','tv') else ''
+        suffix=country_code(match[1]) if match and match[1].lower() not in ('org','com','tv') else ''
         explicit={country_hint({'name':name}) for name in row['names']}-{''}
         if len(explicit)>1:continue
         if suffix and explicit and suffix not in explicit:continue
-        country=suffix or next(iter(explicit),'') or row['country']
+        country=suffix or next(iter(explicit),'') or country_code(row['country'])
         if row['feed'].startswith('talk_'):
             # The US file also carries Canadian stations; Latino combines
             # several countries. File location alone is not station proof.
@@ -198,7 +205,6 @@ def candidate_index(feeds, official, aliases):
             allowed={'US','CA'} if row['feed'] in ('talk_us','talk_sports','talk_freetv') else {'GB','IE'} if row['feed']=='talk_uk' else {'MX','AR','BR','CO','CL','PE','UY','VE','EC','CR','DO','PA','HN','GT','SV','NI','PR'}
             if len(countries)!=1 or not countries.issubset(allowed):continue
             country=next(iter(countries))
-        if country=='UK': country='GB'
         if not country: continue
         direct=official.get(row['id'])
         groups={direct['id']} if direct else set()

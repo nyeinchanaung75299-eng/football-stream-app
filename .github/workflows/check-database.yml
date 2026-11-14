@@ -7,6 +7,8 @@ on:
       - 'supabase/schema.sql'
       - 'supabase/migrations/**'
       - 'scripts/test_database_security.*'
+      - 'scripts/test_channel_logo_sync.sql'
+      - 'scripts/test_channel_permanent_delete.sql'
       - 'scripts/test_repository_match_publish.sql'
       - '.github/workflows/check-database.yml'
   pull_request:
@@ -14,6 +16,8 @@ on:
       - 'supabase/schema.sql'
       - 'supabase/migrations/**'
       - 'scripts/test_database_security.*'
+      - 'scripts/test_channel_logo_sync.sql'
+      - 'scripts/test_channel_permanent_delete.sql'
       - 'scripts/test_repository_match_publish.sql'
       - '.github/workflows/check-database.yml'
 
