@@ -34,5 +34,6 @@ done
 run_sql < "$repo_root/scripts/test_database_security.sql"
 run_sql < "$repo_root/scripts/test_channel_station_names.sql"
 run_sql < "$repo_root/scripts/test_channel_logo_sync.sql"
+run_sql < "$repo_root/scripts/test_channel_permanent_delete.sql"
 
 run_sql < "$repo_root/scripts/test_repository_match_publish.sql"

@@ -166,7 +166,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
       context: context,
       builder: (dialog) => AlertDialog(
         title: const Text('Delete TV channel?'),
-        content: Text('Delete "$name" and its stream lines? This cannot be undone.'),
+        content: Text('Permanently delete "$name", its stream lines and linked match lines? This cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialog).pop(false),
