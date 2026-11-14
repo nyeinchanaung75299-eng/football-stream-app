@@ -76,7 +76,7 @@ test('Roxie literal configuration is read without evaluating player JS',async()=
  "<script>function getRandomStream(streamPath, subdomain = 'admin2'){return `https://${subdomain}.media.example.org/${streamPath}`;}</script>";
  const r=await configuredRoxiePublicMedia('roxie',html,'https://roxiestreams.su/soccer-streams-1');
  assert.equal(r.length,1);assert.equal(r[0].url,'https://admin2.media.example.org/live.m3u8');
- assert.equal((await configuredPublicMedia('camel',html,'https://www.camel1.tv/')).length,0);
+ assert.equal((await configuredRoxiePublicMedia('camel',html,'https://www.camel1.tv/')).length,0);
 });
 test('Roxie table clock follows published Pacific timezone including daylight saving',async()=>{
  for(const [date,utc] of [['November 13, 2026 9:00 AM','2026-11-13T17:00:00.000Z'],['July 13, 2026 9:00 AM','2026-07-13T16:00:00.000Z']]) {
