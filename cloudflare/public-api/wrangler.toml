@@ -16,3 +16,11 @@ custom_domain = true
 # ENABLE_FREE_BROWSER_DETECT until confirming Workers Free plan.
 [browser]
 binding = "BROWSER"
+
+# One shared football metadata refresh, independent of Viewer visits.
+[triggers]
+crons = ["*/10 * * * *"]
+
+[[kv_namespaces]]
+binding = "SOURCE_SNAPSHOTS"
+id = "5669c6c60ea143a1bd32233df519fd1a"

@@ -8,8 +8,6 @@ on:
       - ".github/workflows/sync-public-feed.yml"
       - "scripts/sync_public_feed.py"
       - "scripts/publish_repository_trees.mjs"
-      - "scripts/publish_soco_snapshot.mjs"
-      - "supabase/functions/_shared/soco_catalog.mjs"
       - "supabase/functions/_shared/repository_trees.mjs"
       - "supabase/functions/public-feed-lines/index.ts"
       - "user_app/lib/screens/home_page.dart"
@@ -70,20 +68,12 @@ jobs:
             fetched=false
             for url in \
               "https://football-api.nyeinchanaung.us.ci/sources/$source/matches?t=$stamp" \
-              "https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links?viewer_public=1&action=matches&source=$source&t=$stamp" \
-              "direct-soco"; do
-              if [ "$url" = "direct-soco" ]; then
-                if [ "$source" != "soco" ]; then continue; fi
-                if ! node scripts/publish_soco_snapshot.mjs "/tmp/source-feeds/$source.json.tmp"; then
-                  continue
-                fi
-              else
-                if ! curl --fail --location --retry 1 --retry-delay 1 \
-                  --connect-timeout 8 --max-time 35 \
-                  -H "Accept: application/json" \
-                  "$url" -o "/tmp/source-feeds/$source.json.tmp"; then
-                  continue
-                fi
+              "https://woggzixprvyjnfjzsglz.supabase.co/functions/v1/soco-links?viewer_public=1&action=matches&source=$source&t=$stamp"; do
+              if ! curl --fail --location --retry 1 --retry-delay 1 \
+                --connect-timeout 8 --max-time 35 \
+                -H "Accept: application/json" \
+                "$url" -o "/tmp/source-feeds/$source.json.tmp"; then
+                continue
               fi
 
               if SOURCE="$source" python3 - <<'PY'
