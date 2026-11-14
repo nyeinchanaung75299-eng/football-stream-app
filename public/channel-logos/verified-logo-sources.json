@@ -594,5 +594,26 @@
       "PremierSports.ph"
     ],
     "source": "https://i.imgur.com/BURPHzI.png"
+  },
+  {
+    "asset": "d15e09520e7271af4ae09a0a.png",
+    "stations": [
+      "rugbypass brand"
+    ],
+    "source": "https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/international/rugby-pass-tv-int.png"
+  },
+  {
+    "asset": "9391101a154e346c8f043a66.png",
+    "stations": [
+      "hypermotion brand"
+    ],
+    "source": "https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/spain/laliga-tv-hypermotion-es.png"
+  },
+  {
+    "asset": "4b0814c957276758e7af024c.png",
+    "stations": [
+      "eurosport brand"
+    ],
+    "source": "https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/india/eurosport-in.png"
   }
 ]

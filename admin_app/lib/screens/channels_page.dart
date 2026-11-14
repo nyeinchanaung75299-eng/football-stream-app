@@ -151,7 +151,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
   }
 
   void refresh() {
-    setState(() => catalog = load());
+    setState(() {
+      catalog = load();
+    });
     _loadGroupPositions();
   }
 
