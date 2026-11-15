@@ -12,7 +12,7 @@ from verify_android_update_signing import RELEASE_BASE, RELEASES, apk_identity
 
 NOTES = {
     'Viewer': 'Repository stream lines now show concise server names in Web and Android players. Existing stream playback remains unchanged.',
-    'Admin': 'RoxieStreams restored under Stream Sources and retired Rojadirecta removed. Public-only discovery with no playback guarantee; other sources unchanged.',
+    'Admin': 'Arena Koora Nations League schedule and English names updated. TV Schedule lists verified EPG-only programmes separately from NCA matches; channel playback remains unverified.',
 }
 
 
