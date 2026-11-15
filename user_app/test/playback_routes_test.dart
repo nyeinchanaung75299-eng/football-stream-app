@@ -5,7 +5,7 @@ import 'package:football_viewer/widgets/player_server_rail.dart';
 
 void main() {
   test(
-    'event lines use Vercel once while preserving playback identity and credentials',
+    'event lines start on Cloudflare while retaining an internal Vercel fallback',
     () {
       final original = {
         'id': 'one',
@@ -20,6 +20,10 @@ void main() {
       expect(result, hasLength(1));
       expect(
         result.single['url'],
+        '$cloudflarePublicBase/p/token/manifest.mpd?e=1',
+      );
+      expect(
+        result.single['routeFallbackUrl'],
         '$vercelBackupBase/p/token/manifest.mpd?e=1',
       );
       for (final field in ['id', 'label', 'headers', 'keyId', 'keyData'])
@@ -36,6 +40,7 @@ void main() {
       {'id': 'channel', 'stream_url': '$legacyVercelBase/p/session/index.m3u8'},
     ], useVercel: false);
     expect(result, hasLength(1));
+    expect(result.single.containsKey('routeFallbackUrl'), false);
     expect(
       result.single['stream_url'],
       '$cloudflarePublicBase/p/session/index.m3u8',
@@ -44,6 +49,37 @@ void main() {
       playbackSources(result, useVercel: true).single['stream_url'],
       '$vercelBackupBase/p/session/index.m3u8',
     );
+  });
+  test(
+    'explicit Vercel channels stay single-route and events are idempotent',
+    () {
+      final events = playbackSources([
+        {'url': '$vercelBackupBase/p/token/index.m3u8?session=opaque'},
+      ]);
+      expect(playbackSources(events), events);
+      final explicit = playbackSources(events, useVercel: true).single;
+      expect(
+        explicit['url'],
+        '$vercelBackupBase/p/token/index.m3u8?session=opaque',
+      );
+      expect(explicit.containsKey('routeFallbackUrl'), false);
+    },
+  );
+  test('untrusted fallback URLs cannot turn direct playback into a relay', () {
+    for (final url in [
+      'https://provider.example/live.m3u8',
+      'https://attacker.example/p/token',
+      '$cloudflarePublicBase/health',
+    ]) {
+      final row = playbackSources([
+        {
+          'url': url,
+          'routeFallbackUrl': 'https://attacker.example/p/credential',
+        },
+      ]).single;
+      expect(row['url'], url);
+      expect(row.containsKey('routeFallbackUrl'), false);
+    }
   });
   test('legacy aliases collapse without hiding different real streams', () {
     final result = playbackSources([
