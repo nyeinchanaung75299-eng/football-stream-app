@@ -10,5 +10,9 @@ void main(){
       scrollable: find.byType(Scrollable).first);
   expect(find.text('RoxieStreams'), findsOneWidget);
   expect(find.text('Rojadirecta'), findsNothing);
+  await tester.scrollUntilVisible(find.text('PlayerBee HLS'), 180,
+      scrollable: find.byType(Scrollable).first);
+  expect(find.text('PlayerBee HLS'), findsOneWidget);
+  expect(find.textContaining('Session links can expire.'), findsOneWidget);
  });
 }
