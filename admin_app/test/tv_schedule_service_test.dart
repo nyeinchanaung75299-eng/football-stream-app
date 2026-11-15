@@ -380,6 +380,50 @@ void main() {
     expect(possible.single.title, 'Spanish Primera Division Soccer');
   });
 
+  test('TV schedule retains programme-only fixtures without a published match', () {
+    final kickoff = DateTime.utc(2026, 11, 15, 19, 45);
+    final guide = TvScheduleGuide.fromJson({
+      'channels': [
+        {
+          'id': 'fox-station',
+          'name': 'Fox Sports 25',
+          'epg_id': 'verified-station-id',
+          'epg_source': 'US2',
+          'matchedEPG': true,
+          'programmes': [
+            {
+              'start': kickoff.millisecondsSinceEpoch,
+              'end': kickoff.add(const Duration(hours: 2)).millisecondsSinceEpoch,
+              'title': 'France vs Türkiye',
+            },
+            {
+              'start': kickoff.millisecondsSinceEpoch,
+              'title': 'France vs Türkiye replay',
+            },
+          ]
+        },
+        {
+          'id': 'unlinked',
+          'name': 'Unverified source',
+          'matchedEPG': false,
+          'programmes': [
+            {
+              'start': kickoff.millisecondsSinceEpoch,
+              'title': 'Spain vs England',
+            }
+          ]
+        },
+      ],
+    });
+    final rows = guide.liveAndUpcomingMatchListings(
+      now: kickoff.add(const Duration(minutes: 5)),
+    );
+    expect(rows, hasLength(1));
+    expect(rows.single.channel.name, 'Fox Sports 25');
+    expect(rows.single.programme.title, 'France vs Türkiye');
+    expect(rows.single.isLive, isTrue);
+  });
+
   test('TV guide loader uses the NCA relay and reads no playback fields',
       () async {
     final client = MockClient((request) async {
