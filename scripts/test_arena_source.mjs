@@ -6,12 +6,13 @@ const media='https://cdn.example.org/live/football.m3u8';
 const server={id:'server-1',url:media,enabled:true,type:'majed_player'};
 const row={id:'12345',home_team:{name:'ليدز يونايتد'},away_team:{name:'توتنهام'},
   tournament:{name:'الدوري الإنجليزي'},state:'live',start_at:'2030-11-07T12:30:00Z',servers:[server]};
-const page='https://www.arena-koora.online/?match=12345&date=2030-11-07';
+const page='https://www.arena-koora.online/?m=1&arena_match=12345&arena_date=2030-11-07';
 test('Arena Koora Admin and Viewer share football-only published-server metadata',async()=>{
   const calls=[];
   const fetcher=async target=>{
     calls.push(target);const u=new URL(target);
     assert.equal(u.origin,'https://arenaaliive22.site');assert.equal(u.pathname,'/api/v1/matches');
+    assert.equal(u.searchParams.get('scope'),'all');assert.equal(u.searchParams.has('lang'),false);
     return Response.json({matches:[row,{...row,id:'2',servers:[]},
       {...row,id:'3',servers:[{...server,enabled:false}]},
       {...row,id:'4',sportId:2}, {...row,id:'5',hidden:true},
@@ -46,4 +47,76 @@ test('Arena refuses caller-selected destinations, redirects, and invalid catalog
     await assert.rejects(()=>websiteStreams('arena',{page_url:value},{fetcher:()=>{throw Error('must not fetch');}}),/Invalid Arena/);
   for(const status of [302,403,500])await assert.rejects(()=>websiteMatches('arena',{fetcher:async()=>new Response('',{status})}));
   await assert.rejects(()=>websiteMatches('arena',{fetcher:async()=>Response.json({scores:[]})}),/invalid match payload/);
+});
+
+
+test('Arena 2026-11-15 published Arabic Nations League fixture JSON yields four English matches',async()=>{
+  const now=Date.parse('2026-11-15T20:02:30Z');
+  const teams=[
+    ['5181798','بلجيكا','إيطاليا','Belgium','Italy'],
+    ['5181799','فرنسا','تركيا','France','Türkiye'],
+    ['5181859','كرواتيا','التشيك','Croatia','Czechia'],
+    ['5181860','إسبانيا','إنجلترا','Spain','England'],
+  ];
+  const data={success:true,date:'2026-11-15',matches:teams.map(([id,home,away])=>({
+    id,date:'2026-11-15',start_at:'2026-11-15T22:45:00+03:00',
+    state:'live',hidden:false,tournament_hidden:false,
+    home_team:{name:home,logo:'https://imgs.example.org/teams/'+id+'.png'},
+    away_team:{name:away,logo:'https://imgs.example.org/teams/'+id+'-away.png'},
+    tournament:{name:'دوري الأمم الأوروبية'},
+    servers:[{id:'fixture-'+id,url:media,enabled:true,type:'majed_player'}],
+  }))};
+  const fetcher=async url=>{
+    const u=new URL(url);
+    assert.equal(u.hostname,'arenaaliive22.site');
+    assert.equal(u.searchParams.get('date'),'2026-11-15');
+    assert.equal(u.searchParams.get('scope'),'all');
+    assert.equal(u.searchParams.has('lang'),false);
+    return Response.json(data);
+  };
+  const matches=await websiteMatches('arena',{fetcher,date:'2026-11-15',now});
+  assert.equal(matches.length,4);
+  for(let i=0;i<matches.length;i++){
+    const [id,_arabicHome,_arabicAway,englishHome,englishAway]=teams[i];
+    assert.equal(matches[i].source_id,id);
+    assert.equal(matches[i].home_team,englishHome);
+    assert.equal(matches[i].away_team,englishAway);
+    assert.equal(matches[i].league,'UEFA Nations League');
+    assert.equal(matches[i].match_time,'2026-11-15T19:45:00.000Z');
+    assert.equal(matches[i].page_url,
+      'https://www.arena-koora.online/?m=1&arena_match='+id+'&arena_date=2026-11-15');
+    assert.equal(matches[i].anchors.length,1);
+  }
+  // Use an injected clock, not a stale historical broadcast when CI runs.
+  const {arenaStreams}=await import('../supabase/functions/_shared/arena_source.mjs');
+  const result=await arenaStreams({
+    page_url:matches[0].page_url,room_num:'fixture-5181798',
+  },{fetcher,now});
+  assert.equal(result.lines.length,1);
+  assert.equal(result.lines[0].url,media);
+  assert.equal(result.lines[0].health_status,'unknown');
+});
+
+test('Arena default date follows publisher UTC+03, not the UTC calendar',async()=>{
+  const now=Date.parse('2026-11-15T22:50:00Z');
+  let called='';
+  const fetcher=async url=>{called=String(url);return Response.json({matches:[]});};
+  const result=await websiteMatches('arena',{fetcher,now});
+  assert.deepEqual(result,[]);
+  assert.equal(new URL(called).searchParams.get('date'),'2026-11-16');
+});
+
+test('Arena accepts the legacy generated match URL and rejects unsafe modern parameters',async()=>{
+  const legacy='https://www.arena-koora.online/?match=12345&date=2030-11-07';
+  const fetcher=async()=>Response.json({matches:[row]});
+  const oldResult=await websiteStreams('arena',{page_url:legacy,room_num:'server-1'},{fetcher});
+  assert.equal(oldResult.lines.length,1);
+  for(const url of [
+    'https://www.arena-koora.online/?m=2&arena_match=12345&arena_date=2030-11-07',
+    'https://www.arena-koora.online/?m=1&arena_match=12345&arena_date=2030-11-07&url=http://localhost',
+    'https://www.arena-koora.online/?m=1&arena_match=12345&arena_match=6789',
+    'https://www.arena-koora.online/?m=1&arena_match=wrong',
+  ]) {
+    await assert.rejects(()=>websiteStreams('arena',{page_url:url},{fetcher}),/Invalid Arena/);
+  }
 });
