@@ -206,6 +206,28 @@ test('CricHD selected Link 2 cannot resolve media from Link 1',async()=>{
   assert.match(blocked.message,/not published/);
 });
 
+test('CricHD Link 1 preserves the observed Cowboys vs 49ers PlayerBee page',async()=>{
+  // A user-observed public Watch URL, not a hardcoded HLS link or a claim
+  // that the Cowboys NFL fixture is listed in the Soccer category.
+  const fixture='https://crichd.pk/event/test-home-vs-test-away';
+  const watch='https://playerbee.top/charlie/cowboys-vs-49ers/3688';
+  const html='<table><tr><td>Streamer</td><td>Link 1</td>'+
+    '<td><a href="'+watch+'">Watch</a></td></tr></table>';
+  const anchors=crichdPublishedWatchLinks(html,fixture);
+  assert.equal(anchors.length,1);
+  assert.equal(anchors[0].nick_name,'Link 1');
+  assert.equal(anchors[0].watch_url,watch);
+  const result=await experimentalStreams('crichd',
+    {page_url:fixture,watch_url:watch},{
+      fetcher:async url=>String(url)===watch
+        ? new Response('Forbidden',{status:403,headers:{'content-type':'text/html'}})
+        : new Response(html,{headers:{'content-type':'text/html'}}),
+    });
+  assert.equal(result.browser_player_url,watch);
+  assert.equal(result.line_count,0);
+  assert.equal(result.diagnostics.access_denied,true);
+});
+
 test('CricHD 403 player does not erase published numbered Watch choices',async()=>{
   const page='https://crichd.pk/event/england-vs-spain';
   const watch='https://playerbee.top/charlie/england-vs-spain/1';
