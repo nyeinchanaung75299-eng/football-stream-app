@@ -249,7 +249,7 @@ class TvScheduleGuide {
             _isReplay(body) ||
             _isNonFootball(body)) continue;
         // A slot that names another fixture must never be suggested.
-        if (RegExp(r'\b(?:vs|v|versus)\b').hasMatch(body)) continue;
+        if (RegExp(r'\b(?:vs|v|versus|x)\b').hasMatch(body)) continue;
         if (!_isGenericFootballSlot(body)) continue;
         if (_containsAlias(body, home) && _containsAlias(body, away)) {
           continue; // Already in the verified list.
@@ -525,11 +525,19 @@ String _yangonDate(DateTime value) {
 
 final _nonWordPattern = RegExp(r'[^a-z0-9]+');
 final _spacesPattern = RegExp(r'\s+');
-String _normalise(String value) => value
-    .toLowerCase()
-    .replaceAll(_nonWordPattern, ' ')
-    .replaceAll(_spacesPattern, ' ')
-    .trim();
+String _normalise(String value) {
+  // Brazilian EPG programme titles use accented Portuguese country names,
+  // e.g. "Espanha x Inglaterra" and "França x Turquia".
+  final latin = value.toLowerCase()
+      .replaceAll(RegExp(r'[áàâãä]'), 'a')
+      .replaceAll(RegExp(r'[éèêë]'), 'e')
+      .replaceAll(RegExp(r'[íìîï]'), 'i')
+      .replaceAll(RegExp(r'[óòôõö]'), 'o')
+      .replaceAll(RegExp(r'[úùûü]'), 'u')
+      .replaceAll('ç', 'c');
+  return latin.replaceAll(_nonWordPattern, ' ')
+      .replaceAll(_spacesPattern, ' ').trim();
+}
 
 List<String> _teamAliases(String team) {
   final normalised = _normalise(team);
@@ -577,6 +585,16 @@ List<String> _teamAliases(String team) {
     'sporting hortaleza': ['sporting hortaleza'],
     'fc magdeburg': ['magdeburg'],
     '1 fc magdeburg': ['magdeburg'],
+    // Exact country translations used in Brazilian football EPG entries.
+    'spain': ['espanha', 'espana', 'esp'],
+    'england': ['inglaterra', 'eng'],
+    'france': ['franca', 'fra'],
+    'turkiye': ['turquia', 'turkey', 'tur'],
+    'turkey': ['turquia', 'turkiye', 'tur'],
+    'belgium': ['belgica', 'bel'],
+    'italy': ['italia', 'ita'],
+    'croatia': ['croacia', 'cro'],
+    'czechia': ['tchequia', 'republica tcheca', 'cze'],
   };
   values.addAll(overrides[normalised] ?? const []);
   return values
@@ -591,7 +609,8 @@ bool _containsAlias(String body, List<String> aliases) => aliases.any(
     );
 
 final _matchPattern = RegExp(
-  r'\b(?:vs|v|versus)\b',
+  // Portuguese schedules often use "x" instead of "vs".
+  r'\b(?:vs|v|versus|x)\b',
   caseSensitive: false,
 );
 bool _looksLikeMatch(String body) =>
