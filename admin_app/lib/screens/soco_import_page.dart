@@ -927,8 +927,10 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 .map((item) => <String, dynamic>{
                       'url': item['url'] ?? '',
                       'stream_type': 'hls',
-                      'referer': item['referer'] ?? '',
-                      'origin': item['origin'] ?? '',
+                      // PlayerBee publishes origin-only Referer policy
+                      // for cross-site media requests (observed in DevTools).
+                      'referer': '${target.origin}/',
+                      'origin': target.origin,
                       'label': 'CricHD • HLS',
                       'resolution': 'Auto',
                       'health_status': 'unknown',
