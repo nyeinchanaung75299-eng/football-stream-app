@@ -169,8 +169,30 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
                         days: TvScheduleService.guideDays,
                       ) ??
                       const <TvScheduleListing>[];
+              // EPG programmes that already appear under a published
+              // NCA match card must not be duplicated in the guide-only list.
+              final publishedAirings = <String>{};
+              final guideData = guide?.guide;
+              if (guideData != null) {
+                for (final match in matches) {
+                  final normalizedMatch = {
+                    ...match,
+                    'home_team': englishKnownFootballName(
+                        match['home_team']?.toString() ?? ''),
+                    'away_team': englishKnownFootballName(
+                        match['away_team']?.toString() ?? ''),
+                  };
+                  for (final airing in guideData.airingsForMatch(normalizedMatch)) {
+                    publishedAirings.add(
+                      '${airing.channel}|${airing.when.millisecondsSinceEpoch}|${airing.title}',
+                    );
+                  }
+                }
+              }
               final visibleGuideListings = guideListings
-                  .where((row) => _view != 'live' || row.isLive)
+                  .where((row) => (_view != 'live' || row.isLive) &&
+                      !publishedAirings.contains(
+                          '${row.channel.name}|${row.programme.start.millisecondsSinceEpoch}|${row.programme.title}'))
                   .take(60)
                   .toList(growable: false);
               return RefreshIndicator(
