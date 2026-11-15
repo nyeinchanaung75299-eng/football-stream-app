@@ -17,6 +17,7 @@ import '../services/stream_library_service.dart';
 import '../source_line_validation.dart';
 import '../source_match_search.dart';
 import '../services/stream_detector_service.dart';
+import '../services/website_detector_service.dart';
 import 'stream_detector_page.dart'
     if (dart.library.html) 'stream_detector_page_web.dart';
 
@@ -901,10 +902,45 @@ class _SocoImportPageState extends State<SocoImportPage> {
         throw const FormatException('No stream quality list returned.');
       }
 
-      final lines = rows
+      var lines = rows
           .map((row) => Map<String, dynamic>.from(row as Map))
           .where((row) => (row['url'] ?? '').toString().trim().isNotEmpty)
           .toList();
+      // A deliberate CricHD match tap may inspect the publisher's public
+      // Watch page when plain HTML does not expose HLS. Browser Run is
+      // admin-authorized, bounded and URL-only: no cookies, DRM keys or
+      // access-control workarounds. Other providers are unchanged.
+      if (provider == 'crichd' && lines.isEmpty && data is Map) {
+        final page = (data['browser_player_url'] ?? '').toString();
+        final target = Uri.tryParse(page);
+        if (target != null &&
+            target.scheme == 'https' &&
+            const {'playerbee.top', 'www.playerbee.top'}
+                .contains(target.host) &&
+            target.userInfo.isEmpty) {
+          try {
+            final scan = await const WebsiteDetectorService()
+                .scan(page, browser: true);
+            if (!current()) return;
+            lines = scan.links
+                .where((item) => item['type'] == 'hls')
+                .map((item) => <String, dynamic>{
+                      'url': item['url'] ?? '',
+                      'stream_type': 'hls',
+                      'referer': item['referer'] ?? '',
+                      'origin': item['origin'] ?? '',
+                      'label': 'CricHD • HLS',
+                      'resolution': 'Auto',
+                      'health_status': 'unknown',
+                      'discovery_mode': 'source_browser',
+                    })
+                .toList();
+          } catch (_) {
+            // Browser Run may be unavailable or the publisher may deny
+            // the visit. The existing DETECT/manual flow stays intact.
+          }
+        }
+      }
       final statusKey = _anchorKey(match, anchor, provider: provider);
       final sourceIsLive = data is Map && _isLiveStatus(data['live_status']);
       final hasHealthy = lines.any((line) {
