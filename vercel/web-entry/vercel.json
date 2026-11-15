@@ -1,0 +1,49 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "outputDirectory": "public",
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/football-stream-app/",
+      "permanent": false
+    },
+    {
+      "source": "/admin",
+      "destination": "/football-stream-app/admin/",
+      "permanent": false
+    },
+    {
+      "source": "/admin/",
+      "destination": "/football-stream-app/admin/",
+      "permanent": false
+    },
+    {
+      "source": "/football-stream-app",
+      "destination": "/football-stream-app/",
+      "permanent": false
+    },
+    {
+      "source": "/football-stream-app/admin",
+      "destination": "/football-stream-app/admin/",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/football-stream-app/:path*",
+      "destination": "https://nyeinchanaung75299-eng.github.io/football-stream-app/:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/football-stream-app/:path*",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "1"
+        }
+      ]
+    }
+  ]
+}
