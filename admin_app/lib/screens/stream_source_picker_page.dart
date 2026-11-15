@@ -23,6 +23,7 @@ class StreamSourcePickerPage extends StatelessWidget {
     _SourceOption('cola', 'ColaTV', Icons.tv_rounded),
     _SourceOption('arena', 'Arena Koora', Icons.stadium_rounded),
     _SourceOption('roxie', 'RoxieStreams', Icons.sports_soccer_rounded),
+    _SourceOption('playerbee', 'PlayerBee HLS', Icons.link_rounded),
   ];
 
   Future<void> _open(BuildContext context, _SourceOption source) async {
@@ -30,6 +31,16 @@ class StreamSourcePickerPage extends StatelessWidget {
       'admin source provider opened',
       properties: {'source': source.id, 'entry': 'source_picker'},
     );
+    // PlayerBee provides per-session media requests, not a football fixture API.
+    // Reuse the authorized URL detector to capture a currently playing HLS URL
+    // and its Referer/Origin rather than treating signed links as permanent.
+    if (source.id == 'playerbee') {
+      await Navigator.of(context).push<void>(MaterialPageRoute(
+        settings: const RouteSettings(name: '/admin/stream-sources/playerbee'),
+        builder: (_) => const StreamDetectorPage(),
+      ));
+      return;
+    }
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         settings: RouteSettings(name: '/admin/stream-sources/${source.id}'),
@@ -88,6 +99,11 @@ class StreamSourcePickerPage extends StatelessWidget {
               source.label,
               style: const TextStyle(fontWeight: FontWeight.w900),
             ),
+            subtitle: source.id == 'playerbee'
+                ? const Text(
+                    'Open an authorized video page to detect HLS URL + Referer/Origin. Session links can expire.',
+                  )
+                : null,
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => _open(context, source),
           ),
