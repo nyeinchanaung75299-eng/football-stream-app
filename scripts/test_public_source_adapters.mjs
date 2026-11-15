@@ -5,8 +5,8 @@ import {experimentalMatches,experimentalFootballSites,configuredRoxiePublicMedia
 
 const response=(value,type='text/html')=>new Response(value,{headers:{'content-type':type}});
 
-test('Only RoxieStreams remains; Rojadirecta is retired',()=>{
- assert.deepEqual(Object.keys(experimentalFootballSites),['roxie']);
+test('RoxieStreams and CricHD are configured; Rojadirecta remains retired',()=>{
+ assert.deepEqual(Object.keys(experimentalFootballSites),['roxie','crichd']);
 });
 
 test('Roxie literal configuration is read without evaluating player JS',async()=>{
