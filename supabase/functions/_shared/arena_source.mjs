@@ -19,7 +19,7 @@ function football(row) {
   if (row?.sportId != null || row?.sport_id != null || row?.sport != null ||
       row?.categoryId != null || row?.category_id != null) return false;
   const league = String(row?.tournament?.name_en || row?.tournament?.name || '');
-  return /premier league|la liga|bundesliga|serie a|ligue [12]|champions league|europa league|(?:uefa |european )?nations league|الدوري (?:الإنجليزي|الإسباني|الإيطالي|الألماني|الفرنسي)|دوري أبطال أوروبا|الدوري الأوروبي|دوري الأمم الأوروبية/i.test(league) &&
+  return /premier league|la liga|bundesliga|serie a|ligue [12]|champions league|europa league|(?:uefa |european )?nations league|conference league|eredivisie|primeira liga|championship|fa cup|efl cup|copa del rey|coppa italia|dfb[- ]pokal|coupe de france|international friendl(?:y|ies)|fifa world cup|world cup qualif(?:ier|ication)|دوري أبطال آسيا|دوري المؤتمر الأوروبي|الدوري (?:الإنجليزي|الإسباني|الإيطالي|الألماني|الفرنسي|الهولندي|البرتغالي|التركي|السعودي)|دوري أبطال أوروبا|الدوري الأوروبي|دوري الأمم الأوروبية|كأس (?:الاتحاد الإنجليزي|الرابطة الإنجليزية|ملك إسبانيا|إيطاليا|ألمانيا|فرنسا)|(?:مباريات?|لقاء) ودية|تصفيات كأس العالم/i.test(league) &&
     isFootballSourceRow({...row, sportId:1});
 }
 function servers(row) {
@@ -33,6 +33,63 @@ function name(value, kind = 'team') {
     'بلجيكا':'Belgium','إيطاليا':'Italy','فرنسا':'France','تركيا':'Türkiye',
     'كرواتيا':'Croatia','التشيك':'Czechia','إسبانيا':'Spain','إنجلترا':'England',
     'دوري الأمم الأوروبية':'UEFA Nations League',
+    // Nations League / international names from the same Arena schedule.
+    'ليختنشتاين':'Liechtenstein','ليتوانيا':'Lithuania',
+    'هولندا':'Netherlands','ألمانيا':'Germany','صربيا':'Serbia',
+    'اليونان':'Greece','مالطا':'Malta','جبل طارق':'Gibraltar',
+    'البرتغال':'Portugal','الدنمارك':'Denmark','النرويج':'Norway',
+    'السويد':'Sweden','رومانيا':'Romania','بولندا':'Poland',
+    'سويسرا':'Switzerland','النمسا':'Austria','ويلز':'Wales',
+    'اسكتلندا':'Scotland','إيرلندا':'Ireland','أيرلندا':'Ireland',
+    'أيرلندا الشمالية':'Northern Ireland','ألبانيا':'Albania',
+    'فنلندا':'Finland','سان مارينو':'San Marino','قبرص':'Cyprus',
+    'الجبل الأسود':'Montenegro','مونتينيغرو':'Montenegro',
+    'البوسنة والهرسك':'Bosnia and Herzegovina','جورجيا':'Georgia',
+    'كازاخستان':'Kazakhstan','أرمينيا':'Armenia',
+    'أذربيجان':'Azerbaijan','آيسلندا':'Iceland',
+    'لوكسمبورغ':'Luxembourg','لاتفيا':'Latvia','إستونيا':'Estonia',
+    'بلغاريا':'Bulgaria','أوكرانيا':'Ukraine','مولدوفا':'Moldova',
+    'سلوفاكيا':'Slovakia','سلوفينيا':'Slovenia','المجر':'Hungary',
+    'كوسوفو':'Kosovo','مقدونيا الشمالية':'North Macedonia',
+    'التشيك':'Czechia','التشيكية':'Czechia',
+    'إسرائيل':'Israel','روسيا':'Russia',
+    // Common top-five European football club labels. Exact names only;
+    // unknown provider identities are preserved rather than guessed.
+    'ريال مدريد':'Real Madrid','ريال بيتيس':'Real Betis',
+    'ريال سوسيداد':'Real Sociedad','إشبيلية':'Sevilla',
+    'فالنسيا':'Valencia','فياريال':'Villarreal',
+    'جيرونا':'Girona','خيتافي':'Getafe','أوساسونا':'Osasuna',
+    'بايرن ميونخ':'Bayern Munich','بايرن ميونيخ':'Bayern Munich',
+    'بوروسيا دورتموند':'Borussia Dortmund',
+    'بوروسيا مونشنغلادباخ':'Borussia Monchengladbach',
+    'باير ليفركوزن':'Bayer Leverkusen','لايبزيغ':'RB Leipzig',
+    'شتوتغارت':'VfB Stuttgart','فرانكفورت':'Eintracht Frankfurt',
+    'مانشستر سيتي':'Manchester City','مانشستر يونايتد':'Manchester United',
+    'آرسنال':'Arsenal','نيوكاسل يونايتد':'Newcastle United',
+    'وست هام يونايتد':'West Ham United','برينتفورد':'Brentford',
+    'برايتون':'Brighton & Hove Albion','نوتنغهام فورست':'Nottingham Forest',
+    'بورنموث':'Bournemouth','وولفرهامبتون':'Wolverhampton Wanderers',
+    'باريس سان جيرمان':'Paris Saint-Germain',
+    'مارسيليا':'Marseille','ليون':'Lyon','ليل':'Lille',
+    'موناكو':'Monaco','رين':'Rennes','نيس':'Nice','لانس':'Lens',
+    'روما':'AS Roma','أتالانتا':'Atalanta','فيورنتينا':'Fiorentina',
+    'بولونيا':'Bologna','تورينو':'Torino','أودينيزي':'Udinese',
+    // Competition labels for verified football fixture classes.
+    'دوري المؤتمر الأوروبي':'UEFA Conference League',
+    'الدوري الهولندي':'Eredivisie',
+    'الدوري البرتغالي':'Portuguese Primeira Liga',
+    'الدوري التركي':'Turkish Super Lig',
+    'الدوري السعودي':'Saudi Pro League',
+    'كأس الاتحاد الإنجليزي':'FA Cup',
+    'كأس الرابطة الإنجليزية':'EFL Cup',
+    'كأس ملك إسبانيا':'Copa del Rey',
+    'كأس إيطاليا':'Coppa Italia',
+    'كأس ألمانيا':'DFB-Pokal',
+    'كأس فرنسا':'Coupe de France',
+    'تصفيات كأس العالم':'FIFA World Cup Qualifiers',
+    'دوري أبطال آسيا':'AFC Champions League',
+    'مباراة ودية':'International Friendly',
+    'مباريات ودية':'International Friendlies',
     'ليدز يونايتد':'Leeds United','توتنهام':'Tottenham Hotspur',
     'نابولي':'Napoli','لاتسيو':'Lazio','كريستال بالاس':'Crystal Palace','ليفربول':'Liverpool',
     'سندرلاند':'Sunderland','تشيلسي':'Chelsea','مان يونايتد':'Manchester United','أستون فيلا':'Aston Villa',
