@@ -328,6 +328,35 @@ function htmlTeamBadges(markup, teams, site) {
   return result;
 }
 
+// CricHD exposes separate numbered Watch links in the event's Streamer
+// table. These are published player PAGES, not verified HLS media URLs.
+// Preserve the exact link number; never fabricate Link 3/4/5.
+export function crichdPublishedWatchLinks(html, page) {
+  const links = new Map();
+  for (const row of String(html).matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const label = normalizeText(row[1]).match(/\bLink\s+([1-9]\d?)\b/i);
+    if (!label) continue;
+    for (const anchor of row[1].matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
+      if (!/^Watch$/i.test(normalizeText(anchor[2]))) continue;
+      const raw = anchor[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
+      const url = publicSourceUrl(raw?.replace(/&amp;/gi, '&'), page);
+      if (!url || new URL(url).protocol !== 'https:') continue;
+      const number = Number(label[1]);
+      if (!links.has(number)) {
+        links.set(number, {
+          room_num: sourceId(page + ':link-' + number),
+          page_url: page,
+          watch_url: url,
+          nick_name: 'Link ' + number,
+        });
+      }
+      break;
+    }
+  }
+  return [...links.entries()].sort((a,b) => a[0]-b[0])
+    .slice(0,12).map(([,link]) => link);
+}
+
 function eventRecord(source, site, page, teams, kickoff, timingSource = "none", badges = {}) {
   const id = sourceId(page ?? [source, teams.home, teams.away, kickoff].join(":"));
   const hasTime = kickoff != null;
@@ -578,7 +607,9 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
   const needDetail = [...candidates.values()]
     .filter(candidate => {
       const existing=embedded.rows.get(candidate.page);
-      return !(existing?.match_time||candidate.kickoff)||
+      // CricHD detail pages also contain numbered Watch links. Fetch even
+      // when the category already supplied the event's kickoff and badges.
+      return source === 'crichd' || !(existing?.match_time||candidate.kickoff)||
         !(existing?.home_logo||candidate.badges.home)||!(existing?.away_logo||candidate.badges.away);
     }).slice(0, source === 'crichd' ? 24 : 8);
   for (let offset = 0; offset < needDetail.length; offset += 3) {
@@ -589,6 +620,9 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
           allowedHost: site.host,timeoutMs:Math.min(1800,deadline-Date.now())});
         const exact = pageKickoff(detail.html) ??
           (source === 'crichd' ? crichdUtcKickoff(detail.html) : null);
+        if (source === 'crichd') {
+          item.watchLinks = crichdPublishedWatchLinks(detail.html,item.page);
+        }
         const estimated = exact ? null :
           countdownKickoff(detail.html, detail.observedAt, detail.clockFresh);
         if (!item.kickoff) {
@@ -614,9 +648,13 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
 
   // Prefer the embedded state when the same page is represented in both.
   for (const row of candidates.values()) {
-    if (!embedded.rows.has(row.page)) embedded.rows.set(row.page,
-      eventRecord(source,site,row.page,row.teams,row.kickoff,row.timingSource,row.badges));
-    else {
+    const publishedAnchors = source === 'crichd' && row.watchLinks?.length
+      ? row.watchLinks : null;
+    if (!embedded.rows.has(row.page)) {
+      const event = eventRecord(source,site,row.page,row.teams,row.kickoff,row.timingSource,row.badges);
+      if (publishedAnchors) event.anchors = publishedAnchors;
+      embedded.rows.set(row.page,event);
+    } else {
       const original = embedded.rows.get(row.page);
       embedded.rows.set(row.page, {
         ...original,
@@ -629,6 +667,7 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
         } : {}),
         home_logo: original.home_logo ?? row.badges.home,
         away_logo: original.away_logo ?? row.badges.away,
+        ...(publishedAnchors ? {anchors:publishedAnchors} : {}),
       });
     }
   }
@@ -695,6 +734,7 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   if (!page) return {ok: true, source, lines: [], line_count: 0,
     ready: false, message: "No verified public match page."};
   let firstHtml = null, configured = [], browserPlayerUrl = null;
+  let chosenWatchUrl = null;
   if (source === 'crichd') {
     try {
       // Only the publisher's explicit Watch link is eligible for the
@@ -703,14 +743,26 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
         fetcher,allowedHosts:[site.host],timeoutMs:2500,
       });
       firstHtml = read.text;
-      browserPlayerUrl = publishedPlayerPages(firstHtml,read.url)
-        .map(ref => ref.url)
-        .find(value => {
-          const target = new URL(value);
-          return target.protocol === 'https:' &&
-            (target.hostname === 'playerbee.top' ||
-             target.hostname === 'www.playerbee.top');
-        }) ?? null;
+      // A client may select only a Watch URL actually published for this
+      // match. Never trust a submitted arbitrary external player URL.
+      const requested = typeof body?.watch_url === 'string'
+        ? publicSourceUrl(body.watch_url) : null;
+      if (body?.watch_url != null) {
+        const published = crichdPublishedWatchLinks(firstHtml,read.url);
+        if (!requested || !published.some(link => link.watch_url === requested)) {
+          return {ok:true,source,ready:false,lines:[],line_count:0,
+            message:"Selected Watch link is not published on this match page."};
+        }
+        chosenWatchUrl = requested;
+      }
+      const players = chosenWatchUrl ? [chosenWatchUrl] :
+        publishedPlayerPages(firstHtml,read.url).map(ref => ref.url);
+      browserPlayerUrl = players.find(value => {
+        const target = new URL(value);
+        return target.protocol === 'https:' &&
+          (target.hostname === 'playerbee.top' ||
+           target.hostname === 'www.playerbee.top');
+      }) ?? null;
     } catch (_) {
       // Keep the public HTML media resolver available if a watch-link
       // lookup fails. An inaccessible page is not a confirmed stream.
@@ -721,8 +773,12 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
     firstHtml = read.text;
     configured = await configuredRoxiePublicMedia(source,firstHtml,read.url,{fetcher});
   }
-  const result = await discoverPublicMedia(page,{fetcher,deadline,firstHtml,
-    initialAllowedHosts:[site.host]});
+  // With a numbered link selected, inspect ONLY that published player.
+  // Do not return media from Link 2 when Link 1 was pressed.
+  const mediaPage = chosenWatchUrl || page;
+  const result = await discoverPublicMedia(mediaPage,{fetcher,deadline,
+    firstHtml:chosenWatchUrl ? null : firstHtml,
+    initialAllowedHosts:[new URL(mediaPage).hostname]});
   result.lines = [...new Map([...result.lines,...configured].map(line=>[line.url,line])).values()];
   if (!result.lines.length && result.failures.some(error=>error.includes('outside configured provider'))) {
     throw Error('Source redirected outside configured provider');
