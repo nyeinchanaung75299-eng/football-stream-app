@@ -424,6 +424,67 @@ void main() {
     expect(rows.single.isLive, isTrue);
   });
 
+  test('Brazil SporTV Portuguese x fixtures show in TV Schedule and match teams', () {
+    final kickoff = DateTime.utc(2026, 11, 15, 19, 45);
+    final guide = TvScheduleGuide.fromJson({
+      'channels': [
+        for (final id in ['a', 'b'])
+          {
+            'id': id,
+            'name': 'São Paulo/SP SporTV',
+            'matchedEPG': true,
+            'epg_id': 'São.Paulo/SP..SporTV.br',
+            'epg_source': 'GH:share_BR1',
+            'programmes': [
+              {
+                'start': kickoff.millisecondsSinceEpoch,
+                'end': kickoff.add(const Duration(hours: 2)).millisecondsSinceEpoch,
+                'title': 'Espanha x Inglaterra',
+              }
+            ],
+          },
+      ],
+    });
+    final rows = guide.liveAndUpcomingMatchListings(
+      now: kickoff.add(const Duration(minutes: 5)),
+    );
+    expect(rows, hasLength(2));
+    expect(rows.every((row) => row.isLive), isTrue);
+    expect(rows.every((row) => row.programme.title == 'Espanha x Inglaterra'), isTrue);
+    final airings = guide.airingsForMatch({
+      'home_team': 'Spain',
+      'away_team': 'England',
+      'kickoff_at': kickoff.toIso8601String(),
+    });
+    expect(airings, hasLength(2));
+    expect(airings.every((airing) => airing.title == 'Espanha x Inglaterra'), isTrue);
+  });
+
+  test('French and Turkish country variants in Portuguese EPG match verified fixtures', () {
+    final kickoff = DateTime.utc(2026, 11, 15, 19, 45);
+    final guide = TvScheduleGuide.fromJson({
+      'channels': [
+        {
+          'id': 'sports-3',
+          'name': 'SporTV 3',
+          'matchedEPG': true,
+          'programmes': [
+            {
+              'title': 'França x Turquia',
+              'start': kickoff.millisecondsSinceEpoch,
+            },
+          ],
+        },
+      ],
+    });
+    final airings = guide.airingsForMatch({
+      'home_team': 'France',
+      'away_team': 'Türkiye',
+      'kickoff_at': kickoff.toIso8601String(),
+    });
+    expect(airings, hasLength(1));
+  });
+
   test('TV guide loader uses the NCA relay and reads no playback fields',
       () async {
     final client = MockClient((request) async {
