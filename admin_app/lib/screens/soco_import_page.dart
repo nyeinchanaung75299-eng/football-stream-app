@@ -17,6 +17,7 @@ import '../services/stream_library_service.dart';
 import '../source_line_validation.dart';
 import '../source_match_search.dart';
 import '../services/stream_detector_service.dart';
+import '../services/website_detector_service.dart';
 import 'stream_detector_page.dart'
     if (dart.library.html) 'stream_detector_page_web.dart';
 
@@ -119,6 +120,7 @@ class SocoImportPage extends StatefulWidget {
 class _SocoImportPageState extends State<SocoImportPage> {
   static const _experimentalSourceNames = <String, String>{
     'roxie': 'RoxieStreams',
+    'vipbox': 'VIPBoxTV',
   };
   bool get _isExperimentalSource =>
       _experimentalSourceNames.containsKey(source);
@@ -900,10 +902,43 @@ class _SocoImportPageState extends State<SocoImportPage> {
         throw const FormatException('No stream quality list returned.');
       }
 
-      final lines = rows
+      var lines = rows
           .map((row) => Map<String, dynamic>.from(row as Map))
           .where((row) => (row['url'] ?? '').toString().trim().isNotEmpty)
           .toList();
+      // Only an explicit VIPBoxTV match tap may use the authenticated
+      // Browser Run fallback. Never poll browser sessions in the background,
+      // and never read credentials, cookies or protected player keys.
+      if (provider == 'vipbox' && lines.isEmpty) {
+        final page = (anchor['page_url'] ?? match['page_url'] ?? '').toString();
+        final uri = Uri.tryParse(page);
+        if (uri != null &&
+            uri.scheme == 'https' &&
+            (uri.host == 'vipboxtv.st' || uri.host == 'www.vipboxtv.st') &&
+            uri.userInfo.isEmpty) {
+          try {
+            final captured = await const WebsiteDetectorService()
+                .scan(page, browser: true);
+            if (!current()) return;
+            lines = captured.links
+                .where((item) => item['type'] == 'hls')
+                .map((item) => <String, dynamic>{
+                      'url': item['url'],
+                      'stream_type': 'hls',
+                      'referer': item['referer'] ?? '',
+                      'origin': item['origin'] ?? '',
+                      'label': 'VIPBoxTV • Detected HLS',
+                      'resolution': 'Auto',
+                      'health_status': 'unknown',
+                      'discovery_mode': 'source_browser',
+                    })
+                .toList();
+          } catch (_) {
+            // The existing DETECT fallback remains available when Browser Run
+            // is disabled or the website requires an interactive Play click.
+          }
+        }
+      }
       final statusKey = _anchorKey(match, anchor, provider: provider);
       final sourceIsLive = data is Map && _isLiveStatus(data['live_status']);
       final hasHealthy = lines.any((line) {
@@ -2238,6 +2273,16 @@ class _SocoImportPageState extends State<SocoImportPage> {
                           style: TextStyle(color: colors.onSurfaceVariant),
                         ),
                       ],
+                      if (source == 'vipbox' &&
+                          displayKickoff == null &&
+                          (match['time_label'] ?? '').toString().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            '${match['time_label']} • NOT MMT',
+                            style: TextStyle(color: colors.onSurfaceVariant),
+                          ),
+                        ),
                       if (_isExperimentalSource && displayKickoff == null)
                         const Padding(
                           padding: EdgeInsets.only(top: 4),
