@@ -134,6 +134,7 @@ test('CricHD match tap follows explicitly published Watch page for public HLS on
     }),
   });
   assert.equal(result.lines.length,1);
+  assert.equal(result.browser_player_url,playerPage);
   assert.equal(result.lines[0].stream_type,'hls');
   assert.equal(result.lines[0].referer,playerPage);
   assert.equal(result.lines[0].origin,'https://playerbee.top');
