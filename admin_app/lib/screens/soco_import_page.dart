@@ -451,7 +451,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         final parsed = rows
             .map((row) => englishSourceMatch(row, provider))
             .where((row) =>
-                (provider != 'yyzb' && provider != 'arena') ||
+                provider != 'yyzb' ||
                 (row['anchors'] is List &&
                     (row['anchors'] as List).any((anchor) =>
                         anchor is Map &&
