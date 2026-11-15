@@ -1,11 +1,14 @@
 // Experimental, read-only discovery for public football pages. Do not bypass
 // authentication, DRM, CAPTCHA, or a publisher's access restrictions.
 // Only expose HTTP(S) HLS/DASH URLs explicitly published by public players.
-import {publicSourceUrl, readPublicSource, discoverPublicMedia} from './public_source_media.mjs';
+import {publicSourceUrl, readPublicSource, discoverPublicMedia, publishedPlayerPages} from './public_source_media.mjs';
 export const experimentalFootballSites = Object.freeze({
   roxie: {label: "RoxieStreams",
     home: "https://roxiestreams.su/soccer",
     host: "roxiestreams.su"},
+  crichd: {label: "CricHD",
+    home: "https://crichd.pk/sports/soccer-streams",
+    host: "crichd.pk"},
 });
 
 export const isExperimentalFootballSource = (source) =>
@@ -68,6 +71,21 @@ export function explicitKickoff(fragment) {
   const value = iso[0].replace(" ", "T").replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+// CricHD event details explicitly publish a UTC kickoff.
+export function crichdUtcKickoff(text) {
+  const match = String(text).match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),\s+(20\d{2})\s+at\s+(\d{1,2}):([0-5]\d)\s*(AM|PM)\s+UTC\b/i);
+  if (!match) return null;
+  const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  const month = months.indexOf(match[1].toLowerCase());
+  const year = Number(match[3]), day = Number(match[2]);
+  const rawHour = Number(match[4]);
+  if (month < 0 || rawHour < 1 || rawHour > 12) return null;
+  const hour = rawHour % 12 + (match[6].toUpperCase() === 'PM' ? 12 : 0);
+  const iso = new Date(Date.UTC(year, month, day, hour, Number(match[5])));
+  if (iso.getUTCFullYear() !== year || iso.getUTCMonth() !== month || iso.getUTCDate() !== day) return null;
+  return iso.toISOString();
 }
 
 function sourceId(value) {
@@ -526,6 +544,8 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     const href = hit[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
     const page = href && allowedPageUrl(href.replace(/&amp;/gi, "&"), site);
     if (!page || page === site.home || candidates.has(page)) continue;
+    if (source === 'crichd' &&
+        !/^\/event\/[a-z0-9-]+-vs-[a-z0-9-]+\/?$/i.test(new URL(page).pathname)) continue;
     const card = matchCardMarkup(html, hit);
     const cardSport = explicitFixtureSport(card || hit[0]);
     const footballLink = /\b(?:soccer|football)\b/i.test(page);
@@ -560,14 +580,15 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
       const existing=embedded.rows.get(candidate.page);
       return !(existing?.match_time||candidate.kickoff)||
         !(existing?.home_logo||candidate.badges.home)||!(existing?.away_logo||candidate.badges.away);
-    }).slice(0, 8);
+    }).slice(0, source === 'crichd' ? 24 : 8);
   for (let offset = 0; offset < needDetail.length; offset += 3) {
     if(Date.now()>=deadline)break;
     await Promise.all(needDetail.slice(offset, offset + 3).map(async item => {
       try {
         const detail = await publicHtml(item.page, fetcher, {withClock: true, now,
           allowedHost: site.host,timeoutMs:Math.min(1800,deadline-Date.now())});
-        const exact = pageKickoff(detail.html);
+        const exact = pageKickoff(detail.html) ??
+          (source === 'crichd' ? crichdUtcKickoff(detail.html) : null);
         const estimated = exact ? null :
           countdownKickoff(detail.html, detail.observedAt, detail.clockFresh);
         if (!item.kickoff) {
@@ -673,7 +694,28 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
     ? allowedPageUrl(body.page_url,site) : null;
   if (!page) return {ok: true, source, lines: [], line_count: 0,
     ready: false, message: "No verified public match page."};
-  let firstHtml = null, configured = [];
+  let firstHtml = null, configured = [], browserPlayerUrl = null;
+  if (source === 'crichd') {
+    try {
+      // Only the publisher's explicit Watch link is eligible for the
+      // user-initiated browser observer. Never synthesize session/stream URLs.
+      const read = await readPublicSource(page,{
+        fetcher,allowedHosts:[site.host],timeoutMs:2500,
+      });
+      firstHtml = read.text;
+      browserPlayerUrl = publishedPlayerPages(firstHtml,read.url)
+        .map(ref => ref.url)
+        .find(value => {
+          const target = new URL(value);
+          return target.protocol === 'https:' &&
+            (target.hostname === 'playerbee.top' ||
+             target.hostname === 'www.playerbee.top');
+        }) ?? null;
+    } catch (_) {
+      // Keep the public HTML media resolver available if a watch-link
+      // lookup fails. An inaccessible page is not a confirmed stream.
+    }
+  }
   if (source === 'roxie') {
     const read = await readPublicSource(page,{fetcher,allowedHosts:[site.host],timeoutMs:2500});
     firstHtml = read.text;
@@ -687,7 +729,17 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   }
   const lines = result.lines.map((line, i) => {
     const streamType = line.stream_type || (/\.mpd(?:\?|$)/i.test(line.url) ? "dash" : /\.mp4(?:\?|$)/i.test(line.url) ? "mp4" : "hls");
+    const parent = source === 'crichd' ? publicSourceUrl(line.referer) : null;
+    const player = parent ? new URL(parent) : null;
+    // The inspected CricHD-linked PlayerBee uses origin-only Referer on
+    // cross-origin HLS requests. Keep this scoped to that player, not other
+    // source adapters or every third-party media host.
+    const playerOrigin = player &&
+      (player.hostname === 'playerbee.top' ||
+       player.hostname === 'www.playerbee.top')
+      ? player.origin : null;
     return {...line,
+      ...(playerOrigin ? {referer:playerOrigin+'/',origin:playerOrigin} : {}),
       label: site.label + " • " + ({dash:"DASH / MPD",mp4:"MP4",hls:"HLS / M3U8"}[streamType] || "Media") + " " + (i+1),
       stream_type: streamType, resolution:"Auto", health_status:"unknown",
     };
@@ -698,6 +750,7 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   }
   return {ok: true, source, ready: lines.length > 0,
     lines, line_count: lines.length, live_status: false,
+    ...(browserPlayerUrl ? {browser_player_url:browserPlayerUrl} : {}),
     diagnostics:{pages_checked:result.pagesChecked,
       content_state:lines.length?'media_found':result.failures.length?'player_unavailable':'no_public_media',
       access_denied:result.failures.some(error=>/HTTP (?:401|403)/.test(error)),

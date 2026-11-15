@@ -10,5 +10,8 @@ void main(){
       scrollable: find.byType(Scrollable).first);
   expect(find.text('RoxieStreams'), findsOneWidget);
   expect(find.text('Rojadirecta'), findsNothing);
+  await tester.scrollUntilVisible(find.text('CricHD'), 180,
+      scrollable: find.byType(Scrollable).first);
+  expect(find.text('CricHD'), findsOneWidget);
  });
 }

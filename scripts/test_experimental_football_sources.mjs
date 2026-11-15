@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   experimentalFootballSites, isExperimentalFootballSource,
   experimentalMatches, experimentalStreams, explicitKickoff,
-  configuredRoxiePublicMedia,
+  configuredRoxiePublicMedia, crichdUtcKickoff,
 } from '../supabase/functions/_shared/experimental_football_sources.mjs';
 
 const home = 'https://roxiestreams.su/soccer';
@@ -12,11 +12,12 @@ const pages = (records) => async url => new Response(
   {headers:{'content-type':'text/html'}},
 );
 
-test('The maintained experimental provider is only RoxieStreams',async()=>{
-  assert.deepEqual(Object.keys(experimentalFootballSites),['roxie']);
+test('Only configured football providers are enabled',async()=>{
+  assert.deepEqual(Object.keys(experimentalFootballSites),['roxie','crichd']);
+  assert.equal(isExperimentalFootballSource('crichd'),true);
   assert.equal(isExperimentalFootballSource('roxie'),true);
   for(const source of [
-    'camel','xoilac','livetv','crichd','rojadirecta','vipbox',
+    'camel','xoilac','livetv','rojadirecta','vipbox',
     'viprow','score088','sports808','livextv','streamfree','ppv',
   ]) {
     assert.equal(isExperimentalFootballSource(source),false);
@@ -106,4 +107,46 @@ test('Roxie public media resolver returns unverified HLS only',async()=>{
 test('Kickoff is used only when publisher gives explicit timezone',()=>{
   assert.equal(explicitKickoff('Nov 12 20:00'),null);
   assert.equal(explicitKickoff('2026-11-12T20:00:00+06:30'),'2026-11-12T13:30:00.000Z');
+});
+
+test('CricHD football match cards use publisher UTC times for MMT display',async()=>{
+  const page = 'https://crichd.pk/event/england-vs-spain';
+  const root = 'https://crichd.pk/sports/soccer-streams';
+  const result = await experimentalMatches('crichd',{fetcher:pages({
+    [root]: '<a href="/event/england-vs-spain">England Spain</a><a href="/leagues/">Browse all leagues</a>',
+    [page]: '<h2>Nations League</h2><h3>Nov 15, 2026 at 07:45 PM UTC</h3>',
+  })});
+  assert.equal(result.results,1);
+  assert.equal(result.matches[0].home_team,'England');
+  assert.equal(result.matches[0].away_team,'Spain');
+  assert.equal(result.matches[0].match_time,'2026-11-15T19:45:00.000Z');
+  assert.deepEqual(result.diagnostics.available_days_mmt,['2026-11-16']);
+  assert.equal(result.matches[0].anchors[0].page_url,page);
+});
+
+test('CricHD match tap follows explicitly published Watch page for public HLS only',async()=>{
+  const matchPage = 'https://crichd.pk/event/england-vs-spain';
+  const playerPage = 'https://playerbee.top/charlie/england-vs-spain/3669';
+  const result = await experimentalStreams('crichd',{page_url:matchPage},{
+    fetcher:pages({
+      [matchPage]: '<a href="'+playerPage+'">Watch</a>',
+      [playerPage]: '<video src="https://cdn.example.org/live/stream.m3u8"></video>',
+    }),
+  });
+  assert.equal(result.lines.length,1);
+  assert.equal(result.browser_player_url,playerPage);
+  assert.equal(result.lines[0].stream_type,'hls');
+  assert.equal(result.lines[0].referer,'https://playerbee.top/');
+  assert.equal(result.lines[0].origin,'https://playerbee.top');
+  assert.equal(result.diagnostics.playback_verified,false);
+});
+
+test('CricHD rejects a clock with no UTC and foreign match pages',async()=>{
+  assert.equal(crichdUtcKickoff('Nov 16, 2026 at 07:45 PM'),null);
+  assert.equal(crichdUtcKickoff('Nov 16, 2026 at 07:45 PM UTC'),'2026-11-16T19:45:00.000Z');
+  const result=await experimentalMatches('crichd',{fetcher:pages({
+    'https://crichd.pk/sports/soccer-streams':
+      '<a href="https://foreign.example.com/event/england-vs-spain">England Spain</a>',
+  })});
+  assert.equal(result.results,0);
 });

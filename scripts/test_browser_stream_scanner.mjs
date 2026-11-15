@@ -43,6 +43,22 @@ test("collector retains HLS/DASH/MP4, dedupes, and rejects internal hosts",()=>{
   assert.equal(browserMediaType("https://cdn.example.org/live/stream","application/dash+xml"),"dash");
 });
 
+test("authorized browser can observe public HTTPS HLS on port 7059",()=>{
+  const c=createMediaCollector("https://player.example.org/watch");
+  c.observe("https://edge.example.org:7059/hls/live.m3u8?expires=123");
+  c.observe("https://edge.example.org:7059/hls/live.m3u8?expires=123");
+  c.observe("https://127.0.0.1:7059/hls/unsafe.m3u8");
+  c.observe("https://user:pass@edge.example.org:7059/hls/unsafe.m3u8");
+  c.observe("https://edge.example.org:7060/hls/unsafe.m3u8");
+  assert.equal(c.links.length,1);
+  assert.equal(c.links[0].type,"hls");
+  assert.equal(c.links[0].url,"https://edge.example.org:7059/hls/live.m3u8?expires=123");
+  assert.equal(c.links[0].referer,"https://player.example.org/watch");
+  assert.equal(browserMediaType("https://edge.example.org:7059/hls/live.m3u8"),"hls");
+  assert.equal(browserMediaType("https://edge.example.org:7060/hls/live.m3u8"),null);
+  assert.throws(()=>createMediaCollector("https://player.example.org:7059/watch"),/Invalid public page URL/);
+});
+
 test("iframe media retains its public initiating document without reading headers",()=>{
   const collector=createMediaCollector("https://catalog.example.org/match");
   collector.observe("https://cdn.example.org/master.m3u8");
