@@ -213,6 +213,60 @@ const tests = [];
 function test(name, run) { tests.push({ name, run }); }
 const failures = h => h.events.filter(event => event.name === 'playback line failed');
 
+const routedSource = () => ({...source('hls','Sports'),
+  url:'https://football-api.nyeinchanaung.us.ci/p/opaque/index.m3u8',
+  routeFallbackUrl:'https://nca25-live-relay.vercel.app/p/opaque/index.m3u8'});
+
+test('healthy Cloudflare playback never loads Vercel media', async () => {
+  const line=routedSource(), h=createHarness({ios:false});
+  await h.open([line]);
+  h.video.currentTime=4;h.video.emit('timeupdate');await h.tick(5000);
+  assert.deepEqual(h.loads.map(x=>x.url),[line.url]);
+  assert.deepEqual(h.plays,[line.url]);
+  assert.equal(h.events.filter(e=>e.name==='playback route fallback').length,0);
+});
+test('failed primary changes route once before abandoning the real line', async () => {
+  const line=routedSource(), second=source('hls','second');
+  const h=createHarness({ios:false,plans:{[line.url]:{loadError:{category:1,code:1002}}}});
+  await h.open([line,second]);
+  assert.deepEqual(h.plays,[line.routeFallbackUrl]);assert.equal(failures(h).length,0);
+  assert.equal(h.events.filter(e=>e.name==='playback route fallback').length,1);
+  h.players.at(-1).listeners.get('error')({detail:{category:6,code:6001}});
+  await h.tick(1000);
+  assert.deepEqual(h.plays,[line.routeFallbackUrl,second.url]);
+  assert.equal(h.loads.filter(x=>x.url===line.routeFallbackUrl).length,1);
+});
+test('blocked primary has a deadline and late completion cannot restart it', async () => {
+  const line=routedSource(),gate=deferred();
+  const h=createHarness({ios:false,plans:{[line.url]:{loadGate:gate}}});
+  const opening=h.open([line]);await flush();await h.tick(7900);
+  assert.deepEqual(h.plays,[]);await h.tick(200);
+  assert.deepEqual(h.plays,[line.routeFallbackUrl]);
+  gate.resolve();await opening;
+  assert.deepEqual(h.plays,[line.routeFallbackUrl]);
+  await h.choose(0);
+  assert.equal(h.loads.at(-1).url,line.routeFallbackUrl);
+  await h.close();await h.open([line]);
+  assert.equal(h.loads.at(-1).url,line.url,'a new session retries Cloudflare');
+});
+test('closing during a blocked primary never starts the relay later', async () => {
+  const line=routedSource(),gate=deferred();
+  const h=createHarness({ios:false,plans:{[line.url]:{loadGate:gate}}});
+  const opening=h.open([line]);await flush();await h.close();await h.tick(20000);
+  gate.resolve();await opening;
+  assert.deepEqual(h.loads.map(x=>x.url),[line.url]);assert.deepEqual(h.plays,[]);
+});
+test('a failed active route reconnects the same line and ignores the old decoder', async () => {
+  const line=routedSource(),h=createHarness({ios:false});
+  await h.open([line]);
+  const old=h.players[0];
+  old.listeners.get('error')({detail:{category:6,code:6001}});await flush();
+  assert.deepEqual(h.plays,[line.url,line.routeFallbackUrl]);
+  old.listeners.get('error')({detail:{category:6,code:6001}});await flush();
+  assert.equal(h.loads.length,2);
+  assert.equal(failures(h).length,0);
+});
+
 test('viewer home keeps web player hidden until WATCH is explicitly requested', async () => {
   // Regression: portrait @media once set display:flex even when .open was absent.
   // It obscured the entire Flutter home on a cold Chrome/Safari page load.

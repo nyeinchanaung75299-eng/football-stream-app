@@ -156,6 +156,7 @@ class NativePlayerActivity : Activity() {
     private var displayMode = 0 // 0=Fit, 1=Full, 2=Zoom
 
     private var sources = JSONArray()
+    private val routeOverrides = mutableMapOf<Int, String>()
     private var selectedServerIndex = 0
     private var matchId = ""
     private var sessionId = ""
@@ -701,14 +702,16 @@ class NativePlayerActivity : Activity() {
         selectedServerIndex = index
         renderServerRail()
         val source = sources.optJSONObject(index) ?: return
-        val url = source.optString("url").trim()
+        val url = routeOverrides[index] ?: source.optString("url").trim()
         if (url.isBlank()) {
             tryNextServer("Empty stream URL")
             return
         }
 
         sameLineRecoveryUsed = recoveringSameLine
-        progressWatchdog = PlaybackProgressWatchdog()
+        progressWatchdog = PlaybackProgressWatchdog(
+            startupTimeoutMs = if (hasPendingRoute(index)) 8000L else 20000L
+        )
         openingStartedAt = SystemClock.elapsedRealtime()
         progressWatchdog.resetBaseline(openingStartedAt, 0L)
         startedReported = false
@@ -954,8 +957,25 @@ class NativePlayerActivity : Activity() {
         progressCheck = null
     }
 
+    // A route is not a second line. Try it once for this line and session,
+    // before marking the real stream failed or changing the chooser selection.
+    private fun hasPendingRoute(index: Int): Boolean =
+        !routeOverrides.containsKey(index) &&
+            !sources.optJSONObject(index)?.optString("routeFallbackUrl").isNullOrBlank()
+
+    private fun tryPlaybackRoute(): Boolean {
+        val index = selectedServerIndex
+        if (!hasPendingRoute(index)) return false
+        val fallback = sources.optJSONObject(index)?.optString("routeFallbackUrl") ?: return false
+        routeOverrides[index] = fallback
+        emitPlaybackEvent("playback route fallback", mapOf("route" to "vercel"))
+        playServer(index)
+        return true
+    }
+
     private fun recoverOrFallback(reason: String) {
         stopProgressCheck()
+        if (tryPlaybackRoute()) return
         if (!sameLineRecoveryUsed) {
             emitPlaybackEvent("playback recovery", mapOf(
                 "reason" to reason,
@@ -975,6 +995,7 @@ class NativePlayerActivity : Activity() {
 
     private fun tryNextServer(message: String) {
         stopProgressCheck()
+        if (tryPlaybackRoute()) return
         autoFallbackTried.add(selectedServerIndex)
         renderServerRail()
         for (i in 0 until sources.length()) {

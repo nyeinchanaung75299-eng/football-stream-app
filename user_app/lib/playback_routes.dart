@@ -9,12 +9,12 @@ const _protectedPlaybackHosts = <String>{
 };
 const _relayTransports = {'vercel-fallback', 'cloudflare-fallback'};
 
-/// One selectable row per actual stream. Event playback uses the verified
-/// Vercel relay; Channels opt in explicitly. Do not manufacture alias backups.
+/// One selectable row per actual stream. Events try Cloudflare first and keep
+/// Vercel as an internal, failure-only route. Channels opt in explicitly.
 /// Rewriting a protected route preserves its encrypted token, headers and DRM.
 List<Map<String, dynamic>> playbackSources(
   List<Map<String, dynamic>> sources, {
-  bool useVercel = true,
+  bool? useVercel,
 }) {
   final output = <Map<String, dynamic>>[];
   final seen = <String>{};
@@ -33,7 +33,7 @@ List<Map<String, dynamic>> playbackSources(
         ? uri
               .replace(
                 host: Uri.parse(
-                  useVercel ? vercelBackupBase : cloudflarePublicBase,
+                  useVercel == true ? vercelBackupBase : cloudflarePublicBase,
                 ).host,
               )
               .toString()
@@ -52,6 +52,14 @@ List<Map<String, dynamic>> playbackSources(
       );
     }
     row.remove('transport');
+    // Never trust route metadata from a source response. Derive the fallback
+    // solely from our fixed protected hosts, retaining the opaque token.
+    row.remove('routeFallbackUrl');
+    if (protected && useVercel == null) {
+      row['routeFallbackUrl'] = uri
+          .replace(host: Uri.parse(vercelBackupBase).host)
+          .toString();
+    }
     output.add(row);
   }
   return output;

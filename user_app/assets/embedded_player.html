@@ -575,6 +575,7 @@
     let controlsTimer=null;
     let displayMode='fit';
     let autoFallbackTried=new Set();
+    const routeOverrides=new Map();
     let playbackToken=0;
     let playbackStartedToken=-1;
     let playbackAttemptStartedAt=0, activeBuffering=null;
@@ -813,7 +814,7 @@
 
     function armStartupWatchdog(index,token){
       if(startupTimer!==null)clearTimeout(startupTimer);
-      const timeoutMs=isIOS()
+      const timeoutMs=hasPendingRoute(index)?8000:isIOS()
         ? (sourceType(sources[index]||{})==='dash'?30000:12000)
         : startupTimeoutMs;
       startupTimer=setTimeout(()=>{
@@ -1036,11 +1037,22 @@
       return {ok:true, reason:''};
     }
 
+    function hasPendingRoute(index){
+      return !routeOverrides.has(index) && !!String(sources[index]?.routeFallbackUrl||'').trim();
+    }
+
     async function fallbackToNextLine(failedIndex,message,token,reason='line_unavailable',details={}){
       if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
       fallbackScheduledToken=token;
       clearPlaybackWatchdogs();
       try{video.pause()}catch(_){}
+      if(hasPendingRoute(failedIndex) && reason!=='unsupported_browser'){
+        routeOverrides.set(failedIndex,String(sources[failedIndex].routeFallbackUrl));
+        capturePlayerEvent('playback route fallback',{route:'vercel',selected_index:failedIndex});
+        // loadSource invalidates old events synchronously before awaiting teardown.
+        await loadSource(failedIndex,false);
+        return;
+      }
       autoFallbackTried.add(failedIndex);
       const failed=sources[failedIndex]||{};
       capturePlayerEvent('playback line failed',{
@@ -1453,7 +1465,7 @@
       if(!sources.length){showMessage('No stream source.');return}
       if(userSelected){autoFallbackTried.clear();iosRecoveryAttempts.delete(index)}
       index=Math.max(0,Math.min(Number(index)||0,sources.length-1));
-      const source=sources[index], url=String(source.url||'').trim(), type=sourceType(source);
+      const source=sources[index], url=String(routeOverrides.get(index)||source.url||'').trim(), type=sourceType(source);
       const support=sourceSupport(source);
       let engineReadyMs=0;
 
@@ -2011,6 +2023,7 @@
     window.openFootballPlayer=async(sourcesJson,selectedIndex,title,matchId,sessionId)=>{
       try{const parsed=JSON.parse(String(sourcesJson||'[]'));sources=Array.isArray(parsed)?parsed.filter(x=>x&&x.url):[]}catch(_){sources=[]}
       autoFallbackTried.clear();
+      routeOverrides.clear();
       iosRecoveryAttempts.clear();
       const safeMatchId=String(matchId||'').trim();
       currentMatchId=/^[A-Za-z0-9_:-]{1,128}$/.test(safeMatchId)?safeMatchId:'';

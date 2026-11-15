@@ -45,6 +45,11 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
   late final mk.Player _player;
   late final VideoController _videoController;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
+  final Map<int, String> _routeOverrides = {};
+  bool _hasPendingRoute(int index) =>
+      !_routeOverrides.containsKey(index) &&
+      (widget.sources[index]['routeFallbackUrl'] ?? '').toString().isNotEmpty;
+
   final Set<int> _failedLines = <int>{};
 
   late int _selectedIndex;
@@ -430,7 +435,9 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
     _acceptProgress = false;
     _sawPlayingInAttempt = false;
     _userPaused = false;
-    _progress = NativePlaybackProgress();
+    _progress = NativePlaybackProgress(
+      startupTimeout: Duration(seconds: _hasPendingRoute(index) ? 8 : 20),
+    );
     _attemptClock
       ..reset()
       ..start();
@@ -462,7 +469,8 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
     }
 
     final source = widget.sources[index];
-    final url = (source['url'] ?? source['stream_url'] ?? '').toString().trim();
+    final url = (_routeOverrides[index] ?? source['url'] ?? source['stream_url'] ?? '')
+        .toString().trim();
     if (url.isEmpty) {
       await _fallbackToNext('empty_source');
       return;
@@ -511,6 +519,18 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
     // Claim this generation synchronously. A delayed error and watchdog cannot
     // both switch lines, and a stuck old open cannot disable the new deadline.
     _recoveryRequestedFor = _playbackToken;
+
+    if (_hasPendingRoute(_selectedIndex)) {
+      _routeOverrides[_selectedIndex] =
+          widget.sources[_selectedIndex]['routeFallbackUrl'].toString();
+      _sameLineRecoveryCount = 0;
+      unawaited(AnalyticsService.capture(
+        'playback route fallback',
+        properties: const {'route': 'vercel'},
+      ));
+      await _openLine(_selectedIndex, recovery: true);
+      return;
+    }
 
     if (_sameLineRecoveryCount < 1) {
       _sameLineRecoveryCount += 1;
