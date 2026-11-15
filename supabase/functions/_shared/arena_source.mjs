@@ -101,8 +101,8 @@ export async function arenaStreams(body,{fetcher=fetch,now=Date.now()}={}) {
   if (!page || page.origin!==new URL(HOME).origin || page.pathname!=='/' ||
       keys.some(key=>!permitted.includes(key)) || new Set(keys).size!==keys.length ||
       (modern && params.get('m')!==null && params.get('m')!=='1') ||
-      !/^\\d{1,16}$/.test(matchId) ||
-      (day != null && !/^\\d{4}-\\d{2}-\\d{2}$/.test(day))) {
+      !/^\d{1,16}$/.test(matchId) ||
+      (day != null && !/^\d{4}-\d{2}-\d{2}$/.test(day))) {
     throw new Error('Invalid Arena Koora match page.');
   }
   const {rows}=await catalog({date:day,fetcher,now});
