@@ -23,6 +23,7 @@ class StreamSourcePickerPage extends StatelessWidget {
     _SourceOption('cola', 'ColaTV', Icons.tv_rounded),
     _SourceOption('arena', 'Arena Koora', Icons.stadium_rounded),
     _SourceOption('roxie', 'RoxieStreams', Icons.sports_soccer_rounded),
+    // CricHD shows a football match catalogue; links resolve on match tap.
     _SourceOption('crichd', 'CricHD', Icons.sports_soccer_rounded),
   ];
 

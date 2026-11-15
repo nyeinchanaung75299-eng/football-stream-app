@@ -20,6 +20,7 @@ function response(payload,status=200) {
   }});
 }
 
+// Browser media discovery never fetches the observed HLS URLs itself.
 // Observe HTTPS HLS on the provider's public media port without allowing
 // that port for website scanning, redirects or server-side fetches. This
 // function only examines URLs already emitted by the authorized browser.
