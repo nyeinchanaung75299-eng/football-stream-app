@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   experimentalFootballSites, isExperimentalFootballSource,
   experimentalMatches, experimentalStreams, explicitKickoff,
-  configuredRoxiePublicMedia, crichdUtcKickoff,
+  configuredRoxiePublicMedia, crichdUtcKickoff, crichdPublishedWatchLinks,
 } from '../supabase/functions/_shared/experimental_football_sources.mjs';
 
 const home = 'https://roxiestreams.su/soccer';
@@ -149,4 +149,96 @@ test('CricHD rejects a clock with no UTC and foreign match pages',async()=>{
       '<a href="https://foreign.example.com/event/england-vs-spain">England Spain</a>',
   })});
   assert.equal(result.results,0);
+});
+
+test('CricHD exposes exactly its published Link 1 / Link 2 Watch buttons',async()=>{
+  const root='https://crichd.pk/sports/soccer-streams';
+  const page='https://crichd.pk/event/england-vs-spain';
+  const watch1='https://playerbee.top/charlie/england-vs-spain/1';
+  const watch2='https://playerbee.top/charlie/england-vs-spain/2';
+  const detail='<p>Nov 15, 2026 at 07:45 PM UTC</p><table>'+
+    '<tr><th>Streamer</th><th>Channel</th><th>Link</th></tr>'+
+    '<tr><td>✓</td><td>Link 1</td><td><a href="'+watch1+'">Watch</a></td></tr>'+
+    '<tr><td>✓</td><td>Link 2</td><td><a href="'+watch2+'"><b>Watch</b></a></td></tr>'+
+    '<tr><td>✓</td><td>Link 3</td><td>Unavailable</td></tr>'+
+    '</table>';
+  const links=crichdPublishedWatchLinks(detail,page);
+  assert.deepEqual(links.map(a=>a.nick_name),['Link 1','Link 2']);
+  assert.deepEqual(links.map(a=>a.watch_url),[watch1,watch2]);
+  assert.equal(new Set(links.map(a=>a.room_num)).size,2);
+  const data=await experimentalMatches('crichd',{fetcher:pages({
+    [root]:'<a href="/event/england-vs-spain">England vs Spain</a>',
+    [page]:detail,
+  })});
+  assert.equal(data.results,1);
+  assert.equal(data.matches[0].match_time,'2026-11-15T19:45:00.000Z');
+  assert.deepEqual(data.matches[0].anchors.map(a=>a.nick_name),['Link 1','Link 2']);
+  assert.ok(data.matches[0].anchors.every(a=>a.page_url===page));
+});
+
+test('CricHD selected Link 2 cannot resolve media from Link 1',async()=>{
+  const page='https://crichd.pk/event/england-vs-spain';
+  const watch1='https://playerbee.top/charlie/england-vs-spain/1';
+  const watch2='https://playerbee.top/charlie/england-vs-spain/2';
+  const detail='<table>'+
+    '<tr><td>Link 1</td><td><a href="'+watch1+'">Watch</a></td></tr>'+
+    '<tr><td>Link 2</td><td><a href="'+watch2+'">Watch</a></td></tr>'+
+    '</table>';
+  const seen=[];
+  const fetcher=async url=>{
+    seen.push(String(url));
+    return new Response({
+      [page]:detail,
+      [watch1]:'<video src="https://media.example.org/one.m3u8"></video>',
+      [watch2]:'<video src="https://media.example.org/two.m3u8"></video>',
+    }[url]??'',{headers:{'content-type':'text/html'}});
+  };
+  const result=await experimentalStreams('crichd',
+    {page_url:page,watch_url:watch2},{fetcher});
+  assert.deepEqual(result.lines.map(l=>l.url),['https://media.example.org/two.m3u8']);
+  assert.equal(result.browser_player_url,watch2);
+  assert.equal(result.lines[0].referer,'https://playerbee.top/');
+  assert.equal(result.lines[0].origin,'https://playerbee.top');
+  assert.equal(seen.includes(watch1),false);
+  const blocked=await experimentalStreams('crichd',
+    {page_url:page,watch_url:'https://playerbee.top/not-published'},{fetcher});
+  assert.equal(blocked.line_count,0);
+  assert.match(blocked.message,/not published/);
+});
+
+test('CricHD Link 1 preserves the observed Cowboys vs 49ers PlayerBee page',async()=>{
+  // A user-observed public Watch URL, not a hardcoded HLS link or a claim
+  // that the Cowboys NFL fixture is listed in the Soccer category.
+  const fixture='https://crichd.pk/event/test-home-vs-test-away';
+  const watch='https://playerbee.top/charlie/cowboys-vs-49ers/3688';
+  const html='<table><tr><td>Streamer</td><td>Link 1</td>'+
+    '<td><a href="'+watch+'">Watch</a></td></tr></table>';
+  const anchors=crichdPublishedWatchLinks(html,fixture);
+  assert.equal(anchors.length,1);
+  assert.equal(anchors[0].nick_name,'Link 1');
+  assert.equal(anchors[0].watch_url,watch);
+  const result=await experimentalStreams('crichd',
+    {page_url:fixture,watch_url:watch},{
+      fetcher:async url=>String(url)===watch
+        ? new Response('Forbidden',{status:403,headers:{'content-type':'text/html'}})
+        : new Response(html,{headers:{'content-type':'text/html'}}),
+    });
+  assert.equal(result.browser_player_url,watch);
+  assert.equal(result.line_count,0);
+  assert.equal(result.diagnostics.access_denied,true);
+});
+
+test('CricHD 403 player does not erase published numbered Watch choices',async()=>{
+  const page='https://crichd.pk/event/england-vs-spain';
+  const watch='https://playerbee.top/charlie/england-vs-spain/1';
+  const detail='<tr><td>Link 1</td><td><a href="'+watch+'">Watch</a></td></tr>';
+  const fetcher=async url=>String(url)===watch
+    ?new Response('Forbidden',{status:403,headers:{'content-type':'text/html'}})
+    :new Response(detail,{headers:{'content-type':'text/html'}});
+  const result=await experimentalStreams('crichd',
+    {page_url:page,watch_url:watch},{fetcher});
+  assert.equal(result.line_count,0);
+  assert.equal(result.browser_player_url,watch);
+  assert.equal(result.diagnostics.access_denied,true);
+  assert.equal(crichdPublishedWatchLinks(detail,page)[0].nick_name,'Link 1');
 });
