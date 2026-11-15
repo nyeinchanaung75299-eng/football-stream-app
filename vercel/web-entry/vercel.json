@@ -31,6 +31,14 @@
   ],
   "rewrites": [
     {
+      "source": "/football-stream-app/",
+      "destination": "https://nyeinchanaung75299-eng.github.io/football-stream-app/index.html"
+    },
+    {
+      "source": "/football-stream-app/admin/",
+      "destination": "https://nyeinchanaung75299-eng.github.io/football-stream-app/admin/index.html"
+    },
+    {
       "source": "/football-stream-app/:path*",
       "destination": "https://nyeinchanaung75299-eng.github.io/football-stream-app/:path*"
     }

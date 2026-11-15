@@ -1,6 +1,11 @@
 # NCA web entry
 
 A static Vercel CDN entry for the existing Viewer and Admin builds on GitHub Pages.
+
+Production entrypoints:
+
+- Viewer: https://nca25-web.vercel.app/
+- Admin: https://nca25-web.vercel.app/admin/
 The phone connects to this Vercel origin for HTML, Flutter JavaScript, local
 CanvasKit/WASM, fonts and player assets. Vercel fetches the fixed public Pages
 origin server-side; it never accepts a caller-supplied destination.
@@ -17,7 +22,14 @@ app build and `nca25-live-relay` project. Static delivery still consumes Vercel
 request/transfer quotas. New Pages releases appear through the same entry after
 normal cache revalidation; this project requires no Flutter rebuild.
 
-Validation: verify Viewer/Admin HTML, versioned bootstrap, compiled main bundle,
-local CanvasKit/WASM and cache headers; perform a fresh browser startup with the
-original GitHub Pages hostname blocked on the client. Physical phone VPN-off
-startup must be confirmed separately from this controlled browser test.
+Validation on 2026-11-15: fresh Chromium contexts with the original GitHub
+Pages hostname and owned Cloudflare API hosts blocked reached the Viewer first
+frame in 3382 ms and the Admin login first frame in 2921 ms. Both loaded HTML,
+bootstrap, compiled main bundle, local CanvasKit/WASM and fonts with HTTP 200
+and no browser errors. Root and Admin shortcuts resolved successfully. These
+are controlled connection measurements, not physical phone timings or a check
+of authenticated Admin mutations.
+
+A normal asset GET returned `Cache-Control: max-age=600`; the observed
+`x-vercel-cache` values were `MISS`, so a Vercel cache hit has not been established.
+Physical phone VPN-off startup must be confirmed separately.
