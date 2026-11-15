@@ -1,7 +1,7 @@
 // Experimental, read-only discovery for public football pages. Do not bypass
 // authentication, DRM, CAPTCHA, or a publisher's access restrictions.
 // Only expose HTTP(S) HLS/DASH URLs explicitly published by public players.
-import {publicSourceUrl, readPublicSource, discoverPublicMedia} from './public_source_media.mjs';
+import {publicSourceUrl, readPublicSource, discoverPublicMedia, publishedPlayerPages} from './public_source_media.mjs';
 export const experimentalFootballSites = Object.freeze({
   roxie: {label: "RoxieStreams",
     home: "https://roxiestreams.su/soccer",
@@ -694,7 +694,28 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
     ? allowedPageUrl(body.page_url,site) : null;
   if (!page) return {ok: true, source, lines: [], line_count: 0,
     ready: false, message: "No verified public match page."};
-  let firstHtml = null, configured = [];
+  let firstHtml = null, configured = [], browserPlayerUrl = null;
+  if (source === 'crichd') {
+    try {
+      // Only the publisher's explicit Watch link is eligible for the
+      // user-initiated browser observer. Never synthesize session/stream URLs.
+      const read = await readPublicSource(page,{
+        fetcher,allowedHosts:[site.host],timeoutMs:2500,
+      });
+      firstHtml = read.text;
+      browserPlayerUrl = publishedPlayerPages(firstHtml,read.url)
+        .map(ref => ref.url)
+        .find(value => {
+          const target = new URL(value);
+          return target.protocol === 'https:' &&
+            (target.hostname === 'playerbee.top' ||
+             target.hostname === 'www.playerbee.top');
+        }) ?? null;
+    } catch (_) {
+      // Keep the public HTML media resolver available if a watch-link
+      // lookup fails. An inaccessible page is not a confirmed stream.
+    }
+  }
   if (source === 'roxie') {
     const read = await readPublicSource(page,{fetcher,allowedHosts:[site.host],timeoutMs:2500});
     firstHtml = read.text;
@@ -719,6 +740,7 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   }
   return {ok: true, source, ready: lines.length > 0,
     lines, line_count: lines.length, live_status: false,
+    ...(browserPlayerUrl ? {browser_player_url:browserPlayerUrl} : {}),
     diagnostics:{pages_checked:result.pagesChecked,
       content_state:lines.length?'media_found':result.failures.length?'player_unavailable':'no_public_media',
       access_denied:result.failures.some(error=>/HTTP (?:401|403)/.test(error)),
