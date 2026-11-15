@@ -40,7 +40,7 @@ export function browserMediaType(rawUrl,mime="") {
   const observed=observedPublicMediaUrl(rawUrl);
   if(!observed)return null;
   const direct=classifyStream(rawUrl) ||
-    (observed.port==="7059" && /\\.m3u8$/i.test(observed.pathname) ? "hls" : null);
+    (observed.port==="7059" && /\.m3u8$/i.test(observed.pathname) ? "hls" : null);
   if(direct)return direct;
   const normalized=String(mime||"").toLowerCase().split(";")[0].trim();
   if(["application/vnd.apple.mpegurl","application/x-mpegurl","audio/mpegurl","audio/x-mpegurl"].includes(normalized))return "hls";
