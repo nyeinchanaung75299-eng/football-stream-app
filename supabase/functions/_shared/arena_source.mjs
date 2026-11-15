@@ -4,6 +4,8 @@ import { isFootballSourceRow } from './source_match_rows.mjs';
 const HOME = 'https://www.arena-koora.online/';
 const API = 'https://arenaaliive22.site/api/v1/matches';
 const kinds = {m3u8:'hls',mpd:'dash',flv:'flv',mp4:'mp4'};
+// Arena's published schedule uses Arabia Standard Time (UTC+03:00).
+const arenaDay = now => new Date(now + 3*3600000).toISOString().slice(0,10);
 
 function publicUrl(value) {
   try {
@@ -17,7 +19,7 @@ function football(row) {
   if (row?.sportId != null || row?.sport_id != null || row?.sport != null ||
       row?.categoryId != null || row?.category_id != null) return false;
   const league = String(row?.tournament?.name_en || row?.tournament?.name || '');
-  return /premier league|la liga|bundesliga|serie a|ligue [12]|champions league|europa league|الدوري (?:الإنجليزي|الإسباني|الإيطالي|الألماني|الفرنسي)|دوري أبطال أوروبا|الدوري الأوروبي/i.test(league) &&
+  return /premier league|la liga|bundesliga|serie a|ligue [12]|champions league|europa league|(?:uefa |european )?nations league|الدوري (?:الإنجليزي|الإسباني|الإيطالي|الألماني|الفرنسي)|دوري أبطال أوروبا|الدوري الأوروبي|دوري الأمم الأوروبية/i.test(league) &&
     isFootballSourceRow({...row, sportId:1});
 }
 function servers(row) {
@@ -26,7 +28,12 @@ function servers(row) {
     server?.id && publicUrl(server?.url));
 }
 function name(value, kind = 'team') {
-  const known = {'ليدز يونايتد':'Leeds United','توتنهام':'Tottenham Hotspur',
+  const known = {
+    // Exact Arabic identities from Arena's published Nations League schedule.
+    'بلجيكا':'Belgium','إيطاليا':'Italy','فرنسا':'France','تركيا':'Türkiye',
+    'كرواتيا':'Croatia','التشيك':'Czechia','إسبانيا':'Spain','إنجلترا':'England',
+    'دوري الأمم الأوروبية':'UEFA Nations League',
+    'ليدز يونايتد':'Leeds United','توتنهام':'Tottenham Hotspur',
     'نابولي':'Napoli','لاتسيو':'Lazio','كريستال بالاس':'Crystal Palace','ليفربول':'Liverpool',
     'سندرلاند':'Sunderland','تشيلسي':'Chelsea','مان يونايتد':'Manchester United','أستون فيلا':'Aston Villa',
     'إنتر ميلان':'Inter Milan','كومو':'Como','أتلتيكو مدريد':'Atletico Madrid','برشلونة':'Barcelona',
@@ -39,8 +46,8 @@ function name(value, kind = 'team') {
   return known[raw] || englishFootballName(raw, kind);
 }
 async function catalog({date, fetcher, now}) {
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : new Date(now).toISOString().slice(0,10);
-  const target = new URL(API);target.search = new URLSearchParams({date:day,scope:'all',lang:'en'}).toString();
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : arenaDay(now);
+  const target = new URL(API);target.search = new URLSearchParams({date:day,scope:'all'}).toString();
   const controller = new AbortController();const timer = setTimeout(()=>controller.abort(),6500);
   try {
     const response = await fetcher(target.href,{redirect:'manual',signal:controller.signal,
@@ -66,7 +73,9 @@ function selectable(row, now) {
 export async function arenaMatches({date,fetcher=fetch,now=Date.now()}={}) {
   const {day,rows}=await catalog({date,fetcher,now});
   return rows.filter(row=>selectable(row,now)).map(row=>{
-    const id=String(row.id || '');const page=HOME+'?'+new URLSearchParams({match:id,date:day});
+    const id=String(row.id || '');
+    // Match detail pages now use arena_match/arena_date (not match/date).
+    const page=HOME+'?'+new URLSearchParams({m:'1',arena_match:id,arena_date:day});
     const live=['live','inprogress'].includes(String(row.state).toLowerCase());
     const time=Date.parse(row.start_at || '');
     return {source:'arena',source_id:id,schedule_id:id,sport_id:1,
@@ -83,11 +92,21 @@ export async function arenaMatches({date,fetcher=fetch,now=Date.now()}={}) {
 }
 export async function arenaStreams(body,{fetcher=fetch,now=Date.now()}={}) {
   const page=publicUrl(body?.page_url);
+  const params=page?.searchParams;
+  const keys=params?[...params.keys()]:[];
+  const modern=params?.has('arena_match') ?? false;
+  const permitted=modern?['m','arena_match','arena_date']:['match','date'];
+  const matchId=params?.get(modern?'arena_match':'match') || '';
+  const day=params?.get(modern?'arena_date':'date');
   if (!page || page.origin!==new URL(HOME).origin || page.pathname!=='/' ||
-      [...page.searchParams.keys()].some(key=>!['match','date'].includes(key)) ||
-      !/^\d{1,16}$/.test(page.searchParams.get('match') || '')) throw new Error('Invalid Arena Koora match page.');
-  const {rows}=await catalog({date:page.searchParams.get('date'),fetcher,now});
-  const row=rows.find(item=>String(item.id)===page.searchParams.get('match'));
+      keys.some(key=>!permitted.includes(key)) || new Set(keys).size!==keys.length ||
+      (modern && params.get('m')!==null && params.get('m')!=='1') ||
+      !/^\\d{1,16}$/.test(matchId) ||
+      (day != null && !/^\\d{4}-\\d{2}-\\d{2}$/.test(day))) {
+    throw new Error('Invalid Arena Koora match page.');
+  }
+  const {rows}=await catalog({date:day,fetcher,now});
+  const row=rows.find(item=>String(item.id)===matchId);
   if (!row || !selectable(row,now)) return {ok:true,source:'arena',lines:[],live_status:false};
   const requested=String(body.room_num || '');const found=new Map();
   for (const [index,server] of servers(row).entries()) {
