@@ -6,6 +6,11 @@ export const experimentalFootballSites = Object.freeze({
   roxie: {label: "RoxieStreams",
     home: "https://roxiestreams.su/soccer",
     host: "roxiestreams.su"},
+  // VIPBoxTV lists football fixtures on its public football category page.
+  // Its video player may be session-bound: only public media URLs are resolved.
+  vipbox: {label: "VIPBoxTV",
+    home: "https://www.vipboxtv.st/football-stream",
+    host: "vipboxtv.st"},
 });
 
 export const isExperimentalFootballSource = (source) =>
@@ -526,13 +531,19 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
     const href = hit[1].match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
     const page = href && allowedPageUrl(href.replace(/&amp;/gi, "&"), site);
     if (!page || page === site.home || candidates.has(page)) continue;
+    if (source === 'vipbox' && !/^\/football\/[a-z0-9-]+-stream-live\/?$/i.test(new URL(page).pathname)) continue;
     const card = matchCardMarkup(html, hit);
     const cardSport = explicitFixtureSport(card || hit[0]);
     const footballLink = /\b(?:soccer|football)\b/i.test(page);
     // Even a football-looking URL must not turn a labelled basketball
     // or cricket card into a football fixture.
     if (cardSport === "other") continue;
-    const teams = teamsFromLink(page, hit[2]) ?? structuredCardTeams(card || hit[0]);
+    // VIPBox event slugs end in "-stream-live". Do not append those
+    // editorial words to the away team's actual name.
+    const teams = teamsFromLink(
+      source === 'vipbox' ? page.replace(/-stream-live(?=\/?(?:\?|$))/i, '') : page,
+      hit[2],
+    ) ?? structuredCardTeams(card || hit[0]);
     if (!teams) continue;
     const footballCatalog = /(?:football|soccer)/i.test(new URL(site.home).pathname);
     if (!footballCatalog && !footballLink && cardSport !== "football") continue;
@@ -549,7 +560,12 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
       (card ? countdownKickoff(card, catalog.observedAt, catalog.clockFresh) : null);
     const kickoff = explicit ?? countdown;
     const timingSource = explicit ? "explicit" : countdown ? "countdown" : "none";
-    candidates.set(page, {page, teams, kickoff, timingSource,
+    // A visible HH:mm without a published timezone is not a UTC kickoff.
+    // Keep it labelled as source time rather than inventing Myanmar time.
+    const sourceTime = source === 'vipbox'
+      ? normalizeText(hit[2]).match(/^(\d{1,2}:[0-5]\d)\b/)?.[1] ?? null
+      : null;
+    candidates.set(page, {page, teams, kickoff, timingSource, sourceTime,
       badges: htmlTeamBadges(card || hit[0], teams, site)});
   }
 
@@ -593,9 +609,13 @@ export async function experimentalMatches(source, {fetcher = fetch, now = Date.n
 
   // Prefer the embedded state when the same page is represented in both.
   for (const row of candidates.values()) {
-    if (!embedded.rows.has(row.page)) embedded.rows.set(row.page,
-      eventRecord(source,site,row.page,row.teams,row.kickoff,row.timingSource,row.badges));
-    else {
+    if (!embedded.rows.has(row.page)) {
+      const event = eventRecord(source,site,row.page,row.teams,row.kickoff,row.timingSource,row.badges);
+      if (source === 'vipbox' && !row.kickoff && row.sourceTime) {
+        event.time_label = row.sourceTime + ' (source timezone unverified)';
+      }
+      embedded.rows.set(row.page, event);
+    } else {
       const original = embedded.rows.get(row.page);
       embedded.rows.set(row.page, {
         ...original,
