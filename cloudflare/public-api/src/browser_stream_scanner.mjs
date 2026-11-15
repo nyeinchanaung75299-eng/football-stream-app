@@ -20,10 +20,28 @@ function response(payload,status=200) {
   }});
 }
 
+// Observe HTTPS HLS on the provider's public media port without allowing
+// that port for website scanning, redirects or server-side fetches. This
+// function only examines URLs already emitted by the authorized browser.
+function observedPublicMediaUrl(rawUrl) {
+  const standard=rejectTarget(rawUrl);
+  if(standard)return standard;
+  try {
+    const url=new URL(rawUrl);
+    if(url.protocol!=="https:" || url.port!=="7059")return null;
+    const originCheck=new URL(url.href);
+    originCheck.port="";
+    // Reuse the scanner's public-host, credential and hash restrictions.
+    return rejectTarget(originCheck.href) ? url : null;
+  } catch {return null;}
+}
+
 export function browserMediaType(rawUrl,mime="") {
-  const direct=classifyStream(rawUrl);
+  const observed=observedPublicMediaUrl(rawUrl);
+  if(!observed)return null;
+  const direct=classifyStream(rawUrl) ||
+    (observed.port==="7059" && /\\.m3u8$/i.test(observed.pathname) ? "hls" : null);
   if(direct)return direct;
-  if(!rejectTarget(rawUrl))return null;
   const normalized=String(mime||"").toLowerCase().split(";")[0].trim();
   if(["application/vnd.apple.mpegurl","application/x-mpegurl","audio/mpegurl","audio/x-mpegurl"].includes(normalized))return "hls";
   if(normalized==="application/dash+xml")return "dash";
@@ -38,7 +56,7 @@ export function createMediaCollector(pageUrl){
   return {
     observe(url,mime="",documentUrl=""){
       if(found.size>=MAX_RESULTS)return;
-      const safe=rejectTarget(url);
+      const safe=observedPublicMediaUrl(url);
       const type=browserMediaType(url,mime);
       if(!safe||!type)return;
       const document=rejectTarget(documentUrl);
