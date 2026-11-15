@@ -729,7 +729,17 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   }
   const lines = result.lines.map((line, i) => {
     const streamType = line.stream_type || (/\.mpd(?:\?|$)/i.test(line.url) ? "dash" : /\.mp4(?:\?|$)/i.test(line.url) ? "mp4" : "hls");
+    const parent = source === 'crichd' ? publicSourceUrl(line.referer) : null;
+    const player = parent ? new URL(parent) : null;
+    // The inspected CricHD-linked PlayerBee uses origin-only Referer on
+    // cross-origin HLS requests. Keep this scoped to that player, not other
+    // source adapters or every third-party media host.
+    const playerOrigin = player &&
+      (player.hostname === 'playerbee.top' ||
+       player.hostname === 'www.playerbee.top')
+      ? player.origin : null;
     return {...line,
+      ...(playerOrigin ? {referer:playerOrigin+'/',origin:playerOrigin} : {}),
       label: site.label + " • " + ({dash:"DASH / MPD",mp4:"MP4",hls:"HLS / M3U8"}[streamType] || "Media") + " " + (i+1),
       stream_type: streamType, resolution:"Auto", health_status:"unknown",
     };
