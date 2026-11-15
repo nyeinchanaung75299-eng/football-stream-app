@@ -120,3 +120,59 @@ test('Arena accepts the legacy generated match URL and rejects unsafe modern par
     await assert.rejects(()=>websiteStreams('arena',{page_url:url},{fetcher}),/Invalid Arena/);
   }
 });
+
+
+test('Arena translates national teams from the current mobile Arabic schedule even before servers appear',async()=>{
+  const cases=[
+    ['ليختنشتاين','ليتوانيا','Liechtenstein','Lithuania'],
+    ['هولندا','ألمانيا','Netherlands','Germany'],
+    ['صربيا','اليونان','Serbia','Greece'],
+    ['مالطا','جبل طارق','Malta','Gibraltar'],
+  ];
+  const now=Date.parse('2030-11-16T19:00:00Z');
+  const fetcher=async()=>Response.json({matches:cases.map(([home,away],i)=>({
+    id:String(i+200),home_team:{name:home},away_team:{name:away},
+    tournament:{name:'دوري الأمم الأوروبية'},
+    start_at:'2030-11-17T02:15:00+03:00',state:'scheduled',servers:[],
+  }))});
+  const matches=await websiteMatches('arena',{date:'2030-11-16',fetcher,now});
+  assert.equal(matches.length,4);
+  for(let i=0;i<cases.length;i++){
+    assert.equal(matches[i].home_team,cases[i][2]);
+    assert.equal(matches[i].away_team,cases[i][3]);
+    assert.equal(matches[i].league,'UEFA Nations League');
+    assert.deepEqual(matches[i].anchors,[]);
+  }
+});
+
+test('Arena includes major European leagues, cups and other verified football categories',async()=>{
+  const fixtures=[
+    ['الدوري الإنجليزي','مانشستر سيتي','آرسنال','Premier League','Manchester City','Arsenal'],
+    ['الدوري الإسباني','ريال مدريد','فياريال','La Liga','Real Madrid','Villarreal'],
+    ['الدوري الألماني','بايرن ميونخ','بوروسيا دورتموند','Bundesliga','Bayern Munich','Borussia Dortmund'],
+    ['الدوري الإيطالي','روما','أتالانتا','Serie A','AS Roma','Atalanta'],
+    ['الدوري الفرنسي','باريس سان جيرمان','مارسيليا','Ligue 1','Paris Saint-Germain','Marseille'],
+    ['دوري المؤتمر الأوروبي','باريس سان جيرمان','ليون','UEFA Conference League','Paris Saint-Germain','Lyon'],
+    ['كأس ملك إسبانيا','ريال مدريد','برشلونة','Copa del Rey','Real Madrid','Barcelona'],
+    ['دوري أبطال آسيا','الهلال','النصر','AFC Champions League','الهلال','النصر'],
+  ];
+  const now=Date.parse('2030-11-16T19:00:00Z');
+  const fetcher=async()=>Response.json({matches:[
+    ...fixtures.map(([league,home,away],i)=>({
+      id:String(400+i),home_team:{name:home},away_team:{name:away},
+      tournament:{name:league},
+      start_at:'2030-11-17T02:15:00+03:00',state:'scheduled',servers:[],
+    })),
+    {id:'500',sportId:2,tournament:{name:'La Liga'},home_team:{name:'ريال مدريد'},
+      away_team:{name:'برشلونة'},start_at:'2030-11-17T02:15:00+03:00',servers:[]},
+    {id:'501',tournament:{name:'NBA'},home_team:{name:'Team A'},
+      away_team:{name:'Team B'},start_at:'2030-11-17T02:15:00+03:00',servers:[]},
+  ]});
+  const matches=await websiteMatches('arena',{date:'2030-11-16',fetcher,now});
+  assert.equal(matches.length,fixtures.length);
+  fixtures.forEach((item,i)=>{
+    assert.equal(matches[i].league,item[3]);
+    assert.equal(matches[i].home_team,item[4]);
+    assert.equal(matches[i].away_team,item[5]);
+  });
+});
