@@ -831,7 +831,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
       Map<String, dynamic> anchor, String provider) async {
     if (!mounted || !_currentSession || source != provider) return;
     final url =
-        (anchor['page_url'] ?? match['page_url'] ?? '').toString().trim();
+        (source == 'crichd'
+                ? (anchor['watch_url'] ?? anchor['page_url'] ?? match['page_url'])
+                : (anchor['page_url'] ?? match['page_url']))
+            .toString()
+            .trim();
     final uri = Uri.tryParse(url);
     if (uri == null ||
         !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
@@ -890,6 +894,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'room_num': room,
           'schedule_id': match['schedule_id'],
           'page_url': anchor['page_url'] ?? match['page_url'],
+          if (provider == 'crichd') 'watch_url': anchor['watch_url'],
           // Cola URLs are checked before the operator can import them.
           // Other rotating providers keep the fast metadata-only path.
           'skip_probe': provider != 'cola' && !_isExperimentalSource,
