@@ -26,6 +26,10 @@ service is required. Admin 2.5.15 is rebuilt with the existing functionality and
 signing continuity checks.
 
 Validation: 130 Viewer tests, 153 Admin tests, 66 shared Web player checks, native
-source-session checks and existing performance guards pass locally. Analyzer
-findings are existing informational deprecations. Browser integration and signed
-APK publication are checked before release.
+source-session checks and existing performance guards pass locally. The Web suite
+also covers a failing active route and stale decoder events (67 checks total).
+Analyzer findings are existing informational deprecations. Real ColaTV HLS video
+advanced five seconds at 1280x720 in both browser scenarios: healthy Cloudflare
+made 12 media requests and zero Vercel media requests; a blocked Cloudflare route
+fell back to Vercel and continued playing. These are controlled browser tests,
+not a physical phone VPN comparison or an overall billing percentage.

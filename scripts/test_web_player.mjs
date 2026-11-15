@@ -256,6 +256,16 @@ test('closing during a blocked primary never starts the relay later', async () =
   gate.resolve();await opening;
   assert.deepEqual(h.loads.map(x=>x.url),[line.url]);assert.deepEqual(h.plays,[]);
 });
+test('a failed active route reconnects the same line and ignores the old decoder', async () => {
+  const line=routedSource(),h=createHarness({ios:false});
+  await h.open([line]);
+  const old=h.players[0];
+  old.listeners.get('error')({detail:{category:6,code:6001}});await flush();
+  assert.deepEqual(h.plays,[line.url,line.routeFallbackUrl]);
+  old.listeners.get('error')({detail:{category:6,code:6001}});await flush();
+  assert.equal(h.loads.length,2);
+  assert.equal(failures(h).length,0);
+});
 
 test('viewer home keeps web player hidden until WATCH is explicitly requested', async () => {
   // Regression: portrait @media once set display:flex even when .open was absent.
