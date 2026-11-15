@@ -160,6 +160,19 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
             future: _guide,
             builder: (context, guideSnapshot) {
               final guide = guideSnapshot.data;
+              // Some broadcasters have a verified guide fixture even when it
+              // has not been separately published as an NCA match. Keep guide
+              // metadata visible in TV Schedule without creating a fixture,
+              // stream line, or claiming playback has been verified.
+              final guideListings =
+                  guide?.guide?.liveAndUpcomingMatchListings(
+                        days: TvScheduleService.guideDays,
+                      ) ??
+                      const <TvScheduleListing>[];
+              final visibleGuideListings = guideListings
+                  .where((row) => _view != 'live' || row.isLive)
+                  .take(60)
+                  .toList(growable: false);
               return RefreshIndicator(
                 onRefresh: () async => _refresh(),
                 child: ListView(
@@ -207,7 +220,8 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      '${matches.length} MATCH${matches.length == 1 ? '' : 'ES'}',
+                      '${matches.length} NCA MATCH${matches.length == 1 ? '' : 'ES'}'
+                      ' • ${visibleGuideListings.length} EPG LISTINGS',
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                         fontSize: 11,
@@ -216,9 +230,9 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
                       ),
                     ),
                     const SizedBox(height: 7),
-                    if (matches.isEmpty)
+                    if (matches.isEmpty && visibleGuideListings.isEmpty)
                       const _EmptySchedule()
-                    else
+                    else ...[
                       ...matches.map(
                         (match) => Padding(
                           padding: const EdgeInsets.only(bottom: 8),
@@ -228,6 +242,30 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
                           ),
                         ),
                       ),
+                      if (visibleGuideListings.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'EPG MATCH LISTINGS • GUIDE ONLY',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: .7,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        ...visibleGuideListings.map(
+                          (listing) => Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: _EpgScheduleCard(listing: listing),
+                          ),
+                        ),
+                        if (guideListings.length > visibleGuideListings.length &&
+                            _view != 'live')
+                          const Text('Showing the first 60 guide programmes.',
+                              style: TextStyle(fontSize: 11)),
+                      ],
+                    ],
                   ],
                 ),
               );
@@ -378,6 +416,43 @@ class _MatchScheduleCard extends StatelessWidget {
             title: airing.title,
           ),
       ],
+    );
+  }
+}
+
+/// A broadcaster programme listing is not an independently verified stream
+/// and must not silently become a published NCA match.
+class _EpgScheduleCard extends StatelessWidget {
+  const _EpgScheduleCard({required this.listing});
+
+  final TvScheduleListing listing;
+
+  @override
+  Widget build(BuildContext context) {
+    final mmt = listing.programme.start.toUtc().add(
+          const Duration(hours: 6, minutes: 30),
+        );
+    return Card(
+      color: FootballGuideColors.card,
+      child: ListTile(
+        dense: true,
+        title: Text(
+          listing.programme.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(
+          '${listing.channel.name} • ${DateFormat('dd MMM HH:mm').format(mmt)} MMT'
+          '\nEPG schedule only • playback not verified',
+          maxLines: 3,
+        ),
+        trailing: Text(
+          listing.isLive ? 'ON AIR\n(EPG)' : 'UPCOMING',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 10),
+        ),
+      ),
     );
   }
 }
