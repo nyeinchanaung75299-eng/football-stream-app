@@ -462,17 +462,24 @@ class _EpgScheduleCard extends StatelessWidget {
           listing.programme.title,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w700),
+          style: const TextStyle(
+            color: FootballGuideColors.text,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         subtitle: Text(
           '${listing.channel.name} • ${DateFormat('dd MMM HH:mm').format(mmt)} MMT'
           '\nEPG schedule only • playback not verified',
           maxLines: 3,
+          style: const TextStyle(color: FootballGuideColors.muted),
         ),
         trailing: Text(
           listing.isLive ? 'ON AIR\n(EPG)' : 'UPCOMING',
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 10),
+          style: const TextStyle(
+            color: FootballGuideColors.mint,
+            fontSize: 10,
+          ),
         ),
       ),
     );
