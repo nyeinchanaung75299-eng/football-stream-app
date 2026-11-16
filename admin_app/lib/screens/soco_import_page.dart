@@ -1025,7 +1025,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       // the publisher-linked PlayerBee page; retain manual DETECT.
       if (provider == 'crichd' && playerDenied && lines.isEmpty) {
         final browserPage = cricHdBrowserPlayerPage(
-            data is Map ? data['browser_player_url']?.toString() : null);
+            data['browser_player_url']?.toString());
         if (browserPage != null) {
           final choice = await showDialog<String>(
             context: context,
