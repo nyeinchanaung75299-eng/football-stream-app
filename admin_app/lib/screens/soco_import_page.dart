@@ -194,9 +194,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   static const _statusTtl = Duration(minutes: 2);
   // Check every visible room, but cap simultaneous resolver work so one slow
   // upstream cannot serialize the whole page or overload the gateway.
-  // Avoid saturating the same API used when an operator taps a room.
-  static const _statusProbeConcurrency = 4;
-  static const _statusProbeLimit = 16;
+  static const _statusProbeConcurrency = 12;
   int _anchorStatusEpoch = 0;
   String? _extractingAnchorKey;
   Timer? _sourceRefreshTimer;
@@ -611,12 +609,6 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
         final checked = _anchorStatusCheckedAt[key];
         if (sourceStatusIsFresh(checked, now, ttl: _statusTtl)) {
-          continue;
-        }
-        if (pending.length >= _statusProbeLimit) {
-          // Defer non-visible or distant fixtures until an explicit action;
-          // never label an unchecked source offline.
-          _anchorStatuses.putIfAbsent(key, () => 'unknown');
           continue;
         }
         _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'checking';
