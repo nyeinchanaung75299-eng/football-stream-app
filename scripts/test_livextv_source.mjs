@@ -99,7 +99,8 @@ test('External, private, and unpublished LiveXTV targets are rejected',async()=>
   assert.equal(unsupported.diagnostic_code,'source_not_published');
   for(const p of ['https://127.0.0.1/watch/32410',
     'https://not-livextv.pro/watch/32410','https://livextv.pro:8443/watch/32410',
-    'https://livextv.pro/watch/32410?auth=secret']){
+    'https://livextv.pro/watch/32410?auth=secret',
+    'https://livextv.pro/watch/32410?s=1&s=2']){
     const result=await liveXtvStreams({page_url:p},{fetcher});
     assert.equal(result.line_count,0);
   }
