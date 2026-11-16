@@ -483,7 +483,7 @@ jobs:
           cd /tmp/nca-admin-only-feed
           git switch -C feed origin/feed
 
-          ANDROID_BUILD_TOOLS="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          export ANDROID_BUILD_TOOLS="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           test -x "${ANDROID_BUILD_TOOLS}/apksigner"
           test -x "${ANDROID_BUILD_TOOLS}/aapt"
           PYTHONPATH="${GITHUB_WORKSPACE}/scripts" python3 - <<'PY'
