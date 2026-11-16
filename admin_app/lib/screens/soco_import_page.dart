@@ -900,6 +900,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
           // Cola URLs are checked before the operator can import them.
           // Other rotating providers keep the fast metadata-only path.
           'skip_probe': provider != 'cola' && !_isExperimentalSource,
+          if (provider == 'livextv') 'preview_only': true,
         },
       );
 
