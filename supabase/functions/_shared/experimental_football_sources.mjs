@@ -733,7 +733,8 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   if(source === 'livextv')return liveXtvStreams(body,{fetcher});
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
-  const deadline = Date.now() + 7000;
+  // For deliberate CricHD/Roxie selections, bound non-media page crawls.
+  const deadline = Date.now() + (source === 'crichd' || source === 'roxie' ? 4600 : 7000);
   let page = typeof body?.page_url === 'string' && body.page_url.trim()
     ? allowedPageUrl(body.page_url,site) : null;
   if (!page) return {ok: true, source, lines: [], line_count: 0,
@@ -781,9 +782,12 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   // With a numbered link selected, inspect ONLY that published player.
   // Do not return media from Link 2 when Link 1 was pressed.
   const mediaPage = chosenWatchUrl || page;
-  const result = await discoverPublicMedia(mediaPage,{fetcher,deadline,
-    firstHtml:chosenWatchUrl ? null : firstHtml,
-    initialAllowedHosts:[new URL(mediaPage).hostname]});
+  // Roxie already publishes configured media; skip redundant page crawling.
+  const result = source === 'roxie' && configured.length
+    ? {lines:configured, pagesChecked:1, failures:[]}
+    : await discoverPublicMedia(mediaPage,{fetcher,deadline,
+        firstHtml:chosenWatchUrl ? null : firstHtml,
+        initialAllowedHosts:[new URL(mediaPage).hostname]});
   result.lines = [...new Map([...result.lines,...configured].map(line=>[line.url,line])).values()];
   if (!result.lines.length && result.failures.some(error=>error.includes('outside configured provider'))) {
     throw Error('Source redirected outside configured provider');
