@@ -72,6 +72,15 @@ test('LiveXTV match list attaches real HD/SD choices to one published match',asy
   assert.deepEqual(list.diagnostics.available_days_mmt,['2026-11-17']);
   assert.equal(list.diagnostics.missing_kickoff_count,1);
 });
+test('LiveXTV falls back to the public home index if /live is inaccessible',async()=>{
+  const fetcher=async url=>String(url)===index
+    ?new Response('Forbidden',{status:403,headers:{'content-type':'text/html'}})
+    :htmlResponse(String(url)==='https://livextv.pro/'?fixtureIndex:watchPage);
+  const list=await liveXtvMatches({fetcher});
+  assert.equal(list.results,2);
+  assert.equal(list.matches[0].home_team,'Estonia');
+});
+
 test('Selecting SD never mixes media from HD and keeps health unknown',async()=>{
   const sd=page+'?s=2',media='https://video.example.org/public/live.m3u8';
   const fetcher=fetchPages({[page]:watchPage,[sd]:'<video src="'+media+'"></video>'});
