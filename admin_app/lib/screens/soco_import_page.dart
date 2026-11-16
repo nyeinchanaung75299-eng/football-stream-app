@@ -121,6 +121,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   static const _experimentalSourceNames = <String, String>{
     'roxie': 'RoxieStreams',
     'crichd': 'CricHD',
+    'livextv': 'LiveXTV',
   };
   bool get _isExperimentalSource =>
       _experimentalSourceNames.containsKey(source);
@@ -894,7 +895,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'room_num': room,
           'schedule_id': match['schedule_id'],
           'page_url': anchor['page_url'] ?? match['page_url'],
-          if (provider == 'crichd') 'watch_url': anchor['watch_url'],
+          if (provider == 'crichd' || provider == 'livextv')
+            'watch_url': anchor['watch_url'],
           // Cola URLs are checked before the operator can import them.
           // Other rotating providers keep the fast metadata-only path.
           'skip_probe': provider != 'cola' && !_isExperimentalSource,
@@ -959,7 +961,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
           _anchorLineCounts[statusKey] = lines.length;
           _anchorStatuses[statusKey] = sourceIsLive
               ? 'live'
-              : (hasHealthy || lines.isNotEmpty ? 'ready' : 'offline');
+              : (provider == 'livextv' && !hasHealthy
+                  ? 'unknown'
+                  : (hasHealthy || lines.isNotEmpty ? 'ready' : 'offline'));
         });
       }
 
