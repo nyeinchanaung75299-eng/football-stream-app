@@ -39,6 +39,7 @@ const arenaArabicNames = Object.freeze({
   'كأس الأمم الأفريقية - تصفيات':'Africa Cup of Nations Qualifiers',
   'موزمبيق':'Mozambique','إثيوبيا':'Ethiopia','اثيوبيا':'Ethiopia',
   'زامبيا':'Zambia','بوروندي':'Burundi','نيجيريا':'Nigeria',
+  'الهلال':'Al Hilal','النصر':'Al Nassr',
   'تنزانيا':'Tanzania','مصر':'Egypt','المغرب':'Morocco',
   'المغرب العربي':'Morocco','الجزائر':'Algeria','تونس':'Tunisia',
   'السنغال':'Senegal','غانا':'Ghana','الكاميرون':'Cameroon',
