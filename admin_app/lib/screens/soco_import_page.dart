@@ -18,6 +18,7 @@ import '../source_line_validation.dart';
 import '../source_match_search.dart';
 import '../services/stream_detector_service.dart';
 import '../services/website_detector_service.dart';
+import '../source_room_status.dart';
 import 'stream_detector_page.dart'
     if (dart.library.html) 'stream_detector_page_web.dart';
 
@@ -971,16 +972,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (current()) {
         setState(() {
           _anchorLineCounts[statusKey] = lines.length;
-          // Do not equate HTTP 401/403, absent public HLS, or an unprobed
-          // candidate with OFFLINE. Only confirmed healthy media is READY.
-          // Legacy source behavior (Soco/YYZB/Fawa/Cola/Arena) is unchanged.
-          final unknownUnlessHealthy = const {'crichd', 'roxie', 'livextv'}
-              .contains(provider);
-          _anchorStatuses[statusKey] = sourceIsLive
-              ? 'live'
-              : (unknownUnlessHealthy
-                  ? (hasHealthy ? 'ready' : 'unknown')
-                  : (hasHealthy || lines.isNotEmpty ? 'ready' : 'offline'));
+          _anchorStatuses[statusKey] = sourceRoomStatusFromLines(
+            provider: provider,
+            isLive: sourceIsLive,
+            hasHealthy: hasHealthy,
+            lineCount: lines.length,
+          );
         });
       }
 
