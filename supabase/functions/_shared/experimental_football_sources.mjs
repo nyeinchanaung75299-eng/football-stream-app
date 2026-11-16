@@ -792,6 +792,8 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   if (!result.lines.length && result.failures.some(error=>error.includes('outside configured provider'))) {
     throw Error('Source redirected outside configured provider');
   }
+  const deniedByPlayer = source === 'crichd' &&
+    result.failures.some(error => /HTTP (?:401|403)/.test(error));
   const lines = result.lines.map((line, i) => {
     const streamType = line.stream_type || (/\.mpd(?:\?|$)/i.test(line.url) ? "dash" : /\.mp4(?:\?|$)/i.test(line.url) ? "mp4" : "hls");
     const parent = source === 'crichd' ? publicSourceUrl(line.referer) : null;
@@ -818,9 +820,11 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
     ...(browserPlayerUrl ? {browser_player_url:browserPlayerUrl} : {}),
     diagnostics:{pages_checked:result.pagesChecked,
       content_state:lines.length?'media_found':result.failures.length?'player_unavailable':'no_public_media',
-      access_denied:result.failures.some(error=>/HTTP (?:401|403)/.test(error)),
+      access_denied:deniedByPlayer || result.failures.some(error=>/HTTP (?:401|403)/.test(error)),
       playback_verified:false},
     message: lines.length ? "Check permission and playback before importing." :
-      "No public HLS/DASH/MP4 URL found in the published page, public API or player chain. Player access may be unavailable.",
+      deniedByPlayer
+        ? "Selected player returned HTTP 401/403 to the server; browser playback can differ. HLS is unverified. Use DETECT only for media published to your authorized browser session."
+        : "No public HLS/DASH/MP4 URL found in the published page, public API or player chain. Player access may be unavailable.",
     generated_at: new Date().toISOString()};
 }

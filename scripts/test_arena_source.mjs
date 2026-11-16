@@ -154,7 +154,7 @@ test('Arena includes major European leagues, cups and other verified football ca
     ['الدوري الفرنسي','باريس سان جيرمان','مارسيليا','Ligue 1','Paris Saint-Germain','Marseille'],
     ['دوري المؤتمر الأوروبي','باريس سان جيرمان','ليون','UEFA Conference League','Paris Saint-Germain','Lyon'],
     ['كأس ملك إسبانيا','ريال مدريد','برشلونة','Copa del Rey','Real Madrid','Barcelona'],
-    ['دوري أبطال آسيا','الهلال','النصر','AFC Champions League','الهلال','النصر'],
+    ['دوري أبطال آسيا','الهلال','النصر','AFC Champions League','Al Hilal','Al Nassr'],
   ];
   const now=Date.parse('2030-11-16T19:00:00Z');
   const fetcher=async()=>Response.json({matches:[
@@ -213,4 +213,31 @@ test('Arena multi-day catalogue keeps each match id once and uses its published 
   assert.deepEqual(matches.map(m=>m.source_id),['520','521']);
   assert.equal(matches[0].page_url,
     'https://www.arena-koora.online/?m=1&arena_match=520&arena_date=2030-11-16');
+});
+
+
+test('Arena translates AFCON qualifiers and unknown Arabic names without changing fixture identity',async()=>{
+  const now=Date.parse('2030-11-16T17:00:00Z');
+  const fixtures=[
+    ['601','موزمبيق','إثيوبيا','Mozambique','Ethiopia'],
+    ['602','زامبيا','بوروندي','Zambia','Burundi'],
+    ['603','نيجيريا','تنزانيا','Nigeria','Tanzania'],
+    ['604','فريق تجريبي','خصم جديد',null,null],
+  ];
+  const matches=await websiteMatches('arena',{date:'2030-11-17',now,
+    fetcher:async()=>Response.json({matches:fixtures.map(([id,home,away])=>({
+      id,tournament:{name:'تصفيات كأس أمم أفريقيا'},
+      home_team:{name:home},away_team:{name:away},state:'scheduled',
+      start_at:'2030-11-17T20:00:00+03:00',servers:[],
+    }))})});
+  assert.equal(matches.length,4);
+  for(let i=0;i<4;i++){
+    assert.equal(matches[i].source_id,fixtures[i][0]);
+    assert.equal(matches[i].league,'Africa Cup of Nations Qualifiers');
+    assert(!/[\u0600-\u06ff]/.test(matches[i].home_team+' '+matches[i].away_team));
+    if(i<3){
+      assert.equal(matches[i].home_team,fixtures[i][3]);
+      assert.equal(matches[i].away_team,fixtures[i][4]);
+    }
+  }
 });
