@@ -176,9 +176,23 @@ export function liveXtvPublishedSources(html,page) {
   return [...result.entries()].sort((a,b)=>a[0]-b[0]).map(([,entry])=>entry).slice(0,12);
 }
 export async function liveXtvMatches({fetcher=fetch}={}) {
-  const listing=await readPublicSource(ROOT,{fetcher,timeoutMs:6000,
-    allowedHosts:['livextv.pro']});
-  const matches=liveXtvPublishedMatches(listing.text);
+  // The home page also publishes the public football catalog. If /live
+  // is unavailable or returned only JS shells, try that public fallback.
+  let matches=[];
+  let firstError=null;
+  for(const location of [ROOT,'https://livextv.pro/']) {
+    try{
+      const listing=await readPublicSource(location,{fetcher,timeoutMs:4000,
+        allowedHosts:['livextv.pro']});
+      matches=liveXtvPublishedMatches(listing.text);
+      if(matches.length)break;
+    }catch(err){firstError??=err;}
+  }
+  if(!matches.length&&firstError) {
+    // Do not claim 0 verified matches when both public endpoints denied
+    // access; preserve a meaningful source load error instead.
+    throw firstError;
+  }
   // Read a limited number of detail pages for explicit HD/SD source labels,
   // not for credentials, private APIs, or stream extraction.
   for(let i=0;i<Math.min(matches.length,9);i+=3) {
