@@ -25,6 +25,7 @@ class StreamSourcePickerPage extends StatelessWidget {
     _SourceOption('roxie', 'RoxieStreams', Icons.sports_soccer_rounded),
     // CricHD shows a football match catalogue; links resolve on match tap.
     _SourceOption('crichd', 'CricHD', Icons.sports_soccer_rounded),
+    _SourceOption('livextv', 'LiveXTV', Icons.live_tv_rounded),
   ];
 
   Future<void> _open(BuildContext context, _SourceOption source) async {
