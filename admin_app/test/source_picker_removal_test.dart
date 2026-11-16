@@ -13,5 +13,8 @@ void main(){
   await tester.scrollUntilVisible(find.text('CricHD'), 180,
       scrollable: find.byType(Scrollable).first);
   expect(find.text('CricHD'), findsOneWidget);
+  await tester.scrollUntilVisible(find.text('LiveXTV'), 180,
+      scrollable: find.byType(Scrollable).first);
+  expect(find.text('LiveXTV'), findsOneWidget);
  });
 }
