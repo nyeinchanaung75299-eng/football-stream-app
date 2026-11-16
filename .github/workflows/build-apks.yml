@@ -476,6 +476,7 @@ jobs:
           name: NCA-V9.8-Release-APKs
           path: user_app/build/app/outputs/flutter-apk/*-release.apk
 
+      # NCA Admin 2.5.18: publish only when signing/version/hash checks pass.
       # Publish an Admin-only release when explicitly requested. The Viewer
       # updater feed, APK bytes and manifest are intentionally untouched.
       - name: Publish signed Admin APK only
