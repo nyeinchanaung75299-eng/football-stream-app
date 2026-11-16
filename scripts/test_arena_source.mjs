@@ -234,7 +234,7 @@ test('Arena translates AFCON qualifiers and unknown Arabic names without changin
   for(let i=0;i<4;i++){
     assert.equal(matches[i].source_id,fixtures[i][0]);
     assert.equal(matches[i].league,'Africa Cup of Nations Qualifiers');
-    assert(!/[\\u0600-\\u06ff]/.test(matches[i].home_team+' '+matches[i].away_team));
+    assert(!/[\u0600-\u06ff]/.test(matches[i].home_team+' '+matches[i].away_team));
     if(i<3){
       assert.equal(matches[i].home_team,fixtures[i][3]);
       assert.equal(matches[i].away_team,fixtures[i][4]);
