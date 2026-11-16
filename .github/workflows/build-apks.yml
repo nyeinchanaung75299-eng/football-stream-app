@@ -4,9 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       publish_update:
-        description: 'Publish NCA Viewer APK to the in-app updater (manual only)'
+        description: 'Publish both Viewer and Admin APKs to the in-app updater (manual only)'
         type: boolean
         required: true
+        default: false
+      publish_admin_only:
+        description: 'Publish only the signed Admin APK, leaving Viewer release unchanged'
+        type: boolean
+        required: false
         default: false
   push:
     branches: [ "main", "master" ]
@@ -234,10 +239,13 @@ jobs:
           # Historic installed builds reached 32748. Use a higher monotonic
           # namespace for BOTH apps; signer + prior versionCode still checked
           # before the updater feed can publish.
+          # Preserve the shared Admin/Viewer build-number contract.
+          # The signing gate checks the actual split-ABI versionCode
+          # against the installed Admin release before publishing.
           BUILD_NUMBER=$((40000 + GITHUB_RUN_NUMBER))
           test "$BUILD_NUMBER" -gt 32748
           flutter build apk --release --split-per-abi \
-            --build-name 2.5.16 --build-number "$BUILD_NUMBER"
+            --build-name 2.5.17 --build-number "$BUILD_NUMBER"
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk /tmp/NCA-admin-arm64-v8a-latest.apk
           echo "NCA_ADMIN_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "NCA_ADMIN_APK_SHA256=$(sha256sum /tmp/NCA-admin-arm64-v8a-latest.apk | awk '{print $1}')" >> "$GITHUB_ENV"
@@ -462,6 +470,60 @@ jobs:
           name: NCA-V9.8-Release-APKs
           path: user_app/build/app/outputs/flutter-apk/*-release.apk
 
+      # Publish an Admin-only release when explicitly requested. The Viewer
+      # updater feed, APK bytes and manifest are intentionally untouched.
+      - name: Publish signed Admin APK only
+        if: ${{ env.NCA_ADMIN_SIGNING_READY == 'true' && github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin feed:refs/remotes/origin/feed
+          git worktree add --detach /tmp/nca-admin-only-feed origin/feed
+          cd /tmp/nca-admin-only-feed
+          git switch -C feed origin/feed
+
+          ANDROID_BUILD_TOOLS="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "${ANDROID_BUILD_TOOLS}/apksigner"
+          test -x "${ANDROID_BUILD_TOOLS}/aapt"
+          PYTHONPATH="${GITHUB_WORKSPACE}/scripts" python3 - <<'PY'
+          import json, os, shutil
+          from pathlib import Path
+          from verify_android_update_signing import check_update
+          from write_android_release_metadata import release_metadata
+
+          output = Path('public/releases')
+          candidate = Path('/tmp/NCA-admin-arm64-v8a-latest.apk')
+          tools = Path(os.environ['ANDROID_BUILD_TOOLS'])
+          check_update('Admin', feed_dir=output, new_path=candidate,
+                       apksigner=str(tools/'apksigner'), aapt=str(tools/'aapt'))
+          manifest = release_metadata('Admin',candidate,'2.5.17',
+                         apksigner=str(tools/'apksigner'), aapt=str(tools/'aapt'))
+          manifest['notes'] = (
+              'CricHD appears near the top of Admin Stream Sources. '
+              'Choose a match and its published Link 1/2/etc Watch option; '
+              'HLS extraction still depends on player availability.'
+          )
+          shutil.copy2(candidate,output/'NCA-admin-arm64-v8a-latest.apk')
+          (output/'admin-latest.json').write_text(
+              json.dumps(manifest,separators=(',',':')),encoding='utf-8')
+          PY
+
+          git add public/releases/NCA-admin-arm64-v8a-latest.apk public/releases/admin-latest.json
+          if git diff --cached --quiet; then
+            echo 'Admin release feed already up to date.'
+            exit 0
+          fi
+          git commit -m "Publish NCA Admin-only update ${GITHUB_SHA::12}"
+          for attempt in 1 2 3 4; do
+            git pull --rebase origin feed
+            if git push origin feed; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Could not publish Admin-only updater release.' >&2
+          exit 1
       # Routine pushes and unchecked manual builds never publish an update.
       # Both apps must be stably signed, and both signing certificates, package
       # names, and versionCodes must be compatible with the published feed.
