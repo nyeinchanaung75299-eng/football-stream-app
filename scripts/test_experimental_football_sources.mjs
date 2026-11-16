@@ -13,7 +13,7 @@ const pages = (records) => async url => new Response(
 );
 
 test('Only configured football providers are enabled',async()=>{
-  assert.deepEqual(Object.keys(experimentalFootballSites),['roxie','crichd']);
+  assert.deepEqual(Object.keys(experimentalFootballSites),['roxie','crichd','livextv']);
   assert.equal(isExperimentalFootballSource('crichd'),true);
   assert.equal(isExperimentalFootballSource('roxie'),true);
   for(const source of [
