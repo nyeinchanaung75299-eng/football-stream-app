@@ -18,13 +18,13 @@ class StreamSourcePickerPage extends StatelessWidget {
 
   static const _sources = <_SourceOption>[
     _SourceOption('soco', 'Soco', Icons.sports_soccer_rounded),
+    _SourceOption('crichd', 'CricHD', Icons.sports_soccer_rounded),
+    _SourceOption('livextv', 'LiveXTV', Icons.live_tv_rounded),
     _SourceOption('yyzb', 'YYZB', Icons.sensors_rounded),
     _SourceOption('fawa', 'Fawa', Icons.live_tv_rounded),
     _SourceOption('cola', 'ColaTV', Icons.tv_rounded),
     _SourceOption('arena', 'Arena Koora', Icons.stadium_rounded),
     _SourceOption('roxie', 'RoxieStreams', Icons.sports_soccer_rounded),
-    // CricHD shows a football match catalogue; links resolve on match tap.
-    _SourceOption('crichd', 'CricHD', Icons.sports_soccer_rounded),
   ];
 
   Future<void> _open(BuildContext context, _SourceOption source) async {

@@ -56,7 +56,7 @@ jobs:
         run: node --test scripts/test_backend_startup.mjs
 
       - name: Verify experimental football match parsing without invented kickoff times
-        run: node --test scripts/test_experimental_football_sources.mjs scripts/test_public_source_adapters.mjs
+        run: node --test scripts/test_experimental_football_sources.mjs scripts/test_public_source_adapters.mjs scripts/test_livextv_source.mjs
 
       - name: Diagnose public football fixture indexes (nonblocking live smoke)
         continue-on-error: true

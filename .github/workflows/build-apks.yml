@@ -4,9 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       publish_update:
-        description: 'Publish NCA Viewer APK to the in-app updater (manual only)'
+        description: 'Publish both Viewer and Admin APKs to the in-app updater (manual only)'
         type: boolean
         required: true
+        default: false
+      publish_admin_only:
+        description: 'Publish only the signed Admin APK, leaving Viewer release unchanged'
+        type: boolean
+        required: false
         default: false
   push:
     branches: [ "main", "master" ]
@@ -29,7 +34,7 @@ concurrency:
 
 jobs:
   verify-ios:
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[admin-web-only]') }}
+    if: ${{ (github.event_name != 'push' || !contains(github.event.head_commit.message, '[admin-web-only]')) && !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
     name: Verify iOS Viewer simulator build
     runs-on: macos-latest
     steps:
@@ -234,10 +239,13 @@ jobs:
           # Historic installed builds reached 32748. Use a higher monotonic
           # namespace for BOTH apps; signer + prior versionCode still checked
           # before the updater feed can publish.
+          # Preserve the shared Admin/Viewer build-number contract.
+          # The signing gate checks the actual split-ABI versionCode
+          # against the installed Admin release before publishing.
           BUILD_NUMBER=$((40000 + GITHUB_RUN_NUMBER))
           test "$BUILD_NUMBER" -gt 32748
           flutter build apk --release --split-per-abi \
-            --build-name 2.5.16 --build-number "$BUILD_NUMBER"
+            --build-name 2.5.18 --build-number "$BUILD_NUMBER"
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk /tmp/NCA-admin-arm64-v8a-latest.apk
           echo "NCA_ADMIN_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "NCA_ADMIN_APK_SHA256=$(sha256sum /tmp/NCA-admin-arm64-v8a-latest.apk | awk '{print $1}')" >> "$GITHUB_ENV"
@@ -251,6 +259,7 @@ jobs:
           path: admin_app/build/app/outputs/flutter-apk/*-release.apk
 
       - name: Create Android platform for Viewer
+        if: ${{ !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         working-directory: user_app
         run: |
           HAD_WIDGET_TEST=false
@@ -260,6 +269,7 @@ jobs:
           if [ "$HAD_WIDGET_TEST" = false ]; then rm -f test/widget_test.dart; fi
 
       - name: Patch Viewer for Android 12 Media3
+        if: ${{ !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         working-directory: user_app
         run: |
           python3 - <<'PY2'
@@ -341,6 +351,7 @@ jobs:
           PY2
 
       - name: Configure stable Viewer signing
+        if: ${{ !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         working-directory: user_app
         env:
           NCA_KEYSTORE_B64: ${{ secrets.NCA_KEYSTORE_B64 }}
@@ -420,10 +431,12 @@ jobs:
           echo "NCA_SIGNING_READY=true" >> "$GITHUB_ENV"
 
       - name: Get Viewer dependencies
+        if: ${{ !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         working-directory: user_app
         run: flutter pub get
 
       - name: Verify Viewer source
+        if: ${{ !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         working-directory: user_app
         run: |
           python3 ../scripts/generate_embedded_player.py --check
@@ -436,6 +449,7 @@ jobs:
           fi
 
       - name: Build Viewer release APKs
+        if: ${{ !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         working-directory: user_app
         run: |
           # Keep updater version codes above older ad-hoc/CI builds such as
@@ -456,12 +470,66 @@ jobs:
           echo "NCA_APK_SIZE=$APK_SIZE" >> "$GITHUB_ENV"
 
       - name: Upload Viewer APKs
-        if: ${{ env.NCA_SIGNING_READY == 'true' }}
+        if: ${{ env.NCA_SIGNING_READY == 'true' && !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         uses: actions/upload-artifact@v7
         with:
           name: NCA-V9.8-Release-APKs
           path: user_app/build/app/outputs/flutter-apk/*-release.apk
 
+      # Publish an Admin-only release when explicitly requested. The Viewer
+      # updater feed, APK bytes and manifest are intentionally untouched.
+      - name: Publish signed Admin APK only
+        if: ${{ env.NCA_ADMIN_SIGNING_READY == 'true' && github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin feed:refs/remotes/origin/feed
+          git worktree add --detach /tmp/nca-admin-only-feed origin/feed
+          cd /tmp/nca-admin-only-feed
+          git switch -C feed origin/feed
+
+          export ANDROID_BUILD_TOOLS="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "${ANDROID_BUILD_TOOLS}/apksigner"
+          test -x "${ANDROID_BUILD_TOOLS}/aapt"
+          PYTHONPATH="${GITHUB_WORKSPACE}/scripts" python3 - <<'PY'
+          import json, os, shutil
+          from pathlib import Path
+          from verify_android_update_signing import check_update
+          from write_android_release_metadata import release_metadata
+
+          output = Path('public/releases')
+          candidate = Path('/tmp/NCA-admin-arm64-v8a-latest.apk')
+          tools = Path(os.environ['ANDROID_BUILD_TOOLS'])
+          check_update('Admin', feed_dir=output, new_path=candidate,
+                       apksigner=str(tools/'apksigner'), aapt=str(tools/'aapt'))
+          manifest = release_metadata('Admin',candidate,'2.5.18',
+                         apksigner=str(tools/'apksigner'), aapt=str(tools/'aapt'))
+          manifest['notes'] = (
+              'LiveXTV is available in Admin Stream Sources. '
+              'Select a published football match and its HD/SD source; '
+              'Public media URLs remain unverified until tested.'
+          )
+          shutil.copy2(candidate,output/'NCA-admin-arm64-v8a-latest.apk')
+          (output/'admin-latest.json').write_text(
+              json.dumps(manifest,separators=(',',':')),encoding='utf-8')
+          PY
+
+          git add public/releases/NCA-admin-arm64-v8a-latest.apk public/releases/admin-latest.json
+          if git diff --cached --quiet; then
+            echo 'Admin release feed already up to date.'
+            exit 0
+          fi
+          git commit -m "Publish NCA Admin-only update ${GITHUB_SHA::12}"
+          for attempt in 1 2 3 4; do
+            git pull --rebase origin feed
+            if git push origin feed; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Could not publish Admin-only updater release.' >&2
+          exit 1
       # Routine pushes and unchecked manual builds never publish an update.
       # Both apps must be stably signed, and both signing certificates, package
       # names, and versionCodes must be compatible with the published feed.
@@ -553,6 +621,7 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
           RUN_ID: ${{ github.run_id }}
           RUN_NUMBER: ${{ github.run_number }}
+          ADMIN_ONLY_RELEASE: ${{ ((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         run: |
           set -e
           python3 - <<'PY'
@@ -562,6 +631,7 @@ jobs:
 
           ios = os.environ["VERIFY_IOS_RESULT"]
           android = os.environ["ANDROID_RESULT"]
+          admin_only = os.environ["ADMIN_ONLY_RELEASE"] == "true"
           data = {
               "sha": os.environ["HEAD_SHA"],
               "run_id": int(os.environ["RUN_ID"]),
@@ -569,8 +639,9 @@ jobs:
               "workflow": "Build Android V9.8 APKs",
               "verify_ios": ios,
               "android": android,
-              "overall": "success" if ios == "success" and android == "success" else "failure",
-              "artifacts": [
+              "overall": "success" if android == "success" and
+                  (admin_only or ios == "success") else "failure",
+              "artifacts": ["NCA-Admin-V9.8-Release-APKs"] if admin_only else [
                   "NCA-Admin-V9.8-Release-APKs",
                   "NCA-V9.8-Release-APKs",
               ],

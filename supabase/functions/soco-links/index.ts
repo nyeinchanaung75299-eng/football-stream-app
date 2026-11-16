@@ -101,6 +101,41 @@ Deno.serve(async (req) => {
       const statusOnly = body.status_only === true || body.status_only === "true" ||
         body.status_only === "1";
       const resolved = await experimentalStreams(source, { ...body, status_only: false });
+      // CricHD and Roxie can expose public, unverified candidates. Avoid
+      // slow first-byte probes when the operator explicitly selects a link.
+      // Background status-only checks remain strict and unchanged.
+      const quickPreview = !statusOnly &&
+        (source === "crichd" || source === "roxie") &&
+        (body.preview_only === true || body.preview_only === "true");
+      if (quickPreview) {
+        const candidates = (resolved.lines ?? []).map((line: any) => ({
+          ...line, health_status: "unknown", health_http: null, checked_at: null,
+        }));
+        const blocked = resolved.diagnostics?.access_denied === true;
+        return json({ ...resolved, lines:candidates,
+          line_count:candidates.length, detected_count:candidates.length,
+          ready:false,
+          diagnostic_code:candidates.length?"public_candidate_unverified":
+            blocked?"player_access_denied":"no_public_manifest",
+          message:candidates.length
+            ?"Public candidate URL only. Verify playback before importing."
+            :blocked?"Public player denied inspection (HTTP 401/403). Browser playback may differ."
+            :"No public media URL found for the selected source."});
+      }
+      // LiveXTV's public provider embeds may publish ephemeral candidate URLs.
+      // On explicit Admin taps show these promptly, never as verified healthy.
+      // Status-only queries continue using the strict first-byte health probe.
+      if (source === "livextv" && !statusOnly) {
+        const candidates=(resolved.lines??[]).map((line:any)=>({
+          ...line,health_status:"unknown",health_http:null,checked_at:null,
+        }));
+        return json({ ...resolved,lines:candidates,line_count:candidates.length,
+          detected_count:candidates.length,ready:false,live_status:false,
+          diagnostic_code:candidates.length?"unverified_public_candidate":
+            resolved.diagnostics?.access_denied?"player_access_denied":"no_public_manifest",
+          message:resolved.message??
+            "Public media candidate not verified; playback may require an interactive player."});
+      }
       // Never skip independent probes for these newly added sources.
       // Background availability checks are frequent: probe at most the first
       // two candidates there. A deliberate operator tap checks every line.

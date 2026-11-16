@@ -19,7 +19,7 @@ function football(row) {
   if (row?.sportId != null || row?.sport_id != null || row?.sport != null ||
       row?.categoryId != null || row?.category_id != null) return false;
   const league = String(row?.tournament?.name_en || row?.tournament?.name || '');
-  return /premier league|la liga|bundesliga|serie a|ligue [12]|champions league|europa league|(?:uefa |european )?nations league|conference league|eredivisie|primeira liga|championship|fa cup|efl cup|copa del rey|coppa italia|dfb[- ]pokal|coupe de france|international friendl(?:y|ies)|fifa world cup|world cup qualif(?:ier|ication)|دوري أبطال آسيا|دوري المؤتمر الأوروبي|الدوري (?:الإنجليزي|الإسباني|الإيطالي|الألماني|الفرنسي|الهولندي|البرتغالي|التركي|السعودي)|دوري أبطال أوروبا|الدوري الأوروبي|دوري الأمم الأوروبية|كأس (?:الاتحاد الإنجليزي|الرابطة الإنجليزية|ملك إسبانيا|إيطاليا|ألمانيا|فرنسا)|(?:مباريات?|لقاء) ودية|تصفيات كأس العالم/i.test(league) &&
+  return /premier league|la liga|bundesliga|serie a|ligue [12]|champions league|europa league|(?:uefa |european )?nations league|conference league|eredivisie|primeira liga|championship|fa cup|efl cup|copa del rey|coppa italia|dfb[- ]pokal|coupe de france|international friendl(?:y|ies)|fifa world cup|world cup qualif(?:ier|ication)|africa cup(?: of nations)?|afcon|كأس (?:الأمم|أمم) (?:الإفريقية|الأفريقية|إفريقيا|أفريقيا)|دوري أبطال آسيا|دوري المؤتمر الأوروبي|الدوري (?:الإنجليزي|الإسباني|الإيطالي|الألماني|الفرنسي|الهولندي|البرتغالي|التركي|السعودي)|دوري أبطال أوروبا|الدوري الأوروبي|دوري الأمم الأوروبية|كأس (?:الاتحاد الإنجليزي|الرابطة الإنجليزية|ملك إسبانيا|إيطاليا|ألمانيا|فرنسا)|(?:مباريات?|لقاء) ودية|تصفيات كأس العالم/i.test(league) &&
     isFootballSourceRow({...row, sportId:1});
 }
 function servers(row) {
@@ -98,7 +98,9 @@ function name(value, kind = 'team') {
     'ميلان':'AC Milan','فيرينتسفاروشي':'Ferencvaros','ألكمار':'AZ Alkmaar','يوفنتوس':'Juventus',
     'الدوري الإنجليزي':'Premier League','الدوري الإنجليزي الممتاز':'Premier League',
     'الدوري الإسباني':'La Liga','الدوري الإيطالي':'Serie A','الدوري الألماني':'Bundesliga',
-    'الدوري الفرنسي':'Ligue 1','دوري أبطال أوروبا':'UEFA Champions League','الدوري الأوروبي':'UEFA Europa League'};
+    'الدوري الفرنسي':'Ligue 1','دوري أبطال أوروبا':'UEFA Champions League','الدوري الأوروبي':'UEFA Europa League',
+    'كأس الأمم الأفريقية':'Africa Cup of Nations','كأس الأمم الإفريقية':'Africa Cup of Nations',
+    'كأس أمم إفريقيا':'Africa Cup of Nations','كأس أمم أفريقيا':'Africa Cup of Nations'};
   const raw = String(value || '').trim();
   return known[raw] || englishFootballName(raw, kind);
 }
@@ -128,10 +130,19 @@ function selectable(row, now) {
     (!Number.isFinite(kickoff) || now-kickoff<=4*3600000);
 }
 export async function arenaMatches({date,fetcher=fetch,now=Date.now()}={}) {
-  const {day,rows}=await catalog({date,fetcher,now});
-  return rows.filter(row=>selectable(row,now)).map(row=>{
+  // The Admin "All" view needs a small, bounded span of publisher days.
+  // Respect explicit date requests and keep Arena's own UTC+03 calendar.
+  const exact=/^\d{4}-\d{2}-\d{2}$/.test(String(date||''));
+  const today=arenaDay(now);
+  const dates=exact?[date]:[0,1,2].map(i=>
+    new Date(Date.parse(today+'T00:00:00Z')+i*86400000).toISOString().slice(0,10));
+  const fetched=await Promise.allSettled(dates.map(day=>catalog({date:day,fetcher,now})));
+  const catalogues=fetched.filter(x=>x.status==='fulfilled').map(x=>x.value);
+  if(!catalogues.length)throw fetched.find(x=>x.status==='rejected')?.reason ||
+    Error('Arena Koora schedule unavailable');
+  const seen=new Set();
+  return catalogues.flatMap(({day,rows})=>rows.filter(row=>selectable(row,now)).map(row=>{
     const id=String(row.id || '');
-    // Match detail pages now use arena_match/arena_date (not match/date).
     const page=HOME+'?'+new URLSearchParams({m:'1',arena_match:id,arena_date:day});
     const live=['live','inprogress'].includes(String(row.state).toLowerCase());
     const time=Date.parse(row.start_at || '');
@@ -145,7 +156,11 @@ export async function arenaMatches({date,fetcher=fetch,now=Date.now()}={}) {
       anchors:servers(row).map((server,index)=>({room_num:String(server.id),
         nick_name:'Arena Koora '+(index+1),page_url:page})),
     };
-  }).filter(row=>row.source_id && row.home_team && row.away_team);
+  }).filter(row=>{
+    if(!row.source_id || !row.home_team || !row.away_team ||
+       seen.has(row.source_id))return false;
+    seen.add(row.source_id);return true;
+  }));
 }
 export async function arenaStreams(body,{fetcher=fetch,now=Date.now()}={}) {
   const page=publicUrl(body?.page_url);

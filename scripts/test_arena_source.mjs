@@ -97,13 +97,13 @@ test('Arena 2026-11-15 published Arabic Nations League fixture JSON yields four 
   assert.equal(result.lines[0].health_status,'unknown');
 });
 
-test('Arena default date follows publisher UTC+03, not the UTC calendar',async()=>{
+test('Arena default Admin list spans three publisher UTC+03 days',async()=>{
   const now=Date.parse('2026-11-15T22:50:00Z');
-  let called='';
-  const fetcher=async url=>{called=String(url);return Response.json({matches:[]});};
+  const dates=[];
+  const fetcher=async url=>{dates.push(new URL(url).searchParams.get('date'));return Response.json({matches:[]});};
   const result=await websiteMatches('arena',{fetcher,now});
   assert.deepEqual(result,[]);
-  assert.equal(new URL(called).searchParams.get('date'),'2026-11-16');
+  assert.deepEqual(dates,['2026-11-16','2026-11-17','2026-11-18']);
 });
 
 test('Arena accepts the legacy generated match URL and rejects unsafe modern parameters',async()=>{
@@ -175,4 +175,42 @@ test('Arena includes major European leagues, cups and other verified football ca
     assert.equal(matches[i].home_team,item[4]);
     assert.equal(matches[i].away_team,item[5]);
   });
+});
+
+test('Arena includes Africa Cup football fixtures without mixing in NFL and NBA',async()=>{
+  const now=Date.parse('2030-11-16T17:00:00Z');
+  const fixture=league=>({
+    id:'51',start_at:'2030-11-17T23:00:00+03:00',
+    state:'scheduled',hidden:false,
+    tournament:{name:league},
+    home_team:{name:'Egypt'},away_team:{name:'Morocco'},servers:[]
+  });
+  for(const league of ['Africa Cup of Nations','AFCON','كأس الأمم الأفريقية','كأس أمم إفريقيا']){
+    const matches=await websiteMatches('arena',{date:'2030-11-17',now,
+      fetcher:async()=>Response.json({matches:[
+        fixture(league),{...fixture(league),id:'52',sportId:2},
+        {...fixture('NFL'),id:'53'}, {...fixture('NBA'),id:'54'},
+      ]})});
+    assert.equal(matches.length,1,league);
+    assert.equal(matches[0].source_id,'51');
+    assert.equal(matches[0].home_team,'Egypt');
+    assert.equal(matches[0].away_team,'Morocco');
+    if(/كأس/.test(league))assert.equal(matches[0].league,'Africa Cup of Nations');
+  }
+});
+
+test('Arena multi-day catalogue keeps each match id once and uses its published date',async()=>{
+  const now=Date.parse('2030-11-16T13:00:00Z');
+  const fetcher=async url=>{
+    const date=new URL(url).searchParams.get('date');
+    const fixture={id:'520',start_at:'2030-11-17T20:00:00+03:00',
+      state:'scheduled',tournament:{name:'Africa Cup of Nations'},
+      home_team:{name:'Egypt'},away_team:{name:'Morocco'},servers:[]};
+    return Response.json({matches:date==='2030-11-16'?[fixture]:
+      date==='2030-11-17'?[fixture,{...fixture,id:'521'}]:[]});
+  };
+  const matches=await websiteMatches('arena',{now,fetcher});
+  assert.deepEqual(matches.map(m=>m.source_id),['520','521']);
+  assert.equal(matches[0].page_url,
+    'https://www.arena-koora.online/?m=1&arena_match=520&arena_date=2030-11-16');
 });

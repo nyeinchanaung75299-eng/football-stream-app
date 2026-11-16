@@ -13,12 +13,12 @@ const pages = (records) => async url => new Response(
 );
 
 test('Only configured football providers are enabled',async()=>{
-  assert.deepEqual(Object.keys(experimentalFootballSites),['roxie','crichd']);
+  assert.deepEqual(Object.keys(experimentalFootballSites),['roxie','crichd','livextv']);
   assert.equal(isExperimentalFootballSource('crichd'),true);
   assert.equal(isExperimentalFootballSource('roxie'),true);
   for(const source of [
     'camel','xoilac','livetv','rojadirecta','vipbox',
-    'viprow','score088','sports808','livextv','streamfree','ppv',
+    'viprow','score088','sports808','streamfree','ppv',
   ]) {
     assert.equal(isExperimentalFootballSource(source),false);
     let fetched=false;
@@ -241,4 +241,26 @@ test('CricHD 403 player does not erase published numbered Watch choices',async()
   assert.equal(result.browser_player_url,watch);
   assert.equal(result.diagnostics.access_denied,true);
   assert.equal(crichdPublishedWatchLinks(detail,page)[0].nick_name,'Link 1');
+});
+
+test('Roxie fast path uses published HLS config without crawling extra players',async()=>{
+  const page='https://roxiestreams.su/soccer/england-vs-spain';
+  const html=[
+    'function getRandomStream(streamPath, subdomain = "edge") {',
+    '  return `https://${subdomain}.roxiecdn.example.org/${streamPath}`;',
+    '}',
+    'const video = getRandomStream("football.m3u8");',
+  ].join('\n');
+  const calls=[];
+  const fetcher=async url=>{
+    calls.push(String(url));
+    if(String(url)!==page)throw Error('Unexpected crawl');
+    return new Response(html,{headers:{'content-type':'text/html'}});
+  };
+  const result=await experimentalStreams('roxie',{page_url:page},{fetcher});
+  assert.equal(result.lines.length,1);
+  assert.equal(result.lines[0].url,'https://edge.roxiecdn.example.org/football.m3u8');
+  assert.equal(result.lines[0].health_status,'unknown');
+  assert.equal(result.diagnostics.playback_verified,false);
+  assert.deepEqual(calls,[page]);
 });
