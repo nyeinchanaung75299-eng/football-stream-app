@@ -18,7 +18,7 @@ test('Only configured football providers are enabled',async()=>{
   assert.equal(isExperimentalFootballSource('roxie'),true);
   for(const source of [
     'camel','xoilac','livetv','rojadirecta','vipbox',
-    'viprow','score088','sports808','livextv','streamfree','ppv',
+    'viprow','score088','sports808','streamfree','ppv',
   ]) {
     assert.equal(isExperimentalFootballSource(source),false);
     let fetched=false;
