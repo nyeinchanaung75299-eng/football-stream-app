@@ -239,11 +239,11 @@ jobs:
           # Historic installed builds reached 32748. Use a higher monotonic
           # namespace for BOTH apps; signer + prior versionCode still checked
           # before the updater feed can publish.
-          # Admin-only updates must be strictly newer than the already
-          # published ARM64 Admin versionCode (42779 on 2026-11-16).
-          # Flutter's split-per-ABI offset is checked again from the APK.
-          BUILD_NUMBER=$((50000 + GITHUB_RUN_NUMBER))
-          test "$BUILD_NUMBER" -gt 42779
+          # Preserve the shared Admin/Viewer build-number contract.
+          # The signing gate checks the actual split-ABI versionCode
+          # against the installed Admin release before publishing.
+          BUILD_NUMBER=$((40000 + GITHUB_RUN_NUMBER))
+          test "$BUILD_NUMBER" -gt 32748
           flutter build apk --release --split-per-abi \
             --build-name 2.5.17 --build-number "$BUILD_NUMBER"
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk /tmp/NCA-admin-arm64-v8a-latest.apk
