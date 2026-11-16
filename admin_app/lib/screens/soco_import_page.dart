@@ -188,6 +188,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'A fixture does not guarantee video playback.';
     }
     return switch (diagnostics['content_state']?.toString()) {
+      'source_moved_or_unavailable' =>
+        'LiveXTV source moved or returned a landing page instead of a '
+            'fixture listing. No current football fixtures can be verified '
+            'from its public pages. The provider must publish a readable '
+            'fixture listing or permitted public API.',
       'browser_render_or_unsupported_markup' =>
         'No fixture data found in public HTML or embedded JSON. '
             'This site may load matches through browser JavaScript; a permitted '
@@ -2205,9 +2210,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
               ),
               const SizedBox(height: 5),
               Text(
-                  visible.length == sourceMatches.length
-                      ? '${sourceMatches.length} matches'
-                      : '${visible.length} of ${sourceMatches.length} matches',
+                  source == 'livextv' &&
+                          sourceMatches.isEmpty &&
+                          _experimentalEmptyReason != null
+                      ? 'Matches unavailable'
+                      : visible.length == sourceMatches.length
+                          ? '${sourceMatches.length} matches'
+                          : '${visible.length} of ${sourceMatches.length} matches',
                   style:
                       TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
             ],
