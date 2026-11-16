@@ -130,3 +130,35 @@ test('LiveXTV JS shell reports unavailable public fixture data rather than confi
   assert.equal(catalog.results,0);
   assert.equal(catalog.diagnostics.content_state,'browser_render_or_unsupported_markup');
 });
+
+test('LiveXTV reads public football index when generic pages cannot publish fixtures',async()=>{
+  const footballIndex='https://livextv.pro/sport/football';
+  const fetcher=fetchPages({
+    [index]:"<h1>We've moved.</h1><p>LiveXTV has a new home.</p>",
+    [footballIndex]:fixtureIndex,
+    'https://livextv.pro/':"<h1>We've moved.</h1>",
+    [page]:watchPage,
+  });
+  const list=await liveXtvMatches({fetcher});
+  assert.equal(list.results,2);
+  assert.equal(list.diagnostics.content_state,'matches_found');
+  assert.deepEqual(list.matches.map(m=>m.home_team),['Estonia','Eritrea']);
+});
+
+test('LiveXTV moved landing page is not reported as verified empty fixtures',async()=>{
+  const fetcher=async()=>htmlResponse("<h1>We've moved.</h1><p>LiveXTV has a new home. Update your bookmark.</p>");
+  const list=await liveXtvMatches({fetcher});
+  assert.equal(list.results,0);
+  assert.deepEqual(list.matches,[]);
+  assert.equal(list.diagnostics.content_state,'source_moved_or_unavailable');
+  assert.equal(list.diagnostics.confirmed_kickoff_count,0);
+});
+
+test('LiveXTV distinguishes a denied index from a readable moved homepage',async()=>{
+  const fetcher=async url=>String(url)===index
+    ?new Response('Forbidden',{status:403,headers:{'content-type':'text/html'}})
+    :htmlResponse("<h1>We've moved.</h1><p>Update your bookmark.</p>");
+  const list=await liveXtvMatches({fetcher});
+  assert.equal(list.results,0);
+  assert.equal(list.diagnostics.content_state,'source_moved_or_unavailable');
+});
