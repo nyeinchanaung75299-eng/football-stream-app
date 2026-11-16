@@ -111,7 +111,11 @@ export function liveXtvPublishedMatches(html) {
     const card=nearestCard(html,match.index??0);
     // Event-specific football evidence is mandatory on a multi-sport site.
     const own=card||match[0];
-    if(sportLabel(titleText(own))!=='football')continue;
+    const explicitSport=attr(own.slice(0,550),'data-sport') ||
+      attr(own.slice(0,550),'data-category') || '';
+    const markedSport=sportLabel(explicitSport);
+    if(markedSport==='other' ||
+       (markedSport!=='football' && sportLabel(titleText(own))!=='football'))continue;
     const teams=pairFromMarkup(own)??pairFromMarkup(match[0]);
     if(!teams)continue;
     const kickoff=kickoffFromMarkup(own);
@@ -139,7 +143,8 @@ export function liveXtvPublishedMatches(html) {
         (node.homeTeam&&node.awayTeam ? {
           home:titleText(node.homeTeam.name??node.homeTeam),
           away:titleText(node.awayTeam.name??node.awayTeam)} : null);
-      const ownSport=sportLabel(sport);
+      const competition=String(node.league?.name??node.competition?.name??node.tournament?.name??'');
+      const ownSport=sportLabel(sport||competition);
       // Do not infer football from a team name or a different SportsEvent.
       if(page&&teams&&teams.home&&teams.away&&!output.has(page)&&
          ownSport==='football'&&
@@ -181,11 +186,15 @@ export async function liveXtvMatches({fetcher=fetch}={}) {
   // is unavailable or returned only JS shells, try that public fallback.
   let matches=[];
   let firstError=null;
+  let pageHadNoPublishedFixtures=false;
   for(const location of [ROOT,'https://livextv.pro/']) {
     try{
       const listing=await readPublicSource(location,{fetcher,timeoutMs:4000,
         allowedHosts:['livextv.pro']});
       matches=liveXtvPublishedMatches(listing.text);
+      // A JS-only shell or redirect notice is not a verified empty match day.
+      if(!matches.length && /<script\b|we.ve moved|__next|__nuxt/i.test(listing.text))
+        pageHadNoPublishedFixtures=true;
       if(matches.length)break;
     }catch(err){firstError??=err;}
   }
@@ -217,7 +226,9 @@ export async function liveXtvMatches({fetcher=fetch}={}) {
     new Date(Date.parse(m.match_time)+390*60*1000).toISOString().slice(0,10)))].sort();
   return {ok:true,source:'livextv',matches,results:matches.length,
     diagnostics:{candidate_count:matches.length,
-      content_state:matches.length?'matches_found':'no_confirmed_public_football_fixtures',
+      content_state:matches.length?'matches_found':
+        pageHadNoPublishedFixtures?'browser_render_or_unsupported_markup':
+        'no_confirmed_public_football_fixtures',
       confirmed_kickoff_count:matches.filter(m=>m.verified_kickoff).length,
       missing_kickoff_count:matches.filter(m=>!m.match_time).length,
       available_days_mmt:days,
