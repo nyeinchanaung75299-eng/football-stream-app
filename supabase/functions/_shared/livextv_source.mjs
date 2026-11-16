@@ -19,6 +19,7 @@ function publicWatch(value,base=ROOT) {
   if(!url)return null;
   const parsed=new URL(url);
   if(!allowedHost(parsed.hostname)|| !/^\/watch\/[1-9]\d{0,11}\/?$/.test(parsed.pathname)||
+     [...parsed.searchParams.keys()].length>1||
      [...parsed.searchParams.keys()].some(x=>x!=='s')||
      (parsed.searchParams.has('s')&&!/^[1-9]\d?$/.test(parsed.searchParams.get('s')??'')))return null;
   return parsed;
