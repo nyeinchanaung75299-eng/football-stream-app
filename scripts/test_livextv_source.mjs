@@ -113,3 +113,20 @@ test('Player 403 never means confirmed video failure or successful HLS',async()=
   assert.equal(result.diagnostic_code,'watch_page_unavailable');
   assert.equal(result.ready,false);
 });
+
+
+test('LiveXTV card explicit sport and JSON league identify published football events',()=>{
+  const card='<div class="event-card" data-sport="football"><a href="/watch/32789"><h3>Ghana vs Mali</h3></a></div>';
+  const json='<script type="application/json">'+JSON.stringify({events:[{
+    type:'SportsEvent',title:'Kenya vs Tanzania',league:{name:'AFCON Qualifying'},
+    href:'/watch/32790',startDate:'2026-11-17T19:00:00Z',
+  }]})+'</script>';
+  const matches=liveXtvPublishedMatches(card+json);
+  assert.deepEqual(matches.map(m=>m.home_team).sort(),['Ghana','Kenya']);
+});
+test('LiveXTV JS shell reports unavailable public fixture data rather than confirmed empty day',async()=>{
+  const fetcher=async()=>htmlResponse('<html><script src="/app.js"></script></html>');
+  const catalog=await liveXtvMatches({fetcher});
+  assert.equal(catalog.results,0);
+  assert.equal(catalog.diagnostics.content_state,'browser_render_or_unsupported_markup');
+});
