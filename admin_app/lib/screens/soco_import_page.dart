@@ -832,7 +832,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       Map<String, dynamic> anchor, String provider) async {
     if (!mounted || !_currentSession || source != provider) return;
     final url =
-        (source == 'crichd'
+        (source == 'crichd' || source == 'livextv'
                 ? (anchor['watch_url'] ?? anchor['page_url'] ?? match['page_url'])
                 : (anchor['page_url'] ?? match['page_url']))
             .toString()
