@@ -900,7 +900,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
           // Cola URLs are checked before the operator can import them.
           // Other rotating providers keep the fast metadata-only path.
           'skip_probe': provider != 'cola' && !_isExperimentalSource,
-          if (provider == 'livextv') 'preview_only': true,
+          // These sources return unverified public candidates promptly;
+          // don't wait for repeated server probes on an explicit tap.
+          if (provider == 'livextv' ||
+              provider == 'crichd' || provider == 'roxie')
+            'preview_only': true,
         },
       );
 
@@ -918,7 +922,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
       // Watch page when plain HTML does not expose HLS. Browser Run is
       // admin-authorized, bounded and URL-only: no cookies, DRM keys or
       // access-control workarounds. Other providers are unchanged.
-      if (provider == 'crichd' && lines.isEmpty && data is Map) {
+      // PlayerBee may refuse server-side requests with 401/403 even when
+      // the user's browser can play. Avoid a redundant browser scan after
+      // a definite denial; keep the manual DETECT action available.
+      final playerDenied = data is Map &&
+          data['diagnostics'] is Map &&
+          (data['diagnostics'] as Map)['access_denied'] == true;
+      if (provider == 'crichd' &&
+          lines.isEmpty && data is Map && !playerDenied) {
         final page = (data['browser_player_url'] ?? '').toString();
         final target = Uri.tryParse(page);
         if (target != null &&
@@ -960,10 +971,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (current()) {
         setState(() {
           _anchorLineCounts[statusKey] = lines.length;
+          // Do not equate HTTP 401/403, absent public HLS, or an unprobed
+          // candidate with OFFLINE. Only confirmed healthy media is READY.
+          // Legacy source behavior (Soco/YYZB/Fawa/Cola/Arena) is unchanged.
+          final unknownUnlessHealthy = const {'crichd', 'roxie', 'livextv'}
+              .contains(provider);
           _anchorStatuses[statusKey] = sourceIsLive
               ? 'live'
-              : (provider == 'livextv' && !hasHealthy
-                  ? 'unknown'
+              : (unknownUnlessHealthy
+                  ? (hasHealthy ? 'ready' : 'unknown')
                   : (hasHealthy || lines.isNotEmpty ? 'ready' : 'offline'));
         });
       }
