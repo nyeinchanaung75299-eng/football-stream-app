@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   verify-ios:
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[admin-web-only]') }}
+    if: ${{ (github.event_name != 'push' || !contains(github.event.head_commit.message, '[admin-web-only]')) && !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
     name: Verify iOS Viewer simulator build
     runs-on: macos-latest
     steps:
@@ -259,6 +259,7 @@ jobs:
           path: admin_app/build/app/outputs/flutter-apk/*-release.apk
 
       - name: Create Android platform for Viewer
+        if: ${{ !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         working-directory: user_app
         run: |
           HAD_WIDGET_TEST=false
@@ -268,6 +269,7 @@ jobs:
           if [ "$HAD_WIDGET_TEST" = false ]; then rm -f test/widget_test.dart; fi
 
       - name: Patch Viewer for Android 12 Media3
+        if: ${{ !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         working-directory: user_app
         run: |
           python3 - <<'PY2'
@@ -349,6 +351,7 @@ jobs:
           PY2
 
       - name: Configure stable Viewer signing
+        if: ${{ !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         working-directory: user_app
         env:
           NCA_KEYSTORE_B64: ${{ secrets.NCA_KEYSTORE_B64 }}
@@ -428,10 +431,12 @@ jobs:
           echo "NCA_SIGNING_READY=true" >> "$GITHUB_ENV"
 
       - name: Get Viewer dependencies
+        if: ${{ !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         working-directory: user_app
         run: flutter pub get
 
       - name: Verify Viewer source
+        if: ${{ !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         working-directory: user_app
         run: |
           python3 ../scripts/generate_embedded_player.py --check
@@ -444,6 +449,7 @@ jobs:
           fi
 
       - name: Build Viewer release APKs
+        if: ${{ !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         working-directory: user_app
         run: |
           # Keep updater version codes above older ad-hoc/CI builds such as
@@ -464,7 +470,7 @@ jobs:
           echo "NCA_APK_SIZE=$APK_SIZE" >> "$GITHUB_ENV"
 
       - name: Upload Viewer APKs
-        if: ${{ env.NCA_SIGNING_READY == 'true' }}
+        if: ${{ env.NCA_SIGNING_READY == 'true' && !((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         uses: actions/upload-artifact@v7
         with:
           name: NCA-V9.8-Release-APKs
@@ -615,6 +621,7 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
           RUN_ID: ${{ github.run_id }}
           RUN_NUMBER: ${{ github.run_number }}
+          ADMIN_ONLY_RELEASE: ${{ ((github.event_name == 'workflow_dispatch' && inputs.publish_admin_only == true && inputs.publish_update != true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-admin-only]'))) }}
         run: |
           set -e
           python3 - <<'PY'
@@ -624,6 +631,7 @@ jobs:
 
           ios = os.environ["VERIFY_IOS_RESULT"]
           android = os.environ["ANDROID_RESULT"]
+          admin_only = os.environ["ADMIN_ONLY_RELEASE"] == "true"
           data = {
               "sha": os.environ["HEAD_SHA"],
               "run_id": int(os.environ["RUN_ID"]),
@@ -631,8 +639,9 @@ jobs:
               "workflow": "Build Android V9.8 APKs",
               "verify_ios": ios,
               "android": android,
-              "overall": "success" if ios == "success" and android == "success" else "failure",
-              "artifacts": [
+              "overall": "success" if android == "success" and
+                  (admin_only or ios == "success") else "failure",
+              "artifacts": ["NCA-Admin-V9.8-Release-APKs"] if admin_only else [
                   "NCA-Admin-V9.8-Release-APKs",
                   "NCA-V9.8-Release-APKs",
               ],
