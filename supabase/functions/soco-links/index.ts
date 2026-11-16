@@ -101,6 +101,29 @@ Deno.serve(async (req) => {
       const statusOnly = body.status_only === true || body.status_only === "true" ||
         body.status_only === "1";
       const resolved = await experimentalStreams(source, { ...body, status_only: false });
+      // On an explicit Admin tap, CricHD/Roxie can show *public candidate*
+      // media URLs without spending an additional 5.5s per manifest probe.
+      // Keep them UNKNOWN, not healthy, and preserve strict status-only
+      // probes; this never marks an unverified URL playable.
+      const fastPreview = !statusOnly &&
+        (source === "crichd" || source === "roxie") &&
+        (body.preview_only === true || body.preview_only === "true");
+      if (fastPreview) {
+        const lines = (resolved.lines ?? []).map((line: any) => ({
+          ...line, health_status: "unknown", health_http: null, checked_at: null,
+        }));
+        const blocked = resolved.diagnostics?.access_denied === true;
+        return json({ ...resolved, lines, line_count: lines.length,
+          detected_count: lines.length, ready: false,
+          diagnostic_code: lines.length ? "public_candidate_unverified" :
+            blocked ? "player_access_denied" : "no_public_manifest",
+          message: lines.length
+            ? "Unverified public URL candidate. Test playback before importing."
+            : blocked
+            ? "Player denied server access (HTTP 401/403); browser playback may differ. No native HLS URL confirmed."
+            : "No public HLS URL was found in this player's readable page.",
+        });
+      }
       // Never skip independent probes for these newly added sources.
       // Background availability checks are frequent: probe at most the first
       // two candidates there. A deliberate operator tap checks every line.
