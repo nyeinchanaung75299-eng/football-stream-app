@@ -186,21 +186,29 @@ export async function liveXtvMatches({fetcher=fetch}={}) {
   // is unavailable or returned only JS shells, try that public fallback.
   let matches=[];
   let firstError=null;
-  let pageHadNoPublishedFixtures=false;
-  for(const location of [ROOT,'https://livextv.pro/']) {
+  let successfulIndexes=0;
+  let movedIndex=false;
+  let browserRenderedIndex=false;
+  // A source-specific public football listing can publish real fixtures when
+  // the generic /live or homepage serves only navigation/redirect markup.
+  // Never follow an unverified "new home" link to an unrelated domain.
+  for(const location of [ROOT,'https://livextv.pro/sport/football','https://livextv.pro/']) {
     try{
       const listing=await readPublicSource(location,{fetcher,timeoutMs:4000,
         allowedHosts:['livextv.pro']});
+      successfulIndexes++;
       matches=liveXtvPublishedMatches(listing.text);
-      // A JS-only shell or redirect notice is not a verified empty match day.
-      if(!matches.length && /<script\b|we.ve moved|__next|__nuxt/i.test(listing.text))
-        pageHadNoPublishedFixtures=true;
+      if(!matches.length) {
+        if(/we['’]?ve moved|livextv has a new home|update your bookmark/i.test(listing.text))
+          movedIndex=true;
+        if(/<script\b|__next|__nuxt/i.test(listing.text))
+          browserRenderedIndex=true;
+      }
       if(matches.length)break;
     }catch(err){firstError??=err;}
   }
-  if(!matches.length&&firstError) {
-    // Do not claim 0 verified matches when both public endpoints denied
-    // access; preserve a meaningful source load error instead.
+  if(!matches.length && successfulIndexes===0 && firstError) {
+    // All public listing endpoints failed; return the actual load error.
     throw firstError;
   }
   // Read a limited number of detail pages for explicit HD/SD source labels,
@@ -227,7 +235,8 @@ export async function liveXtvMatches({fetcher=fetch}={}) {
   return {ok:true,source:'livextv',matches,results:matches.length,
     diagnostics:{candidate_count:matches.length,
       content_state:matches.length?'matches_found':
-        pageHadNoPublishedFixtures?'browser_render_or_unsupported_markup':
+        movedIndex?'source_moved_or_unavailable':
+        browserRenderedIndex?'browser_render_or_unsupported_markup':
         'no_confirmed_public_football_fixtures',
       confirmed_kickoff_count:matches.filter(m=>m.verified_kickoff).length,
       missing_kickoff_count:matches.filter(m=>!m.match_time).length,
