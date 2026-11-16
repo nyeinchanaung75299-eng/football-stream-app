@@ -194,7 +194,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
   static const _statusTtl = Duration(minutes: 2);
   // Check every visible room, but cap simultaneous resolver work so one slow
   // upstream cannot serialize the whole page or overload the gateway.
-  static const _statusProbeConcurrency = 12;
+  // Avoid saturating the same API used when an operator taps a room.
+  static const _statusProbeConcurrency = 4;
+  static const _statusProbeLimit = 16;
   int _anchorStatusEpoch = 0;
   String? _extractingAnchorKey;
   Timer? _sourceRefreshTimer;
@@ -611,6 +613,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
         if (sourceStatusIsFresh(checked, now, ttl: _statusTtl)) {
           continue;
         }
+        if (pending.length >= _statusProbeLimit) {
+          // Defer non-visible or distant fixtures until an explicit action;
+          // never label an unchecked source offline.
+          _anchorStatuses.putIfAbsent(key, () => 'unknown');
+          continue;
+        }
         _anchorStatuses[key] = _matchLooksLive(match) ? 'live' : 'checking';
         pending.add({'match': match, 'anchor': anchor, 'key': key});
       }
@@ -898,6 +906,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
           // Cola URLs are checked before the operator can import them.
           // Other rotating providers keep the fast metadata-only path.
           'skip_probe': provider != 'cola' && !_isExperimentalSource,
+          // Roxie publishes public HLS configuration: show unverified
+          // candidate URLs immediately so the operator can test them.
+          if (provider == 'roxie') 'preview_only': true,
         },
       );
 
@@ -959,7 +970,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
           _anchorLineCounts[statusKey] = lines.length;
           _anchorStatuses[statusKey] = sourceIsLive
               ? 'live'
-              : (hasHealthy || lines.isNotEmpty ? 'ready' : 'offline');
+              : (hasHealthy || lines.isNotEmpty
+                  ? 'ready'
+                  : (_isExperimentalSource ? 'unknown' : 'offline'));
         });
       }
 
