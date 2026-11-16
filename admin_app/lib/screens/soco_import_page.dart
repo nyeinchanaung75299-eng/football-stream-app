@@ -21,6 +21,7 @@ import '../services/website_detector_service.dart';
 import '../source_room_status.dart';
 import 'stream_detector_page.dart'
     if (dart.library.html) 'stream_detector_page_web.dart';
+import 'source_player_page.dart';
 
 @visibleForTesting
 List<Map<String, dynamic>> validateSourceMatchRows(
@@ -55,6 +56,24 @@ List<Map<String, dynamic>> validateSourceMatchRows(
     }
     return parsed;
   }).toList(growable: false);
+}
+
+/// A user-initiated browser fallback for the publisher-linked CricHD player.
+/// This does not access protected media, reuse browser verification or prove HLS.
+@visibleForTesting
+Uri? cricHdBrowserPlayerPage(String? value) {
+  final text = value?.trim() ?? '';
+  if (text.isEmpty) return null;
+  final page = Uri.tryParse(text);
+  if (page == null ||
+      page.scheme != 'https' ||
+      page.userInfo.isNotEmpty ||
+      (page.hasPort && page.port != 443) ||
+      !const {'playerbee.top', 'www.playerbee.top'}.contains(page.host) ||
+      page.pathSegments.isEmpty) {
+    return null;
+  }
+  return page;
 }
 
 @visibleForTesting
@@ -996,6 +1015,50 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
 
       if (!current()) return;
+      // Server 401/403 is not evidence that the visitor's own browser
+      // cannot play. Offer a user-initiated, non-bypass viewing route for
+      // the publisher-linked PlayerBee page; retain manual DETECT.
+      if (provider == 'crichd' && playerDenied && lines.isEmpty) {
+        final browserPage = cricHdBrowserPlayerPage(
+            data is Map ? data['browser_player_url']?.toString() : null);
+        if (browserPage != null) {
+          final choice = await showDialog<String>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('CricHD player needs browser verification'),
+              content: const Text(
+                  'The server received HTTP 401/403 while inspecting this '
+                  'player. Video may still play in your own browser after '
+                  'normal verification. No playable HLS link is verified.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, 'cancel'),
+                  child: const Text('CANCEL'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, 'detect'),
+                  child: const Text('DETECT'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, 'browser'),
+                  child: const Text('OPEN PLAYER'),
+                ),
+              ],
+            ),
+          );
+          if (!current()) return;
+          if (choice == 'browser') {
+            await Navigator.of(context).push<void>(MaterialPageRoute(
+              builder: (_) => SourcePlayerPage(
+                sourcePage: browserPage.toString(),
+              ),
+            ));
+          } else if (choice == 'detect') {
+            await _openSourceDetector(match, anchor, provider);
+          }
+          return;
+        }
+      }
       if (lines.isEmpty) {
         // Only display a short, redacted source status returned by our
         // authenticated resolver. No signed URL or token is shown.
