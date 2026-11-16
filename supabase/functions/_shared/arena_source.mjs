@@ -27,6 +27,62 @@ function servers(row) {
     server?.enabled !== false && server?.enabled !== 0 && server?.enabled !== '0' &&
     server?.id && publicUrl(server?.url));
 }
+// Provider English labels are preferred above. These Arabic football labels
+// cover the current African/European schedule; unseen proper names use a
+// readable Latin transliteration rather than silently staying in Arabic.
+const arenaArabicNames = Object.freeze({
+  'تصفيات كأس أمم أفريقيا':'Africa Cup of Nations Qualifiers',
+  'تصفيات كأس أمم إفريقيا':'Africa Cup of Nations Qualifiers',
+  'تصفيات كأس الأمم الأفريقية':'Africa Cup of Nations Qualifiers',
+  'تصفيات كأس الأمم الإفريقية':'Africa Cup of Nations Qualifiers',
+  'تصفيات كأس أفريقيا':'Africa Cup of Nations Qualifiers',
+  'كأس الأمم الأفريقية - تصفيات':'Africa Cup of Nations Qualifiers',
+  'موزمبيق':'Mozambique','إثيوبيا':'Ethiopia','اثيوبيا':'Ethiopia',
+  'زامبيا':'Zambia','بوروندي':'Burundi','نيجيريا':'Nigeria',
+  'تنزانيا':'Tanzania','مصر':'Egypt','المغرب':'Morocco',
+  'المغرب العربي':'Morocco','الجزائر':'Algeria','تونس':'Tunisia',
+  'السنغال':'Senegal','غانا':'Ghana','الكاميرون':'Cameroon',
+  'ساحل العاج':'Ivory Coast','كوت ديفوار':'Ivory Coast',
+  'الكونغو':'Congo','الكونغو الديمقراطية':'DR Congo',
+  'جمهورية الكونغو الديمقراطية':'DR Congo','أنغولا':'Angola',
+  'أنجولا':'Angola','جنوب السودان':'South Sudan',
+  'السودان':'Sudan','أوغندا':'Uganda','اوغندا':'Uganda',
+  'كينيا':'Kenya','رواندا':'Rwanda','بنين':'Benin',
+  'توغو':'Togo','مالي':'Mali','غينيا':'Guinea',
+  'غينيا بيساو':'Guinea-Bissau','غينيا الاستوائية':'Equatorial Guinea',
+  'الغابون':'Gabon','الجابون':'Gabon','بوركينا فاسو':'Burkina Faso',
+  'النيجر':'Niger','تشاد':'Chad','موريتانيا':'Mauritania',
+  'ليبيا':'Libya','إريتريا':'Eritrea','اريتريا':'Eritrea',
+  'الصومال':'Somalia','جيبوتي':'Djibouti','جزر القمر':'Comoros',
+  'مدغشقر':'Madagascar','ملاوي':'Malawi','زيمبابوي':'Zimbabwe',
+  'بوتسوانا':'Botswana','ناميبيا':'Namibia',
+  'جنوب أفريقيا':'South Africa','جنوب إفريقيا':'South Africa',
+  'ليسوتو':'Lesotho','إسواتيني':'Eswatini','سوازيلاند':'Eswatini',
+  'الرأس الأخضر':'Cape Verde','كاب فيردي':'Cape Verde',
+  'سيشل':'Seychelles','موريشيوس':'Mauritius',
+  'ليبيريا':'Liberia','سيراليون':'Sierra Leone',
+  'غامبيا':'Gambia','الغامبيا':'Gambia',
+  'أفريقيا الوسطى':'Central African Republic',
+  'جمهورية أفريقيا الوسطى':'Central African Republic',
+  'ساو تومي وبرينسيب':'São Tomé and Príncipe',
+});
+const arabicLetters = Object.freeze({
+  'ا':'a','أ':'a','إ':'i','آ':'aa','ب':'b','ت':'t','ث':'th',
+  'ج':'j','ح':'h','خ':'kh','د':'d','ذ':'dh','ر':'r','ز':'z',
+  'س':'s','ش':'sh','ص':'s','ض':'d','ط':'t','ظ':'z','ع':'a',
+  'غ':'gh','ف':'f','ق':'q','ك':'k','ل':'l','م':'m','ن':'n',
+  'ه':'h','ة':'a','و':'w','ؤ':'u','ي':'y','ى':'a','ئ':'i',
+  'ء':'','پ':'p','ڤ':'v','چ':'ch','گ':'g'
+});
+function latinArenaFallback(raw) {
+  const normalized=String(raw).normalize('NFKC')
+    .replace(/[\u064b-\u065f\u0670\u06d6-\u06ed\u0640]/g,'').trim();
+  return normalized.replace(/[\u0621-\u064a\u0671\u067e\u0686\u06a4\u06af]/g,
+      letter=>arabicLetters[letter]??letter)
+    .replace(/\s+/g,' ').trim()
+    .replace(/\b[a-z]/g,letter=>letter.toUpperCase());
+}
+
 function name(value, kind = 'team') {
   const known = {
     // Exact Arabic identities from Arena's published Nations League schedule.
@@ -102,7 +158,14 @@ function name(value, kind = 'team') {
     'كأس الأمم الأفريقية':'Africa Cup of Nations','كأس الأمم الإفريقية':'Africa Cup of Nations',
     'كأس أمم إفريقيا':'Africa Cup of Nations','كأس أمم أفريقيا':'Africa Cup of Nations'};
   const raw = String(value || '').trim();
-  return known[raw] || englishFootballName(raw, kind);
+  const normalized=raw.normalize('NFKC')
+    .replace(/[\u064b-\u065f\u0670\u06d6-\u06ed\u0640]/g,'').trim();
+  const supplied=known[raw] || known[normalized] || arenaArabicNames[normalized];
+  if(supplied)return supplied;
+  const english=englishFootballName(raw, kind);
+  // Never invent a different opponent. For unrecognized Arabic identities,
+  // transliterate the provider's own name and preserve its stable fixture ID.
+  return /[\u0600-\u06ff]/.test(english) ? latinArenaFallback(english) : english;
 }
 async function catalog({date, fetcher, now}) {
   const day = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : arenaDay(now);
