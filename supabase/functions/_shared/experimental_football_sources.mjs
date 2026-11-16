@@ -728,7 +728,9 @@ export async function configuredRoxiePublicMedia(source, html, page, {fetcher = 
 export async function experimentalStreams(source, body, {fetcher = fetch} = {}) {
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
-  const deadline = Date.now() + 7000;
+  // An operator tap must not spend several seconds crawling unrelated
+  // player scripts when only one selected public Watch page is relevant.
+  const deadline = Date.now() + (source === 'crichd' || source === 'roxie' ? 4600 : 7000);
   let page = typeof body?.page_url === 'string' && body.page_url.trim()
     ? allowedPageUrl(body.page_url,site) : null;
   if (!page) return {ok: true, source, lines: [], line_count: 0,
@@ -776,9 +778,14 @@ export async function experimentalStreams(source, body, {fetcher = fetch} = {}) 
   // With a numbered link selected, inspect ONLY that published player.
   // Do not return media from Link 2 when Link 1 was pressed.
   const mediaPage = chosenWatchUrl || page;
-  const result = await discoverPublicMedia(mediaPage,{fetcher,deadline,
-    firstHtml:chosenWatchUrl ? null : firstHtml,
-    initialAllowedHosts:[new URL(mediaPage).hostname]});
+  // Roxie already publishes its direct candidate manifests in its public
+  // player configuration. Do not crawl up to eight additional script/frame
+  // pages after finding those addresses.
+  const result = source === 'roxie' && configured.length
+    ? {lines:configured, pagesChecked:1, failures:[]}
+    : await discoverPublicMedia(mediaPage,{fetcher,deadline,
+        firstHtml:chosenWatchUrl ? null : firstHtml,
+        initialAllowedHosts:[new URL(mediaPage).hostname]});
   result.lines = [...new Map([...result.lines,...configured].map(line=>[line.url,line])).values()];
   if (!result.lines.length && result.failures.some(error=>error.includes('outside configured provider'))) {
     throw Error('Source redirected outside configured provider');
