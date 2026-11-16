@@ -900,7 +900,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'skip_probe': provider != 'cola' && !_isExperimentalSource,
           // Roxie publishes public HLS configuration: show unverified
           // candidate URLs immediately so the operator can test them.
-          if (provider == 'roxie') 'preview_only': true,
+          if (provider == 'roxie' || provider == 'crichd')
+            'preview_only': true,
         },
       );
 
@@ -918,7 +919,16 @@ class _SocoImportPageState extends State<SocoImportPage> {
       // Watch page when plain HTML does not expose HLS. Browser Run is
       // admin-authorized, bounded and URL-only: no cookies, DRM keys or
       // access-control workarounds. Other providers are unchanged.
-      if (provider == 'crichd' && lines.isEmpty && data is Map) {
+      // A player that returned 401/403 from the server is not necessarily
+      // offline. Avoid an automatic, potentially long repeat browser scan;
+      // the visible DETECT action lets an operator inspect the Watch page.
+      final playerDenied = data is Map &&
+          data['diagnostics'] is Map &&
+          (data['diagnostics'] as Map)['access_denied'] == true;
+      if (provider == 'crichd' &&
+          lines.isEmpty &&
+          data is Map &&
+          !playerDenied) {
         final page = (data['browser_player_url'] ?? '').toString();
         final target = Uri.tryParse(page);
         if (target != null &&
@@ -962,9 +972,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
           _anchorLineCounts[statusKey] = lines.length;
           _anchorStatuses[statusKey] = sourceIsLive
               ? 'live'
-              : (hasHealthy || lines.isNotEmpty
-                  ? 'ready'
-                  : (_isExperimentalSource ? 'unknown' : 'offline'));
+              : (_isExperimentalSource
+                  ? (hasHealthy ? 'ready' : 'unknown')
+                  : (hasHealthy || lines.isNotEmpty ? 'ready' : 'offline'));
         });
       }
 
