@@ -291,7 +291,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
     if (kIsWeb && !_isManualSource) {
       _sourceQuery = ui.query;
       _sourceSearch.text = ui.query;
-      dayFilter = _isExperimentalSource ? 'all' : ui.dayFilter;
+      dayFilter = (source == 'fawa' || _isExperimentalSource)
+          ? 'all'
+          : ui.dayFilter;
       availableOnly = _isExperimentalSource ? false : ui.availableOnly;
       sourceMatches = AdminWebSourceCache.rows(source) ?? const [];
     }
@@ -1064,6 +1066,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
           await _openSourceDetector(match, anchor, provider);
           return;
         }
+      }
+      if (provider == 'livextv' && lines.isEmpty) {
+        // The public event API publishes fixtures, not guaranteed HLS URLs.
+        // A Watch-only result is not an actual HD/SD stream quality. An
+        // explicit operator tap can inspect the publisher's own Watch page
+        // in the existing consent-gated detector; never invent a manifest,
+        // replay credentials or claim playback was verified.
+        await _openSourceDetector(match, anchor, provider);
+        return;
       }
       if (lines.isEmpty) {
         // Only display a short, redacted source status returned by our
