@@ -242,7 +242,7 @@ async function readPublicEventRows({fetcher=fetch,nowMs=Date.now()}={}) {
   }
 }
 
-export async function liveXtvMatches({fetcher=fetch}={}) {
+export async function liveXtvMatches({fetcher=fetch,nowMs=Date.now()}={}) {
   // The home page also publishes the public football catalog. If /live
   // is unavailable or returned only JS shells, try that public fallback.
   let matches=[];
@@ -252,7 +252,7 @@ export async function liveXtvMatches({fetcher=fetch}={}) {
   // a JSON catalog. This is read-only and cached per isolate for one minute.
   // Preserve HTML fallback if the catalog is inaccessible or has no events.
   try{
-    matches=await readPublicEventRows({fetcher});
+    matches=await readPublicEventRows({fetcher,nowMs});
     if(matches.length)feedSource='public_event_json';
   }catch(err){firstError=err;}
   let successfulIndexes=0;
