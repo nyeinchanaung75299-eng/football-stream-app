@@ -85,7 +85,7 @@ test('missing upstream fixture repository does not prevent a verified Darkbyte u
  const fixture={teamA:'Wales',teamB:'Portugal',cat:'Football',eventInfo:{
   eventCat:'Football',eventName:'UEFA Nations League',
   startTime:new Date(Date.now()+3600000).toISOString(),
- },streams:[{title:'HD',link:'https://media.example.test/public.m3u8'}]};
+ },streams:[{title:'HD',link:'https://media.example.org/public.m3u8'}]};
  const body=JSON.stringify([fixture]);
  const bytes=Buffer.from(body);
  const blobSha=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
