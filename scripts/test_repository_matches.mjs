@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseRepositoryMatches,mergeRepositoryMatches,repositoryKickoff} from '../supabase/functions/_shared/repository_matches.mjs';
+import {parseRepositoryMatches,mergeRepositoryMatches,repositoryKickoff,preserveRepositoryMatchLines,fetchRepositoryMatches} from '../supabase/functions/_shared/repository_matches.mjs';
+import {createHash} from 'node:crypto';
 import {publicRepositoryUpdate,orderConfigurationProbes} from '../supabase/functions/_shared/repository_updates.mjs';
 const context={repository:'Roshavarma/cfy',source_file:'api/events.json'};
 const row={cat:'Football',eventInfo:{teamA:'Napoli',teamB:'Inter Milan',eventName:'Serie A',startTime:'2026/11/08 14:00:00 +0000',teamAFlag:'https://logos.example.org/napoli.png',teamBFlag:'https://logos.example.org/inter.png'},
@@ -61,4 +62,49 @@ test('MPD lines with identical URL and key pair collapse regardless of provider 
  const duplicate={...base,repository:'darkbyteprojects/iptv_png',streams:base.streams.map(s=>({...s,label:'Different provider name',referer:'https://other.example.org/',origin:'https://other.example.org'}))};
  const result=await mergeRepositoryMatches([base,duplicate],{now:Date.parse('2026-11-08T00:00:00Z')});
  assert.equal(result.length,1);assert.equal(result[0].streams.length,1);
+});
+
+
+test('partial sync retains old unique lines while adding newer published lines',()=>{
+ const entry={id:'repo:match:x',streams:[{stream_url:'https://cdn.example.test/a.mpd?token=new',stream_type:'dash',key_id:'a'.repeat(32),key_data:'b'.repeat(32)}],
+  event_meta:{home_team:'Wales',away_team:'Portugal',repositories:['darkbyteprojects/iptv_png'],home_logo_url:null}};
+ const previous={id:entry.id,streams:[
+  {stream_url:'https://cdn.example.test/a.mpd?token=old',stream_type:'dash',key_id:'a'.repeat(32),key_data:'b'.repeat(32)},
+  {stream_url:'https://cdn.example.test/b.mpd',stream_type:'dash',key_id:'c'.repeat(32),key_data:'d'.repeat(32)},
+ ],event_meta:{repositories:['rohmanabdu/lian'],home_logo_url:'https://logo.example.test/home.png'}};
+ const updated=preserveRepositoryMatchLines([entry],[previous]);
+ assert.equal(updated.length,1);
+ assert.equal(updated[0].streams.length,2);
+ assert.equal(updated[0].streams[0].stream_url,entry.streams[0].stream_url);
+ assert.deepEqual(updated[0].event_meta.repositories,['rohmanabdu/lian','darkbyteprojects/iptv_png']);
+ assert.equal(updated[0].event_meta.home_logo_url,previous.event_meta.home_logo_url);
+ assert.equal(preserveRepositoryMatchLines([entry],[])[0],entry);
+});
+
+test('missing upstream fixture repository does not prevent a verified Darkbyte update',async()=>{
+ const fixture={teamA:'Wales',teamB:'Portugal',cat:'Football',eventInfo:{
+  eventCat:'Football',eventName:'UEFA Nations League',
+  startTime:new Date(Date.now()+3600000).toISOString(),
+ },streams:[{title:'HD',link:'https://media.example.test/public.m3u8'}]};
+ const body=JSON.stringify([fixture]);
+ const bytes=Buffer.from(body);
+ const blobSha=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
+ const sha='a'.repeat(40);
+ const tree={sha,truncated:false,tree:[{path:'provider_1/live_events.json',type:'blob',size:bytes.length,sha:blobSha}]};
+ const empty={sha,truncated:false,tree:[]};
+ let rawCalls=0;
+ const snapshot=await fetchRepositoryMatches({fetcher:async url=>{
+  if(url.endsWith('repository-trees.json'))return Response.json({fetched_at:'2000-01-01T00:00:00Z',repositories:{}});
+  if(url.includes('/rohmanabdu/'))return new Response('',{status:404});
+  if(url.includes('/darkbyteprojects/iptv_png/git/trees/'))return Response.json(tree);
+  if(url.includes('/Roshavarma/cfy/git/trees/'))return Response.json(empty);
+  if(url.includes('/darkbyteprojects/iptv_png/')&&url.endsWith('/provider_1/live_events.json')){
+   rawCalls++;return new Response(body,{status:200});
+  }
+  throw Error('Unexpected URL: '+url);
+ }});
+ assert.equal(snapshot.complete,false);
+ assert.deepEqual(snapshot.missingRepositories,['rohmanabdu/lian','rohmanabdu/deqiaa']);
+ assert.equal(rawCalls,1);
+ assert(snapshot.entries.some(entry=>entry.name==='Wales vs Portugal'&&entry.streams.length===1));
 });
