@@ -109,7 +109,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final ui = ViewerTabCache.sourceUi(source);
     _query = ui.query;
     _league = ui.league;
-    _todayOnly = ui.todayOnly;
+    _todayOnly = source == 'fawa' ? false : ui.todayOnly;
     _searchController.text = ui.query;
     _listScroll = ScrollController(initialScrollOffset: ui.scrollOffset);
     _feed = LiveFeedController(_loadRemembered,
@@ -153,7 +153,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       _query = ui.query;
       _searchController.text = ui.query;
       _league = ui.league;
-      _todayOnly = ui.todayOnly;
+      _todayOnly = source == 'fawa' ? false : ui.todayOnly;
       _listScroll.dispose();
       _listScroll = ScrollController(initialScrollOffset: ui.scrollOffset);
       _feed = LiveFeedController(_loadRemembered,
@@ -1045,7 +1045,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           final matches = filterSourceMatches(
             availableMatches,
             source: source,
-            todayOnly: _todayOnly,
+            todayOnly: source == 'fawa' ? false : _todayOnly,
             query: _query,
             league: _league,
           );
@@ -1071,7 +1071,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                     league: _league,
                     leagues: sourceMatchLeagues(availableMatches),
                     visibleCount: matches.length,
-                    showDateChoices: source != 'yyzb',
+                    showDateChoices: source != 'yyzb' && source != 'fawa',
                     onRefresh: _refresh,
                     onQueryChanged: (value) => setState(() => _query = value),
                     onTodayChanged: (value) =>
@@ -1116,7 +1116,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                           homeLogo: repositoryLogoUrl((m['home_logo'] ?? m['home_logo_url'] ?? '').toString()),
                           awayLogo: repositoryLogoUrl((m['away_logo'] ?? m['away_logo_url'] ?? '').toString()),
                           kickoff: time,
-                          timeLabel: null,
+                          timeLabel: sourceMatchScheduleLabel(m, source),
                           timeZoneLabel: '',
                           isLive: live,
                           canWatch: ready,
