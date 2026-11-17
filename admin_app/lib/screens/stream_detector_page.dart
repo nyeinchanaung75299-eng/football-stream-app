@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -13,9 +14,12 @@ import 'stream_preview_page.dart';
 /// observes requests, but does not read cookies, DRM keys or auth tokens.
 class StreamDetectorPage extends StatefulWidget {
   const StreamDetectorPage(
-      {super.key, this.initialUrl = '', this.selectionMode = false});
+      {super.key, this.initialUrl = '', this.selectionMode = false,
+      this.autoSelectHls = false});
   final String initialUrl;
   final bool selectionMode;
+  /// CricHD-only quick flow; other uses of this screen remain unchanged.
+  final bool autoSelectHls;
 
   @override
   State<StreamDetectorPage> createState() => _StreamDetectorPageState();
@@ -29,6 +33,8 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
   String? _currentPage;
   String? _error;
   int _progress = 0;
+  Timer? _quickSelectTimer;
+  bool _quickSelected = false;
 
   @override
   void initState() {
@@ -44,6 +50,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
 
   @override
   void dispose() {
+    _quickSelectTimer?.cancel();
     _address.dispose();
     super.dispose();
   }
@@ -87,6 +94,21 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
     setState(() {
       _seenUrls.add(stream.url);
       _streams.insert(0, stream);
+    });
+    _maybeQuickSelect();
+  }
+
+  void _maybeQuickSelect() {
+    if (!widget.selectionMode || !widget.autoSelectHls || _quickSelected) return;
+    // Allow time for other playlists to appear. If there are multiple HLS
+    // candidates, leave the existing detector UI available for manual choice.
+    _quickSelectTimer?.cancel();
+    _quickSelectTimer = Timer(const Duration(milliseconds: 1300), () {
+      if (!mounted || _quickSelected) return;
+      final only = singleObservedHlsCandidate(_streams);
+      if (only == null) return;
+      _quickSelected = true;
+      Navigator.of(context).pop(only);
     });
   }
 
@@ -267,6 +289,20 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
               onLoadStop: (_, __) => _scanPage(),
             ),
           ),
+          if (widget.autoSelectHls)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 6, 14, 2),
+              child: Text(
+                _streams.where((stream) => stream.type == 'hls').length > 1
+                    ? 'Multiple HLS links found. Choose the correct line below.'
+                    : 'CricHD quick detect: a single HLS link opens the quality picker automatically. '
+                        'If the page needs interaction or detection fails, the normal detector remains available.',
+                style: TextStyle(
+                  color: colors.onSurfaceVariant,
+                  fontSize: 12,
+                ),
+              ),
+            ),
           const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),

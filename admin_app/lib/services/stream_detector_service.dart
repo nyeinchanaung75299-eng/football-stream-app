@@ -107,3 +107,18 @@ class DetectedStream {
     );
   }
 }
+
+
+/// A CricHD quick-detect tap may advance automatically only when exactly one
+/// HLS playlist was observed. Zero or multiple candidates keep the existing
+/// manual detector open, so unrelated/ad streams cannot be silently selected.
+/// This does not prove playback, licensing, or playlist expiry.
+DetectedStream? singleObservedHlsCandidate(Iterable<DetectedStream> streams) {
+  DetectedStream? candidate;
+  for (final stream in streams) {
+    if (stream.type != 'hls') continue;
+    if (candidate != null && candidate.url != stream.url) return null;
+    candidate = stream;
+  }
+  return candidate;
+}

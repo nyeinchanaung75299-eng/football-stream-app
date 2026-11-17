@@ -75,6 +75,19 @@ Uri? cricHdBrowserPlayerPage(String? value) {
   return page;
 }
 
+/// Prefer the exact published watch link the operator tapped. Never switch
+/// between CricHD Link 1 and Link 2 when the backend cannot read a player.
+@visibleForTesting
+Uri? cricHdQuickDetectPlayer(Map<String, dynamic> anchor, dynamic response) {
+  final selected = anchor['watch_url']?.toString();
+  if (selected != null && selected.trim().isNotEmpty) {
+    return cricHdBrowserPlayerPage(selected);
+  }
+  return response is Map
+      ? cricHdBrowserPlayerPage(response['browser_player_url']?.toString())
+      : null;
+}
+
 @visibleForTesting
 bool sourceStatusIsFresh(DateTime? checkedAt, DateTime now,
     {Duration ttl = const Duration(minutes: 2)}) {
@@ -853,26 +866,34 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   Future<void> _openSourceDetector(Map<String, dynamic> match,
-      Map<String, dynamic> anchor, String provider) async {
+      Map<String, dynamic> anchor, String provider,
+      {bool quickHls = false, String? playerUrl}) async {
     if (!mounted || !_currentSession || source != provider) return;
-    final url =
-        (source == 'crichd' || source == 'livextv'
+    final url = (playerUrl ??
+            (source == 'crichd' || source == 'livextv'
                 ? (anchor['watch_url'] ?? anchor['page_url'] ?? match['page_url'])
-                : (anchor['page_url'] ?? match['page_url']))
-            .toString()
-            .trim();
+                : (anchor['page_url'] ?? match['page_url'])))
+        .toString()
+        .trim();
     final uri = Uri.tryParse(url);
     if (uri == null ||
         !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
         uri.host.isEmpty ||
-        uri.userInfo.isNotEmpty) {
+        uri.userInfo.isNotEmpty ||
+        (quickHls &&
+            (provider != 'crichd' ||
+                cricHdBrowserPlayerPage(url) == null))) {
       message('This source has not published a player page URL.');
       return;
     }
     final selected =
         await Navigator.of(context).push<DetectedStream>(MaterialPageRoute(
       settings: const RouteSettings(name: '/admin/stream-detector'),
-      builder: (_) => StreamDetectorPage(initialUrl: url, selectionMode: true),
+      builder: (_) => StreamDetectorPage(
+        initialUrl: url,
+        selectionMode: true,
+        autoSelectHls: quickHls,
+      ),
     ));
     if (selected == null || !mounted || !_currentSession || source != provider)
       return;
@@ -942,6 +963,19 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .map((row) => Map<String, dynamic>.from(row as Map))
           .where((row) => (row['url'] ?? '').toString().trim().isNotEmpty)
           .toList();
+      // CricHD Android: one tap opens the existing authorized WebView
+      // observer only if the resolver has no lines. A single observed HLS
+      // returns to Quality Picker automatically; a blocked page or multiple
+      // playlists leaves the old detector UI for manual selection. No
+      // verification bypass, hidden player, or shared session extraction.
+      if (provider == 'crichd' && !kIsWeb && lines.isEmpty) {
+        final selectedPlayer = cricHdQuickDetectPlayer(anchor, data);
+        if (selectedPlayer != null) {
+          await _openSourceDetector(match, anchor, provider,
+              quickHls: true, playerUrl: selectedPlayer.toString());
+          return;
+        }
+      }
       // A deliberate CricHD match tap may inspect the publisher's public
       // Watch page when plain HTML does not expose HLS. Browser Run is
       // admin-authorized, bounded and URL-only: no cookies, DRM keys or

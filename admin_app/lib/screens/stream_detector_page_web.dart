@@ -16,9 +16,12 @@ import 'source_player_page.dart';
 /// A web page cannot read cross-origin player network traffic on its own.
 class StreamDetectorPage extends StatefulWidget {
   const StreamDetectorPage(
-      {super.key, this.initialUrl = '', this.selectionMode = false});
+      {super.key, this.initialUrl = '', this.selectionMode = false,
+      this.autoSelectHls = false});
   final String initialUrl;
   final bool selectionMode;
+  /// Web cannot access the operator's Android WebView network requests.
+  final bool autoSelectHls;
 
   @override
   State<StreamDetectorPage> createState() => _StreamDetectorPageState();

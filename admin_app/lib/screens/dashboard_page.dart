@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
 import '../admin_update_service.dart';
 import '../widgets/theme_mode_button.dart';
+import '../widgets/admin_version_dialog.dart';
 import 'channels_page.dart';
 import 'connected_channels_page.dart';
 import 'channel_health_page.dart';
@@ -117,6 +118,11 @@ class _DashboardPageState extends State<DashboardPage> {
       appBar: _tab == 0 ? AppBar(
         title: const Text('NCA Admin'),
         actions: [
+          IconButton(
+            tooltip: 'App Version',
+            icon: const Icon(Icons.info_outline_rounded),
+            onPressed: () => showAdminVersionDialog(context),
+          ),
           IconButton(
             tooltip: 'Check Admin APK update',
             icon: const Icon(Icons.system_update_alt_rounded),
@@ -346,6 +352,13 @@ class _DashboardPageState extends State<DashboardPage> {
         title: 'Connect Telegram Bots',
         iconColor: const Color(0xFF54E6C1),
         onTap: () => open(context, const TelegramSetupPage(), 'telegram-bots'),
+      ),
+      const SizedBox(height: 8),
+      _ActionCard(
+        icon: Icons.info_outline_rounded,
+        title: 'App Version / About',
+        iconColor: colors.primary,
+        onTap: () => showAdminVersionDialog(context),
       ),
     ],
   );
