@@ -14,6 +14,8 @@ on:
       - 'scripts/test_browser_stream_scanner.mjs'
       - 'vercel/network-backup/**'
       - 'supabase/functions/_shared/arena_source.mjs'
+      - 'supabase/functions/_shared/livextv_source.mjs'
+      - 'scripts/test_livextv_source.mjs'
       - 'scripts/test_arena_source.mjs'
       - 'supabase/functions/_shared/darkbyte_catalog.mjs'
       - 'supabase/functions/channel-source-sync/**'
