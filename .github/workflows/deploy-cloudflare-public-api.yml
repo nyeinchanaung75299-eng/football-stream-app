@@ -87,8 +87,8 @@ jobs:
       - name: Test English fixture imports
         run: node --test scripts/test_football_names.mjs
 
-      - name: Test website stream scanner
-        run: node --test scripts/test_website_stream_scanner.mjs
+      - name: Test website and browser network scanners
+        run: node --test scripts/test_website_stream_scanner.mjs scripts/test_browser_stream_scanner.mjs
 
       - name: Test Fawa literal stream extraction
         run: node --test scripts/test_fawa_source.mjs

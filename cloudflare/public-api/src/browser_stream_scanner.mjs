@@ -138,6 +138,10 @@ export async function captureBrowserMedia(env,pageUrl,{
     htmlVideoElements:null,
     iframeElements:null,
     videoPlayAttempts:0,
+    deniedDocumentResponses:0,
+    failedMediaResponses:0,
+    confirmedMediaResponses:0,
+    iframeTargetsObserved:0,
   };
   const browser=env.BROWSER;
   let session=null, socket=null, cdp=null;
@@ -164,6 +168,7 @@ export async function captureBrowserMedia(env,pageUrl,{
         const id=msg.params?.sessionId;
         const type=msg.params?.targetInfo?.type;
         if(id && (type==="iframe" || type==="page")){
+          if(type==="iframe")diagnostics.iframeTargetsObserved=Math.min(1000,diagnostics.iframeTargetsObserved+1);
           void cdp.send("Network.enable",{maxPostDataSize:0},id)
             .catch(()=>{ /* OOPIF may disappear during navigation. */ });
         }
@@ -175,18 +180,29 @@ export async function captureBrowserMedia(env,pageUrl,{
         const key=(msg.sessionId||'main')+':'+msg.params?.requestId;
         const document=rejectTarget(msg.params?.documentURL||'');
         if(document && requestDocuments.size<300)requestDocuments.set(key,document.href);
-        collector.observe(msg.params?.request?.url||"","",document?.href||"");
+        // A request alone is not proof of access: 401/403 media must not
+        // be returned as a detected stream. Wait for responseReceived.
       }else if(msg.method==="Network.responseReceived"){
         diagnostics.responsesObserved=Math.min(10000,diagnostics.responsesObserved+1);
+        const status=Number(msg.params?.response?.status);
+        const validStatus=Number.isInteger(status)&&status>=100&&status<=599;
         if(msg.params?.type==="Document"){
           diagnostics.pageResponses++;
-          // Only the numeric response status, never response headers/body.
-          const status=Number(msg.params?.response?.status);
-          if(Number.isInteger(status)&&status>=100&&status<=599)
-            diagnostics.pageHttpStatus=status;
+          // Only numeric status and bounded counts; never response bodies.
+          if(validStatus)diagnostics.pageHttpStatus=status;
+          if(status===401||status===403)diagnostics.deniedDocumentResponses++;
         }
         const key=(msg.sessionId||'main')+':'+msg.params?.requestId;
-        collector.observe(msg.params?.response?.url||"",msg.params?.response?.mimeType||"",requestDocuments.get(key)||"");
+        const mediaUrl=msg.params?.response?.url||"";
+        const mediaType=browserMediaType(mediaUrl,msg.params?.response?.mimeType||"");
+        if(mediaType && validStatus && status>=200 && status<300) {
+          const before=collector.links.length;
+          collector.observe(mediaUrl,msg.params?.response?.mimeType||"",requestDocuments.get(key)||"");
+          if(collector.links.length>before)
+            diagnostics.confirmedMediaResponses=Math.min(1000,diagnostics.confirmedMediaResponses+1);
+        }else if(mediaType && validStatus && status>=400){
+          diagnostics.failedMediaResponses=Math.min(1000,diagnostics.failedMediaResponses+1);
+        }
         requestDocuments.delete(key);
       }else if(msg.method==="Page.frameNavigated" && !msg.params?.frame?.parentId) {
         diagnostics.navigationConfirmed=true;
@@ -242,10 +258,14 @@ export async function captureBrowserMedia(env,pageUrl,{
       if(collector.links.length>0 && elapsed>=FIRST_MEDIA_GRACE_MS)break;
     }
     const note=collector.links.length
-      ?"Media URLs observed from browser requests. Playback and expiry are not guaranteed."
-      :diagnostics.requestsObserved===0
-        ?"No page network requests were observed. Navigation or the browser target may be blocked."
-        :diagnostics.htmlVideoElements===0&&diagnostics.iframeElements>0
+      ?"Media URLs observed from successful browser responses. Playback and expiry are not guaranteed."
+      :diagnostics.deniedDocumentResponses>0
+        ?"A page or embedded player returned HTTP 401/403. Browser inspection cannot confirm media access; normal site authorization may be required."
+        :diagnostics.failedMediaResponses>0
+          ?"Media requests returned HTTP errors. No successfully loaded HLS/DASH/MP4 URL was confirmed."
+          :diagnostics.requestsObserved===0
+            ?"No page network requests were observed. Navigation or the browser target may be blocked."
+            :diagnostics.htmlVideoElements===0&&diagnostics.iframeElements>0
           ?"The page made network requests but contains iframe players. The stream may load in a separate frame or require a Play click."
           :diagnostics.htmlVideoElements===0
             ?"The page made network requests but no HTML5 video element was found. A custom player or user interaction may be required."

@@ -21,7 +21,6 @@ import '../services/website_detector_service.dart';
 import '../source_room_status.dart';
 import 'stream_detector_page.dart'
     if (dart.library.html) 'stream_detector_page_web.dart';
-import 'source_player_page.dart';
 
 @visibleForTesting
 List<Map<String, dynamic>> validateSourceMatchRows(
@@ -1020,47 +1019,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
       );
 
       if (!current()) return;
-      // Server 401/403 is not evidence that the visitor's own browser
-      // cannot play. Offer a user-initiated, non-bypass viewing route for
-      // the publisher-linked PlayerBee page; retain manual DETECT.
+      // A server-side 401/403 does not establish whether the operator's
+      // own browser can load the player. Open the consent-gated network
+      // detector directly, never a video player or an automated challenge.
+      // The detector reports only permitted 2xx media responses.
       if (provider == 'crichd' && playerDenied && lines.isEmpty) {
         final browserPage = cricHdBrowserPlayerPage(
             data['browser_player_url']?.toString());
         if (browserPage != null) {
-          final choice = await showDialog<String>(
-            context: context,
-            builder: (dialogContext) => AlertDialog(
-              title: const Text('CricHD player needs browser verification'),
-              content: const Text(
-                  'The server received HTTP 401/403 while inspecting this '
-                  'player. Video may still play in your own browser after '
-                  'normal verification. No playable HLS link is verified.'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, 'cancel'),
-                  child: const Text('CANCEL'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, 'detect'),
-                  child: const Text('DETECT'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(dialogContext, 'browser'),
-                  child: const Text('OPEN PLAYER'),
-                ),
-              ],
-            ),
-          );
-          if (!current()) return;
-          if (choice == 'browser') {
-            await Navigator.of(context).push<void>(MaterialPageRoute(
-              builder: (_) => SourcePlayerPage(
-                sourcePage: browserPage.toString(),
-              ),
-            ));
-          } else if (choice == 'detect') {
-            await _openSourceDetector(match, anchor, provider);
-          }
+          await _openSourceDetector(match, anchor, provider);
           return;
         }
       }
