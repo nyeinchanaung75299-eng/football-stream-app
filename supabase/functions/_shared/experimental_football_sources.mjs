@@ -2,7 +2,6 @@
 // authentication, DRM, CAPTCHA, or a publisher's access restrictions.
 // Only expose HTTP(S) HLS/DASH URLs explicitly published by public players.
 import {publicSourceUrl, readPublicSource, discoverPublicMedia, publishedPlayerPages} from './public_source_media.mjs';
-import {liveXtvMatches,liveXtvStreams} from './livextv_source.mjs';
 export const experimentalFootballSites = Object.freeze({
   roxie: {label: "RoxieStreams",
     home: "https://roxiestreams.su/soccer",
@@ -10,8 +9,6 @@ export const experimentalFootballSites = Object.freeze({
   crichd: {label: "CricHD",
     home: "https://crichd.pk/sports/soccer-streams",
     host: "crichd.pk"},
-  livextv: {label: "LiveXTV",
-    home: "https://livextv.pro/live", host: "livextv.pro"},
 });
 
 export const isExperimentalFootballSource = (source) =>
@@ -561,7 +558,6 @@ function publicFixtureJsonRows(html, site, source, clock) {
 // become a fabricated UTC kickoff.
 
 export async function experimentalMatches(source, {fetcher = fetch, now = Date.now} = {}) {
-  if(source === 'livextv')return liveXtvMatches({fetcher});
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
   const deadline=Date.now()+6500;
@@ -730,7 +726,6 @@ export async function configuredRoxiePublicMedia(source, html, page, {fetcher = 
 }
 
 export async function experimentalStreams(source, body, {fetcher = fetch} = {}) {
-  if(source === 'livextv')return liveXtvStreams(body,{fetcher});
   const site = experimentalFootballSites[source];
   if (!site) throw Error("Unsupported source");
   // For deliberate CricHD/Roxie selections, bound non-media page crawls.
