@@ -502,6 +502,22 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                             '${_diagnostics['responsesObserved'] ?? 'Unknown'}',
                           ),
                           Text(
+                            'Confirmed media HTTP 2xx responses: '
+                            '${_diagnostics['confirmedMediaResponses'] ?? 'Unknown'}',
+                          ),
+                          Text(
+                            'Failed media HTTP responses: '
+                            '${_diagnostics['failedMediaResponses'] ?? 'Unknown'}',
+                          ),
+                          Text(
+                            'HTTP 401/403 page/iframe responses: '
+                            '${_diagnostics['deniedDocumentResponses'] ?? 'Unknown'}',
+                          ),
+                          Text(
+                            'Cross-origin iframe targets: '
+                            '${_diagnostics['iframeTargetsObserved'] ?? 'Unknown'}',
+                          ),
+                          Text(
                             'HTML5 video elements: '
                             '${_diagnostics['htmlVideoElements'] ?? 'Unknown'}',
                           ),
@@ -515,7 +531,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                           ),
                           if (_diagnostics['pageHttpStatus'] != null)
                             Text(
-                              'Page HTTP status: ${_diagnostics['pageHttpStatus']}',
+                              'Last document HTTP status: ${_diagnostics['pageHttpStatus']}',
                             ),
                           const SizedBox(height: 8),
                           if (_scanNote != null) Text(_scanNote!),
