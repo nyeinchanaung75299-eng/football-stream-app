@@ -11,8 +11,8 @@ import re
 from verify_android_update_signing import RELEASE_BASE, RELEASES, apk_identity
 
 NOTES = {
-    'Viewer': 'FaWa displays source-confirmed Myanmar Time on match cards, including next-day labels, without guessing dates. Other sources and video playback unchanged.',
-    'Admin': 'FaWa source-confirmed Myanmar Time; LiveXTV selects only published HD/SD Watch choices and offers manual browser detection when native media is not exposed. Playback remains unverified until tested.',
+    'Viewer': 'Android landscape Full/Zoom now uses the whole screen including the camera cutout while player controls remain reachable. Video and sources unchanged.',
+    'Admin': 'Removed the unavailable LiveXTV provider and its related picker, detection and API paths; retained CricHD, RoxieStreams and all other active sources.',
 }
 
 
