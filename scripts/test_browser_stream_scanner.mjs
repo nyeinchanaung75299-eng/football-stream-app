@@ -106,7 +106,14 @@ test("CDP observes requests, closes the browser and never reads cookies",async()
       if(command.method==="Network.enable" && command.sessionId==="iframe-1"){
         listeners.get("message")?.({data:JSON.stringify({
           method:"Network.requestWillBeSent",sessionId:"iframe-1",
-          params:{request:{url:"https://cdn.example.org/iframe/child.m3u8"}},
+          params:{requestId:"iframe-1-media",request:{url:"https://cdn.example.org/iframe/child.m3u8"}},
+        })});
+        listeners.get("message")?.({data:JSON.stringify({
+          method:"Network.responseReceived",sessionId:"iframe-1",
+          params:{requestId:"iframe-1-media",response:{
+            status:200,url:"https://cdn.example.org/iframe/child.m3u8",
+            mimeType:"application/vnd.apple.mpegurl",
+          }},
         })});
       }
       if(command.method==="Page.navigate"){
@@ -114,12 +121,17 @@ test("CDP observes requests, closes the browser and never reads cookies",async()
           method:"Page.frameNavigated",params:{frame:{id:"main",url:"https://video.example.org/watch"}},
         })});
         const events=[
-          {method:"Network.requestWillBeSent",params:{request:{
+          {method:"Network.requestWillBeSent",params:{requestId:"master",request:{
             url:"https://cdn.example.org/live/master.m3u8",
             headers:{Cookie:"SECRET",Authorization:"Bearer SECRET"},
           }}},
-          {method:"Network.responseReceived",params:{response:{
-            url:"https://cdn.example.org/live/manifest.mpd",mimeType:"application/dash+xml",
+          {method:"Network.responseReceived",params:{requestId:"master",response:{
+            status:200,url:"https://cdn.example.org/live/master.m3u8",
+            mimeType:"application/vnd.apple.mpegurl",
+          }}},
+          {method:"Network.responseReceived",params:{requestId:"dash",response:{
+            status:206,url:"https://cdn.example.org/live/manifest.mpd",
+            mimeType:"application/dash+xml",
           }}},
         ];
         for(const event of events)listeners.get("message")?.({data:JSON.stringify(event)});
@@ -149,7 +161,10 @@ test("CDP observes requests, closes the browser and never reads cookies",async()
   assert.deepEqual(result.links.map(x=>x.type),["hls","hls","dash"]);
   assert.equal(result.diagnostics.navigationConfirmed,true);
   assert.equal(result.diagnostics.requestsObserved,2);
-  assert.equal(result.diagnostics.responsesObserved,1);
+  assert.equal(result.diagnostics.responsesObserved,3);
+  assert.equal(result.diagnostics.confirmedMediaResponses,3);
+  assert.equal(result.diagnostics.failedMediaResponses,0);
+  assert.equal(result.diagnostics.iframeTargetsObserved,1);
   assert.equal(result.diagnostics.htmlVideoElements,1);
   assert.equal(result.diagnostics.videoPlayAttempts,1);
   assert.equal(closeCount,1);
@@ -200,4 +215,97 @@ test("empty result distinguishes no requests from a loaded iframe player",async(
   assert.equal(result.diagnostics.pageHttpStatus,200);
   assert.match(result.notes,/iframe players/);
   assert.ok(!JSON.stringify(result).includes("PRIVATE"));
+});
+
+test("browser never reports a failed HLS request as an accessible stream",async()=>{
+  const listeners=new Map();
+  const socket={
+    addEventListener(name,fn){listeners.set(name,fn);},
+    removeEventListener(name){listeners.delete(name);},
+    accept(){},close(){},
+    send(raw){
+      const cmd=JSON.parse(raw);
+      const emit=value=>listeners.get("message")?.({data:JSON.stringify(value)});
+      if(cmd.method==="Page.navigate"){
+        emit({method:"Network.requestWillBeSent",params:{
+          requestId:"denied-playlist",request:{
+            url:"https://edge.example.org:7059/hls/live.m3u8?expires=placeholder",
+          },
+        }});
+        emit({method:"Network.responseReceived",params:{
+          requestId:"denied-playlist",type:"Fetch",response:{
+            status:403,url:"https://edge.example.org:7059/hls/live.m3u8?expires=placeholder",
+            mimeType:"application/vnd.apple.mpegurl",
+          },
+        }});
+        emit({method:"Network.responseReceived",params:{
+          requestId:"blocked-document",type:"Document",response:{
+            status:403,url:"https://player.example.org/watch",
+          },
+        }});
+      }
+      const value=cmd.method==="Runtime.evaluate"
+        ? {result:{value:cmd.params.expression.includes("frames:")
+            ? {videos:0,frames:0}:0}} : {};
+      emit({id:cmd.id,result:value});
+    },
+  };
+  const browser={
+    launch:async()=>({sessionId:"denied",targets:[],webSocket:{
+      fetch:async()=>({webSocket:socket}),
+    }}),
+    closeSession:async()=>{},
+  };
+  const result=await captureBrowserMedia({...env,BROWSER:browser},
+    "https://player.example.org/watch",{delay:async()=>{}});
+  assert.equal(result.count,0);
+  assert.deepEqual(result.links,[]);
+  assert.equal(result.diagnostics.requestsObserved,1);
+  assert.equal(result.diagnostics.deniedDocumentResponses,1);
+  assert.equal(result.diagnostics.failedMediaResponses,1);
+  assert.equal(result.diagnostics.confirmedMediaResponses,0);
+  assert.match(result.notes,/HTTP 401\/403/);
+  assert.equal(JSON.stringify(result).includes("expires=placeholder"),false);
+});
+
+test("browser confirms an HTTPS HLS response on public port 7059 after HTTP 206",async()=>{
+  const listeners=new Map();
+  const socket={
+    addEventListener(name,fn){listeners.set(name,fn);},
+    removeEventListener(name){listeners.delete(name);},
+    accept(){},close(){},
+    send(raw){
+      const cmd=JSON.parse(raw);
+      const emit=value=>listeners.get("message")?.({data:JSON.stringify(value)});
+      if(cmd.method==="Page.navigate"){
+        emit({method:"Network.requestWillBeSent",params:{
+          requestId:"partial",request:{
+            url:"https://edge.example.org:7059/hls/live.m3u8?part=1",
+          },
+        }});
+        emit({method:"Network.responseReceived",params:{
+          requestId:"partial",response:{
+            status:206,url:"https://edge.example.org:7059/hls/live.m3u8?part=1",
+            mimeType:"application/vnd.apple.mpegurl",
+          },
+        }});
+      }
+      const value=cmd.method==="Runtime.evaluate"
+        ? {result:{value:cmd.params.expression.includes("frames:")
+            ? {videos:1,frames:0}:1}} : {};
+      emit({id:cmd.id,result:value});
+    },
+  };
+  const browser={
+    launch:async()=>({sessionId:"partial",targets:[],webSocket:{
+      fetch:async()=>({webSocket:socket}),
+    }}),
+    closeSession:async()=>{},
+  };
+  const result=await captureBrowserMedia({...env,BROWSER:browser},
+    "https://player.example.org/watch",{delay:async()=>{}});
+  assert.equal(result.count,1);
+  assert.equal(result.links[0].type,"hls");
+  assert.equal(result.diagnostics.confirmedMediaResponses,1);
+  assert.equal(result.diagnostics.failedMediaResponses,0);
 });
