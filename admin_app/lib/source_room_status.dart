@@ -12,7 +12,7 @@ String sourceRoomStatusFromLines({
   required int lineCount,
 }) {
   if (isLive) return 'live';
-  if (const {'crichd', 'roxie', 'livextv'}.contains(provider)) {
+  if (const {'crichd', 'roxie'}.contains(provider)) {
     return hasHealthy ? 'ready' : 'unknown';
   }
   return hasHealthy || lineCount > 0 ? 'ready' : 'offline';
