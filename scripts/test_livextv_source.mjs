@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {liveXtvPublishedMatches,liveXtvPublishedSources,liveXtvMatches,liveXtvStreams} from '../supabase/functions/_shared/livextv_source.mjs';
+import {liveXtvPublishedMatches,liveXtvPublishedSources,liveXtvPublishedApiMatches,liveXtvMatches,liveXtvStreams} from '../supabase/functions/_shared/livextv_source.mjs';
 import {isExperimentalFootballSource,experimentalMatches,experimentalStreams} from '../supabase/functions/_shared/experimental_football_sources.mjs';
 
 const index='https://livextv.pro/live';
@@ -161,4 +161,107 @@ test('LiveXTV distinguishes a denied index from a readable moved homepage',async
   const list=await liveXtvMatches({fetcher});
   assert.equal(list.results,0);
   assert.equal(list.diagnostics.content_state,'source_moved_or_unavailable');
+});
+
+const apiIndex='https://api.ppv.st/api/streams';
+const jsonResponse=data=>new Response(JSON.stringify(data),{
+  headers:{'content-type':'application/json'},
+});
+const publishedApiSample={
+  success:true,streams:[
+    {category:'American Football',streams:[
+      {id:90001,name:'Bills vs Patriots',starts_at:1795134600,
+        ends_at:1795145400,category_name:'American Football'}]},
+    {category:'Football',streams:[
+      {id:32372,name:'Orlando City SC vs. FC Cincinnati',tag:'MLS',
+        starts_at:1795134600,ends_at:1795145400,always_live:0,
+        category_name:'Football',iframe:'https://example.test/private-stream',
+        poster:'https://example.test/poster.png'},
+      {id:32373,name:'Ghana vs Mali',tag:'International Friendly',
+        starts_at:1795138200,ends_at:1795149000,always_live:0,
+        category_name:'Football'},
+      {id:32374,name:'Retired vs Fixture',tag:'Football',
+        starts_at:1795000000,ends_at:1795010000,
+        category_name:'Football'},
+      {id:32375,name:'Always Live vs Channel',tag:'Football',
+        starts_at:1795134600,ends_at:1795145400,always_live:1,
+        category_name:'Football'},
+      {id:'not-a-number',name:'Invalid vs Fixture',tag:'Football',
+        starts_at:1795134600,ends_at:1795145400,
+        category_name:'Football'},
+    ]},
+  ],
+};
+
+test('LiveXTV reads verified public Football event JSON, no embeds or other sports',()=>{
+  const rows=liveXtvPublishedApiMatches(publishedApiSample,{
+    nowMs:Date.parse('2026-11-17T00:00:00Z'),
+  });
+  assert.equal(rows.length,2);
+  assert.deepEqual(rows.map(x=>x.home_team),['Orlando City SC','Ghana']);
+  assert.deepEqual(rows.map(x=>x.away_team),['FC Cincinnati','Mali']);
+  assert.equal(rows[0].league,'MLS');
+  assert.equal(rows[0].page_url,'https://livextv.pro/watch/32372');
+  assert.equal(rows[0].match_time,'2026-11-20T00:30:00.000Z');
+  assert.equal(new Date(Date.parse(rows[0].match_time)+390*60000).toISOString().slice(11,16),'07:00');
+  assert.equal(rows[0].verified_kickoff,true);
+  assert.equal(rows[0].status,'NS');
+  assert.equal(rows[0].anchors[0].page_url,rows[0].page_url);
+  assert.equal(JSON.stringify(rows).includes('private-stream'),false);
+  assert.equal(JSON.stringify(rows).includes('poster.png'),false);
+});
+
+test('LiveXTV uses public Football JSON first, without unnecessary HTML/player visits',async()=>{
+  const requested=[];
+  const fetcher=async (url,options)=>{
+    requested.push({url:String(url),accept:options.headers.Accept});
+    if(String(url)!==apiIndex)throw Error('Unexpected HTML or player request');
+    return jsonResponse(publishedApiSample);
+  };
+  const result=await liveXtvMatches({fetcher});
+  assert.equal(result.results,2);
+  assert.equal(result.diagnostics.fixture_source,'public_event_json');
+  assert.equal(result.diagnostics.confirmed_kickoff_count,2);
+  assert.deepEqual(result.diagnostics.available_days_mmt,['2026-11-20']);
+  assert.deepEqual(requested,[{url:apiIndex,accept:'application/json'}]);
+});
+
+test('LiveXTV public JSON keeps 79 upcoming event titles when the publisher lists 79',()=>{
+  const list=Array.from({length:79},(_,i)=>({
+    id:40000+i,name:'Team '+i+' vs Team '+(i+100),
+    starts_at:1795134600+i*60,ends_at:1795145400+i*60,
+    always_live:0,category_name:'Football',tag:'Football',
+  }));
+  const rows=liveXtvPublishedApiMatches({success:true,streams:[
+    {category:'Football',streams:list},
+  ]},{nowMs:Date.parse('2026-11-17T00:00:00Z')});
+  assert.equal(rows.length,79);
+  assert.equal(new Set(rows.map(x=>x.page_url)).size,79);
+});
+
+test('LiveXTV malformed or denied JSON falls back to published public HTML',async()=>{
+  const requests=[];
+  const fetcher=async url=>{
+    requests.push(String(url));
+    if(String(url)===apiIndex)return jsonResponse({success:false,streams:[]});
+    if(String(url)===index)return htmlResponse(fixtureIndex);
+    return htmlResponse(watchPage);
+  };
+  const result=await liveXtvMatches({fetcher});
+  assert.equal(result.results,2);
+  assert.equal(result.diagnostics.fixture_source,'public_html');
+  assert.equal(requests[0],apiIndex);
+  assert.equal(requests[1],index);
+});
+
+test('LiveXTV rejects malformed JSON category and old or unclassified events',()=>{
+  const now=Date.parse('2026-11-17T00:00:00Z');
+  assert.deepEqual(liveXtvPublishedApiMatches({success:false,streams:[]},{nowMs:now}),[]);
+  assert.deepEqual(liveXtvPublishedApiMatches({success:true,streams:null},{nowMs:now}),[]);
+  const groups={success:true,streams:[{category:'Football',streams:[
+    {id:1201,name:'Lions vs Tigers',starts_at:'unknown',category_name:'Football'},
+    {id:1202,name:'Lions vs Tigers',starts_at:1795134600,category_name:'Basketball'},
+    {id:1203,name:'Bad Title',starts_at:1795134600,category_name:'Football'},
+  ]}]};
+  assert.deepEqual(liveXtvPublishedApiMatches(groups,{nowMs:now}),[]);
 });
