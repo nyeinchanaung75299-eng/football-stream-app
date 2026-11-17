@@ -154,6 +154,7 @@ class NativePlayerActivity : Activity() {
     private var selectedAudioLabel: String? = null
     private var selectedSubtitleLabel: String? = null
     private var displayMode = 0 // 0=Fit, 1=Full, 2=Zoom
+    private var displayCutoutSafeRight = 0 // Control inset only, never video.
 
     private var sources = JSONArray()
     private val routeOverrides = mutableMapOf<Int, String>()
@@ -185,6 +186,21 @@ class NativePlayerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // The fullscreen Media3 player must be allowed to paint behind the
+        // punch-hole camera. Resizing the PlayerView to Full/Zoom alone cannot
+        // fill a system-reserved display-cutout strip. Do this before creating
+        // the root view so Android measures the video against the full window.
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                }
+            }
+        } catch (_: Throwable) {
+            // An OEM that rejects the optional window layout must not stop playback.
+        }
 
         try {
             createPlayerScreen()
@@ -629,9 +645,38 @@ class NativePlayerActivity : Activity() {
         // Add last so the panel remains above playback/status without replacing Media3.
         buildSettingsPanel(root)
 
+        // The VIDEO stays truly edge-to-edge. Only tappable chrome is moved
+        // away from cutout pixels, so a left/right camera hole cannot cover
+        // Back, Fit/Full/Zoom, transport or the selected line controls.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            root.setOnApplyWindowInsetsListener { _, insets ->
+                val cutout = insets.displayCutout
+                val landscape = resources.configuration.orientation ==
+                    Configuration.ORIENTATION_LANDSCAPE
+                val safeLeft = if (landscape) cutout?.safeInsetLeft ?: 0 else 0
+                val safeRight = if (landscape) cutout?.safeInsetRight ?: 0 else 0
+                val safeTop = if (!landscape) cutout?.safeInsetTop ?: 0 else 0
+                topBar.setPadding(dp(7) + safeLeft, dp(4) + safeTop,
+                    dp(7) + safeRight, dp(4))
+                compactControls.setPadding(dp(4) + safeLeft, 0,
+                    dp(4) + safeRight, 0)
+                serverRail.setPadding(dp(7) + safeLeft, dp(2),
+                    dp(7) + safeRight, dp(2))
+                // Settings are anchored to END; keep their close control
+                // visible if the camera cutout sits on the right instead.
+                displayCutoutSafeRight = safeRight
+                if (::settingsPanel.isInitialized && root.width > 0) {
+                    positionSettingsPanel(root, landscape)
+                }
+                insets
+            }
+            root.requestApplyInsets()
+        }
+
         // Run immersive-mode and playback only after the view hierarchy exists.
         root.post {
             safeHideSystemBars()
+            root.requestApplyInsets()
             playServer(selectedServerIndex)
         }
     }
@@ -1246,13 +1291,14 @@ class NativePlayerActivity : Activity() {
             dp(335), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END
         ).apply {
             topMargin = dp(54)
-            rightMargin = dp(8)
+            rightMargin = dp(8) + displayCutoutSafeRight
         })
     }
 
     private fun positionSettingsPanel(root: FrameLayout, landscape: Boolean) {
         if (!::settingsPanel.isInitialized) return
-        val widthAvailable = (root.width - dp(16)).coerceAtLeast(dp(160))
+        val widthAvailable = (root.width - dp(16) - displayCutoutSafeRight)
+            .coerceAtLeast(dp(160))
         val width = if (landscape) {
             minOf(dp(335), widthAvailable, (root.width * 0.48f).toInt().coerceAtLeast(dp(180)))
         } else minOf(dp(335), widthAvailable)
