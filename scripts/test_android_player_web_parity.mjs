@@ -17,6 +17,7 @@ test('Android portrait player is top-aligned and landscape header overlays pictu
 
 test('Android landscape video extends under a punch-hole camera but buttons stay visible', () => {
   assert.match(native, /LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS/);
+  assert.match(native, /LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES/);
   assert.match(native, /Build.VERSION.SDK_INT >= Build.VERSION_CODES.P/);
   assert.match(native, /root\.setOnApplyWindowInsetsListener/);
   assert.match(native, /cutout\?\.safeInsetLeft/);
