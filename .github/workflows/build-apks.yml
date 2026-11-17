@@ -245,7 +245,7 @@ jobs:
           BUILD_NUMBER=$((40000 + GITHUB_RUN_NUMBER))
           test "$BUILD_NUMBER" -gt 32748
           flutter build apk --release --split-per-abi \
-            --build-name 2.5.21 --build-number "$BUILD_NUMBER"
+            --build-name 2.5.22 --build-number "$BUILD_NUMBER"
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk /tmp/NCA-admin-arm64-v8a-latest.apk
           echo "NCA_ADMIN_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "NCA_ADMIN_APK_SHA256=$(sha256sum /tmp/NCA-admin-arm64-v8a-latest.apk | awk '{print $1}')" >> "$GITHUB_ENV"
@@ -460,7 +460,7 @@ jobs:
           BUILD_NUMBER=$((40000 + GITHUB_RUN_NUMBER))
           test "$BUILD_NUMBER" -gt 32748
           flutter build apk --release --split-per-abi \
-            --build-name 9.8.10 \
+            --build-name 9.8.11 \
             --build-number "$BUILD_NUMBER"
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk /tmp/NCA-arm64-v8a-latest.apk
           APK_SHA256="$(sha256sum /tmp/NCA-arm64-v8a-latest.apk | awk '{print $1}')"
@@ -504,10 +504,10 @@ jobs:
           tools = Path(os.environ['ANDROID_BUILD_TOOLS'])
           check_update('Admin', feed_dir=output, new_path=candidate,
                        apksigner=str(tools/'apksigner'), aapt=str(tools/'aapt'))
-          manifest = release_metadata('Admin',candidate,'2.5.21',
+          manifest = release_metadata('Admin',candidate,'2.5.22',
                          apksigner=str(tools/'apksigner'), aapt=str(tools/'aapt'))
           manifest['notes'] = (
-              'CricHD Link 1/2 can quick-detect HLS in Android WebView. '
+              'FaWa source-confirmed MMT clocks show in Admin and Viewer. LiveXTV opens the permitted Watch detector when no public media is listed. '
               'Single HLS candidates return to Quality Picker; failed/ambiguous '
               'cases retain manual DETECT. Admin App Version is visible in Tools.'
           )
@@ -571,7 +571,7 @@ jobs:
             --output-dir public/releases \
             --viewer-apk /tmp/NCA-arm64-v8a-latest.apk \
             --admin-apk /tmp/NCA-admin-arm64-v8a-latest.apk \
-            --viewer-version 9.8.10 --admin-version 2.5.21 \
+            --viewer-version 9.8.11 --admin-version 2.5.22 \
             --apksigner "${ANDROID_BUILD_TOOLS}/apksigner" \
             --aapt "${ANDROID_BUILD_TOOLS}/aapt"
 
