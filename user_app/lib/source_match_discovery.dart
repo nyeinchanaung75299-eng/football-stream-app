@@ -3,6 +3,25 @@ typedef SourceMatch = Map<String, dynamic>;
 DateTime? sourceMatchKickoff(SourceMatch match) =>
     DateTime.tryParse(match['match_time']?.toString() ?? '');
 
+// FaWa publishes a source clock but no verified calendar date. The backend
+// converts its explicitly labelled GMT+1 clock to MMT. Show only that verified
+// label, never infer a date or convert a raw/unknown timezone twice.
+String? sourceMatchScheduleLabel(SourceMatch match, String source) {
+  if (source.toLowerCase() != 'fawa' || sourceMatchKickoff(match) != null) {
+    return null;
+  }
+  final label = match['time_label']?.toString().trim() ?? '';
+  if (label.isEmpty) return null;
+  if (match['source_timezone']?.toString().toUpperCase() != 'GMT+1') {
+    return 'Time unverified';
+  }
+  final clock = RegExp(
+    r'(\d{1,2}:\d{2}\s*(?:AM|PM)\s*MMT(?:\s*\(\+1 day\))?)\s*$',
+    caseSensitive: false,
+  ).firstMatch(label);
+  return clock?.group(1) ?? 'Time unverified';
+}
+
 List<SourceMatch> sourceMatchAnchors(SourceMatch match, String source) {
   final raw = match['anchors'];
   if (raw is List) {

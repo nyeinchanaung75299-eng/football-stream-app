@@ -18,6 +18,7 @@ import '../source_line_validation.dart';
 import '../source_match_search.dart';
 import '../services/stream_detector_service.dart';
 import '../services/website_detector_service.dart';
+import '../services/livextv_published_choices.dart';
 import '../source_room_status.dart';
 import 'stream_detector_page.dart'
     if (dart.library.html) 'stream_detector_page_web.dart';
@@ -291,7 +292,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
     if (kIsWeb && !_isManualSource) {
       _sourceQuery = ui.query;
       _sourceSearch.text = ui.query;
-      dayFilter = _isExperimentalSource ? 'all' : ui.dayFilter;
+      dayFilter = (source == 'fawa' || _isExperimentalSource)
+          ? 'all'
+          : ui.dayFilter;
       availableOnly = _isExperimentalSource ? false : ui.availableOnly;
       sourceMatches = AdminWebSourceCache.rows(source) ?? const [];
     }
@@ -963,6 +966,62 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .map((row) => Map<String, dynamic>.from(row as Map))
           .where((row) => (row['url'] ?? '').toString().trim().isNotEmpty)
           .toList();
+      // The public JSON event catalog normally offers only one Watch entry.
+      // If the selected Watch HTML explicitly publishes HD/SD selectors,
+      // show those exact selectors before scanning media. A Watch option
+      // is NEVER an HLS manifest, and selection is validated again server-side.
+      final publishedOptions = provider == 'livextv' &&
+              (anchor['watch_url']?.toString().trim().isNotEmpty != true) &&
+              data is Map
+          ? liveXtvPublishedQualityOptions(
+              data['published_sources'],
+              (anchor['page_url'] ?? match['page_url'] ?? '').toString(),
+            )
+          : <Map<String, dynamic>>[];
+      if (publishedOptions.isNotEmpty) {
+        final chosen = await showModalBottomSheet<Map<String, dynamic>>(
+          context: context,
+          useSafeArea: true,
+          showDragHandle: true,
+          builder: (sheet) => Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'LiveXTV • Select published HD/SD source',
+                  style: Theme.of(sheet).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Watch options are not verified video streams.',
+                  style: TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 8),
+                for (final option in publishedOptions)
+                  ListTile(
+                    title: Text(option['nick_name'].toString()),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(sheet).pop(option),
+                  ),
+              ],
+            ),
+          ),
+        );
+        if (!current()) return;
+        if (chosen != null) {
+          // The current loading lock is cleared by finally first. This
+          // next microtask opens ONLY the operator-selected Watch URL.
+          scheduleMicrotask(() {
+            if (mounted && _currentSession && source == provider) {
+              unawaited(_openAnchor(match, chosen));
+            }
+          });
+        }
+        return;
+      }
+
       // CricHD Android: one tap opens the existing authorized WebView
       // observer only if the resolver has no lines. A single observed HLS
       // returns to Quality Picker automatically; a blocked page or multiple
@@ -1064,6 +1123,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
           await _openSourceDetector(match, anchor, provider);
           return;
         }
+      }
+      if (provider == 'livextv' && lines.isEmpty) {
+        // The public event API publishes fixtures, not guaranteed HLS URLs.
+        // A Watch-only result is not an actual HD/SD stream quality. An
+        // explicit operator tap can inspect the publisher's own Watch page
+        // in the existing consent-gated detector; never invent a manifest,
+        // replay credentials or claim playback was verified.
+        await _openSourceDetector(match, anchor, provider);
+        return;
       }
       if (lines.isEmpty) {
         // Only display a short, redacted source status returned by our

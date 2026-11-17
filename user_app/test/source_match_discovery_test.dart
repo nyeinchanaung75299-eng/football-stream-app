@@ -251,4 +251,42 @@ void main() {
       },
     );
   });
+
+  group('FaWa source-confirmed MMT label', () {
+    test('shows backend converted clock without duplicating competition', () {
+      final match = <String, dynamic>{
+        'source_timezone': 'GMT+1',
+        'time_label': 'Africa Cup of Nations • 10:30 PM MMT',
+        'source_time_label': 'Africa Cup of Nations 17:00',
+        'match_time': null,
+      };
+      expect(sourceMatchScheduleLabel(match, 'fawa'), '10:30 PM MMT');
+      expect(match['match_time'], isNull);
+      expect(match['source_time_label'], 'Africa Cup of Nations 17:00');
+    });
+
+    test('retains next-day marker without inventing a date', () {
+      final match = <String, dynamic>{
+        'source_timezone': 'GMT+1',
+        'time_label': 'Football • 12:30 AM MMT (+1 day)',
+      };
+      expect(sourceMatchScheduleLabel(match, 'fawa'),
+          '12:30 AM MMT (+1 day)');
+      expect(sourceMatchKickoff(match), isNull);
+    });
+
+    test('unknown timezone and other providers are not given invented MMT', () {
+      final match = <String, dynamic>{
+        'source_timezone': 'unverified',
+        'time_label': 'Football 17:00',
+      };
+      expect(sourceMatchScheduleLabel(match, 'fawa'), 'Time unverified');
+      expect(sourceMatchScheduleLabel(match, 'soco'), isNull);
+      expect(sourceMatchScheduleLabel({
+        'source_timezone': 'GMT+1',
+        'time_label': 'Football 17:00',
+      }, 'fawa'), 'Time unverified');
+      expect(sourceMatchScheduleLabel({}, 'fawa'), isNull);
+    });
+  });
 }
