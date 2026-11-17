@@ -218,7 +218,7 @@ test('LiveXTV uses public Football JSON first, without unnecessary HTML/player v
     if(String(url)!==apiIndex)throw Error('Unexpected HTML or player request');
     return jsonResponse(publishedApiSample);
   };
-  const result=await liveXtvMatches({fetcher});
+  const result=await liveXtvMatches({fetcher,nowMs:Date.parse('2026-11-17T00:00:00Z')});
   assert.equal(result.results,2);
   assert.equal(result.diagnostics.fixture_source,'public_event_json');
   assert.equal(result.diagnostics.confirmed_kickoff_count,2);
