@@ -12,7 +12,7 @@ async function read(url,fetcher,signal){
 // Scheduled Actions use the repository-scoped token to publish metadata only.
 // Edge servers avoid shared anonymous GitHub API quotas. Raw files remain
 // pinned to the original tree revision and fixture blobs are SHA-verified.
-export async function readRepositoryTrees(repositories,{fetcher=fetch,signal,now=Date.now()}={}){
+export async function readRepositoryTrees(repositories,{fetcher=fetch,signal,now=Date.now(),allowMissing=false}={}){
  if(repositories.some(repo=>!REPOSITORY_TREE_SOURCES.includes(repo)))throw Error('Unsupported repository');
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
  const combined=signal?AbortSignal.any([signal,controller.signal]):controller.signal;
@@ -23,8 +23,17 @@ export async function readRepositoryTrees(repositories,{fetcher=fetch,signal,now
     return repositories.map(repo=>data.repositories[repo]);
   }catch{/* Fall back to GitHub without trusting a partial/stale mirror. */}
   return await Promise.all(repositories.map(async repo=>{
-   const tree=await read('https://api.github.com/repos/'+repo+'/git/trees/HEAD?recursive=1',fetcher,combined);
-   if(!validTree(tree))throw Error('Incomplete repository tree');return tree;
+   try{
+    const tree=await read('https://api.github.com/repos/'+repo+'/git/trees/HEAD?recursive=1',fetcher,combined);
+    if(!validTree(tree))throw Error('Incomplete repository tree');
+    return tree;
+   }catch(error){
+    // A deleted or temporarily unpublished repository must not stop fresh
+    // fixture metadata from other still-published repositories. Only opt-in
+    // callers can accept a partial snapshot; all other syncs still fail closed.
+    if(allowMissing&&error?.code==='repository_http_404')return null;
+    throw error;
+   }
   }));
  }finally{clearTimeout(timer);controller.abort();}
 }

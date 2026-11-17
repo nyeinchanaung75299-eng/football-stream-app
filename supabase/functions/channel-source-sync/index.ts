@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {createClient} from "jsr:@supabase/supabase-js@2";
 import {fetchDarkbyteCatalog,sourceHash} from "../_shared/darkbyte_catalog.mjs";
 import {fetchLiveTvSports,sportsNeedsDrm} from "../_shared/livetv_sports.mjs";
-import {fetchRepositoryMatches} from '../_shared/repository_matches.mjs';
+import {fetchRepositoryMatches,preserveRepositoryMatchLines} from '../_shared/repository_matches.mjs';
 import {repositoryChannelUpdates,publicRepositoryUpdate} from '../_shared/repository_updates.mjs';
 
 const cors={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization,apikey,content-type,x-client-info"};
@@ -40,6 +40,15 @@ async function synchronize(client:any,force:boolean,source:string){
   }
   const channels=source==='livetv'?await check(client.from('channels').select('id,name,epg_id,epg_source,is_active').eq('is_active',true).limit(1000)):[];
   const snapshot=source==='repository'?await fetchRepositoryMatches({revision:begun.revision}):source==='livetv'?await fetchLiveTvSports({revision:force?null:begun.revision,channels}):await fetchDarkbyteCatalog({revision:begun.revision});
+  if(source==='repository'&&!snapshot.complete){
+   // A repository that now returns 404 is not proof its previously saved
+   // published streams were removed. Keep those configurations until a full
+   // authoritative snapshot succeeds, and add new verified Darkbyte/CFY
+   // event lines without multiplying duplicates.
+   const previous=await check(client.from('channel_source_catalog')
+    .select('id,streams,event_meta').eq('source_id','repository').eq('is_present',true).limit(15000));
+   snapshot.entries=preserveRepositoryMatchLines(snapshot.entries,previous||[]);
+  }
   return await check(client.rpc("commit_connected_channel_source_sync",{
    p_source:source,p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,
    p_complete:snapshot.complete,p_unchanged:snapshot.unchanged,

@@ -121,16 +121,41 @@ export async function mergeRepositoryMatches(rows,{now=Date.now()}={}){
  }
  return [...grouped.values()].map(entry=>({...entry,streams:entry.streams.map(({_identity,...line})=>line)}));
 }
+// During a partial source outage, retain previously saved unique lines for
+// matching fixtures, while allowing newly published lines to be added. Never
+// treat a partial refresh as an authoritative deletion of older match media.
+export function preserveRepositoryMatchLines(entries,oldEntries){
+ const previous=new Map(oldEntries.map(row=>[row.id,row]));
+ return entries.map(entry=>{
+  const old=previous.get(entry.id);
+  if(!old)return entry;
+  const seen=new Set(entry.streams.map(repositoryLineIdentity));
+  const kept=[];
+  for(const line of old.streams||[]){
+   const identity=repositoryLineIdentity(line);
+   if(!seen.has(identity)){kept.push(line);seen.add(identity);}
+  }
+  const oldMeta=old.event_meta||{},fresh=entry.event_meta||{};
+  return {...entry,streams:[...entry.streams,...kept],
+   event_meta:{...oldMeta,...fresh,
+    home_logo_url:fresh.home_logo_url||oldMeta.home_logo_url||null,
+    away_logo_url:fresh.away_logo_url||oldMeta.away_logo_url||null,
+    kickoff_at:fresh.kickoff_at||oldMeta.kickoff_at||null,
+    repositories:[...new Set([...(oldMeta.repositories||[]),...(fresh.repositories||[])])]}}
+ });
+}
+
 export async function fetchRepositoryMatches({fetcher=fetch,revision=null}={}){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
  try{
   const opts={fetcher,signal:controller.signal,limit:3*1024*1024};
-  const trees=await readRepositoryTrees(MPD_REPOSITORIES,opts);
-  const revisions=trees.map(tree=>{if(tree.truncated||!Array.isArray(tree.tree)||!/^[a-f\d]{40}$/.test(tree.sha||''))throw Error('Incomplete repository tree');return tree.sha;});
+  const trees=await readRepositoryTrees(MPD_REPOSITORIES,{...opts,allowMissing:true});
+  const missingRepositories=MPD_REPOSITORIES.filter((_,i)=>trees[i]===null);
+  const revisions=trees.map(tree=>{if(tree===null)return 'missing';if(tree.truncated||!Array.isArray(tree.tree)||!/^[a-f\d]{40}$/.test(tree.sha||''))throw Error('Incomplete repository tree');return tree.sha;});
   const digest=await sourceHash(revisions.join(':'));
   // Rebuild even unchanged snapshots so finished fixtures age out naturally.
   const tasks=[];
-  for(const [i,repo] of MPD_REPOSITORIES.entries())for(const item of trees[i].tree){
+  for(const [i,repo] of MPD_REPOSITORIES.entries())for(const item of (trees[i]?.tree||[])){
    const path=item.path;
    if(item.type!=='blob')continue;
    const match=repo==='darkbyteprojects/iptv_png'?/^provider_[1-6]\/live_events\.json$/.test(path):repo==='Roshavarma/cfy'?path==='api/events.json':/^(?:hasill|finall(?:\.json)?|playlist_final\.json|(?:pl|pll)\/rama+a?2(?:\.json)?)$/.test(path);
@@ -147,6 +172,7 @@ export async function fetchRepositoryMatches({fetcher=fetch,revision=null}={}){
    if(hash!==task.blob_sha)throw Error('Repository file did not match its published Git blob');
    parsed[i]=parseRepositoryMatches(new TextDecoder().decode(bytes),{...task,publisher_blob_verified:true});
   }}));
-  return {revision:digest,unchanged:false,entries:await mergeRepositoryMatches(parsed.flat()),complete:true};
+  return {revision:digest,unchanged:false,entries:await mergeRepositoryMatches(parsed.flat()),
+   complete:missingRepositories.length===0,missingRepositories};
  }finally{clearTimeout(timer);controller.abort();}
 }
