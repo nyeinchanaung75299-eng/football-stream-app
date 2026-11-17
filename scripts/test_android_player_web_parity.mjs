@@ -15,6 +15,23 @@ test('Android portrait player is top-aligned and landscape header overlays pictu
   assert.match(native, /val portraitHeight = \(root\.width \* 9f \/ 16f\)/);
 });
 
+test('Android landscape video extends under a punch-hole camera but buttons stay visible', () => {
+  assert.match(native, /LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS/);
+  assert.match(native, /LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES/);
+  assert.match(native, /Build.VERSION.SDK_INT >= Build.VERSION_CODES.P/);
+  assert.match(native, /root\.setOnApplyWindowInsetsListener/);
+  assert.match(native, /cutout\?\.safeInsetLeft/);
+  assert.match(native, /cutout\?\.safeInsetRight/);
+  assert.match(native, /topBar\.setPadding\(dp\(7\) \+ safeLeft/);
+  assert.match(native, /compactControls\.setPadding\(dp\(4\) \+ safeLeft/);
+  assert.match(native, /serverRail\.setPadding\(dp\(7\) \+ safeLeft/);
+  assert.match(native, /displayCutoutSafeRight/);
+  assert.match(native, /window\.setDecorFitsSystemWindows\(false\)/);
+  assert.match(native, /height = if \(landscape\) root\.height else portraitHeight/);
+  assert.match(native, /1 -> AspectRatioFrameLayout.RESIZE_MODE_FILL/);
+  assert.match(native, /else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM/);
+});
+
 test('Native Android settings match the Web header, tab names, font sizes and close X', () => {
   assert.match(native, /text = "PLAYER SETTINGS"/);
   assert.match(native, /overlayButton\("✕"\)/);

@@ -13,11 +13,11 @@ const pages = (records) => async url => new Response(
 );
 
 test('Only configured football providers are enabled',async()=>{
-  assert.deepEqual(Object.keys(experimentalFootballSites),['roxie','crichd','livextv']);
+  assert.deepEqual(Object.keys(experimentalFootballSites),['roxie','crichd']);
   assert.equal(isExperimentalFootballSource('crichd'),true);
   assert.equal(isExperimentalFootballSource('roxie'),true);
   for(const source of [
-    'camel','xoilac','livetv','rojadirecta','vipbox',
+    'camel','xoilac','livetv','livextv','rojadirecta','vipbox',
     'viprow','score088','sports808','streamfree','ppv',
   ]) {
     assert.equal(isExperimentalFootballSource(source),false);

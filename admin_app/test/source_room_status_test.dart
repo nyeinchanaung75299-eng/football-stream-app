@@ -14,8 +14,8 @@ void main() {
     ), 'ready');
   });
 
-  test('Roxie and LiveXTV never call unverified candidates OFFLINE', () {
-    for (final provider in ['roxie', 'livextv']) {
+  test('Roxie never calls unverified candidates OFFLINE', () {
+    for (final provider in ['roxie']) {
       expect(sourceRoomStatusFromLines(
         provider: provider, isLive: false, hasHealthy: false, lineCount: 0,
       ), 'unknown');

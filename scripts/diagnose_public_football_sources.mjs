@@ -11,7 +11,7 @@ for (let i=0; i<ids.length; i+=3) {
     let responseStatus = null;
     let redirectTarget = null;
     const fetcher = async (url, init) => {
-      const publicFeed = ["ppv","livextv"].includes(source) &&
+      const publicFeed = source === "ppv" &&
         String(url)==="https://api.ppv.st/api/streams" || source==="streamfree" &&
         ["https://strmfree.st/streams","https://strmfree.st/fixtures/soccer"].includes(String(url));
       if (String(url) !== site.home && !publicFeed) throw Error("Detail page excluded from smoke probe");
