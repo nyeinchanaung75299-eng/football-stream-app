@@ -5,6 +5,7 @@ import { englishFootballName, firstFootballName, providerEnglishName, sourceFoot
 import { sourceMatchRows, isFootballSourceRow, hasPublishedSourceRoom } from "../_shared/source_match_rows.mjs";
 import { sourceLogo } from "../_shared/source_team_logos.mjs";
 import { loadYyzbFootballCatalogue } from '../_shared/yyzb_schedule.mjs';
+import { fawaScheduleTimezoneConfirmed, fawaMyanmarTimeLabel } from '../_shared/fawa_schedule_time.mjs';
 import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
 
 const corsHeaders = {
@@ -397,6 +398,7 @@ async function roomStreams(args: {
 
 async function fawaMatches() {
   const html = await fetchFawaText(FAWA_HOME);
+  const sourceIsGmtPlusOne = fawaScheduleTimezoneConfirmed(html);
   const grouped = new Map<string, any>();
 
   // Fawa has nested/unclosed <a> tags. Parsing one whole card with a single
@@ -446,7 +448,9 @@ async function fawaMatches() {
       home_logo: null,
       away_logo: null,
       match_time: null,
-      time_label: playing,
+      time_label: fawaMyanmarTimeLabel(playing, sourceIsGmtPlusOne),
+      source_time_label: playing,
+      source_timezone: sourceIsGmtPlusOne ? 'GMT+1' : 'unverified',
       hot: false,
       status: null,
       match_status: null,
