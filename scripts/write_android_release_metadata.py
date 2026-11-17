@@ -12,7 +12,7 @@ from verify_android_update_signing import RELEASE_BASE, RELEASES, apk_identity
 
 NOTES = {
     'Viewer': 'Repository stream lines now show concise server names in Web and Android players. Existing stream playback remains unchanged.',
-    'Admin': 'CricHD DETECT now confirms HTTP 2xx HLS/DASH responses and reports HTTP 401/403 and failed media. Browser verification and stream playback remain unverified.',
+    'Admin': 'CricHD Android Link 1/2 quick-detects a single observed HLS playlist for Quality Picker. Manual DETECT remains available if detection is unavailable or ambiguous. Admin App Version is shown in Tools.',
 }
 
 
