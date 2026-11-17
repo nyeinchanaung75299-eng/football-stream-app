@@ -5,6 +5,7 @@ import { englishFootballName, firstFootballName, providerEnglishName, sourceFoot
 import { sourceMatchRows, isFootballSourceRow, hasPublishedSourceRoom } from "../_shared/source_match_rows.mjs";
 import { sourceLogo } from "../_shared/source_team_logos.mjs";
 import { loadYyzbFootballCatalogue } from '../_shared/yyzb_schedule.mjs';
+import { fawaScheduleTimezoneConfirmed, fawaMyanmarTimeLabel } from '../_shared/fawa_schedule_time.mjs';
 import { footballHighlights } from '../_shared/football_highlights.mjs';
 
 const corsHeaders = {
@@ -291,6 +292,7 @@ async function jsonpMatches(args: {
 
 async function fawaMatches() {
   const html = await fetchFawaText(FAWA_HOME);
+  const sourceIsGmtPlusOne = fawaScheduleTimezoneConfirmed(html);
   const grouped = new Map<string, any>();
   const nameRegex =
     /<div\s+class=["']user-item__name["'][^>]*>([\s\S]*?)<\/div>/gi;
@@ -334,7 +336,9 @@ async function fawaMatches() {
       home_team: teams[0]?.trim() || baseName,
       away_team: teams[1]?.trim() || "",
       match_time: null,
-      time_label: playing,
+      time_label: fawaMyanmarTimeLabel(playing, sourceIsGmtPlusOne),
+      source_time_label: playing,
+      source_timezone: sourceIsGmtPlusOne ? 'GMT+1' : 'unverified',
       hot: false,
       anchors: [],
     };
