@@ -18,3 +18,25 @@ test('stale or incomplete metadata never causes a false removal; API failures re
  }
  await assert.rejects(()=>readRepositoryTrees(['other/repo']),/Unsupported/);
 });
+
+
+test('opt-in partial tree sync skips only 404 repositories, never 403 or untrusted trees',async()=>{
+ const calls=[];
+ const rows=await readRepositoryTrees(REPOSITORY_TREE_SOURCES,{now,allowMissing:true,fetcher:async url=>{
+  calls.push(url);
+  if(url.startsWith('https://raw.githubusercontent.com/'))
+   return Response.json({fetched_at:new Date(now-3600000).toISOString(),repositories:{}});
+  if(url.includes('rohmanabdu/'))return new Response('',{status:404});
+  return Response.json(tree);
+ }});
+ assert.equal(rows.length,4);
+ assert.equal(rows.filter(x=>x===null).length,2);
+ assert.equal(rows[2].sha,sha);
+ assert.equal(rows[3].sha,sha);
+ assert.equal(calls.length,5);
+ await assert.rejects(()=>readRepositoryTrees(['Roshavarma/cfy'],{
+  now,allowMissing:true,fetcher:async url=>url.includes('raw.githubusercontent.com')
+   ?Response.json({fetched_at:new Date(now-3600000).toISOString(),repositories:{}})
+   :new Response('',{status:403}),
+ }),error=>error.code==='repository_http_403');
+});
