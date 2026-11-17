@@ -4,6 +4,10 @@
 import {readPublicSource,publicSourceUrl,discoverPublicMedia} from './public_source_media.mjs';
 
 const ROOT='https://livextv.pro/live';
+const EVENT_INDEX='https://api.ppv.st/api/streams';
+const EVENT_CACHE_MS=60000;
+let cachedEventRows=null;
+let pendingEventRows=null;
 const allowedHost=host=>host==='livextv.pro'||host==='www.livextv.pro';
 const titleText=value=>String(value??'')
   .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ')
@@ -181,18 +185,83 @@ export function liveXtvPublishedSources(html,page) {
     add(attr(hit[1],'data-href')||attr(hit[1],'data-url'),hit[2]);
   return [...result.entries()].sort((a,b)=>a[0]-b[0]).map(([,entry])=>entry).slice(0,12);
 }
+// The current LiveXTV frontend obtains its public event catalog as JSON.
+// Only event metadata is used. Never import iframe/substream/media URLs or
+// assume that a published event proves stream playback.
+export function liveXtvPublishedApiMatches(payload,{nowMs=Date.now()}={}) {
+  if(payload?.success!==true || !Array.isArray(payload.streams))return [];
+  const rows=new Map();
+  for(const group of payload.streams.slice(0,50)) {
+    if(String(group?.category??'').trim().toLowerCase()!=='football' ||
+       !Array.isArray(group.streams))continue;
+    for(const event of group.streams.slice(0,2000)) {
+      if(!event || typeof event!=='object' ||
+         String(event.category_name??group.category).trim().toLowerCase()!=='football' ||
+         event.always_live===true || Number(event.always_live)===1)continue;
+      const id=Number(event.id);
+      if(!Number.isSafeInteger(id)||id<1||id>999999999999)continue;
+      const kickoff=eventTime(event.starts_at);
+      const teams=teamPair(event.name??'');
+      if(!kickoff||!teams)continue;
+      const end=Number(event.ends_at??0);
+      if(Number.isFinite(end)&&end>0&&end*1000<nowMs)continue;
+      const page=canonical('https://livextv.pro/watch/'+id);
+      if(!page)continue;
+      const league=titleText(event.tag??'').slice(0,80)||'Football';
+      rows.set(page,matchRow(page,teams,{
+        league,kickoff,live:Date.parse(kickoff)<=nowMs,
+      }));
+    }
+  }
+  return [...rows.values()].sort((a,b)=>
+    (a.match_time??'9999').localeCompare(b.match_time??'9999'));
+}
+
+async function readPublicEventRows({fetcher=fetch,nowMs=Date.now()}={}) {
+  const cacheable=fetcher===fetch;
+  if(cacheable&&cachedEventRows&&cachedEventRows.expires>Date.now())
+    return cachedEventRows.rows;
+  if(cacheable&&pendingEventRows)return pendingEventRows;
+  const task=(async()=>{
+    const catalog=await readPublicSource(EVENT_INDEX,{
+      fetcher,kind:'json',timeoutMs:5500,allowedHosts:['api.ppv.st'],
+    });
+    let payload;
+    try{payload=JSON.parse(catalog.text);}catch{throw Error('LiveXTV event index is not valid JSON');}
+    if(payload?.success!==true || !Array.isArray(payload.streams))
+      throw Error('LiveXTV event index does not contain a published category list');
+    return liveXtvPublishedApiMatches(payload,{nowMs});
+  })();
+  if(cacheable)pendingEventRows=task;
+  try{
+    const rows=await task;
+    if(cacheable)cachedEventRows={expires:Date.now()+EVENT_CACHE_MS,rows};
+    return rows;
+  }finally{
+    if(cacheable&&pendingEventRows===task)pendingEventRows=null;
+  }
+}
+
 export async function liveXtvMatches({fetcher=fetch}={}) {
   // The home page also publishes the public football catalog. If /live
   // is unavailable or returned only JS shells, try that public fallback.
   let matches=[];
+  let feedSource='public_html';
   let firstError=null;
+  // LiveXTV is client-rendered and publishes its Football schedule through
+  // a JSON catalog. This is read-only and cached per isolate for one minute.
+  // Preserve HTML fallback if the catalog is inaccessible or has no events.
+  try{
+    matches=await readPublicEventRows({fetcher});
+    if(matches.length)feedSource='public_event_json';
+  }catch(err){firstError=err;}
   let successfulIndexes=0;
   let movedIndex=false;
   let browserRenderedIndex=false;
   // A source-specific public football listing can publish real fixtures when
   // the generic /live or homepage serves only navigation/redirect markup.
   // Never follow an unverified "new home" link to an unrelated domain.
-  for(const location of [ROOT,'https://livextv.pro/sport/football','https://livextv.pro/']) {
+  for(const location of matches.length?[]:[ROOT,'https://livextv.pro/sport/football','https://livextv.pro/']) {
     try{
       const listing=await readPublicSource(location,{fetcher,timeoutMs:4000,
         allowedHosts:['livextv.pro']});
@@ -213,7 +282,7 @@ export async function liveXtvMatches({fetcher=fetch}={}) {
   }
   // Read a limited number of detail pages for explicit HD/SD source labels,
   // not for credentials, private APIs, or stream extraction.
-  for(let i=0;i<Math.min(matches.length,9);i+=3) {
+  for(let i=0;i<(feedSource==='public_event_json'?0:Math.min(matches.length,9));i+=3) {
     await Promise.all(matches.slice(i,i+3).map(async row=>{
       try{
         const detail=await readPublicSource(row.page_url,{fetcher,timeoutMs:1500,
@@ -233,7 +302,7 @@ export async function liveXtvMatches({fetcher=fetch}={}) {
   const days=[...new Set(matches.filter(m=>m.match_time).map(m=>
     new Date(Date.parse(m.match_time)+390*60*1000).toISOString().slice(0,10)))].sort();
   return {ok:true,source:'livextv',matches,results:matches.length,
-    diagnostics:{candidate_count:matches.length,
+    diagnostics:{candidate_count:matches.length,fixture_source:feedSource,
       content_state:matches.length?'matches_found':
         movedIndex?'source_moved_or_unavailable':
         browserRenderedIndex?'browser_render_or_unsupported_markup':
