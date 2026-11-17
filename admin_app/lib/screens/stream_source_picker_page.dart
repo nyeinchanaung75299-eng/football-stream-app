@@ -24,7 +24,6 @@ class StreamSourcePickerPage extends StatelessWidget {
     _SourceOption('arena', 'Arena Koora', Icons.stadium_rounded),
     _SourceOption('roxie', 'RoxieStreams', Icons.sports_soccer_rounded),
     _SourceOption('crichd', 'CricHD', Icons.sports_soccer_rounded),
-    _SourceOption('livextv', 'LiveXTV', Icons.live_tv_rounded),
   ];
 
   Future<void> _open(BuildContext context, _SourceOption source) async {
