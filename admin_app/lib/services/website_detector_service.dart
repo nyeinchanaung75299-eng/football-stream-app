@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../network_endpoints.dart';
+import '../source_route_policy.dart';
 
 class WebsiteScanResult {
   const WebsiteScanResult({
@@ -35,22 +36,10 @@ class WebsiteDetectorService {
 
     final client = http.Client();
     try {
-      // The alternate Vercel host is often more reachable than the Worker
-      // domains on some mobile networks. Its route forwards to the *same*
-      // authenticated Cloudflare scanner and does not bypass its role checks.
-      // Browser Run spends scarce Free browser minutes. Never fan out a
-      // long-running scan across several gateways: the other gateways would
-      // start duplicate Cloudflare browser sessions for the same page.
-      // Use Vercel first for explicit extraction, not for background lists.
-      final bases = browser
-          ? <String>[
-              vercelBackupBase,
-              cloudflarePublicBase,
-            ]
-          : publicApiBases(
-              primary: 'https://football-api.nyeinchanaung.us.ci',
-              preferVercel: true,
-            );
+      // Determine reachability before scanning. Only one provider/browser
+      // scan runs at a time; a slow scan is never raced through other gateways.
+      final preferred = await sourceRoutePolicy.preferred();
+      final bases = <String>{preferred, ...publicApiBases()}.toList();
       final clock = Stopwatch()..start();
       String lastFailure = 'No scanner gateway responded.';
       for (final base in bases) {

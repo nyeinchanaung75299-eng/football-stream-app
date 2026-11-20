@@ -1,3 +1,4 @@
+import '../source_route_policy.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -703,7 +704,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   Future<List<Map<String, dynamic>>> _anchor(
     Map<String, dynamic> m,
     Map<String, dynamic> anchor,
-  ) => _anchorFrom(vercelBackupBase, m, anchor);
+  ) => sourceRoutePolicy.read((base) => _anchorFrom(base, m, anchor));
 
   int _compareLines(Map<String, dynamic> a, Map<String, dynamic> b) {
     int rank(Map<String, dynamic> x) {

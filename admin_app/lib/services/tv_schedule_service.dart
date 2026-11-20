@@ -184,96 +184,37 @@ class TvScheduleGuide {
     final away = _teamAliases(_text(match['away_team']));
     if (home.isEmpty || away.isEmpty) return const [];
 
-    final airings = <TvScheduleAiring>[];
-    for (final channel in channels) {
-      if (!channel.hasGuide) continue;
-      TvScheduleProgramme? best;
-      for (final programme in channel.programmes) {
-        final gap = programme.start.difference(kickoff).inMinutes;
-        if (gap < -90 || gap > 75) continue;
-        final body = _programmeBody(programme);
-        if (body.isEmpty ||
-            programme.ambiguous ||
-            _isReplay(body) ||
-            _isNonFootball(body)) continue;
-        if (!_containsAlias(body, home) || !_containsAlias(body, away)) {
-          continue;
-        }
-        if (best == null ||
-            programme.start.difference(kickoff).abs() <
-                best.start.difference(kickoff).abs()) {
-          best = programme;
-        }
-      }
-      if (best != null) {
-        airings.add(
-          TvScheduleAiring(
-            channel: channel.name,
-            when: best.start,
-            title: best.title,
-            region: channel.region,
-          ),
-        );
-      }
-    }
-    airings.sort((a, b) {
-      final byTime = a.when.compareTo(b.when);
-      return byTime != 0 ? byTime : a.channel.compareTo(b.channel);
-    });
-    return airings;
+    return _matchIndex(this).airings(kickoff, home, away);
   }
 
-  /// Generic football listings with no verified team names are potential
-  /// coverage only, not match confirmations. Keep these separate from
-  /// [airingsForMatch] so Admin never promotes a generic EPG slot to LIVE.
+  /// Generic slots are possible coverage only, never confirmed match airings.
   List<TvScheduleAiring> possibleAiringsForMatch(Map<String, dynamic> match) {
     final kickoff = DateTime.tryParse(_text(match['kickoff_at']))?.toUtc();
     if (kickoff == null) return const [];
     final home = _teamAliases(_text(match['home_team']));
     final away = _teamAliases(_text(match['away_team']));
     if (home.isEmpty || away.isEmpty) return const [];
+    return _matchIndex(this).airings(kickoff, home, away, possible: true);
+  }
 
-    final possibles = <TvScheduleAiring>[];
-    for (final channel in channels) {
-      if (!channel.hasGuide) continue;
-      TvScheduleProgramme? best;
-      for (final programme in channel.programmes) {
-        final gap = programme.start.difference(kickoff).inMinutes;
-        if (gap < -90 || gap > 75) continue;
-        final end =
-            programme.end ?? programme.start.add(const Duration(hours: 3));
-        if (end.isBefore(kickoff)) continue;
-        final body = _programmeBody(programme);
-        if (body.isEmpty ||
-            programme.ambiguous ||
-            _isReplay(body) ||
-            _isNonFootball(body)) continue;
-        // A slot that names another fixture must never be suggested.
-        if (RegExp(r'\b(?:vs|v|versus|x)\b').hasMatch(body)) continue;
-        if (!_isGenericFootballSlot(body)) continue;
-        if (_containsAlias(body, home) && _containsAlias(body, away)) {
-          continue; // Already in the verified list.
-        }
-        if (best == null ||
-            programme.start.difference(kickoff).abs() <
-                best.start.difference(kickoff).abs()) {
-          best = programme;
-        }
-      }
-      if (best != null) {
-        possibles.add(TvScheduleAiring(
-          channel: channel.name,
-          when: best.start,
-          title: best.title,
-          region: channel.region,
-        ));
+  DateTime? nextProgrammeBoundary(DateTime now) {
+    final times = _boundaries[this] ??= ([
+      for (final channel in channels)
+        for (final p in channel.programmes) ...[
+          p.start,
+          p.end ?? p.start.add(const Duration(hours: 3))
+        ]
+    ]..sort());
+    var low = 0, high = times.length;
+    while (low < high) {
+      final mid = (low + high) ~/ 2;
+      if (!times[mid].isAfter(now)) {
+        low = mid + 1;
+      } else {
+        high = mid;
       }
     }
-    possibles.sort((a, b) {
-      final byTime = a.when.compareTo(b.when);
-      return byTime != 0 ? byTime : a.channel.compareTo(b.channel);
-    });
-    return possibles;
+    return low < times.length ? times[low] : null;
   }
 
   /// Returns only current or upcoming team-v-team programmes.
@@ -333,7 +274,7 @@ class TvScheduleGuide {
       }
       final end =
           programme.end ?? programme.start.add(const Duration(hours: 3));
-      if (end.isBefore(current) || programme.start.isAfter(latest)) {
+      if (!end.isAfter(current) || programme.start.isAfter(latest)) {
         continue;
       }
       listings.add(
@@ -448,12 +389,17 @@ class TvScheduleService {
     Future<TvScheduleGuide> fetchCatalog() async {
       final client = _httpClient ?? http.Client();
       try {
-        for (final base in (_apiBases ?? publicDataApiBases(preferVercel: usesVercelBackend)).toSet()) {
+        for (final base in (_apiBases ??
+                publicDataApiBases(preferVercel: usesVercelBackend))
+            .toSet()) {
           try {
             final response = await client
-                .get(Uri.parse('$base/channels').replace(
-                  queryParameters: _needsFreshMetadata ? {'fresh': '1'} : null,
-                ), headers: publicApiHeaders(base))
+                .get(
+                    Uri.parse('$base/channels').replace(
+                      queryParameters:
+                          _needsFreshMetadata ? {'fresh': '1'} : null,
+                    ),
+                    headers: publicApiHeaders(base))
                 .timeout(const Duration(seconds: 8));
             if (response.statusCode != 200) continue;
             final json = jsonDecode(response.body);
@@ -481,16 +427,22 @@ class TvScheduleService {
     try {
       // Use the configured custom domain first. The workers.dev hostname can
       // serve an older deployment while the production route is updated.
-      final bases = _apiBases ?? publicDataApiBases(preferVercel: usesVercelBackend);
+      final bases =
+          _apiBases ?? publicDataApiBases(preferVercel: usesVercelBackend);
       for (final rawBase in bases.toSet()) {
         final base = rawBase.trim().replaceAll(RegExp(r'/+$'), '');
         if (base.isEmpty) continue;
         try {
           final uri = Uri.parse('$base/tv-schedule').replace(
-            queryParameters: {'date': date, 'days': '$guideDays',
-              if (fresh) 'fresh': '1'},
+            queryParameters: {
+              'date': date,
+              'days': '$guideDays',
+              if (fresh) 'fresh': '1'
+            },
           );
-          final response = await client.get(uri, headers: publicApiHeaders(base)).timeout(const Duration(seconds: 16));
+          final response = await client
+              .get(uri, headers: publicApiHeaders(base))
+              .timeout(const Duration(seconds: 16));
           if (response.statusCode < 200 || response.statusCode >= 300) {
             throw StateError(
                 'TV schedule returned HTTP ${response.statusCode}.');
@@ -528,15 +480,18 @@ final _spacesPattern = RegExp(r'\s+');
 String _normalise(String value) {
   // Brazilian EPG programme titles use accented Portuguese country names,
   // e.g. "Espanha x Inglaterra" and "França x Turquia".
-  final latin = value.toLowerCase()
+  final latin = value
+      .toLowerCase()
       .replaceAll(RegExp(r'[áàâãä]'), 'a')
       .replaceAll(RegExp(r'[éèêë]'), 'e')
       .replaceAll(RegExp(r'[íìîï]'), 'i')
       .replaceAll(RegExp(r'[óòôõö]'), 'o')
       .replaceAll(RegExp(r'[úùûü]'), 'u')
       .replaceAll('ç', 'c');
-  return latin.replaceAll(_nonWordPattern, ' ')
-      .replaceAll(_spacesPattern, ' ').trim();
+  return latin
+      .replaceAll(_nonWordPattern, ' ')
+      .replaceAll(_spacesPattern, ' ')
+      .trim();
 }
 
 List<String> _teamAliases(String team) {
@@ -659,4 +614,89 @@ class _ChannelListingCache {
   final DateTime? validUntil;
   final String key;
   final List<TvScheduleListing> rows;
+}
+
+final _boundaries = Expando<List<DateTime>>();
+final _matchIndexes = Expando<_GuideMatchIndex>();
+_GuideMatchIndex _matchIndex(TvScheduleGuide guide) =>
+    _matchIndexes[guide] ??= _GuideMatchIndex(guide);
+
+class _IndexedProgramme {
+  _IndexedProgramme(this.channel, this.programme);
+  final TvScheduleChannel channel;
+  final TvScheduleProgramme programme;
+  String get body => _programmeBody(programme);
+}
+
+class _GuideMatchIndex {
+  _GuideMatchIndex(TvScheduleGuide guide) {
+    for (final channel in guide.channels) {
+      if (!channel.hasGuide) continue;
+      for (final p in channel.programmes) {
+        // Index timestamps only. Normalize programme text lazily inside the
+        // requested kickoff window rather than parsing unrelated guide days.
+        _entries.add(_IndexedProgramme(channel, p));
+      }
+    }
+    _entries.sort((a, b) => a.programme.start.compareTo(b.programme.start));
+  }
+  final _entries = <_IndexedProgramme>[];
+  final _cache = <String, List<TvScheduleAiring>>{};
+  List<TvScheduleAiring> airings(
+      DateTime kickoff, List<String> home, List<String> away,
+      {bool possible = false}) {
+    final key =
+        '${kickoff.millisecondsSinceEpoch}|${home.join(';')}|${away.join(';')}|$possible';
+    final cached = _cache[key];
+    if (cached != null) return cached;
+    // Existing gap rules use inMinutes (truncation towards zero); preserve
+    // their boundary behavior while excluding unrelated days in the index.
+    final earliest = kickoff.subtract(const Duration(minutes: 91));
+    final latest = kickoff.add(const Duration(minutes: 76));
+    var low = 0, high = _entries.length;
+    while (low < high) {
+      final mid = (low + high) ~/ 2;
+      if (_entries[mid].programme.start.isBefore(earliest))
+        low = mid + 1;
+      else
+        high = mid;
+    }
+    final best = <TvScheduleChannel, TvScheduleProgramme>{};
+    for (var i = low; i < _entries.length; i++) {
+      final row = _entries[i], p = row.programme;
+      if (p.start.isAfter(latest)) break;
+      final gap = p.start.difference(kickoff).inMinutes;
+      if (gap < -90 || gap > 75) continue;
+      if (p.ambiguous ||
+          row.body.isEmpty ||
+          _isReplay(row.body) ||
+          _isNonFootball(row.body)) continue;
+      if (possible) {
+        if ((p.end ?? p.start.add(const Duration(hours: 3)))
+                .isBefore(kickoff) ||
+            RegExp(r'\b(?:vs|v|versus|x)\b').hasMatch(row.body) ||
+            !_isGenericFootballSlot(row.body) ||
+            (_containsAlias(row.body, home) && _containsAlias(row.body, away)))
+          continue;
+      } else if (!_containsAlias(row.body, home) ||
+          !_containsAlias(row.body, away)) continue;
+      final old = best[row.channel];
+      if (old == null ||
+          p.start.difference(kickoff).abs() <
+              old.start.difference(kickoff).abs()) best[row.channel] = p;
+    }
+    final rows = [
+      for (final entry in best.entries)
+        TvScheduleAiring(
+            channel: entry.key.name,
+            when: entry.value.start,
+            title: entry.value.title,
+            region: entry.key.region)
+    ]..sort((a, b) {
+        final time = a.when.compareTo(b.when);
+        return time != 0 ? time : a.channel.compareTo(b.channel);
+      });
+    if (_cache.length >= 256) _cache.clear();
+    return _cache[key] = List.unmodifiable(rows);
+  }
 }

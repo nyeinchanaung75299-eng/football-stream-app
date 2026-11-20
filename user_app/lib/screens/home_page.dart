@@ -1,3 +1,4 @@
+import '../source_route_policy.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -447,7 +448,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadPublicApiStreams(String matchId) {
-    return _loadPublicApiStreamsFrom(vercelBackupBase, matchId);
+    return sourceRoutePolicy.read((base) => _loadPublicApiStreamsFrom(base, matchId));
   }
 
   Future<List<Map<String, dynamic>>> _resolveLinks(

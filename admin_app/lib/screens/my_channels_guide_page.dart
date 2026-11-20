@@ -1,3 +1,4 @@
+import '../widgets/guide_clock.dart';
 import 'package:flutter/material.dart';
 import '../widgets/resilient_logo.dart';
 import 'package:intl/intl.dart';
@@ -23,7 +24,13 @@ class MyChannelsGuidePage extends StatefulWidget {
   State<MyChannelsGuidePage> createState() => _MyChannelsGuidePageState();
 }
 
-class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
+class _MyChannelsGuidePageState extends State<MyChannelsGuidePage>
+    with GuideClock<MyChannelsGuidePage> {
+  @override
+  bool get guideClockActive => widget.active;
+  @override
+  DateTime? nextGuideBoundary(DateTime now) =>
+      _lastGuide?.nextProgrammeBoundary(now);
   Object? _contentKey;
   Widget? _retainedContent;
   static final _guideTheme = ThemeData.dark(useMaterial3: true).copyWith(
@@ -74,6 +81,7 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
       _loadingGuide = false;
     }
     _lastGuide = guide; // The last success survives an offline refresh.
+    refreshGuideClock();
     _lastSuccessfulAt = DateTime.now();
     return guide;
   }
@@ -109,6 +117,7 @@ class _MyChannelsGuidePageState extends State<MyChannelsGuidePage> {
       epgFilter,
       groupPositions,
       widget.embedded,
+      guideClockRevision,
       DateTime.now().millisecondsSinceEpoch ~/ 60000
     );
     if (_contentKey != contentKey) {
@@ -657,7 +666,8 @@ class _ChannelImage extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: ResilientLogo(
-        value: image, channelId: channel.id,
+        value: image,
+        channelId: channel.id,
         width: 38,
         height: 38,
         fit: BoxFit.contain,
