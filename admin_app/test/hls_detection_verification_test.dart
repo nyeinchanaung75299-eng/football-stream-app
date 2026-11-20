@@ -14,6 +14,25 @@ const one = DetectedStream(
     referer: 'https://playerbee.top/',
     origin: 'https://playerbee.top');
 void main() {
+  testWidgets('repeated passive rescans do not postpone a verified selection',
+      (tester) async {
+    final picked = <DetectedStream>[];
+    final session = HlsDetectionSession(
+        quickSelect: true,
+        onChanged: () {},
+        onSelected: picked.add,
+        verify: (_) async => const HlsCandidateCheck(true, 'live'));
+    session.observe(one);
+    session.associateMedia([one.url], session.generation);
+    session.documentFinished(session.generation);
+    await tester.pump();
+    for (var i = 0; i < 3; i++) {
+      await tester.pump(const Duration(milliseconds: 1500));
+      session.associateMedia([one.url], session.generation);
+    }
+    expect(picked, [one]);
+    session.dispose();
+  });
   test(
       'only public 2xx complete live playlists qualify; no credentials or segments fetched',
       () async {

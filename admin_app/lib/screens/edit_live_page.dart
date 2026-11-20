@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../analytics_service.dart';
+import '../services/repository_logo.dart';
 import '../widgets/resilient_logo.dart';
 import 'live_links_page.dart';
 
@@ -59,7 +60,8 @@ class _EditLivePageState extends State<EditLivePage> {
 
   void _message(String value) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(value)));
     }
   }
 
@@ -88,13 +90,18 @@ class _EditLivePageState extends State<EditLivePage> {
     try {
       // A zero-row UPDATE can silently succeed when RLS blocks a write.
       // Require the updated row before claiming the match was deleted.
-      final deleted = await Supabase.instance.client.from('matches').update({
-        'is_active': false,
-        'is_featured': false,
-        'is_live': false,
-        'publish_state': 'draft',
-        'deleted_at': DateTime.now().toUtc().toIso8601String(),
-      }).eq('id', id).select('id,is_active,is_featured,publish_state,deleted_at').single();
+      final deleted = await Supabase.instance.client
+          .from('matches')
+          .update({
+            'is_active': false,
+            'is_featured': false,
+            'is_live': false,
+            'publish_state': 'draft',
+            'deleted_at': DateTime.now().toUtc().toIso8601String(),
+          })
+          .eq('id', id)
+          .select('id,is_active,is_featured,publish_state,deleted_at')
+          .single();
 
       if (deleted['deleted_at'] == null ||
           deleted['is_active'] != false ||
@@ -107,7 +114,8 @@ class _EditLivePageState extends State<EditLivePage> {
           .from('stream_links')
           .delete()
           .eq('match_id', id);
-      await AnalyticsService.capture('match deleted', properties: {'match_id': id});
+      await AnalyticsService.capture('match deleted',
+          properties: {'match_id': id});
       _message('Match deleted.');
       _reload();
     } catch (error) {
@@ -213,7 +221,8 @@ class _EditLivePageState extends State<EditLivePage> {
               return const Center(child: CircularProgressIndicator());
             }
             final rows = snapshot.data!;
-            if (rows.isEmpty) return const Center(child: Text('No matches yet.'));
+            if (rows.isEmpty)
+              return const Center(child: Text('No matches yet.'));
 
             return ListView.separated(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
@@ -429,7 +438,8 @@ class _TeamLogo extends StatelessWidget {
       width: 52,
       height: 52,
       child: ResilientLogo(
-        value: url, fallback: Center(child: fallback),
+        value: url,
+        fallback: Center(child: fallback),
       ),
     );
   }
@@ -474,17 +484,26 @@ class _EditMatchPage extends StatefulWidget {
 }
 
 class _EditMatchPageState extends State<_EditMatchPage> {
-  late final league = TextEditingController(text: '${widget.match['league'] ?? ''}');
-  late final home = TextEditingController(text: '${widget.match['home_team'] ?? ''}');
-  late final away = TextEditingController(text: '${widget.match['away_team'] ?? ''}');
-  late final homeLogo = TextEditingController(text: '${widget.match['home_logo_url'] ?? ''}');
-  late final awayLogo = TextEditingController(text: '${widget.match['away_logo_url'] ?? ''}');
-  late final order = TextEditingController(text: '${widget.match['sort_order'] ?? 0}');
+  late final league =
+      TextEditingController(text: '${widget.match['league'] ?? ''}');
+  late final home =
+      TextEditingController(text: '${widget.match['home_team'] ?? ''}');
+  late final away =
+      TextEditingController(text: '${widget.match['away_team'] ?? ''}');
+  late final homeLogo = TextEditingController(
+      text:
+          originalRepositoryLogoUrl('${widget.match['home_logo_url'] ?? ''}'));
+  late final awayLogo = TextEditingController(
+      text:
+          originalRepositoryLogoUrl('${widget.match['away_logo_url'] ?? ''}'));
+  late final order =
+      TextEditingController(text: '${widget.match['sort_order'] ?? 0}');
   late DateTime kickoff = _kickoffOf(widget.match).toLocal();
   late bool live = widget.match['is_live'] == true;
   late bool active = widget.match['is_active'] == true;
   late bool featured = widget.match['is_featured'] != false;
-  late bool published = (widget.match['publish_state'] ?? 'published') == 'published';
+  late bool published =
+      (widget.match['publish_state'] ?? 'published') == 'published';
   bool saving = false;
 
   @override
@@ -549,10 +568,12 @@ class _EditMatchPageState extends State<_EditMatchPage> {
         'league': league.text.trim(),
         'home_team': home.text.trim(),
         'away_team': away.text.trim(),
-        'home_logo_url':
-            homeLogo.text.trim().isEmpty ? null : homeLogo.text.trim(),
-        'away_logo_url':
-            awayLogo.text.trim().isEmpty ? null : awayLogo.text.trim(),
+        'home_logo_url': homeLogo.text.trim().isEmpty
+            ? null
+            : originalRepositoryLogoUrl(homeLogo.text.trim()),
+        'away_logo_url': awayLogo.text.trim().isEmpty
+            ? null
+            : originalRepositoryLogoUrl(awayLogo.text.trim()),
         'kickoff_at': kickoff.toUtc().toIso8601String(),
         'sort_order': int.tryParse(order.text) ?? 0,
         'is_featured': featured,
@@ -628,12 +649,14 @@ class _EditMatchPageState extends State<_EditMatchPage> {
                   TextField(
                     controller: homeLogo,
                     keyboardType: TextInputType.url,
-                    decoration: const InputDecoration(labelText: 'Home logo URL'),
+                    decoration:
+                        const InputDecoration(labelText: 'Home logo URL'),
                   ),
                   TextField(
                     controller: awayLogo,
                     keyboardType: TextInputType.url,
-                    decoration: const InputDecoration(labelText: 'Away logo URL'),
+                    decoration:
+                        const InputDecoration(labelText: 'Away logo URL'),
                   ),
                 ),
                 const SizedBox(height: 10),

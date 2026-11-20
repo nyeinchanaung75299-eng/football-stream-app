@@ -1074,7 +1074,9 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
           keyboardType: TextInputType.text,
           textInputAction: TextInputAction.next,
           autocorrect: false,
-          enableSuggestions: false,
+          // Flutter maps false to Android VISIBLE_PASSWORD. Some phone IMEs
+          // then force their secure keyboard, even for ordinary URL fields.
+          enableSuggestions: true,
           onChanged: controller == link
               ? (value) => setState(() => streamType = detectStreamType(value))
               : null,

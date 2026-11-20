@@ -85,8 +85,13 @@ class HlsDetectionSession {
 
   void associateMedia(Iterable<String> urls, int epoch) {
     if (!current(epoch)) return;
-    _mediaUrls.addAll(urls);
-    _schedule();
+    var changed = false;
+    for (final url in urls) {
+      if (_mediaUrls.add(url)) changed = true;
+    }
+    // Periodic current-document rescans must not keep pushing back the
+    // quiet timer when they only repeat an already associated video URL.
+    if (changed) _schedule();
   }
 
   void documentFinished(int epoch) {

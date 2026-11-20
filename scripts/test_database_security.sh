@@ -3,13 +3,13 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 test_container="nca-db-security-test-$$"
 trap 'docker rm -f "$test_container" >/dev/null 2>&1 || true' EXIT
-docker run --rm -d --name "$test_container" -e POSTGRES_PASSWORD=local-test-only postgres:17 -c wal_level=logical >/dev/null
+docker run --rm -d --name "$test_container" -v "$repo_root:/nca-repo:ro" -e POSTGRES_PASSWORD=local-test-only postgres:17 -c wal_level=logical >/dev/null
 for attempt in {1..60}; do
   if docker exec "$test_container" pg_isready -U postgres >/dev/null 2>&1; then break; fi
   sleep 1
 done
 docker exec "$test_container" createdb -U postgres nca_security_test
-run_sql() { docker exec -i "$test_container" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d nca_security_test "$@"; }
+run_sql() { docker exec -i -w /nca-repo/scripts "$test_container" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d nca_security_test "$@"; }
 run_sql <<'SQL'
 create role anon nologin;
 create role authenticated nologin;
