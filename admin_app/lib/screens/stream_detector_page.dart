@@ -106,14 +106,14 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
       pageUrl: _currentPage,
       headers: headers,
     );
-    if (stream == null || !mounted) return;
+    if (stream == null || !mounted || _currentPage == null) return;
     _detection.observe(stream, headers: headers);
   }
 
   Future<void> _scanPage() async {
     final browser = _browser;
     final generation = _detection.generation;
-    if (browser == null) return;
+    if (browser == null || _currentPage == null) return;
     try {
       // Passive DOM/resource-timing scan for media already loaded by the page.
       // No page fetch/XHR overrides and no user credential extraction.
@@ -204,6 +204,10 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                     Expanded(
                       child: TextField(
                         controller: _address,
+                        onChanged: (_) {
+                          _currentPage = null;
+                          _resetDetection();
+                        },
                         keyboardType: TextInputType.url,
                         textInputAction: TextInputAction.go,
                         onSubmitted: (_) => _openAddress(),
