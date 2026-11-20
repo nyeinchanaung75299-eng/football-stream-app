@@ -32,9 +32,17 @@ const detectorResourceObserver = r'''
   const forward = event => {
     const bridge = window.flutter_inappwebview;
     if (!bridge || !bridge.callHandler) return;
+    // srcdoc/about:blank/blob player documents have no public Referer URL.
+    // Keep their observed media and use the current public parent as a guess;
+    // real native request headers, when present, still take precedence.
+    let frameUrl = event.frameUrl;
+    try {
+      const frame = new URL(frameUrl);
+      if (!['http:', 'https:'].includes(frame.protocol) || frame.username || frame.password) frameUrl = location.href;
+    } catch (_) { frameUrl = location.href; }
     bridge.callHandler('NcaMediaResources', {
       documentId: id, pageUrl: location.href,
-      frameUrl: event.frameUrl, urls: event.urls, mediaUrls: event.mediaUrls
+      frameUrl, urls: event.urls, mediaUrls: event.mediaUrls
     }).catch(()=>{});
   };
   if (isTop) {

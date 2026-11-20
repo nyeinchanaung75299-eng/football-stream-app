@@ -54,3 +54,13 @@ test('explicit video source association is retained but script cannot trigger a 
  assert.deepEqual(Array.from(top.reports[0].data.mediaUrls),['https://cdn.example/current.m3u8']);
  assert.deepEqual(Object.keys(top.reports[0].data).sort(),['documentId','frameUrl','mediaUrls','pageUrl','urls']);
 });
+
+test('srcdoc/blank player documents retain media using the public parent fallback',()=>{
+ const top=document('https://player.example/watch');
+ const child=document('about:srcdoc',top);
+ top.win.frames.push(child.win);
+ child.resources.push({name:'https://cdn.example/live.m3u8'});
+ child.observers[0]({getEntries:()=>child.resources});
+ assert.equal(top.reports[0].data.frameUrl,'https://player.example/watch');
+ assert.deepEqual(Array.from(top.reports[0].data.urls),['https://cdn.example/live.m3u8']);
+});
