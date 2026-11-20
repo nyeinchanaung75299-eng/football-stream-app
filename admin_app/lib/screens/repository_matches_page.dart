@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../services/connected_channel_source.dart';
+import '../services/line_share_payload.dart';
+import '../widgets/line_share_sheet.dart';
 import '../widgets/repository_match_card.dart';
 import 'repository_channel_updates_page.dart';
 
@@ -63,29 +65,27 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
     );
   }
 
-  Widget copyMenu(Map line) => PopupMenuButton<String>(
+  Widget copyMenu(Map line, String matchName) => PopupMenuButton<String>(
         tooltip: 'Copy line',
         icon: const Icon(Icons.copy),
-        onSelected: (field) => copyField(
-          field == 'all'
-              ? [
-                  'URL: ${line['stream_url'] ?? ''}',
-                  for (final pair in const {
-                    'referer': 'Referer',
-                    'origin': 'Origin',
-                    'key_id': 'Key ID',
-                    'key_data': 'Key Data',
-                  }.entries)
-                    if (line[pair.key]?.toString().isNotEmpty == true)
-                      '${pair.value}: ${line[pair.key]}',
-                ].join('\n')
-              : line[field]?.toString() ?? '',
-        ),
+        onSelected: (field) {
+          if (field == 'telegram') {
+            showLineShareSheet(context, LineSharePayload(matchName, [line]));
+            return;
+          }
+          copyField(
+            field == 'all'
+                ? LineSharePayload.details(line)
+                : line[field]?.toString() ?? '',
+          );
+        },
         itemBuilder: (_) => [
           const PopupMenuItem(
               value: 'stream_url', child: Text('Copy stream URL')),
           const PopupMenuItem(
               value: 'all', child: Text('Copy all line details')),
+          const PopupMenuItem(
+              value: 'telegram', child: Text('Share to Telegram')),
           for (final pair in const {
             'referer': 'Referer',
             'origin': 'Origin',
@@ -143,6 +143,12 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
                     style: Theme.of(sheet).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 8),
+                  if (lines.isNotEmpty)
+                    OutlinedButton.icon(
+                        onPressed: () => showLineShareSheet(sheet,
+                            LineSharePayload(row['name'].toString(), lines)),
+                        icon: const Icon(Icons.share),
+                        label: const Text('Share all lines')),
                   for (final line in lines)
                     ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -155,8 +161,7 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          copyMenu(line),
-
+                          copyMenu(line, row['name'].toString()),
                         ],
                       ),
                     ),
@@ -279,7 +284,6 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
                         return RepositoryMatchCard(
                           entry: Map<String, dynamic>.from(row),
                           onViewLines: () => details(row),
-
                         );
                       },
                     ),

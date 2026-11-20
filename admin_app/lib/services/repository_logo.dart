@@ -76,6 +76,33 @@ String repositoryLogoUrl(String value) {
       : independentImageUrl('/team-logos/$id');
 }
 
+/// Stored/editable badge identity, independent of the image delivery route.
+String originalRepositoryLogoUrl(String value) {
+  final uri = Uri.tryParse(value.trim());
+  if (uri == null || uri.scheme != 'https' || uri.userInfo.isNotEmpty) {
+    return value;
+  }
+  const relayHosts = {
+    'nca-network-backup-test.vercel.app',
+    'nca25-live-relay.vercel.app',
+    'football-api.nyeinchanaung.us.ci',
+    'football-api.nyeinchanaung.ccwu.cc',
+    'football-public-api.nyeinchanaung75299-eng.workers.dev',
+  };
+  String? id;
+  if (relayHosts.contains(uri.host) && !uri.hasPort) {
+    id = RegExp(r'^/team-logos/(\d{1,12})$').firstMatch(uri.path)?.group(1);
+    if (uri.path == '/api/channel-logo') id = uri.queryParameters['team'];
+  } else if (uri.host == 'woggzixprvyjnfjzsglz.supabase.co' && !uri.hasPort) {
+    id = RegExp(r'^/functions/v1/viewer-network-api/team-logos/(\d{1,12})$')
+        .firstMatch(uri.path)
+        ?.group(1);
+  }
+  return id != null && RegExp(r'^\d{1,12}$').hasMatch(id)
+      ? 'https://img.sofascore.com/api/v1/team/$id/image'
+      : value;
+}
+
 List<String> logoCandidates(String value, {String? channelId}) {
   if (value.trim().isEmpty) return const [];
   final primary = channelId == null

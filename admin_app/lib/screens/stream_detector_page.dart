@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:collection';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../services/stream_detector_service.dart';
 import '../services/hls_detection_session.dart';
 import '../services/hls_candidate_verifier.dart';
+import '../services/detector_resource_observer.dart';
 import 'live_links_page.dart';
 import 'stream_preview_page.dart';
 
@@ -38,6 +40,33 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
   int _progress = 0;
   late final HlsDetectionSession _detection;
   List<DetectedStream> get _streams => _detection.streams;
+
+  Future<void> _resourceEvent(JavaScriptHandlerFunctionData data) async {
+    // Only the top-document broker is allowed to deliver child-frame events.
+    if (!mounted ||
+        !data.isMainFrame ||
+        data.args.isEmpty ||
+        _currentPage == null) return;
+    final event = DetectorResourceEvent.parse(data.args.first);
+    if (event == null || event.pageUrl != _currentPage) return;
+    final epoch = _detection.generation;
+    try {
+      final token = await _browser?.evaluateJavascript(
+          source: 'window.__ncaDetectorDocumentId || null');
+      if (!mounted ||
+          !_detection.current(epoch) ||
+          token != event.documentId ||
+          event.pageUrl != _currentPage) return;
+      _detection.associateMedia(event.mediaUrls, epoch);
+      for (final stream in event.streams) {
+        // Actual native Referer/Origin, if already observed, take precedence.
+        _detection.observe(stream);
+      }
+    } catch (_) {
+      // Navigation/disposal may invalidate the document while a report awaits.
+    }
+  }
+
   void _resetDetection({String? page, bool loaded = false}) {
     if (page != null) _currentPage = page;
     _detection.reset(documentLoaded: loaded);
@@ -119,6 +148,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
       // No page fetch/XHR overrides and no user credential extraction.
       final result = await browser.evaluateJavascript(source: r'''
         (() => {
+          if(window.__ncaDetectorScan)window.__ncaDetectorScan();
           const urls = new Set(), mediaUrls = new Set();
           const add = (raw) => {
             if (!raw) return;
@@ -267,6 +297,12 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
             height: 280,
             child: InAppWebView(
               initialUrlRequest: URLRequest(url: WebUri('about:blank')),
+              initialUserScripts: UnmodifiableListView([
+                UserScript(
+                    source: detectorResourceObserver,
+                    injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+                    forMainFrameOnly: false),
+              ]),
               initialSettings: InAppWebViewSettings(
                 javaScriptEnabled: true,
                 useOnLoadResource: true,
@@ -276,6 +312,10 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
               ),
               onWebViewCreated: (controller) {
                 _browser = controller;
+                controller.addJavaScriptHandler(
+                  handlerName: 'NcaMediaResources',
+                  callback: _resourceEvent,
+                );
                 if (_address.text.isNotEmpty) _openAddress();
               },
               onLoadStart: (_, url) {
@@ -286,6 +326,21 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
               },
               onProgressChanged: (_, progress) {
                 if (mounted) setState(() => _progress = progress);
+              },
+              // Resource timing also observes late/iframe loads. A callback
+              // only rescans the current document; never copy its raw URL,
+              // which could belong to a page that has already navigated away.
+              onLoadResource: (_, resource) {
+                if (DetectedStream.fromRequest(
+                        resource.url?.toString() ?? '') !=
+                    null) {
+                  _scanPage();
+                }
+              },
+              onUpdateVisitedHistory: (_, url, __) {
+                final value = url?.toString();
+                if (value == null || value == _currentPage) return;
+                setState(() => _resetDetection(page: value));
               },
               // Android: observe resource URLs, returning null means normal
               // loading continues. Other platforms rescan the current document after load.

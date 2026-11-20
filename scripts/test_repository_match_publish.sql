@@ -7,6 +7,20 @@ insert into auth.users(id) values('29000000-0000-0000-0000-000000000001'),('2900
 insert into public.profiles(id,role) values('29000000-0000-0000-0000-000000000001','admin'),('29000000-0000-0000-0000-000000000002','viewer');
 insert into public.matches(id,league,home_team,away_team,kickoff_at,home_logo_url,external_fixture_id,source)
  values('19000000-0000-0000-0000-000000000001','Premier League','Manchester United','Aston Villa','2026-11-20T17:00:00Z','https://operator.example.org/home.png',19001,'api_football');
+-- Replay the new migration with an existing deleted match to exercise the
+-- backfill, while preserving the source spelling, deletion and custom badge.
+insert into public.matches(id,league,home_team,away_team,kickoff_at,home_logo_url,away_logo_url,is_active,deleted_at)
+ values('19000000-0000-0000-0000-000000000099','Bundesliga','Bayern','KÃ¶ln',now(),
+ 'https://nca-network-backup-test.vercel.app/team-logos/123','https://operator.example.org/away.png',false,now());
+\ir ../supabase/migrations/20261120193957_preserve_original_repository_logo.sql
+do $$ begin
+ if not exists(select from public.matches where id='19000000-0000-0000-0000-000000000099'
+   and home_team='Bayern' and away_team='KÃ¶ln' and deleted_at is not null and not is_active
+   and home_logo_url='https://img.sofascore.com/api/v1/team/123/image'
+   and away_logo_url='https://operator.example.org/away.png') then raise exception 'Badge backfill changed source names/deletion/custom logo';end if;
+ if private.repository_import_logo('https://nca25-live-relay.vercel.app.attacker.example/team-logos/123')<>
+    'https://nca25-live-relay.vercel.app.attacker.example/team-logos/123' then raise exception 'Foreign host canonicalized';end if;
+end $$;
 insert into public.channel_source_catalog(id,provider,kind,name,category,source_file,source_id,revision,streams,event_meta,stream_count)
  values('repo:match:'||repeat('a',28),8,'event','Man Utd vs Aston Villa','Football','fixtures.json','repository','test',
  jsonb_build_array(
@@ -46,7 +60,7 @@ begin
  r:=public.publish_repository_match('repo:match:'||repeat('a',28));
  if r->>'ok'<>'true' or r->>'created'<>'false' or r->>'added_lines'<>'2' or r->>'existing_lines'<>'1' or r->>'skipped_lines'<>'1' then raise exception 'Full existing import failed: %',r;end if;
  if (r->>'match_id')::uuid<>'19000000-0000-0000-0000-000000000001'::uuid or (select count(*) from public.matches)<>before_count then raise exception 'Existing Pick Big Match duplicated';end if;
- if not exists(select from public.matches where id=(r->>'match_id')::uuid and home_team='Manchester United' and source='api_football' and external_fixture_id=19001 and home_logo_url='https://operator.example.org/home.png' and away_logo_url='https://nca-network-backup-test.vercel.app/team-logos/600') then raise exception 'Operator edits/fixture identity/badge lost';end if;
+ if not exists(select from public.matches where id=(r->>'match_id')::uuid and home_team='Manchester United' and source='api_football' and external_fixture_id=19001 and home_logo_url='https://operator.example.org/home.png' and away_logo_url='https://img.sofascore.com/api/v1/team/600/image') then raise exception 'Operator edits/fixture identity/badge lost';end if;
  if not exists(select from public.stream_links where match_id=(r->>'match_id')::uuid and referer='https://player.example.org/embed' and origin='https://player.example.org') or not exists(select from public.stream_links where match_id=(r->>'match_id')::uuid and key_id=repeat('a',32) and key_data=repeat('b',32) and health_status='unknown') then raise exception 'Full line configuration lost';end if;
  r:=public.publish_repository_match('repo:match:'||repeat('b',28));mid:=(r->>'match_id')::uuid;
  if r->>'created'<>'true' or r->>'added_lines'<>'1' or r->>'skipped_lines'<>'1' then raise exception 'New fixture import failed: %',r;end if;

@@ -52,6 +52,8 @@ jobs:
         uses: actions/checkout@v4
       - name: Test website scanner API and network backup
         run: |
+          python3 -m unittest discover -s scripts -p 'test_configure_android_permissions.py'
+          node --test scripts/test_detector_resource_observer.mjs
           python3 -m unittest discover -s scripts -p 'test_configure_gradle_distribution.py'
           node --test scripts/test_website_stream_scanner.mjs
           node --test scripts/test_browser_stream_scanner.mjs

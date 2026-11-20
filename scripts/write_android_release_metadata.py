@@ -11,8 +11,8 @@ import re
 from verify_android_update_signing import RELEASE_BASE, RELEASES, apk_identity
 
 NOTES = {
-    'Viewer': 'Cloudflare-first link resolution reduces Vercel API usage; protected video retains failure-only Vercel fallback and the existing camera-cutout layout.',
-    'Admin': 'CricHD validates live HLS before quick selection; navigation cancels stale scans. TV guide clock, indexed EPG matching and Cloudflare-first source reads reduce repeated work.',
+    'Viewer': 'Removes unnecessary media/storage permissions while retaining the signed APK updater and Cloudflare-first playback routing.',
+    'Admin': 'Restores page-scoped CricHD iframe discovery; original logo URLs, Telegram line sharing, normal text keyboard and reduced Android permissions.',
 }
 
 

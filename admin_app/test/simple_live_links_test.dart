@@ -63,6 +63,13 @@ void main() {
     expect(find.text('Live Links Upload'), findsOneWidget);
     expect(find.text('Advanced options'), findsNothing);
     expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+    final linkField =
+        tester.widget<TextField>(find.widgetWithText(TextField, 'Link'));
+    expect(linkField.keyboardType, TextInputType.text);
+    expect(linkField.enableSuggestions, isTrue,
+        reason:
+            'false adds Android VISIBLE_PASSWORD and forces some secure IMEs');
+    expect(linkField.autocorrect, isFalse);
     Future<void> fill(String label, String value) async {
       final field = find.widgetWithText(TextField, label);
       await tester.ensureVisible(field);

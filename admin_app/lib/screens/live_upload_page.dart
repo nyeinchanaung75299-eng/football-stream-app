@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
+import '../services/repository_logo.dart';
 
 class LiveUploadPage extends StatefulWidget {
   const LiveUploadPage({super.key});
@@ -98,10 +99,12 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
         'league': league.text.trim(),
         'home_team': homeTeam.text.trim(),
         'away_team': awayTeam.text.trim(),
-        'home_logo_url':
-            homeLogo.text.trim().isEmpty ? null : homeLogo.text.trim(),
-        'away_logo_url':
-            awayLogo.text.trim().isEmpty ? null : awayLogo.text.trim(),
+        'home_logo_url': homeLogo.text.trim().isEmpty
+            ? null
+            : originalRepositoryLogoUrl(homeLogo.text.trim()),
+        'away_logo_url': awayLogo.text.trim().isEmpty
+            ? null
+            : originalRepositoryLogoUrl(awayLogo.text.trim()),
         'kickoff_at': kickoff.toUtc().toIso8601String(),
         'sort_order': int.tryParse(order.text) ?? 0,
         'is_live': isLive,
@@ -244,7 +247,8 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
                       child: OutlinedButton.icon(
                         onPressed: pickTime,
                         icon: const Icon(Icons.schedule_rounded),
-                        label: Text(DateFormat('h:mm a', 'en_US').format(kickoff)),
+                        label:
+                            Text(DateFormat('h:mm a', 'en_US').format(kickoff)),
                       ),
                     ),
                   ],
