@@ -12,7 +12,7 @@ insert into public.matches(id,league,home_team,away_team,kickoff_at,home_logo_ur
 insert into public.matches(id,league,home_team,away_team,kickoff_at,home_logo_url,away_logo_url,is_active,deleted_at)
  values('19000000-0000-0000-0000-000000000099','Bundesliga','Bayern','KÃ¶ln',now(),
  'https://nca-network-backup-test.vercel.app/team-logos/123','https://operator.example.org/away.png',false,now());
-\ir ../supabase/migrations/20261120193957_preserve_original_repository_logo.sql
+\ir ../supabase/migrations/20261120195052_preserve_original_repository_logo.sql
 do $$ begin
  if not exists(select from public.matches where id='19000000-0000-0000-0000-000000000099'
    and home_team='Bayern' and away_team='KÃ¶ln' and deleted_at is not null and not is_active

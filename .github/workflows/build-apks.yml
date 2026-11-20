@@ -22,6 +22,9 @@ on:
       - "scripts/generate_embedded_player.py"
       - "scripts/write_android_release_metadata.py"
       - "scripts/test_android_release_metadata.py"
+      - "scripts/configure_android_permissions.py"
+      - "scripts/verify_android_permissions.py"
+      - "scripts/test_configure_android_permissions.py"
       - ".github/workflows/build-apks.yml"
 
 permissions:

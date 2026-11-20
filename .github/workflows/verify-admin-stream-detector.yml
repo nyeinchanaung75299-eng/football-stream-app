@@ -33,6 +33,10 @@ on:
       - 'supabase/functions/_shared/channel_media_probe.mjs'
       - 'supabase/functions/stream-health/**'
       - 'scripts/test_repository_matches.mjs'
+      - 'scripts/configure_android_permissions.py'
+      - 'scripts/verify_android_permissions.py'
+      - 'scripts/test_configure_android_permissions.py'
+      - 'scripts/test_detector_resource_observer.mjs'
       - 'scripts/test_channel_media_probe.mjs'
       - '.github/workflows/verify-admin-stream-detector.yml'
   workflow_dispatch:
