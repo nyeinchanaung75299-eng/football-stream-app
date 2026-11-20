@@ -16,10 +16,13 @@ import 'source_player_page.dart';
 /// A web page cannot read cross-origin player network traffic on its own.
 class StreamDetectorPage extends StatefulWidget {
   const StreamDetectorPage(
-      {super.key, this.initialUrl = '', this.selectionMode = false,
+      {super.key,
+      this.initialUrl = '',
+      this.selectionMode = false,
       this.autoSelectHls = false});
   final String initialUrl;
   final bool selectionMode;
+
   /// Web cannot access the operator's Android WebView network requests.
   final bool autoSelectHls;
 
@@ -60,6 +63,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
 
   @override
   void dispose() {
+    _scanGeneration++;
     _website.dispose();
     _manual.dispose();
     _referer.dispose();
@@ -67,8 +71,10 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
     super.dispose();
   }
 
+  int _scanGeneration = 0;
   Future<void> _scanWebsite() async {
     if (_scanning || !_approved) return;
+    final generation = ++_scanGeneration;
     final rawUrl = _website.text.trim();
     final target = Uri.tryParse(rawUrl);
     if (target == null ||
@@ -100,7 +106,9 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
               'to conserve the Free quota.',
             ),
           );
-      if (!mounted) return;
+      if (!mounted ||
+          generation != _scanGeneration ||
+          rawUrl != _website.text.trim()) return;
       final seen = <String>{};
       setState(() {
         for (final row in result.links) {
@@ -345,6 +353,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                     children: [
                       TextField(
                         key: const Key('website-scan-url'),
+                        enabled: !_scanning,
                         controller: _website,
                         keyboardType: TextInputType.url,
                         textInputAction: TextInputAction.go,

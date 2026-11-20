@@ -3,6 +3,14 @@ import 'package:football_admin/network_endpoints.dart';
 import 'package:football_admin/services/repository_logo.dart';
 
 void main() {
+  test(
+      'public guides avoid Vercel even when the authenticated backend needs it',
+      () {
+    final bases = publicDataApiBases(preferVercel: true);
+    expect(bases.first, independentPublicBase);
+    expect(bases.last, vercelBackupBase);
+    expect(bases.toSet().length, bases.length);
+  });
   const id = '11111111-1111-4111-8111-111111111111';
   const asset =
       'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/main/public/channel-logos/fixture.png';
@@ -12,7 +20,9 @@ void main() {
         '$vercelBackupBase/api/channel-logo?id=$id&v=${Uri.encodeComponent(asset)}';
     expect(channelLogoUrl(old, channelId: id), asset);
   });
-  test('direct images stay direct while legacy relays use a fixed channel lookup', () {
+  test(
+      'direct images stay direct while legacy relays use a fixed channel lookup',
+      () {
     const external = 'https://images.example/logo.png';
     expect(channelLogoUrl(external, channelId: id), external);
     final legacy =
@@ -35,7 +45,9 @@ void main() {
       independentImageUrl('/team-logos/123'),
     );
   });
-  test('supported Cloudflare aliases precede Vercel without dropping the operator backup', () {
+  test(
+      'supported Cloudflare aliases precede Vercel without dropping the operator backup',
+      () {
     final bases = publicApiBases();
     expect(bases.first, cloudflarePublicBase);
     expect(bases.last, vercelBackupBase);

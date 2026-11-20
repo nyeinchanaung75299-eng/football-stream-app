@@ -111,3 +111,16 @@ List<Future<T> Function()> publicApiRequests<T>(
       )
       .toList();
 }
+
+String? recentCloudflareApiBase() {
+  final base = _lastVerifiedPublicBase;
+  final at = _lastVerifiedAt;
+  return at != null &&
+          DateTime.now().difference(at) < _publicRouteTtl &&
+          const {
+            cloudflarePublicBase,
+            'https://football-api.nyeinchanaung.ccwu.cc',
+          }.contains(base)
+      ? base
+      : null;
+}

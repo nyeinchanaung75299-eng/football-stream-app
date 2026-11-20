@@ -1,3 +1,4 @@
+import '../widgets/guide_clock.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -21,7 +22,13 @@ class TvSchedulesPage extends StatefulWidget {
   State<TvSchedulesPage> createState() => _TvSchedulesPageState();
 }
 
-class _TvSchedulesPageState extends State<TvSchedulesPage> {
+class _TvSchedulesPageState extends State<TvSchedulesPage>
+    with GuideClock<TvSchedulesPage> {
+  @override
+  bool get guideClockActive => widget.active;
+  @override
+  DateTime? nextGuideBoundary(DateTime now) =>
+      _lastGuide?.guide?.nextProgrammeBoundary(now);
   Object? _contentKey;
   Widget? _retainedContent;
   static final _guideTheme = ThemeData.dark(useMaterial3: true).copyWith(
@@ -67,8 +74,10 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
 
   Future<_GuideResult> _loadGuide({bool refresh = false}) async {
     try {
-      return _lastGuide =
+      _lastGuide =
           _GuideResult(guide: await TvScheduleService().load(refresh: refresh));
+      refreshGuideClock();
+      return _lastGuide!;
     } catch (_) {
       return _GuideResult(
           guide: _lastGuide?.guide,
@@ -135,6 +144,7 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
       _guide,
       _view,
       widget.embedded,
+      guideClockRevision,
       DateTime.now().millisecondsSinceEpoch ~/ 60000
     );
     if (_contentKey != contentKey) {
@@ -164,11 +174,10 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
               // has not been separately published as an NCA match. Keep guide
               // metadata visible in TV Schedule without creating a fixture,
               // stream line, or claiming playback has been verified.
-              final guideListings =
-                  guide?.guide?.liveAndUpcomingMatchListings(
-                        days: TvScheduleService.guideDays,
-                      ) ??
-                      const <TvScheduleListing>[];
+              final guideListings = guide?.guide?.liveAndUpcomingMatchListings(
+                    days: TvScheduleService.guideDays,
+                  ) ??
+                  const <TvScheduleListing>[];
               // EPG programmes that already appear under a published
               // NCA match card must not be duplicated in the guide-only list.
               final publishedAirings = <String>{};
@@ -182,113 +191,123 @@ class _TvSchedulesPageState extends State<TvSchedulesPage> {
                     'away_team': englishKnownFootballName(
                         match['away_team']?.toString() ?? ''),
                   };
-                  for (final airing in guideData.airingsForMatch(normalizedMatch)) {
+                  for (final airing
+                      in guideData.airingsForMatch(normalizedMatch)) {
                     publishedAirings.add(
                       '${airing.channel}|${airing.when.millisecondsSinceEpoch}|${airing.title}',
                     );
                   }
                 }
               }
-              final visibleGuideListings = guideListings
-                  .where((row) => (_view != 'live' || row.isLive) &&
+              final eligibleGuideListings = guideListings
+                  .where((row) =>
+                      (_view != 'live' || row.isLive) &&
                       !publishedAirings.contains(
                           '${row.channel.name}|${row.programme.start.millisecondsSinceEpoch}|${row.programme.title}'))
-                  .take(60)
                   .toList(growable: false);
+              final visibleGuideListings =
+                  eligibleGuideListings.take(60).toList(growable: false);
+              final header = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (widget.embedded)
+                    _ScheduleHeader(
+                      guideError: guide?.error,
+                      onRefresh: _refresh,
+                    ),
+                  if (widget.embedded) const SizedBox(height: 10),
+                  if (snapshot.hasError && _lastSchedule != null) ...[
+                    Card(
+                      color: Theme.of(context).colorScheme.errorContainer,
+                      child: ListTile(
+                        leading: const Icon(Icons.cloud_off_rounded),
+                        title: const Text(
+                            'Match refresh failed — showing saved schedule'),
+                        subtitle: Text(_lastSuccessfulAt == null
+                            ? 'Last successful update unavailable'
+                            : 'Last successful: ${DateFormat('dd MMM HH:mm').format(_lastSuccessfulAt!.toLocal())}'),
+                        trailing: TextButton(
+                          onPressed: _refresh,
+                          child: const Text('RETRY'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Live & upcoming'),
+                        selected: _view == 'upcoming',
+                        onSelected: (_) => setState(() => _view = 'upcoming'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Live now'),
+                        selected: _view == 'live',
+                        onSelected: (_) => setState(() => _view = 'live'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    '${matches.length} NCA MATCH${matches.length == 1 ? '' : 'ES'}'
+                    ' • ${visibleGuideListings.length} EPG LISTINGS',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: .7,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                ],
+              );
+              final empty = matches.isEmpty && visibleGuideListings.isEmpty;
+              final moreGuide =
+                  eligibleGuideListings.length > visibleGuideListings.length &&
+                      _view != 'live';
+              final count = 1 +
+                  (empty ? 1 : matches.length) +
+                  (visibleGuideListings.isEmpty
+                      ? 0
+                      : 1 + visibleGuideListings.length + (moreGuide ? 1 : 0));
               return RefreshIndicator(
                 onRefresh: () async => _refresh(),
-                child: ListView(
+                child: ListView.builder(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
-                  children: [
-                    if (widget.embedded)
-                      _ScheduleHeader(
-                        guideError: guide?.error,
-                        onRefresh: _refresh,
-                      ),
-                    if (widget.embedded) const SizedBox(height: 10),
-                    if (snapshot.hasError && _lastSchedule != null) ...[
-                      Card(
-                        color: Theme.of(context).colorScheme.errorContainer,
-                        child: ListTile(
-                          leading: const Icon(Icons.cloud_off_rounded),
-                          title: const Text(
-                              'Match refresh failed — showing saved schedule'),
-                          subtitle: Text(_lastSuccessfulAt == null
-                              ? 'Last successful update unavailable'
-                              : 'Last successful: ${DateFormat('dd MMM HH:mm').format(_lastSuccessfulAt!.toLocal())}'),
-                          trailing: TextButton(
-                            onPressed: _refresh,
-                            child: const Text('RETRY'),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        ChoiceChip(
-                          label: const Text('Live & upcoming'),
-                          selected: _view == 'upcoming',
-                          onSelected: (_) => setState(() => _view = 'upcoming'),
-                        ),
-                        ChoiceChip(
-                          label: const Text('Live now'),
-                          selected: _view == 'live',
-                          onSelected: (_) => setState(() => _view = 'live'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      '${matches.length} NCA MATCH${matches.length == 1 ? '' : 'ES'}'
-                      ' • ${visibleGuideListings.length} EPG LISTINGS',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: .7,
-                      ),
-                    ),
-                    const SizedBox(height: 7),
-                    if (matches.isEmpty && visibleGuideListings.isEmpty)
-                      const _EmptySchedule()
-                    else ...[
-                      ...matches.map(
-                        (match) => Padding(
+                  itemCount: count,
+                  itemBuilder: (context, index) {
+                    if (index == 0) return header;
+                    var row = index - 1;
+                    if (empty) return const _EmptySchedule();
+                    if (row < matches.length)
+                      return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: _MatchScheduleCard(
-                            match: match,
-                            guide: guide?.guide,
-                          ),
-                        ),
-                      ),
-                      if (visibleGuideListings.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          'EPG MATCH LISTINGS • GUIDE ONLY',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: .7,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        ...visibleGuideListings.map(
-                          (listing) => Padding(
-                            padding: const EdgeInsets.only(bottom: 6),
-                            child: _EpgScheduleCard(listing: listing),
-                          ),
-                        ),
-                        if (guideListings.length > visibleGuideListings.length &&
-                            _view != 'live')
-                          const Text('Showing the first 60 guide programmes.',
-                              style: TextStyle(fontSize: 11)),
-                      ],
-                    ],
-                  ],
+                              match: matches[row], guide: guide?.guide));
+                    row -= matches.length;
+                    if (row == 0)
+                      return Padding(
+                          padding: const EdgeInsets.only(top: 12, bottom: 6),
+                          child: Text('EPG MATCH LISTINGS • GUIDE ONLY',
+                              style: TextStyle(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: .7)));
+                    row--;
+                    if (row < visibleGuideListings.length)
+                      return Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: _EpgScheduleCard(
+                              listing: visibleGuideListings[row]));
+                    return const Text('Showing the first 60 guide programmes.',
+                        style: TextStyle(fontSize: 11));
+                  },
                 ),
               );
             },

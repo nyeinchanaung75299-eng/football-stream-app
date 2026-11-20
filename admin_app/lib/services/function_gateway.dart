@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
 import '../backend_endpoint.dart';
 import '../network_endpoints.dart';
+import '../source_route_policy.dart';
 import 'gateway_request.dart';
 
 /// Only reorder known configured gateway hosts; never accept a URL supplied
@@ -20,7 +21,8 @@ List<String> prioritizeKnownGateway(List<String> known, String? preferred) {
 
 bool isSourceLinkResolution(String functionName, Object? body) =>
     const {'soco-links', 'source-match-list'}.contains(functionName) &&
-    body is Map && body['action'] == 'streams';
+    body is Map &&
+    body['action'] == 'streams';
 
 class FunctionGateway {
   static String? _lastHealthyReadBase;
@@ -34,17 +36,19 @@ class FunctionGateway {
   static List<String> get _gatewayBases =>
       publicApiBases(primary: _publicApiBase, preferVercel: usesVercelBackend);
 
-  static List<String> _basesFor(String functionName, Object? body) {
+  static Future<List<String>> _basesFor(
+      String functionName, Object? body) async {
     final known = _gatewayBases;
     if (isSourceLinkResolution(functionName, body)) {
-      return prioritizeKnownGateway(known, vercelBackupBase);
+      final preferred = await sourceRoutePolicy.preferred();
+      return prioritizeKnownGateway(known, preferred);
     }
     // Only read-only functions are replayed and route-optimized. An uncertain
     // write must continue on its original single-first route.
     if (!GatewayRequest.canRetry(functionName, body)) return known;
     final when = _lastHealthyReadAt;
-    final fresh = when != null &&
-        DateTime.now().difference(when) < _rememberFor;
+    final fresh =
+        when != null && DateTime.now().difference(when) < _rememberFor;
     return prioritizeKnownGateway(known, fresh ? _lastHealthyReadBase : null);
   }
 
@@ -64,9 +68,12 @@ class FunctionGateway {
 
     try {
       final result = await GatewayRequest(
-        bases: _basesFor(functionName, body),
-        totalTimeout: functionName == 'channel-source-sync' && body is Map &&
-            body['action'] == 'sync' ? const Duration(seconds: 55) : null,
+        bases: await _basesFor(functionName, body),
+        totalTimeout: functionName == 'channel-source-sync' &&
+                body is Map &&
+                body['action'] == 'sync'
+            ? const Duration(seconds: 55)
+            : null,
         send: (uri, bearer, timeout) async {
           final transport = http.Client();
           try {
@@ -93,10 +100,18 @@ class FunctionGateway {
             properties: {'function': functionName, 'reason': reason})),
       ).run(functionName, token, body: body);
 
-      if (result.base != null && GatewayRequest.canRetry(functionName, body) &&
+      if (result.base != null &&
+          GatewayRequest.canRetry(functionName, body) &&
           !isSourceLinkResolution(functionName, body)) {
         _lastHealthyReadBase = result.base;
         _lastHealthyReadAt = DateTime.now();
+      }
+      if (isSourceLinkResolution(functionName, body) &&
+          result.base == vercelBackupBase) {
+        sourceRoutePolicy.failed(cloudflarePublicBase);
+      }
+      if (result.base != null && GatewayRequest.canRetry(functionName, body)) {
+        rememberVerifiedCloudflareBase(result.base!);
       }
       unawaited(
           AnalyticsService.capture('admin function completed', properties: {

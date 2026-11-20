@@ -11,8 +11,8 @@ import re
 from verify_android_update_signing import RELEASE_BASE, RELEASES, apk_identity
 
 NOTES = {
-    'Viewer': 'Android landscape Full/Zoom now uses the whole screen including the camera cutout while player controls remain reachable. Video and sources unchanged.',
-    'Admin': 'Removed the unavailable LiveXTV provider and its related picker, detection and API paths; retained CricHD, RoxieStreams and all other active sources.',
+    'Viewer': 'Cloudflare-first link resolution reduces Vercel API usage; protected video retains failure-only Vercel fallback and the existing camera-cutout layout.',
+    'Admin': 'CricHD validates live HLS before quick selection; navigation cancels stale scans. TV guide clock, indexed EPG matching and Cloudflare-first source reads reduce repeated work.',
 }
 
 

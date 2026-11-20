@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../services/stream_detector_service.dart';
+import '../services/hls_detection_session.dart';
+import '../services/hls_candidate_verifier.dart';
 import 'live_links_page.dart';
 import 'stream_preview_page.dart';
 
@@ -14,10 +16,13 @@ import 'stream_preview_page.dart';
 /// observes requests, but does not read cookies, DRM keys or auth tokens.
 class StreamDetectorPage extends StatefulWidget {
   const StreamDetectorPage(
-      {super.key, this.initialUrl = '', this.selectionMode = false,
+      {super.key,
+      this.initialUrl = '',
+      this.selectionMode = false,
       this.autoSelectHls = false});
   final String initialUrl;
   final bool selectionMode;
+
   /// CricHD-only quick flow; other uses of this screen remain unchanged.
   final bool autoSelectHls;
 
@@ -27,18 +32,38 @@ class StreamDetectorPage extends StatefulWidget {
 
 class _StreamDetectorPageState extends State<StreamDetectorPage> {
   final _address = TextEditingController();
-  final _streams = <DetectedStream>[];
-  final _seenUrls = <String>{};
   InAppWebViewController? _browser;
   String? _currentPage;
   String? _error;
   int _progress = 0;
-  Timer? _quickSelectTimer;
-  bool _quickSelected = false;
+  late final HlsDetectionSession _detection;
+  List<DetectedStream> get _streams => _detection.streams;
+  void _resetDetection({String? page, bool loaded = false}) {
+    if (page != null) _currentPage = page;
+    _detection.reset(documentLoaded: loaded);
+  }
 
   @override
   void initState() {
     super.initState();
+    final verifier = HlsCandidateVerifier();
+    _detection = HlsDetectionSession(
+      verifier: verifier,
+      verify: (stream) async {
+        final epoch = _detection.generation;
+        final result = await verifier.verify(stream);
+        if (mounted && _detection.current(epoch) && result.live)
+          await _scanPage();
+        return result;
+      },
+      quickSelect: widget.selectionMode && widget.autoSelectHls,
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+      onSelected: (stream) {
+        if (mounted) Navigator.of(context).pop(stream);
+      },
+    );
     final uri = Uri.tryParse(widget.initialUrl.trim());
     if (uri != null &&
         const {'http', 'https'}.contains(uri.scheme.toLowerCase()) &&
@@ -50,7 +75,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
 
   @override
   void dispose() {
-    _quickSelectTimer?.cancel();
+    _detection.dispose();
     _address.dispose();
     super.dispose();
   }
@@ -68,7 +93,10 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
       return;
     }
     FocusScope.of(context).unfocus();
-    setState(() => _error = null);
+    setState(() {
+      _error = null;
+      _resetDetection(page: uri.toString());
+    });
     _browser?.loadUrl(urlRequest: URLRequest(url: WebUri(uri.toString())));
   }
 
@@ -78,62 +106,36 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
       pageUrl: _currentPage,
       headers: headers,
     );
-    if (stream == null || !mounted) return;
-    if (_seenUrls.contains(stream.url)) {
-      // Resource-timing discovery may precede the request callback. Keep the
-      // later actual Referer/Origin instead of losing it to URL de-duplication.
-      if (headers != null) {
-        final index = _streams.indexWhere((row) => row.url == stream.url);
-        if (index >= 0)
-          setState(() => _streams[index] =
-              _streams[index].withPublicRequestHeaders(headers));
-      }
-      return;
-    }
-    if (_streams.length >= 100) return;
-    setState(() {
-      _seenUrls.add(stream.url);
-      _streams.insert(0, stream);
-    });
-    _maybeQuickSelect();
-  }
-
-  void _maybeQuickSelect() {
-    if (!widget.selectionMode || !widget.autoSelectHls || _quickSelected) return;
-    // Allow time for other playlists to appear. If there are multiple HLS
-    // candidates, leave the existing detector UI available for manual choice.
-    _quickSelectTimer?.cancel();
-    _quickSelectTimer = Timer(const Duration(milliseconds: 1300), () {
-      if (!mounted || _quickSelected) return;
-      final only = singleObservedHlsCandidate(_streams);
-      if (only == null) return;
-      _quickSelected = true;
-      Navigator.of(context).pop(only);
-    });
+    if (stream == null || !mounted || _currentPage == null) return;
+    _detection.observe(stream, headers: headers);
   }
 
   Future<void> _scanPage() async {
     final browser = _browser;
-    if (browser == null) return;
+    final generation = _detection.generation;
+    if (browser == null || _currentPage == null) return;
     try {
       // Passive DOM/resource-timing scan for media already loaded by the page.
       // No page fetch/XHR overrides and no user credential extraction.
       final result = await browser.evaluateJavascript(source: r'''
         (() => {
-          const urls = new Set();
+          const urls = new Set(), mediaUrls = new Set();
           const add = (raw) => {
             if (!raw) return;
             try { urls.add(new URL(raw, document.baseURI).href); } catch (_) {}
           };
-          document.querySelectorAll('video, video source, audio, audio source')
-            .forEach(el => { add(el.currentSrc); add(el.src); });
+          document.querySelectorAll('video, video source')
+            .forEach(el => { for(const raw of [el.currentSrc,el.src]) {
+              add(raw); if(raw)try{mediaUrls.add(new URL(raw,document.baseURI).href)}catch(_){}
+            }});
           if (window.performance && performance.getEntriesByType) {
             performance.getEntriesByType('resource')
               .forEach(entry => add(entry.name));
           }
-          return Array.from(urls).slice(0, 250);
+          return {urls:Array.from(urls).slice(0,250), mediaUrls:Array.from(mediaUrls)};
         })()
       ''');
+      if (!mounted || generation != _detection.generation) return;
       dynamic decoded = result;
       if (result is String) {
         try {
@@ -142,8 +144,11 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
           decoded = null;
         }
       }
-      if (decoded is List) {
-        for (final item in decoded) {
+      if (decoded is Map && decoded['urls'] is List) {
+        final media = decoded['mediaUrls'];
+        if (media is List)
+          _detection.associateMedia(media.whereType<String>(), generation);
+        for (final item in decoded['urls']) {
           if (item is String) _capture(item);
         }
       }
@@ -182,8 +187,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
           IconButton(
             tooltip: 'Clear detected streams',
             onPressed: () => setState(() {
-              _streams.clear();
-              _seenUrls.clear();
+              _resetDetection(page: _currentPage, loaded: _detection.loaded);
             }),
             icon: const Icon(Icons.delete_sweep_outlined),
           ),
@@ -200,6 +204,10 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                     Expanded(
                       child: TextField(
                         controller: _address,
+                        onChanged: (_) {
+                          _currentPage = null;
+                          _resetDetection();
+                        },
                         keyboardType: TextInputType.url,
                         textInputAction: TextInputAction.go,
                         onSubmitted: (_) => _openAddress(),
@@ -227,12 +235,18 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                 Row(
                   children: [
                     TextButton.icon(
-                      onPressed: () => _browser?.goBack(),
+                      onPressed: () {
+                        setState(() => _resetDetection());
+                        _browser?.goBack();
+                      },
                       icon: const Icon(Icons.arrow_back, size: 18),
                       label: const Text('Back'),
                     ),
                     TextButton.icon(
-                      onPressed: () => _browser?.reload(),
+                      onPressed: () {
+                        setState(() => _resetDetection(page: _currentPage));
+                        _browser?.reload();
+                      },
                       icon: const Icon(Icons.refresh, size: 18),
                       label: const Text('Reload'),
                     ),
@@ -267,26 +281,25 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
               onLoadStart: (_, url) {
                 final value = url?.toString();
                 if (value == null) return;
+                setState(() => _resetDetection(page: value));
                 _capture(value);
-                final uri = Uri.tryParse(value);
-                if (uri != null &&
-                    const {'https', 'http'}
-                        .contains(uri.scheme.toLowerCase())) {
-                  _currentPage = value;
-                }
               },
               onProgressChanged: (_, progress) {
                 if (mounted) setState(() => _progress = progress);
               },
-              onLoadResource: (_, resource) =>
-                  _capture(resource.url?.toString() ?? ''),
               // Android: observe resource URLs, returning null means normal
-              // loading continues. Unsupported platforms rely on onLoadResource.
+              // loading continues. Other platforms rescan the current document after load.
               shouldInterceptRequest: (_, request) async {
                 _capture(request.url.toString(), request.headers);
                 return null;
               },
-              onLoadStop: (_, __) => _scanPage(),
+              onLoadStop: (_, url) async {
+                if (url?.toString() != _currentPage) return;
+                final generation = _detection.generation;
+                await _scanPage();
+                if (!mounted || generation != _detection.generation) return;
+                _detection.documentFinished(generation);
+              },
             ),
           ),
           if (widget.autoSelectHls)
@@ -295,8 +308,8 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
               child: Text(
                 _streams.where((stream) => stream.type == 'hls').length > 1
                     ? 'Multiple HLS links found. Choose the correct line below.'
-                    : 'CricHD quick detect: a single HLS link opens the quality picker automatically. '
-                        'If the page needs interaction or detection fails, the normal detector remains available.',
+                    : 'Quick detect requires a verified live playlist linked to this page’s video. '
+                        'Unverified, finite or ambiguous links remain for manual selection.',
                 style: TextStyle(
                   color: colors.onSurfaceVariant,
                   fontSize: 12,
@@ -339,6 +352,7 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                     itemCount: _streams.length,
                     itemBuilder: (context, index) {
                       final item = _streams[index];
+                      final check = _detection.checks[item.url];
                       return Card(
                         child: Padding(
                           padding: const EdgeInsets.all(12),
@@ -358,6 +372,11 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                                 ],
                               ),
                               const SizedBox(height: 6),
+                              if (widget.autoSelectHls && item.type == 'hls')
+                                Text(check?.note ?? 'Checking playlist…',
+                                    style: TextStyle(
+                                        color: colors.onSurfaceVariant,
+                                        fontSize: 12)),
                               SelectableText(
                                 item.url,
                                 maxLines: 2,
