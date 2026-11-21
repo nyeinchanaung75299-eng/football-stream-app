@@ -10,14 +10,19 @@
   "repository": "customer-demo-b/football-suite",
   "hosts": {
     "api": "api.customer-b.example",
+    "api_alt": "api-alt.customer-b.example",
+    "api_workers": "api-workers.customer-b.example",
     "auth": "auth.customer-b.example",
-    "relay": "relay.customer-b.example",
-    "web": "web.customer-b.example",
-    "guide": "guide.customer-b.example",
+    "auth_alt": "auth-alt.customer-b.example",
     "fawa41": "fawa41.customer-b.example",
     "fawa44": "fawa44.customer-b.example",
     "fawa55": "fawa55.customer-b.example",
-    "fawa59": "fawa59.customer-b.example"
+    "fawa59": "fawa59.customer-b.example",
+    "guide": "guide.customer-b.example",
+    "relay": "relay.customer-b.example",
+    "relay_alt": "relay-alt.customer-b.example",
+    "web": "web.customer-b.example",
+    "web_alt": "web-alt.customer-b.example"
   },
   "primary_color": "#C04080",
   "logo_png": "customer_profiles/assets/demo-b.png"

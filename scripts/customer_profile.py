@@ -12,13 +12,17 @@ ROOT = Path(__file__).resolve().parents[1]
 OLD_OWNER = 'nyeinchanaung75299-eng'
 OLD_PROJECT = 'woggzixprvyjnfjzsglz'
 OWNED_HOSTS = {
- 'football-api.nyeinchanaung.us.ci':'api', 'football-api.nyeinchanaung.ccwu.cc':'api',
- 'football-public-api.nyeinchanaung75299-eng.workers.dev':'api',
- 'supabase-api.nyeinchanaung.us.ci':'auth', 'supabase-api.nyeinchanaung.ccwu.cc':'auth',
- 'nca-network-backup-test.vercel.app':'relay','nca25-live-relay.vercel.app':'relay',
- 'nca.nyeinchanaung.us.ci':'web','nca25-web.vercel.app':'web',
+ 'football-api.nyeinchanaung.us.ci':'api', 'football-api.nyeinchanaung.ccwu.cc':'api_alt',
+ 'football-public-api.nyeinchanaung75299-eng.workers.dev':'api_workers',
+ 'supabase-api.nyeinchanaung.us.ci':'auth', 'supabase-api.nyeinchanaung.ccwu.cc':'auth_alt',
+ 'nca-network-backup-test.vercel.app':'relay','nca25-live-relay.vercel.app':'relay_alt',
+ 'nca.nyeinchanaung.us.ci':'web','nca25-web.vercel.app':'web_alt',
  'my-channels-match-guide.vercel.app':'guide',
- **{f'fawa{i}-origin.nyeinchanaung.us.ci':f'fawa{i}' for i in (41,44,55,59)},
+ 'fawa41-origin.nyeinchanaung.us.ci':'fawa41',
+ 'fawa44-origin.nyeinchanaung.us.ci':'fawa44',
+ 'fawa55-origin.nyeinchanaung.us.ci':'fawa55',
+ 'fawa59-origin.nyeinchanaung.us.ci':'fawa59',
+
 }
 ALLOWED = ('admin_app/lib/', 'admin_app/web/', 'user_app/lib/', 'user_app/web/',
            'user_app/assets/', 'user_app/android_patch/', 'scripts/', 'supabase/')
@@ -41,6 +45,7 @@ def load_profile(path):
   raise ValueError('Separate release repository required')
  if not re.fullmatch(r'#[A-Fa-f0-9]{6}',p['primary_color']):raise ValueError('Invalid theme color')
  if set(p['hosts'])!=set(OWNED_HOSTS.values()):raise ValueError('Every backend/relay/guide/origin route must be configured')
+ if len(set(p['hosts'].values()))!=len(p['hosts']):raise ValueError('Endpoint aliases must be distinct to preserve constant route sets')
  for host in p['hosts'].values():
   if not isinstance(host,str) or not re.fullmatch(r'[a-z0-9-]+(?:\.[a-z0-9-]+)+',host) or 'nyeinchanaung' in host or host in OWNED_HOSTS:
    raise ValueError('Invalid or production-owned host')
