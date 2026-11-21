@@ -158,8 +158,8 @@ export async function fetchRepositoryMatches({fetcher=fetch,revision=null}={}){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
  try{
   const opts={fetcher,signal:controller.signal,limit:3*1024*1024};
-  const trees=await readRepositoryTrees(MPD_REPOSITORIES,{...opts,allowMissing:true});
-  const missingRepositories=MPD_REPOSITORIES.filter((_,i)=>trees[i]===null);
+  const trees=await readRepositoryTrees(MPD_REPOSITORIES,{...opts,allowMissing:true,isolateFailures:true});
+  const failed=new Set(MPD_REPOSITORIES.filter((_,i)=>trees[i]===null));
   const revisions=trees.map(tree=>{if(tree===null)return 'missing';if(tree.truncated||!Array.isArray(tree.tree)||!/^[a-f\d]{40}$/.test(tree.sha||''))throw Error('Incomplete repository tree');return tree.sha;});
   const digest=await sourceHash(revisions.join(':'));
   // Rebuild even unchanged snapshots so finished fixtures age out naturally.
@@ -173,6 +173,7 @@ export async function fetchRepositoryMatches({fetcher=fetch,revision=null}={}){
   if((!tasks.length&&!NEW_GITHUB_SOURCES.some(source=>trees[MPD_REPOSITORIES.indexOf(source.repository)]))||tasks.length>50)throw Error('Invalid repository fixture list');
   let cursor=0;const parsed=new Array(tasks.length);
   await Promise.all(Array.from({length:5},async()=>{while(cursor<tasks.length){const i=cursor++,task=tasks[i];
+   try{
    const response=await fetcher('https://raw.githubusercontent.com/'+task.repository+'/'+task.revision+'/'+task.source_file,{redirect:'error',signal:controller.signal});
    if(!response.ok){await response.body?.cancel();throw Object.assign(Error('Repository fixture file unavailable'),{code:'repository_file_http_'+response.status});}
    const bytes=new Uint8Array(await response.arrayBuffer());if(bytes.length>3*1024*1024)throw Error('Repository fixture file too large');
@@ -180,14 +181,19 @@ export async function fetchRepositoryMatches({fetcher=fetch,revision=null}={}){
    const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-1',blob))].map(b=>b.toString(16).padStart(2,'0')).join('');
    if(hash!==task.blob_sha)throw Error('Repository file did not match its published Git blob');
    parsed[i]=parseRepositoryMatches(new TextDecoder().decode(bytes),{...task,publisher_blob_verified:true});
+   }catch{failed.add(task.repository);parsed[i]=[];}
   }}));
   for(const source of NEW_GITHUB_SOURCES){
    const tree=trees[MPD_REPOSITORIES.indexOf(source.repository)];if(!tree)continue;
+   try{
    for(const doc of await readGithubDocuments(source.repository,tree,{fetcher,signal:controller.signal,fixturesOnly:true})){
     parsed.push(parseRepositoryMatches(JSON.stringify(doc.rows),{repository:source.repository,revision:tree.sha,source_file:doc.path}));
    }
+   }catch{failed.add(source.repository);}
   }
-  return {revision:digest,unchanged:false,entries:await mergeRepositoryMatches(parsed.flat()),
+  const missingRepositories=MPD_REPOSITORIES.filter(repo=>failed.has(repo));
+  if(missingRepositories.length===MPD_REPOSITORIES.length)throw Error('No published fixture source available');
+  return {revision:digest,unchanged:false,entries:await mergeRepositoryMatches(parsed.flat().filter(row=>!failed.has(row.repository))),
    complete:missingRepositories.length===0,missingRepositories};
  }finally{clearTimeout(timer);controller.abort();}
 }

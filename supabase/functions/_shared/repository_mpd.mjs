@@ -87,12 +87,13 @@ export async function fetchRepositoryMpds({fetcher=fetch,deduplicate=true,allowM
   return new TextDecoder().decode(data);
  }
  const entries=[],revisions={},files=[];
- const trees=await readRepositoryTrees(MPD_REPOSITORIES,{fetcher,allowMissing});
+ const trees=await readRepositoryTrees(MPD_REPOSITORIES,{fetcher,allowMissing,isolateFailures:allowMissing});
  const missingRepositories=MPD_REPOSITORIES.filter((_,i)=>trees[i]===null);
  if(missingRepositories.length===MPD_REPOSITORIES.length)throw Error('No published repository available');
  for(const [repoIndex,repo] of MPD_REPOSITORIES.entries()) {
   const tree=trees[repoIndex];
   if(tree===null){revisions[repo]=null;continue;}
+  try{
   if(tree.truncated||!Array.isArray(tree.tree)||!/^[a-f\d]{40}$/.test(tree.sha||''))throw new Error('Incomplete repository tree');
   revisions[repo]=tree.sha;
   if(NEW_GITHUB_SOURCES.some(source=>source.repository===repo)){
@@ -117,7 +118,14 @@ export async function fetchRepositoryMpds({fetcher=fetch,deduplicate=true,allowM
     files.push({repository:repo,path,mpds:parsed.length});entries.push(...parsed);
    }
   }));
+  }catch(error){
+   if(!allowMissing)throw error;
+   revisions[repo]=null;missingRepositories.push(repo);
+   for(let i=entries.length-1;i>=0;i--)if(entries[i].repository===repo)entries.splice(i,1);
+   for(let i=files.length-1;i>=0;i--)if(files[i].repository===repo)files.splice(i,1);
+  }
  }
+ if(missingRepositories.length===MPD_REPOSITORIES.length)throw Error('No published repository available');
  entries.sort((a,b)=>MPD_REPOSITORIES.indexOf(a.repository)-MPD_REPOSITORIES.indexOf(b.repository)||a.source_file.localeCompare(b.source_file)||a.name.localeCompare(b.name));
  return {revisions,files,raw_count:entries.length,entries:deduplicate?await uniqueMpdEntries(entries):entries,
   complete:missingRepositories.length===0,missingRepositories};

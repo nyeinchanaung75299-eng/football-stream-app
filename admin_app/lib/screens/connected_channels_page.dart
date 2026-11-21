@@ -195,6 +195,9 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
         SwitchListTile.adaptive(dense: true, title: const Text('Auto-sync every 5 minutes', style: TextStyle(fontSize: 13)),
           subtitle: Text('${state['status']} • ${checked == null ? 'Not checked yet' : DateFormat('dd MMM, h:mm a').format(checked)}', style: const TextStyle(fontSize: 11)),
           value: state['enabled'] == true, onChanged: working ? null : (value) => mutate('settings', {'enabled': value})),
+        if ((state['unavailable_repositories'] as List? ?? []).isNotEmpty)
+          Padding(padding: const EdgeInsets.symmetric(horizontal:12,vertical:4),child:Text(
+            'Unavailable sources: ${(state['unavailable_repositories'] as List).join(', ')}. Saved entries are retained.',style:const TextStyle(fontSize:11))),
         Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: TextField(controller: search,
           decoration: const InputDecoration(hintText: 'Search source channels', prefixIcon: Icon(Icons.search), isDense: true),
           onChanged: (_) { _debounce?.cancel(); _debounce = Timer(const Duration(milliseconds: 350), () => refresh(resetPage: true)); })),

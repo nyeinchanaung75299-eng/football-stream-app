@@ -72,6 +72,7 @@ jobs:
           node --test scripts/test_repository_mpd.mjs
           node --test scripts/test_repository_matches.mjs scripts/test_repository_trees.mjs scripts/test_channel_media_probe.mjs scripts/test_channel_health_api.mjs
           node --test scripts/test_connected_github_sources.mjs
+          node --test scripts/test_repository_from_hub.mjs
           node --test scripts/test_epg_host_match.mjs
           node --test scripts/test_football_highlights.mjs
           node --test scripts/test_public_highlights.mjs

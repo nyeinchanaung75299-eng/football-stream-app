@@ -9,6 +9,9 @@ const connectedChannelProviders = <int, String>{
   10: 'Allrounder Live',
   11: 'SM Sports Data',
   12: 'DudeTV',
+  13: 'CFY',
+  14: 'Lian',
+  15: 'Deqiaa',
 };
 
 String connectedChannelProviderName(Object? value) =>

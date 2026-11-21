@@ -3,14 +3,29 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {createClient} from "jsr:@supabase/supabase-js@2";
 import {sourceHash} from "../_shared/darkbyte_catalog.mjs";
 import {fetchConnectedGithubCatalog} from '../_shared/connected_github_catalog.mjs';
+import {repositoryMatchesFromHub} from '../_shared/repository_from_hub.mjs';
 import {fetchLiveTvSports,sportsNeedsDrm} from "../_shared/livetv_sports.mjs";
-import {fetchRepositoryMatches,preserveRepositoryMatchLines} from '../_shared/repository_matches.mjs';
+import {preserveRepositoryMatchLines} from '../_shared/repository_matches.mjs';
 import {repositoryChannelUpdates,publicRepositoryUpdate} from '../_shared/repository_updates.mjs';
 
 const cors={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization,apikey,content-type,x-client-info"};
 const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{...cors,"Cache-Control":"no-store"}});
-const stateColumns="id,enabled,revision,last_checked_at,last_success_at,status,entry_count";
+const stateColumns="id,enabled,revision,last_checked_at,last_success_at,status,entry_count,unavailable_repositories,catalog_schema_version";
 const check=async(query:any)=>{const {data,error}=await query;if(error){const failure:any=new Error("Channel source operation failed");failure.code=error.code;throw failure;}return data;};
+async function readStreamHub(client:any){
+ const state=await check(client.from('channel_source_state').select(stateColumns).eq('id','darkbyte').single());
+ if(state.catalog_schema_version!==3)throw Error('Stream Hub snapshot update required');
+ const entries:any[]=[];
+ for(let page=0;page<15;page++){
+  const rows=await check(client.from('channel_source_catalog')
+   .select('id,provider,kind,name,category,image_url,source_file,streams,event_meta')
+   .eq('source_id','darkbyte').eq('is_present',true).order('id').range(page*1000,page*1000+999));
+  entries.push(...rows);if(rows.length<1000)break;
+ }
+ const after=await check(client.from('channel_source_state').select('last_checked_at').eq('id','darkbyte').single());
+ if(state.last_checked_at!==after.last_checked_at)throw Error('Stream Hub changed during read; retry');
+ return {entries,state};
+}
 function same(a:string,b:string){if(a.length!==b.length)return false;let n=0;for(let i=0;i<a.length;i++)n|=a.charCodeAt(i)^b.charCodeAt(i);return n===0;}
 async function access(req:Request,client:any){
  const pulse=req.headers.get("x-nca-channel-source-key");
@@ -57,7 +72,13 @@ async function synchronize(client:any,force:boolean,source:string){
    previousCatalog.push(...rows);if(rows.length<1000)break;
   }
   stage='published-snapshot';
-  const snapshot=source==='repository'?await fetchRepositoryMatches({revision:begun.revision}):source==='livetv'?await fetchLiveTvSports({revision:force?null:begun.revision,channels}):await fetchConnectedGithubCatalog({revision:force?null:begun.revision,previous:previousCatalog});
+  let snapshot:any;
+  if(source==='repository'){
+   const hub=await readStreamHub(client);
+   snapshot=await repositoryMatchesFromHub(hub.entries,{revision:hub.state.revision+'|'+hub.state.last_checked_at,
+    complete:hub.state.status==='ok',missingRepositories:hub.state.unavailable_repositories||[]});
+  }else if(source==='livetv')snapshot=await fetchLiveTvSports({revision:force?null:begun.revision,channels});
+  else snapshot=await fetchConnectedGithubCatalog({revision:force?null:begun.revision,previous:previousCatalog});
   let removedRepositoryIds:string[]=[];
   if(source==='repository'&&!snapshot.complete){
    // A repository that now returns 404 is not proof its previously saved
@@ -73,6 +94,10 @@ async function synchronize(client:any,force:boolean,source:string){
    p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,p_removed_ids:removedRepositoryIds,
   }));
   stage='commit';
+  if(source==='darkbyte')return await check(client.rpc('commit_stream_hub_snapshot',{
+   p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,
+   p_unavailable_repositories:snapshot.missingRepositories||[],
+  }));
   return await check(client.rpc("commit_connected_channel_source_sync",{
    p_source:source,p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,
    p_complete:snapshot.complete,p_unchanged:snapshot.unchanged,
@@ -111,7 +136,7 @@ export async function channelSourceRequest(req:Request,client:any){
     .select("id,provider,kind,name,category,image_url,stream_count,unsupported_count,playlist_url,updated_at,epg_id,epg_source,region,event_meta",{count:"exact"})
     .eq("source_id",source)
     .eq("is_present",true);
-   if([1,2,3,4,5,6,9,10,11,12].includes(Number(body.provider)))query=query.eq("provider",Number(body.provider));
+   if([1,2,3,4,5,6,9,10,11,12,13,14,15].includes(Number(body.provider)))query=query.eq("provider",Number(body.provider));
    if(["channel","event","video","playlist"].includes(body.kind))query=query.eq("kind",body.kind);
    const search=String(body.query||"").trim().slice(0,120).replace(/[\\%_]/g,"\\$&");
    if(search)query=source==='repository'

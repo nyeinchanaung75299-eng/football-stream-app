@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {NEW_GITHUB_SOURCES,normalizeGithubDocument,readGithubDocuments} from '../supabase/functions/_shared/github_source_formats.mjs';
+import {NEW_GITHUB_SOURCES,HUB_GITHUB_SOURCES,normalizeGithubDocument,readGithubDocuments} from '../supabase/functions/_shared/github_source_formats.mjs';
 import {githubCatalogEntries,fetchConnectedGithubCatalog} from '../supabase/functions/_shared/connected_github_catalog.mjs';
 import {parseRepositoryMatches,mergeRepositoryMatches} from '../supabase/functions/_shared/repository_matches.mjs';
 const sha='a'.repeat(40),url='https://cdn.example.org/sports.m3u8';
@@ -49,21 +49,21 @@ test('DudeTV reads reviewed referenced channel JSONs and verifies each Git blob 
  await assert.rejects(readGithubDocuments(source.repository,tree,{fetcher:async()=>new Response('[]')}),/blob verification/);
 });
 test('unchanged source rows are reused and unavailable source rows are retained without re-downloading channels',async()=>{
- const repositories=['darkbyteprojects/iptv_png',...NEW_GITHUB_SOURCES.map(x=>x.repository)];
- const previous=repositories.map((repository,i)=>({id:'cached-'+i,streams:[],event_meta:{source_repository:repository,source_revision:sha,catalog_schema_version:2}}));
+ const repositories=['darkbyteprojects/iptv_png',...HUB_GITHUB_SOURCES.map(x=>x.repository)];
+ const previous=repositories.map((repository,i)=>({id:'cached-'+i,streams:[],event_meta:{source_repository:repository,source_revision:sha,catalog_schema_version:3}}));
  for(const missing of [false,true]){
   let calls=0;
   const result=await fetchConnectedGithubCatalog({previous,fetcher:async address=>{
    calls++;assert(address.endsWith('/repository-trees.json'));
    return Response.json({fetched_at:new Date().toISOString(),repositories:Object.fromEntries(repositories.map((r,i)=>[r,missing&&i===4?{status:404}:{sha,truncated:false,tree:[]}]))});
   }});
-  assert.equal(calls,1);assert.equal(result.entries.length,5);assert.equal(result.complete,!missing);
+  assert.equal(calls,1);assert.equal(result.entries.length,repositories.length);assert.equal(result.complete,!missing);
   assert.equal(result.entries[4],previous[4]);
  }
 });
 test('one failed file leaves its last catalog while a healthy changed repository still updates',async()=>{
- const repos=['darkbyteprojects/iptv_png',...NEW_GITHUB_SOURCES.map(x=>x.repository)];
- const previous=repos.map((repository,i)=>({id:'saved-'+i,streams:[],event_meta:{source_repository:repository,source_revision:sha,catalog_schema_version:2}}));
+ const repos=['darkbyteprojects/iptv_png',...HUB_GITHUB_SOURCES.map(x=>x.repository)];
+ const previous=repos.map((repository,i)=>({id:'saved-'+i,streams:[],event_meta:{source_repository:repository,source_revision:sha,catalog_schema_version:3}}));
  const payload=JSON.stringify({matches:[{event_name:'Newcastle vs Arsenal',Category:'Football',eventInfo,streams:[{stream_url:url}]}]});
  const blob={type:'blob',path:'Sports_data.json',size:Buffer.byteLength(payload),sha:createHash('sha1').update('blob '+Buffer.byteLength(payload)+'\0').update(payload).digest('hex')};
  const trees=Object.fromEntries(repos.map((r,i)=>[r,{sha:i===1?'b'.repeat(40):i===3?'c'.repeat(40):sha,truncated:false,

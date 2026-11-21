@@ -5,6 +5,12 @@ export const NEW_GITHUB_SOURCES=[
  {repository:'sm-monirulislam/Upcoming-and-Live-Sports-Data',key:'smsports',provider:11,name:'SM Sports Data'},
  {repository:'mdjamsad9/dudetvapi',key:'dudetv',provider:12,name:'DudeTV'},
 ];
+export const LEGACY_GITHUB_SOURCES=[
+ {repository:'Roshavarma/cfy',key:'cfy',provider:13,name:'CFY'},
+ {repository:'rohmanabdu/lian',key:'lian',provider:14,name:'Lian'},
+ {repository:'rohmanabdu/deqiaa',key:'deqiaa',provider:15,name:'Deqiaa'},
+];
+export const HUB_GITHUB_SOURCES=[...NEW_GITHUB_SOURCES,...LEGACY_GITHUB_SOURCES];
 const clean=x=>String(x??'').replace(/[\u0000-\u001f\u007f]/g,' ').trim();
 const list=x=>Array.isArray(x)?x:[];
 export function publishedEventMeta(row){
@@ -13,6 +19,8 @@ export function publishedEventMeta(row){
  const utc=value=>{const text=clean(value).replace(/^(\d{4})\/(\d{2})\/(\d{2})/,'$1-$2-$3');
   const ms=/(?:Z|[+-]\d{2}:?\d{2})$/i.test(text)?Date.parse(text):NaN;return Number.isFinite(ms)?new Date(ms).toISOString():null;};
  return {home_team:name(row.teamA||e.teamA)||null,away_team:name(row.teamB||e.teamB)||null,
+  home_logo_url:clean(row.teamA?.logo||e.teamAFlag)||null,away_logo_url:clean(row.teamB?.logo||e.teamBFlag)||null,
+  unclassified_sports:row.unclassified_sports===true,
   league:clean(e.eventName||row.eventName)||null,source_category:clean(e.eventCat||row.category||row.cat)||null,
   source_status:clean(row.status||row.channel_status)||null,source_time:clean(e.startTime||row.startTime||[row.date,row.time].filter(Boolean).join(' '))||null,
   kickoff_at:utc(e.startTime||row.startTime),end_at:utc(e.endTime||row.endTime),source_civil_date:e.sourceCivilDate||null};
@@ -33,8 +41,35 @@ function event(row,eventInfo,streams,category){
   resolved_streams:streams.map(media).filter(Boolean)};
 }
 export function normalizeGithubDocument(repository,path,payload,channels=new Map()){
- const source=NEW_GITHUB_SOURCES.find(x=>x.repository===repository);
+ const source=HUB_GITHUB_SOURCES.find(x=>x.repository===repository);
  if(!source)throw Error('Unsupported connected GitHub source');
+ if(['cfy','lian','deqiaa'].includes(source.key)){
+  if(payload?._m3u){
+   const rows=[];let row;
+   for(const raw of payload._m3u.split(/\r?\n/)){
+    const line=raw.trim();
+    if(line.startsWith('#EXTINF:'))row={title:line.slice(line.indexOf(',')+1),cat:line.match(/group-title="([^"]*)"/i)?.[1]||'Sports',image:line.match(/tvg-logo="([^"]*)"/i)?.[1]};
+    else if(row&&/^#KODIPROP:.*license_key=/i.test(line))row.api=line.slice(line.indexOf('=')+1);
+    else if(row&&/^#EXTVLCOPT:http-referr?er=/i.test(line))row.referer=line.slice(line.indexOf('=')+1);
+    else if(row&&line&&!line.startsWith('#')){
+     const pair=row.title.match(/^(.+?)\s+(?:vs\.?|v\.?|versus)\s+(.+?)(?:\s+[-•]\s+.+)?$/i);
+     rows.push({...row,resolved_streams:[media({...row,link:line})],...(pair?{eventInfo:{teamA:pair[1],teamB:pair[2],eventName:row.cat,eventCat:row.cat}}:{})});row=null;
+    }
+   }
+   return rows;
+  }
+  const rows=[];
+  const visit=value=>{
+   if(Array.isArray(value)){value.forEach(visit);return;}
+   if(!value||typeof value!=='object')return;
+   if(value.teamA&&value.teamB||value.eventInfo?.teamA&&value.eventInfo?.teamB){
+    rows.push(event(value,value.eventInfo||{teamA:value.teamA?.name||value.teamA,teamB:value.teamB?.name||value.teamB,eventCat:value.category,eventName:value.eventName},
+     [value.resolved_streams,value.streams,value.channels_data,value.formats].find(x=>Array.isArray(x)&&x.length)||[],value.cat||value.category));return;
+   }
+   if(value.title&&(value.link||value.stream_url||value.url)){rows.push({...value,resolved_streams:[media(value)]});return;}
+   Object.values(value).filter(x=>x&&typeof x==='object').forEach(visit);
+  };visit(payload);return rows;
+ }
  if(source.key==='smiptv'){
   if(!Array.isArray(payload?.channels))throw Error('Invalid SM IPTV channel export');
   return payload.channels.map(row=>{
@@ -66,16 +101,18 @@ export function normalizeGithubDocument(repository,path,payload,channels=new Map
  });
 }
 export async function readGithubDocuments(repository,tree,{fetcher=fetch,signal,fixturesOnly=false}={}){
- const source=NEW_GITHUB_SOURCES.find(x=>x.repository===repository);
+ const source=HUB_GITHUB_SOURCES.find(x=>x.repository===repository);
  if(!source||!tree||tree.truncated||!/^[a-f\d]{40}$/.test(tree.sha||''))throw Error('Invalid source tree');
  const blobs=new Map(tree.tree.filter(x=>x.type==='blob').map(x=>[x.path,x]));
  const patterns={smiptv:/^output\/channels\.json$/,
   allrounder:/^api\/(?:football|cricket)\.json$/,
   smsports:/^Sports_data\.json$/,
-  dudetv:/^public_decrypted\/(?:events_with_channels\.json|cats\/[\w-]+\.json)$/};
+  dudetv:/^public_decrypted\/(?:events_with_channels\.json|cats\/[\w-]+\.json)$/,
+  cfy:/^api\/events\.json$/,lian:/^(?:hasill|finall(?:\.json)?|playlist_final\.json|(?:pl|pll)\/rama+a?2(?:\.json)?|config\d*\.json)$/,
+  deqiaa:/^(?:hasill|finall(?:\.json)?|playlist_final\.json|(?:pl|pll)\/rama+a?2(?:\.json)?|config\d*\.json)$/};
  const paths=[...blobs.keys()].filter(path=>patterns[source.key].test(path)&&(!fixturesOnly||source.key!=='dudetv'||path.endsWith('/events_with_channels.json'))).sort();
  const required={smiptv:'output/channels.json',allrounder:'api/football.json',smsports:'Sports_data.json',dudetv:'public_decrypted/events_with_channels.json'};
- if(!paths.includes(required[source.key]))throw Error('Required published export missing');
+ if(!paths.length||required[source.key]&&!paths.includes(required[source.key]))throw Error('Required published export missing');
  const data=new Map();let total=0;
  async function load(files){
   if(files.length>550)throw Error('Source file budget exceeded');
@@ -93,7 +130,8 @@ export async function readGithubDocuments(repository,tree,{fetcher=fetch,signal,
    const header=new TextEncoder().encode('blob '+size+'\0'),gitBlob=new Uint8Array(header.length+size);gitBlob.set(header);gitBlob.set(bytes,header.length);
    const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-1',gitBlob))].map(x=>x.toString(16).padStart(2,'0')).join('');
    if(digest!==blob.sha)throw Error('Published source blob verification failed');
-   data.set(path,JSON.parse(new TextDecoder().decode(bytes)));
+   const text=new TextDecoder().decode(bytes);
+   data.set(path,text.trimStart().startsWith('#EXTM3U')?{_m3u:text}:JSON.parse(text));
   }}));
  }
  await load(paths);
