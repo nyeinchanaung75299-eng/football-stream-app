@@ -1,3 +1,4 @@
+import { sendProjectBackup } from './telegram_project_backup.mjs';
 import { probeStreamFirstChunk } from "./stream_probe.mjs";
 import { withTelegramUpdateDedup } from './telegram_update_dedup.mjs';
 import { sendTelegramReleaseApk, ReleaseDeliveryError } from './telegram_apk_delivery.mjs';
@@ -13,7 +14,7 @@ export const ADMIN_INLINE_MENU = {
     [{text:"📺 Channels",callback_data:"/channels"},{text:"⚽ Fixtures",callback_data:"/matches"}],
     [{text:"📡 Monitoring",callback_data:"/monitor"},{text:"🔔 Alerts",callback_data:"/alerts"}],
     [{text:"🩺 Diagnostics",callback_data:"/diagnostics"},{text:"🧰 More tools",callback_data:"/tools"}],
-    [{text:"📦 APK Downloads",callback_data:"/apk"}],
+    [{text:"📦 APK Downloads",callback_data:"/apk"},{text:"🗃 Source backup",callback_data:"/backup_source"}],
   ],
 };
 export const ADMIN_APK_MENU = {
@@ -879,6 +880,9 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
         responseText = "📦 NCA APK DOWNLOADS\nSelect the latest published, SHA-verified ARM64 release.\n" +
           "A different Android signing certificate can still block an in-place update.";
         keyboard = ADMIN_APK_MENU;
+      } else if (cmd === '/backup_source' || cmd === '/project_backup') {
+        if(chat.type!=='private'||String(chat.id)!==String(from.id))return reply({ok:true});
+        await sendProjectBackup({chatId:chat.id,token,fetcher});documentSent=true;
       } else if (cmd === "/apk_viewer" || cmd === "/apk_admin") {
         await sendTelegramReleaseApk({
           kind: cmd === "/apk_admin" ? "admin" : "viewer",

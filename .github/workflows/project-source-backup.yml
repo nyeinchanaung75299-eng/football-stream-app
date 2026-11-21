@@ -1,0 +1,37 @@
+name: Publish Project Source Backup
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['admin_app/**', 'user_app/**', 'scripts/**', 'supabase/**', 'cloudflare/**', 'vercel/**', 'customer_profiles/**', 'docs/**', '.github/**', '*.md']
+permissions:
+  contents: write
+concurrency:
+  group: source-backup
+  cancel-in-progress: false
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create verified source snapshot
+        run: |
+          python3 scripts/project_backup.py --output /tmp/project-backup
+          python3 -m unittest discover -s scripts -p 'test_project_backup.py'
+      - name: Publish snapshot on the existing feed branch
+        run: |
+          git fetch origin feed
+          git worktree add --detach /tmp/source-feed FETCH_HEAD
+          mkdir -p /tmp/source-feed/public/project-backup
+          cp /tmp/project-backup/* /tmp/source-feed/public/project-backup/
+          cd /tmp/source-feed
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add public/project-backup
+          git commit -m "Publish verified source snapshot $GITHUB_SHA"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:feed; then exit 0; fi
+            git fetch origin feed
+            git rebase FETCH_HEAD
+          done
+          exit 1

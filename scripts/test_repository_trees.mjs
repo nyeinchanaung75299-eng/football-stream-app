@@ -40,3 +40,9 @@ test('opt-in partial tree sync skips only 404 repositories, never 403 or untrust
    :new Response('',{status:403}),
  }),error=>error.code==='repository_http_403');
 });
+
+test('fresh explicit missing records permit partial sync without anonymous API calls',async()=>{
+ let calls=0;const repositories=Object.fromEntries(REPOSITORY_TREE_SOURCES.map((r,i)=>[r,i<2?{status:404}:tree]));
+ const rows=await readRepositoryTrees(REPOSITORY_TREE_SOURCES,{now,allowMissing:true,fetcher:async()=>{calls++;return Response.json({fetched_at:new Date(now).toISOString(),repositories});}});
+ assert.equal(calls,1);assert.equal(rows[0],null);assert.equal(rows[2].sha,sha);
+});

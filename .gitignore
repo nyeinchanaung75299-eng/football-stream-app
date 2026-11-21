@@ -8,3 +8,6 @@ build/
 *.iml
 android/.gradle/
 **/android/.gradle/
+
+# Buyer private settings are kept outside source snapshots.
+customer_profiles/private/

@@ -45,4 +45,4 @@ jobs:
           node --check supabase/functions/_shared/nca_private_admin_bot.mjs
           node --check scripts/register_nca_telegram_webhooks.mjs
           node --check supabase/functions/_shared/telegram_connect.mjs
-          node --test scripts/test_nca_telegram_bots.mjs scripts/test_telegram_apk_delivery.mjs scripts/test_telegram_connect.mjs scripts/test_viewer_tools.mjs supabase/functions/_shared/nca_private_admin_bot.test.mjs
+          node --test scripts/test_telegram_project_backup.mjs scripts/test_nca_telegram_bots.mjs scripts/test_telegram_apk_delivery.mjs scripts/test_telegram_connect.mjs scripts/test_viewer_tools.mjs supabase/functions/_shared/nca_private_admin_bot.test.mjs
