@@ -19,12 +19,14 @@ class StreamDetectorPage extends StatefulWidget {
       {super.key,
       this.initialUrl = '',
       this.selectionMode = false,
+      this.qualityMode = false,
       this.autoSelectHls = false});
   final String initialUrl;
   final bool selectionMode;
 
   /// Web cannot access the operator's Android WebView network requests.
   final bool autoSelectHls;
+  final bool qualityMode;
 
   @override
   State<StreamDetectorPage> createState() => _StreamDetectorPageState();

@@ -784,6 +784,9 @@ class NativePlayerActivity : Activity() {
             val origin = source.optString("origin").trim()
             if (referer.isNotBlank()) headers["Referer"] = referer
             if (origin.isNotBlank()) headers["Origin"] = origin
+            val userAgent = source.optString("userAgent").trim()
+            if (userAgent.isNotBlank() && userAgent.length <= 1024 &&
+                !userAgent.contains('\r') && !userAgent.contains('\n')) headers["User-Agent"] = userAgent
 
             val httpFactory = DefaultHttpDataSource.Factory()
                 .setAllowCrossProtocolRedirects(true)

@@ -194,33 +194,12 @@ class AppUpdateService {
 
       final latestBuild =
           int.tryParse(data['build_number']?.toString() ?? '') ?? 0;
-      if (latestBuild <= currentBuild) {
-        await AnalyticsService.capture(
-          'update current',
-          properties: {
-            'manual': force,
-            'current_build': currentBuild,
-            'latest_build': latestBuild,
-          },
-        );
-        if (force && context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'NCA ${info.version} (build ${info.buildNumber}) is already up to date. Latest build: $latestBuild.',
-              ),
-            ),
-          );
-        }
-        return;
-      }
+      if (latestBuild <= currentBuild && !force) return;
 
       final version = data['version_name']?.toString().trim().isNotEmpty == true
           ? data['version_name'].toString()
           : 'new version';
-      final apkUrl = vpnFreeUpdateUrl(
-        data['apk_url']?.toString().trim() ?? '',
-      );
+      final apkUrl = vpnFreeUpdateUrl(data['apk_url']?.toString().trim() ?? '');
       final apkSha256 = data['sha256']?.toString().trim().toLowerCase() ?? '';
       final notes = data['notes']?.toString().trim() ?? '';
       final mandatory = data['mandatory'] == true;
@@ -263,9 +242,13 @@ class AppUpdateService {
         barrierDismissible: !mandatory,
         builder: (dialogContext) => AlertDialog(
           icon: const Icon(Icons.system_update_alt_rounded),
-          title: Text('NCA $version available'),
+          title: Text(
+            'NCA $version${latestBuild > currentBuild ? ' available' : ''}',
+          ),
           content: Text(
-            notes.isEmpty
+            latestBuild <= currentBuild
+                ? 'This is the current published release. Save or share its verified APK.'
+                : notes.isEmpty
                 ? 'A newer version of NCA is ready. Update now?'
                 : notes,
           ),
@@ -275,18 +258,36 @@ class AppUpdateService {
                 onPressed: () => Navigator.pop(dialogContext),
                 child: const Text('Later'),
               ),
-            FilledButton.icon(
+            TextButton(
               onPressed: () {
-                AnalyticsService.capture(
-                  'update accepted',
-                  properties: {'latest_build': latestBuild, 'version': version},
-                );
                 Navigator.pop(dialogContext);
-                _download(context, apkUrl, apkSha256);
+                _download(context, apkUrl, apkSha256, action: ApkAction.save);
               },
-              icon: const Icon(Icons.download_rounded),
-              label: const Text('Update now'),
+              child: const Text('Save APK'),
             ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _download(context, apkUrl, apkSha256, action: ApkAction.share);
+              },
+              child: const Text('Share APK'),
+            ),
+            if (latestBuild > currentBuild)
+              FilledButton.icon(
+                onPressed: () {
+                  AnalyticsService.capture(
+                    'update accepted',
+                    properties: {
+                      'latest_build': latestBuild,
+                      'version': version,
+                    },
+                  );
+                  Navigator.pop(dialogContext);
+                  _download(context, apkUrl, apkSha256);
+                },
+                icon: const Icon(Icons.download_rounded),
+                label: const Text('Update now'),
+              ),
           ],
         ),
       );
@@ -308,8 +309,9 @@ class AppUpdateService {
   static Future<void> _download(
     BuildContext context,
     String apkUrl,
-    String apkSha256,
-  ) async {
+    String apkSha256, {
+    ApkAction action = ApkAction.install,
+  }) async {
     if (_downloading || !context.mounted) return;
     _downloading = true;
     final progress = ValueNotifier<double>(0);
@@ -322,7 +324,7 @@ class AppUpdateService {
         child: ValueListenableBuilder<double>(
           valueListenable: progress,
           builder: (context, value, _) => AlertDialog(
-            title: const Text('Downloading NCA update'),
+            title: const Text('Downloading verified NCA APK'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -348,6 +350,8 @@ class AppUpdateService {
       await downloadAndInstallApk(
         apkUrl,
         expectedSha256: apkSha256,
+        action: action,
+        sharePositionOrigin: const Rect.fromLTWH(0, 0, 1, 1),
         onProgress: (value) => progress.value = value,
       );
       await AnalyticsService.capture(

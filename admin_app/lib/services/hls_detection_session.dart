@@ -24,6 +24,8 @@ class HlsDetectionSession {
   final _streams = <DetectedStream>[];
   final checks = <String, HlsCandidateCheck>{};
   final _pending = <String>{};
+  final _revisions = <String, int>{};
+  final _attempts = <String, int>{};
   final _mediaUrls = <String>{};
   Timer? _timer;
   int generation = 0;
@@ -39,6 +41,8 @@ class HlsDetectionSession {
     _mediaUrls.clear();
     checks.clear();
     _pending.clear();
+    _revisions.clear();
+    _attempts.clear();
     loaded = documentLoaded;
     _selected = false;
     if (!_disposed) onChanged();
@@ -49,9 +53,17 @@ class HlsDetectionSession {
     final existing = _streams.indexWhere((v) => v.url == stream.url);
     if (existing >= 0) {
       if (headers != null) {
-        _streams[existing] =
-            _streams[existing].withPublicRequestHeaders(headers);
-        onChanged();
+        final before = _streams[existing];
+        final updated = before.withPublicRequestHeaders(headers);
+        if (updated.referer != before.referer ||
+            updated.origin != before.origin) {
+          _streams[existing] = updated;
+          _revisions[stream.url] = (_revisions[stream.url] ?? 0) + 1;
+          checks.remove(stream.url);
+          _timer?.cancel();
+          onChanged();
+          if (!_pending.contains(stream.url)) _check(updated);
+        }
       }
       return;
     }
@@ -59,28 +71,33 @@ class HlsDetectionSession {
     _streams.insert(0, stream);
     _timer?.cancel();
     onChanged();
-    if (quickSelect &&
-        stream.type == 'hls' &&
-        checks.length + _pending.length < 8) {
-      final epoch = generation;
-      _pending.add(stream.url);
-      unawaited(
-          Future<HlsCandidateCheck>.sync(() => _verify(stream)).then((result) {
-        if (!current(epoch)) return;
-        _pending.remove(stream.url);
-        checks[stream.url] = result;
-        onChanged();
-        _schedule();
-      }, onError: (Object _, StackTrace __) {
-        if (!current(epoch)) return;
-        _pending.remove(stream.url);
-        checks[stream.url] =
-            const HlsCandidateCheck(false, 'Playlist could not be verified');
-        onChanged();
-        _schedule();
-      }));
-    }
+    _check(stream);
     _schedule();
+  }
+
+  void _check(DetectedStream stream) {
+    if (!quickSelect ||
+        stream.type != 'hls' ||
+        (_attempts[stream.url] ?? 0) >= 3 ||
+        (!_attempts.containsKey(stream.url) && _attempts.length >= 8)) return;
+    final epoch = generation;
+    final revision = _revisions[stream.url] ?? 0;
+    _attempts[stream.url] = (_attempts[stream.url] ?? 0) + 1;
+    _pending.add(stream.url);
+    unawaited(Future<HlsCandidateCheck>.sync(() => _verify(stream))
+        .catchError((Object _) =>
+            const HlsCandidateCheck(false, 'Playlist could not be verified'))
+        .then((result) {
+      if (!current(epoch)) return;
+      _pending.remove(stream.url);
+      if (revision != (_revisions[stream.url] ?? 0)) {
+        _check(_streams.firstWhere((item) => item.url == stream.url));
+        return;
+      }
+      checks[stream.url] = result;
+      onChanged();
+      _schedule();
+    }));
   }
 
   void associateMedia(Iterable<String> urls, int epoch) {

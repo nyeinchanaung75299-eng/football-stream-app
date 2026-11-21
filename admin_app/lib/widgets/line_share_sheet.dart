@@ -25,6 +25,7 @@ class LineShareSheet extends StatefulWidget {
 class _LineShareSheetState extends State<LineShareSheet> {
   bool working = false;
   String? error;
+  bool copied = false;
 
   Rect _anchor() {
     final box = context.findRenderObject() as RenderBox?;
@@ -136,7 +137,11 @@ class _LineShareSheetState extends State<LineShareSheet> {
                         try {
                           await Clipboard.setData(
                               ClipboardData(text: widget.payload.text));
-                          if (mounted) setState(() => error = null);
+                          if (mounted)
+                            setState(() {
+                              error = null;
+                              copied = true;
+                            });
                         } catch (_) {
                           if (mounted)
                             setState(() => error =
@@ -144,7 +149,7 @@ class _LineShareSheetState extends State<LineShareSheet> {
                         }
                       },
                       icon: const Icon(Icons.copy),
-                      label: const Text('Copy all'))),
+                      label: Text(copied ? 'Copied ✓' : 'Copy all'))),
               const SizedBox(width: 8),
               Expanded(
                   child: OutlinedButton.icon(

@@ -26,7 +26,11 @@ class ChannelsPage extends StatefulWidget {
   State<ChannelsPage> createState() => _ChannelsPageState();
 }
 
-class _ChannelsPageState extends State<ChannelsPage> {
+class _ChannelsPageState extends State<ChannelsPage>
+    with WidgetsBindingObserver {
+  Timer? _guideClock;
+  bool _foreground = true;
+  List<dynamic> _guideRows = const [];
   static final PublicGuideCache<Map<String, dynamic>> _guideCache =
       PublicGuideCache<Map<String, dynamic>>();
   static const _savedCatalogKey = 'viewer_public_channel_catalog_v2';
@@ -51,6 +55,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final ui = ViewerTabCache.channelUi;
     selectedGroup = ui.group;
     selectedMatchId = ui.matchId;
@@ -63,7 +68,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
     // Show the last successful channel list immediately. A stale list stays
     // visible while a refresh races the same Cloudflare/Vercel routes.
     catalog = _lastChannels == null ? load() : Future.value(_lastChannels!);
-    final refreshStale = _lastChannels != null && !ViewerTabCache.channelsFresh();
+    final refreshStale =
+        _lastChannels != null && !ViewerTabCache.channelsFresh();
     if (refreshStale) {
       unawaited(refresh(silent: true));
     }
@@ -81,7 +87,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
       unawaited(_loadChannelEpg());
       if (!ViewerTabCache.channelMatchesFresh) unawaited(_loadMatchChoices());
     });
-    library.load().then((_) { if (mounted) setState(() {}); });
+    library.load().then((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   /// Optional football-only EPG summary. Its failure never blocks channels.
@@ -90,44 +98,84 @@ class _ChannelsPageState extends State<ChannelsPage> {
     try {
       final now = DateTime.now().toUtc();
       final today = now.add(const Duration(hours: 6, minutes: 30));
-      final date = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      final date =
+          '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
       final data = await _guideCache.load(
         date,
         () => request('/tv-schedule?date=$date&days=3'),
         refresh: refresh,
       );
-      final result = <String, String>{};
-      final football = <String, List<Map<String, dynamic>>>{};
-      final linked = <String>{};
-      for (final raw in (data['channels'] as List? ?? const [])) {
-        if (raw is! Map || raw['matchedEPG'] != true) continue;
-        final id = raw['id']?.toString() ?? '';
-        if (id.isEmpty) continue;
-        linked.add(id);
-        for (final item in (raw['programmes'] as List? ?? const [])) {
-          if (item is! Map) continue;
-          final title = (item['title'] ?? item['subtitle'] ?? '').toString();
-          final extra = (item['description'] ?? '').toString();
-          if (!currentFootballProgramme(item, now: now)) continue;
-          final ms = (item['start'] as num?)?.toInt();
-          if (ms == null) continue;
-          final start = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
-          if (start.isBefore(now.subtract(const Duration(hours: 3)))) continue;
-          final label = title.isNotEmpty ? title : extra;
-          final live = !start.isAfter(now);
-          result.putIfAbsent(id, () => '${live ? 'LIVE' : 'NEXT'} • $label');
-          football.putIfAbsent(id, () => []).add(Map<String, dynamic>.from(item));
-        }
-      }
-      if (mounted && generation == _guideEpoch) setState(() {
-        nextFootball = result;
-        footballProgrammes = football;
-        epgLinkedIds = linked;
-        guideLoaded = true;
-      });
+      if (!mounted || generation != _guideEpoch) return;
+      _guideRows = data['channels'] as List? ?? const [];
+      _rebuildGuide();
     } catch (_) {
       // Keep channel grid interactive when guide or relay is offline.
     }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _guideClock?.cancel();
+    _foreground = state == AppLifecycleState.resumed;
+    if (_foreground) {
+      _rebuildGuide();
+      unawaited(_loadChannelEpg());
+    }
+  }
+
+  void _rebuildGuide() {
+    if (!mounted) return;
+    final now = DateTime.now().toUtc();
+    final result = <String, String>{};
+    final football = <String, List<Map<String, dynamic>>>{};
+    final linked = <String>{};
+    for (final raw in _guideRows) {
+      if (raw is! Map || raw['matchedEPG'] != true) continue;
+      final id = raw['id']?.toString() ?? '';
+      if (id.isEmpty) continue;
+      linked.add(id);
+      for (final item in (raw['programmes'] as List? ?? const [])) {
+        if (item is! Map) continue;
+        final title = (item['title'] ?? item['subtitle'] ?? '').toString();
+        final extra = (item['description'] ?? '').toString();
+        if (!currentFootballProgramme(item, now: now)) continue;
+        final ms = (item['start'] as num?)?.toInt();
+        if (ms == null) continue;
+        final start = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
+        if (start.isBefore(now.subtract(const Duration(hours: 3)))) continue;
+        final label = title.isNotEmpty ? title : extra;
+        final live = !start.isAfter(now);
+        result.putIfAbsent(id, () => '${live ? 'LIVE' : 'NEXT'} • $label');
+        football.putIfAbsent(id, () => []).add(Map<String, dynamic>.from(item));
+      }
+    }
+    setState(() {
+      nextFootball = result;
+      footballProgrammes = football;
+      epgLinkedIds = linked;
+      guideLoaded = true;
+    });
+    _guideClock?.cancel();
+    var delay = const Duration(minutes: 1);
+    for (final raw in _guideRows.whereType<Map>()) {
+      for (final item
+          in (raw['programmes'] as List? ?? const []).whereType<Map>()) {
+        for (final key in ['start', 'end']) {
+          final ms = item[key];
+          if (ms is! num) continue;
+          final until = DateTime.fromMillisecondsSinceEpoch(
+            ms.toInt(),
+            isUtc: true,
+          ).difference(now);
+          if (until > Duration.zero && until < delay) delay = until;
+        }
+      }
+    }
+    if (!_foreground) return;
+    _guideClock = Timer(
+      delay + const Duration(milliseconds: 20),
+      _rebuildGuide,
+    );
   }
 
   Future<void> _loadMatchChoices({bool force = false}) async {
@@ -137,23 +185,40 @@ class _ChannelsPageState extends State<ChannelsPage> {
     }
     try {
       final data = await request('/matches');
-      final earliest = DateTime.now().toUtc().subtract(const Duration(hours: 4));
-      final matches = (data['matches'] as List? ?? const []).whereType<Map>()
-          .map((m) => Map<String, dynamic>.from(m)).where((m) {
-        final time = DateTime.tryParse('${m['kickoff_at'] ?? ''}');
-        return m['id'] != null && m['is_finished'] != true && time != null && !time.isBefore(earliest);
-      }).toList()..sort((a, b) => '${a['kickoff_at']}'.compareTo('${b['kickoff_at']}'));
+      final earliest = DateTime.now().toUtc().subtract(
+        const Duration(hours: 4),
+      );
+      final matches =
+          (data['matches'] as List? ?? const [])
+              .whereType<Map>()
+              .map((m) => Map<String, dynamic>.from(m))
+              .where((m) {
+                final time = DateTime.tryParse('${m['kickoff_at'] ?? ''}');
+                return m['id'] != null &&
+                    m['is_finished'] != true &&
+                    time != null &&
+                    !time.isBefore(earliest);
+              })
+              .toList()
+            ..sort(
+              (a, b) => '${a['kickoff_at']}'.compareTo('${b['kickoff_at']}'),
+            );
       ViewerTabCache.rememberChannelMatches(matches);
-      if (mounted) setState(() {
-        matchChoices = matches;
-        if (!matches.any((m) => m['id'].toString() == selectedMatchId)) selectedMatchId = null;
-      });
-    } catch (_) { /* Channel and team search remain usable without fixtures. */ }
+      if (mounted)
+        setState(() {
+          matchChoices = matches;
+          if (!matches.any((m) => m['id'].toString() == selectedMatchId))
+            selectedMatchId = null;
+        });
+    } catch (_) {
+      /* Channel and team search remain usable without fixtures. */
+    }
   }
 
   Future<void> _loadGroupPositions({bool force = false}) async {
     if (!force && ViewerTabCache.channelGroupsFresh) {
-      if (mounted) setState(() => groupPositions = ViewerTabCache.channelGroups);
+      if (mounted)
+        setState(() => groupPositions = ViewerTabCache.channelGroups);
       return;
     }
     try {
@@ -177,6 +242,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
 
   @override
   void dispose() {
+    _guideClock?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     ViewerTabCache.channelUi = ViewerChannelsUiState(
       search: search.text,
       group: selectedGroup,
@@ -192,11 +259,17 @@ class _ChannelsPageState extends State<ChannelsPage> {
   }
 
   bool matchesSearch(Map<String, dynamic> row) {
-    final programmes = footballProgrammes[row['id'].toString()] ?? const <Map<String, dynamic>>[];
-    if (!channelMatchesProgrammeQuery(row, programmes, search.text)) return false;
+    final programmes =
+        footballProgrammes[row['id'].toString()] ??
+        const <Map<String, dynamic>>[];
+    if (!channelMatchesProgrammeQuery(row, programmes, search.text))
+      return false;
     if (selectedMatchId == null) return true;
-    final match = matchChoices.where((m) => m['id'].toString() == selectedMatchId).firstOrNull;
-    return match != null && programmes.any((p) => programmeCoversMatch(p, match));
+    final match = matchChoices
+        .where((m) => m['id'].toString() == selectedMatchId)
+        .firstOrNull;
+    return match != null &&
+        programmes.any((p) => programmeCoversMatch(p, match));
   }
 
   Future<Map<String, dynamic>> request(
@@ -204,8 +277,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
     Duration timeout = const Duration(seconds: 7),
     bool viaVercel = false,
   }) async {
-    final bases = viaVercel ? [vercelBackupBase] :
-        publicApiBases().where((base) => base != vercelBackupBase).toList();
+    final bases = viaVercel
+        ? [vercelBackupBase]
+        : publicApiBases().where((base) => base != vercelBackupBase).toList();
     final result = Completer<Map<String, dynamic>>();
     Object? lastError;
     var next = 0;
@@ -218,10 +292,7 @@ class _ChannelsPageState extends State<ChannelsPage> {
       () async {
         try {
           final response = await http
-              .get(
-                Uri.parse('$base$path'),
-                headers: publicApiHeaders(base),
-              )
+              .get(Uri.parse('$base$path'), headers: publicApiHeaders(base))
               .timeout(timeout);
           if (response.statusCode != 200) {
             throw StateError('HTTP ${response.statusCode}');
@@ -269,20 +340,23 @@ class _ChannelsPageState extends State<ChannelsPage> {
   Future<void> _saveChannelCatalog(List<Map<String, dynamic>> rows) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_savedCatalogKey, jsonEncode({
-        'saved_at': DateTime.now().toUtc().toIso8601String(),
-        // Persist public listing fields only: never store signed stream URLs,
-        // authorization, DRM keys or other secrets in browser preferences.
-        'channels': [
-          for (final row in rows)
-            {
-              'id': row['id'],
-              'name': row['name'],
-              'category': row['category'],
-              'image_url': row['image_url'],
-            },
-        ],
-      }));
+      await prefs.setString(
+        _savedCatalogKey,
+        jsonEncode({
+          'saved_at': DateTime.now().toUtc().toIso8601String(),
+          // Persist public listing fields only: never store signed stream URLs,
+          // authorization, DRM keys or other secrets in browser preferences.
+          'channels': [
+            for (final row in rows)
+              {
+                'id': row['id'],
+                'name': row['name'],
+                'category': row['category'],
+                'image_url': row['image_url'],
+              },
+          ],
+        }),
+      );
     } catch (_) {
       // Cache is optional and must never block browsing or playback.
     }
@@ -296,8 +370,9 @@ class _ChannelsPageState extends State<ChannelsPage> {
       final decoded = jsonDecode(raw);
       if (decoded is! Map || decoded['channels'] is! List) return;
       final saved = DateTime.tryParse(decoded['saved_at']?.toString() ?? '');
-      if (saved == null || DateTime.now().toUtc().difference(saved.toUtc()) >
-          _savedCatalogAge) return;
+      if (saved == null ||
+          DateTime.now().toUtc().difference(saved.toUtc()) > _savedCatalogAge)
+        return;
       final rows = (decoded['channels'] as List)
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
@@ -339,14 +414,19 @@ class _ChannelsPageState extends State<ChannelsPage> {
       await fresh;
     } catch (_) {
       if (!silent && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Network unavailable. Showing saved channel list.'),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Network unavailable. Showing saved channel list.'),
+          ),
+        );
       }
     }
   }
 
-  Future<void> watch(Map<String, dynamic> channel, {bool viaVercel = false}) async {
+  Future<void> watch(
+    Map<String, dynamic> channel, {
+    bool viaVercel = false,
+  }) async {
     if (opening) return;
     FocusManager.instance.primaryFocus?.unfocus();
     final id = channel['id']?.toString() ?? '';
@@ -455,7 +535,10 @@ class _ChannelsPageState extends State<ChannelsPage> {
     );
   }
 
-  Future<void> _channelAction(String action, Map<String, dynamic> channel) async {
+  Future<void> _channelAction(
+    String action,
+    Map<String, dynamic> channel,
+  ) async {
     final id = channel['id'].toString();
     try {
       if (action == 'vercel') {
@@ -466,13 +549,19 @@ class _ChannelsPageState extends State<ChannelsPage> {
         await library.toggleFavorite(id);
         if (mounted) setState(() {});
       } else {
-        final opened = await launchUrl(Uri.https('t.me', '/NCAFootballViewer_bot',
-            {'start': 'report_$id'}), mode: LaunchMode.externalApplication);
+        final opened = await launchUrl(
+          Uri.https('t.me', '/NCAFootballViewer_bot', {'start': 'report_$id'}),
+          mode: LaunchMode.externalApplication,
+        );
         if (!opened) throw StateError('Telegram unavailable');
       }
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not complete this action. Please try again.')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not complete this action. Please try again.'),
+          ),
+        );
     }
   }
 
@@ -486,36 +575,39 @@ class _ChannelsPageState extends State<ChannelsPage> {
         preferredSize: const Size.fromHeight(53),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 5),
-          child: SizedBox(height: 43, child: TextField(
-            controller: search,
-            onChanged: (_) => setState(() {}),
-            autocorrect: false,
-            enableSuggestions: false,
-            textInputAction: TextInputAction.search,
-            decoration: InputDecoration(
-              hintText: 'Search channels, teams or matches',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: search.text.isEmpty
-                  ? IconButton(
-                      tooltip: 'Refresh channels',
-                      onPressed: refresh,
-                      icon: const Icon(Icons.refresh_rounded),
-                    )
-                  : IconButton(
-                      tooltip: 'Clear search',
-                      onPressed: () {
-                        search.clear();
-                        setState(() {});
-                      },
-                      icon: const Icon(Icons.close),
-                    ),
-              isDense: true,
-              filled: true,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
+          child: SizedBox(
+            height: 43,
+            child: TextField(
+              controller: search,
+              onChanged: (_) => setState(() {}),
+              autocorrect: false,
+              enableSuggestions: false,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'Search channels, teams or matches',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: search.text.isEmpty
+                    ? IconButton(
+                        tooltip: 'Refresh channels',
+                        onPressed: refresh,
+                        icon: const Icon(Icons.refresh_rounded),
+                      )
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: () {
+                          search.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(Icons.close),
+                      ),
+                isDense: true,
+                filled: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
               ),
             ),
-          )),
+          ),
         ),
       ),
     ),
@@ -528,26 +620,46 @@ class _ChannelsPageState extends State<ChannelsPage> {
         }
         if (rows == null) {
           return Center(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('Channels could not load. Check your connection and retry.'),
-              const SizedBox(height: 12),
-              FilledButton.icon(onPressed: () => refresh(), icon: const Icon(Icons.refresh), label: const Text('Retry')),
-            ]),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Channels could not load. Check your connection and retry.',
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: () => refresh(),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
+              ],
+            ),
           );
         }
         String groupOf(Map<String, dynamic> row) {
           final value = row['category']?.toString().trim() ?? '';
           return value.isEmpty ? 'Other' : value;
         }
+
         final groupCounts = <String, int>{};
         for (final row in rows) {
           final group = groupOf(row);
           groupCounts[group] = (groupCounts[group] ?? 0) + 1;
         }
         const groupPriority = <String>[
-          'beIN Sports', 'TNT Sports', 'Fubo', 'FanCode', 'CazéTV',
-          'Arena Sports', 'FOX Sports', 'D Sports', 'TSN', 'SporTV',
-          'SPOTV', 'Premiere', 'Premier Sports',
+          'beIN Sports',
+          'TNT Sports',
+          'Fubo',
+          'FanCode',
+          'CazéTV',
+          'Arena Sports',
+          'FOX Sports',
+          'D Sports',
+          'TSN',
+          'SporTV',
+          'SPOTV',
+          'Premiere',
+          'Premier Sports',
         ];
         final availableGroups = groupCounts.keys.toList()
           ..sort((a, b) {
@@ -555,30 +667,42 @@ class _ChannelsPageState extends State<ChannelsPage> {
             final bi = groupPriority.indexOf(b);
             final ar = groupPositions[a] ?? (ai < 0 ? 999 : ai);
             final br = groupPositions[b] ?? (bi < 0 ? 999 : bi);
-            return ar.compareTo(br) != 0
-                ? ar.compareTo(br)
-                : a.compareTo(b);
+            return ar.compareTo(br) != 0 ? ar.compareTo(br) : a.compareTo(b);
           });
-        final activeGroup =
-            groupCounts.containsKey(selectedGroup) ? selectedGroup : 'All';
+        final activeGroup = groupCounts.containsKey(selectedGroup)
+            ? selectedGroup
+            : 'All';
         final groups = <String, List<Map<String, dynamic>>>{};
         for (final row in rows.where(matchesSearch)) {
           final id = row['id'].toString();
-          if (libraryFilter == 'favorites' && !library.favorites.contains(id)) continue;
-          if (libraryFilter == 'recent' && !library.recent.contains(id)) continue;
+          if (libraryFilter == 'favorites' && !library.favorites.contains(id))
+            continue;
+          if (libraryFilter == 'recent' && !library.recent.contains(id))
+            continue;
           final category = groupOf(row);
           if (activeGroup != 'All' && category != activeGroup) continue;
-          groups.putIfAbsent(libraryFilter == 'recent' ? 'Recently watched' : category, () => []).add(row);
+          groups
+              .putIfAbsent(
+                libraryFilter == 'recent' ? 'Recently watched' : category,
+                () => [],
+              )
+              .add(row);
         }
         if (libraryFilter == 'recent') {
           for (final rows in groups.values) {
-            rows.sort((a,b) => library.recent.indexOf(a['id'].toString()).compareTo(library.recent.indexOf(b['id'].toString())));
+            rows.sort(
+              (a, b) => library.recent
+                  .indexOf(a['id'].toString())
+                  .compareTo(library.recent.indexOf(b['id'].toString())),
+            );
           }
         }
         final orderedEntries = groups.entries.toList()
-          ..sort((a, b) =>
-              availableGroups.indexOf(a.key).compareTo(
-                availableGroups.indexOf(b.key)));
+          ..sort(
+            (a, b) => availableGroups
+                .indexOf(a.key)
+                .compareTo(availableGroups.indexOf(b.key)),
+          );
         return RefreshIndicator(
           onRefresh: refresh,
           child: CustomScrollView(
@@ -620,15 +744,19 @@ class _ChannelsPageState extends State<ChannelsPage> {
                                 border: OutlineInputBorder(),
                                 isDense: true,
                                 contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 10,
+                                  horizontal: 10,
+                                  vertical: 10,
                                 ),
                               ),
                               items: [
                                 const DropdownMenuItem(
                                   value: 'All',
-                                  child: Text('All Channels',
-                                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(fontSize: 12)),
+                                  child: Text(
+                                    'All Channels',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 12),
+                                  ),
                                 ),
                                 for (final group in availableGroups)
                                   DropdownMenuItem(
@@ -651,9 +779,15 @@ class _ChannelsPageState extends State<ChannelsPage> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: DropdownButtonFormField<String>(
-                              key: ValueKey('viewer-match-${selectedMatchId ?? 'all'}'),
-                              value: matchChoices.any((match) =>
-                                  match['id'].toString() == selectedMatchId)
+                              key: ValueKey(
+                                'viewer-match-${selectedMatchId ?? 'all'}',
+                              ),
+                              value:
+                                  matchChoices.any(
+                                    (match) =>
+                                        match['id'].toString() ==
+                                        selectedMatchId,
+                                  )
                                   ? selectedMatchId
                                   : 'all',
                               isExpanded: true,
@@ -667,15 +801,19 @@ class _ChannelsPageState extends State<ChannelsPage> {
                                 border: OutlineInputBorder(),
                                 isDense: true,
                                 contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 10,
+                                  horizontal: 8,
+                                  vertical: 10,
                                 ),
                               ),
                               items: [
                                 const DropdownMenuItem(
                                   value: 'all',
-                                  child: Text('All matches',
-                                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(fontSize: 12)),
+                                  child: Text(
+                                    'All matches',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 12),
+                                  ),
                                 ),
                                 for (final match in matchChoices)
                                   DropdownMenuItem(
@@ -688,39 +826,56 @@ class _ChannelsPageState extends State<ChannelsPage> {
                                     ),
                                   ),
                               ],
-                              onChanged: matchChoices.isEmpty ? null : (value) =>
-                                  setState(() {
-                                selectedMatchId = value == 'all' ? null : value;
-                                selectedGroup = 'All';
-                                libraryFilter = 'all';
-                                search.clear();
-                              }),
+                              onChanged: matchChoices.isEmpty
+                                  ? null
+                                  : (value) => setState(() {
+                                      selectedMatchId = value == 'all'
+                                          ? null
+                                          : value;
+                                      selectedGroup = 'All';
+                                      libraryFilter = 'all';
+                                      search.clear();
+                                    }),
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
-                      if (guideLoaded && (search.text.trim().isNotEmpty || selectedMatchId!=null))
-                        const Padding(padding:EdgeInsets.only(bottom:6),child:Text(
-                          'Team and match search uses verified football EPG. Channels without a guide can still be found by channel name.',
-                          style:TextStyle(fontSize:11))),
+                      if (guideLoaded &&
+                          (search.text.trim().isNotEmpty ||
+                              selectedMatchId != null))
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 6),
+                          child: Text(
+                            'Team and match search uses verified football EPG. Channels without a guide can still be found by channel name.',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                        ),
                       SizedBox(
                         height: 45,
                         child: ListView(
                           scrollDirection: Axis.horizontal,
                           children: [
                             for (final group in const [
-                              'All', 'beIN Sports', 'TNT Sports', 'Fubo',
-                              'FanCode', 'CazéTV', 'Arena Sports', 'FOX Sports',
+                              'All',
+                              'beIN Sports',
+                              'TNT Sports',
+                              'Fubo',
+                              'FanCode',
+                              'CazéTV',
+                              'Arena Sports',
+                              'FOX Sports',
                             ])
                               if (group == 'All' ||
                                   groupCounts.containsKey(group))
                                 Padding(
                                   padding: const EdgeInsets.only(right: 8),
                                   child: ChoiceChip(
-                                    label: Text(group == 'All'
-                                        ? 'All (${rows.length})'
-                                        : '$group (${groupCounts[group]})'),
+                                    label: Text(
+                                      group == 'All'
+                                          ? 'All (${rows.length})'
+                                          : '$group (${groupCounts[group]})',
+                                    ),
                                     selected: activeGroup == group,
                                     onSelected: (_) =>
                                         setState(() => selectedGroup = group),
@@ -729,14 +884,23 @@ class _ChannelsPageState extends State<ChannelsPage> {
                           ],
                         ),
                       ),
-                      Wrap(spacing: 8, children: [
-                        for (final entry in const {'favorites': 'Favorites', 'recent': 'Recently watched'}.entries)
-                          FilterChip(label: Text(entry.value),
-                            selected: libraryFilter == entry.key,
-                            onSelected: (selected) => setState(() {
-                              libraryFilter = selected ? entry.key : 'all'; selectedGroup = 'All';
-                            })),
-                      ]),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          for (final entry in const {
+                            'favorites': 'Favorites',
+                            'recent': 'Recently watched',
+                          }.entries)
+                            FilterChip(
+                              label: Text(entry.value),
+                              selected: libraryFilter == entry.key,
+                              onSelected: (selected) => setState(() {
+                                libraryFilter = selected ? entry.key : 'all';
+                                selectedGroup = 'All';
+                              }),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -789,27 +953,59 @@ class _ChannelsPageState extends State<ChannelsPage> {
                               Expanded(
                                 child: Card(
                                   clipBehavior: Clip.antiAlias,
-                                  child: Stack(fit: StackFit.expand, children: [
-                                    Center(child: image.startsWith('https://')
-                                        ? ResilientLogo(
-                                            value: image, channelId: channel['id']?.toString(),
-                                            fallback: const Icon(Icons.tv),
-                                          )
-                                        : const Icon(Icons.tv, size: 38)),
-                                    Positioned(top: 0, right: 0, child: PopupMenuButton<String>(
-                                      tooltip: 'Channel options',
-                                      icon: Icon(library.favorites.contains(channel['id'].toString())
-                                          ? Icons.star_rounded : Icons.more_vert_rounded),
-                                      onSelected: (action) => _channelAction(action, channel),
-                                      itemBuilder: (_) => [
-                                        PopupMenuItem(value: 'favorite', child: Text(
-                                          library.favorites.contains(channel['id'].toString())
-                                              ? 'Remove favorite' : 'Add favorite')),
-                                        const PopupMenuItem(value: 'vercel', child: Text('Try another connection')),
-                                        const PopupMenuItem(value: 'report', child: Text('Report broken line')),
-                                      ],
-                                    )),
-                                  ]),
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      Center(
+                                        child: image.startsWith('https://')
+                                            ? ResilientLogo(
+                                                value: image,
+                                                channelId: channel['id']
+                                                    ?.toString(),
+                                                fallback: const Icon(Icons.tv),
+                                              )
+                                            : const Icon(Icons.tv, size: 38),
+                                      ),
+                                      Positioned(
+                                        top: 0,
+                                        right: 0,
+                                        child: PopupMenuButton<String>(
+                                          tooltip: 'Channel options',
+                                          icon: Icon(
+                                            library.favorites.contains(
+                                                  channel['id'].toString(),
+                                                )
+                                                ? Icons.star_rounded
+                                                : Icons.more_vert_rounded,
+                                          ),
+                                          onSelected: (action) =>
+                                              _channelAction(action, channel),
+                                          itemBuilder: (_) => [
+                                            PopupMenuItem(
+                                              value: 'favorite',
+                                              child: Text(
+                                                library.favorites.contains(
+                                                      channel['id'].toString(),
+                                                    )
+                                                    ? 'Remove favorite'
+                                                    : 'Add favorite',
+                                              ),
+                                            ),
+                                            const PopupMenuItem(
+                                              value: 'vercel',
+                                              child: Text(
+                                                'Try another connection',
+                                              ),
+                                            ),
+                                            const PopupMenuItem(
+                                              value: 'report',
+                                              child: Text('Report broken line'),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                               Text(
@@ -820,13 +1016,25 @@ class _ChannelsPageState extends State<ChannelsPage> {
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              if (guideLoaded && epgLinkedIds.contains(channel['id']?.toString()))
-                                const Text('● EPG',
-                                  style: TextStyle(color: Color(0xFF54E6C1),
-                                      fontSize: 9, fontWeight: FontWeight.w700)),
-                              if (nextFootball.containsKey(channel['id']?.toString()))
+                              if (guideLoaded &&
+                                  epgLinkedIds.contains(
+                                    channel['id']?.toString(),
+                                  ))
+                                const Text(
+                                  '● EPG',
+                                  style: TextStyle(
+                                    color: Color(0xFF54E6C1),
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              if (nextFootball.containsKey(
+                                channel['id']?.toString(),
+                              ))
                                 Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                  ),
                                   child: Text(
                                     nextFootball[channel['id']!.toString()]!,
                                     maxLines: 1,

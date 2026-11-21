@@ -1,7 +1,7 @@
 name: football_admin
 description: Football streaming admin app starter.
 publish_to: "none"
-version: 2.5.25+27
+version: 2.5.26+27
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -16,6 +16,7 @@ dependencies:
   package_info_plus: ^8.3.0
   path_provider: ^2.1.5
   open_filex: ^4.7.0
+  flutter_file_dialog: 3.0.3
   crypto: ^3.0.6
   posthog_flutter: ^5.40.0
   url_launcher: ^6.3.2

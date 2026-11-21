@@ -37,3 +37,5 @@ run_sql < "$repo_root/scripts/test_channel_logo_sync.sql"
 run_sql < "$repo_root/scripts/test_channel_permanent_delete.sql"
 
 run_sql < "$repo_root/scripts/test_repository_match_publish.sql"
+
+run_sql < "$repo_root/scripts/test_atomic_channel_editor.sql"

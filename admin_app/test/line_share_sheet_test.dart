@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:football_admin/widgets/line_share_sheet.dart';
 import 'package:football_admin/services/line_share_payload.dart';
@@ -32,6 +33,20 @@ void main() {
     expect(find.text('Share to Telegram'), findsOneWidget);
     expect(find.text('Copy all'), findsOneWidget);
     expect(find.text('Export .txt'), findsOneWidget);
+    String? copied;
+    tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData')
+        copied = (call.arguments as Map)['text'].toString();
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    await tester.tap(find.text('Copy all'));
+    await tester.pumpAndSettle();
+    expect(copied, contains('Singapore vs Brazil'));
+    expect(find.text('Copied ✓'), findsOneWidget);
+
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();

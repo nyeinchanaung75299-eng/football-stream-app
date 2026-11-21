@@ -15,10 +15,10 @@ void main() {
         url: 'https://fixture.example',
         publishableKey: 'test-public',
         httpClient: MockClient((request) async {
-          if (request.method == 'PATCH' &&
-              request.url.path.endsWith('/channels')) {
-            channelUpdates.add(
-                jsonDecode(request.body) as Map<String, dynamic>);
+          if (request.method == 'POST' &&
+              request.url.path.endsWith('/rpc/save_channel_editor')) {
+            channelUpdates.add((jsonDecode(request.body)
+                as Map<String, dynamic>)['p_fields'] as Map<String, dynamic>);
           }
           final rows = request.url.path.endsWith('/channels')
               ? [
@@ -77,8 +77,13 @@ void main() {
           of: find.widgetWithText(TextField, 'Channel name'),
           matching: find.byType(ListView));
       await tester.scrollUntilVisible(find.text('SAVE CHANNEL'), 400,
-          scrollable: find.descendant(
-              of: form, matching: find.byType(Scrollable)).first);
+          scrollable: find
+              .descendant(of: form, matching: find.byType(Scrollable))
+              .first);
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('SAVE CHANNEL'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('SAVE CHANNEL'));
       await tester.pumpAndSettle();
       expect(channelUpdates, hasLength(1));
