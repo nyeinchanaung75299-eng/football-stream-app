@@ -39,7 +39,11 @@ begin
   raise exception 'Bad batch saved';
  exception when raise_exception then if sqlerrm<>'Invalid direct stream URL' then raise; end if; end;
  if (select count(*) from public.stream_links where match_id=m)<>before_count then raise exception 'Batch partial commit'; end if;
+ update public.stream_links set health_status='healthy',last_checked_at=now(),health_latency_ms=15 where id=line;
+ update public.stream_links set label='Renamed only' where id=line;
+ if not exists(select from public.stream_links where id=line and health_status='healthy' and last_checked_at is not null) then raise exception 'Label-only edit invalidated valid health'; end if;
  update public.stream_links set stream_url='https://manual.example/changed.m3u8' where id=line;
+ if not exists(select from public.stream_links where id=line and health_status='unknown' and last_checked_at is null and health_latency_ms is null) then raise exception 'Changed playback kept stale health'; end if;
  if exists(select from public.imported_source_lines where link_id=line) then raise exception 'Manual edits retain renewal provenance'; end if;
 end $$;
 select set_config('request.jwt.claim.sub','33000000-0000-0000-0000-000000000002',true);
