@@ -6,6 +6,24 @@ import {publicRepositoryUpdate,orderConfigurationProbes} from '../supabase/funct
 const context={repository:'Roshavarma/cfy',source_file:'api/events.json'};
 const row={cat:'Football',eventInfo:{teamA:'Napoli',teamB:'Inter Milan',eventName:'Serie A',startTime:'2026/11/08 14:00:00 +0000',teamAFlag:'https://logos.example.org/napoli.png',teamBFlag:'https://logos.example.org/inter.png'},
  channels_data:[{title:'HD',link:'https://cdn.example.org/sport.mpd?token=a',api:'a'.repeat(32)+':'+ 'b'.repeat(32),type:1}]};
+test('Provider 6 EPL joins the same fixture and contributes its distinct HLS line',async()=>{
+ const now=Date.parse('2026-11-21T17:30:00Z');
+ const eventInfo={teamA:'Newcastle',teamB:'Arsenal',eventName:'Newcastle United vs Arsenal',startTime:'2026/11/21 17:30:00 +0000'};
+ const p2={eventInfo:{...eventInfo,eventCat:'Football',eventName:'Premier League'},resolved_streams:[{title:'SKY',link:'https://cdn.example.org/sky.m3u8'}]};
+ const p6={cat:'EPL 🏴',eventInfo,formats:[{title:'SportzX Live',link:'https://cdn.example.org/sportzx.m3u8'}]};
+ const ctx={repository:'darkbyteprojects/iptv_png',source_file:'provider_6/live_events.json'};
+ const parsed=parseRepositoryMatches(JSON.stringify([p2,p6]),ctx);
+ const merged=await mergeRepositoryMatches(parsed,{now});
+ assert.equal(merged.length,1);assert.equal(merged[0].name,'Newcastle vs Arsenal');assert.equal(merged[0].streams.length,2);
+ const women=parseRepositoryMatches(JSON.stringify([{...p6,cat:'WSL'}]),ctx);
+ assert.equal((await mergeRepositoryMatches([...parsed,...women],{now})).length,2);
+ const categories=['WSL','Brasileirão','CON. Sudamericana','Scottish Premiership','Super Lig','Taça de Portugal','Championship 🏴'];
+ for(const cat of categories)assert.equal(parseRepositoryMatches(JSON.stringify([{...p6,cat}]),ctx).length,1,cat);
+ for(const cat of ['Cricket EPL','NBA','F1','WWE','NPL','Asia Cup'])assert.equal(parseRepositoryMatches(JSON.stringify([{...p6,cat}]),ctx).length,0,cat);
+ assert.equal(parseRepositoryMatches(JSON.stringify([{...p6,cat:'Championship'}]),context).length,0);
+ const tokens={...p6,formats:[{title:'Token only',tokenApi:'https://tokens.example.org/resolve'}]};
+ assert.equal(parseRepositoryMatches(JSON.stringify([tokens]),ctx)[0].streams.length,0);
+});
 test('nested CFY fixtures keep team logos and exact offset time; static channels and other sports are excluded',()=>{
  const data=parseRepositoryMatches(JSON.stringify({events:{events:[row,{...row,cat:'Cricket',eventInfo:{...row.eventInfo,eventCat:'Cricket'}},{title:'TNT Sports',channels_data:row.channels_data}]}}),context);
  assert.equal(data.length,1);assert.equal(data[0].home_logo_url,row.eventInfo.teamAFlag);assert.equal(data[0].kickoff_at,'2026-11-08T14:00:00.000Z');

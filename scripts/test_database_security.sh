@@ -43,3 +43,4 @@ run_sql < "$repo_root/scripts/test_atomic_channel_editor.sql"
 run_sql < "$repo_root/scripts/test_source_import_workflows.sql"
 
 run_sql < "$repo_root/scripts/test_repository_snapshot_removals.sql"
+run_sql < "$repo_root/scripts/test_repository_partial_imports.sql"

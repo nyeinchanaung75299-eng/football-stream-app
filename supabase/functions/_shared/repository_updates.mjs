@@ -19,7 +19,7 @@ export function publicRepositoryUpdate(row){
 // Re-check a bounded number of changed configurations each run. Unchanged
 // working lines do not download their manifests on every source refresh.
 export async function repositoryChannelUpdates(imports,{fetcher=fetch,maxProbes=12}={}){
- const snapshot=await fetchRepositoryMpds({fetcher,deduplicate:false});
+ const snapshot=await fetchRepositoryMpds({fetcher,deduplicate:false,allowMissing:true});
  const unique=new Map();
  for(const row of snapshot.entries)unique.set(row.repository+'\n'+row.source_file+'\n'+config(row),{...row,configuration_status:'unverified'});
  const entries=[...unique.values()],pairs=snapshot.entries.filter(r=>r.key_id&&r.key_data);
@@ -45,5 +45,6 @@ export async function repositoryChannelUpdates(imports,{fetcher=fetch,maxProbes=
   }else if(check.drm_status==='configured')row.configuration_status='configured';
   else if(check.drm_status==='not_required')row.configuration_status='clear';
  }}));
- return {entries,revision:await sourceHash(JSON.stringify(snapshot.revisions)),probed,repaired,complete:true};
+ return {entries,revision:await sourceHash(JSON.stringify(snapshot.revisions)),probed,repaired,
+  complete:snapshot.complete,missingRepositories:snapshot.missingRepositories};
 }

@@ -77,7 +77,7 @@ export async function uniqueMpdEntries(entries) {
  for(const row of byUrl.values())output.push({...row,fingerprint:await sourceHash(row.identity)});
  return output;
 }
-export async function fetchRepositoryMpds({fetcher=fetch,deduplicate=true}={}) {
+export async function fetchRepositoryMpds({fetcher=fetch,deduplicate=true,allowMissing=false}={}) {
  async function read(url,max=3*1024*1024) {
   const response=await fetcher(url,{redirect:'error',signal:AbortSignal.timeout(15000),headers:{Accept:'application/json','User-Agent':'NCA-Published-MPD-Import/1.0'}});
   if(!response.ok)throw Object.assign(new Error('Published repository unavailable: HTTP '+response.status),{code:'repository_http_'+response.status});
@@ -88,9 +88,12 @@ export async function fetchRepositoryMpds({fetcher=fetch,deduplicate=true}={}) {
   return new TextDecoder().decode(data);
  }
  const entries=[],revisions={},files=[];
- const trees=await readRepositoryTrees(MPD_REPOSITORIES,{fetcher});
+ const trees=await readRepositoryTrees(MPD_REPOSITORIES,{fetcher,allowMissing});
+ const missingRepositories=MPD_REPOSITORIES.filter((_,i)=>trees[i]===null);
+ if(missingRepositories.length===MPD_REPOSITORIES.length)throw Error('No published repository available');
  for(const [repoIndex,repo] of MPD_REPOSITORIES.entries()) {
   const tree=trees[repoIndex];
+  if(tree===null){revisions[repo]=null;continue;}
   if(tree.truncated||!Array.isArray(tree.tree)||!/^[a-f\d]{40}$/.test(tree.sha||''))throw new Error('Incomplete repository tree');
   revisions[repo]=tree.sha;
   const paths=tree.tree.filter(x=>x.type==='blob'&&x.size<=3*1024*1024&&(
@@ -109,5 +112,6 @@ export async function fetchRepositoryMpds({fetcher=fetch,deduplicate=true}={}) {
   }));
  }
  entries.sort((a,b)=>MPD_REPOSITORIES.indexOf(a.repository)-MPD_REPOSITORIES.indexOf(b.repository)||a.source_file.localeCompare(b.source_file)||a.name.localeCompare(b.name));
- return {revisions,files,raw_count:entries.length,entries:deduplicate?await uniqueMpdEntries(entries):entries};
+ return {revisions,files,raw_count:entries.length,entries:deduplicate?await uniqueMpdEntries(entries):entries,
+  complete:missingRepositories.length===0,missingRepositories};
 }
