@@ -95,6 +95,9 @@ function cardEntry(card,force=false){
 }
 async function catalogue(fetcher,force=false,{offset=0,query=''}={}) {
   const key=query+'|'+offset,previous=cache.get(key);
+  if(force && offset===0) {
+    for(const cachedKey of cache.keys())if(cachedKey.startsWith(query+'|'))cache.delete(cachedKey);
+  }
   if (!force && previous && Date.now()-Date.parse(previous.updated_at)<300000) return previous;
   if (inFlight.has(key)) return inFlight.get(key);
   const work=(async()=>{

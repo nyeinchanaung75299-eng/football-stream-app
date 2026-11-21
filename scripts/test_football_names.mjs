@@ -22,6 +22,7 @@ try {
       .replace("'../_shared/fawa_schedule_time.mjs'", JSON.stringify(new URL('../supabase/functions/_shared/fawa_schedule_time.mjs', import.meta.url).href))
     .replace("'../_shared/fawa_catalog.mjs'", JSON.stringify(new URL('../supabase/functions/_shared/fawa_catalog.mjs', import.meta.url).href))
       .replace("'../_shared/football_highlights.mjs'", JSON.stringify(new URL('../supabase/functions/_shared/football_highlights.mjs', import.meta.url).href))
+      .replace("'../_shared/crichd_combat.mjs'", JSON.stringify(new URL('../supabase/functions/_shared/crichd_combat.mjs', import.meta.url).href))
       .replace('"../_shared/stream_probe.mjs"', JSON.stringify(new URL('../supabase/functions/_shared/stream_probe.mjs', import.meta.url).href));
     source += name === 'football-fixtures'
       ? '\nexport { loadSourceFallbackFixtures, sourceFixtureId };'

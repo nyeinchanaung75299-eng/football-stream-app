@@ -46,3 +46,13 @@ test('a publisher-linked public Streamable export resolves native media without 
  assert.equal(data.entry.lines.length,1);assert.equal(data.entry.lines[0].playback_verified,false);assert.equal(data.entry.lines[0].link_check.status,'reachable');
  assert.equal(calls.length,4);
 });
+test('refreshing the first Highlights page invalidates later cached cursors',async()=>{
+ let generation=0;const calls=[];
+ const fetcher=async address=>{const offset=Number(new URL(address).searchParams.get('offset')||0);calls.push(offset);
+  return Response.json({cards:Array.from({length:9},(_,i)=>({slug:`fresh-${generation}-${offset+i}-highlights`,title:`Generation ${generation} clip ${offset+i}`})),hasMore:offset===0});};
+ await footballHighlights({force:true},{fetcher});
+ await footballHighlights({offset:9},{fetcher});generation=1;
+ await footballHighlights({force:true},{fetcher});
+ const later=await footballHighlights({offset:9},{fetcher});
+ assert(later.entries.every(row=>row.title.startsWith('Generation 1')));assert.deepEqual(calls,[0,9,0,9]);
+});

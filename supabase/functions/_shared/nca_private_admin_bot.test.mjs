@@ -41,7 +41,13 @@ function createMock({prefs=[],lines=[],channels=[],matches=[],messageFail=false,
       });
       return new Response(mockApk);
     }
-    if(href==="https://dasfootball.com/") {
+    if(href.startsWith("https://dasfootball.com/api/homepage-posts/")) {
+      const block=highlightHtml?.match(/<script[^>]*>([\s\S]*?)<\/script>/i)?.[1];
+      const value=block?JSON.parse(block):{},videos=value['@graph'] || (value['@type']==='VideoObject'?[value]:[]);
+      const offset=Number(new URL(href).searchParams.get('offset') || 0);
+      return Response.json({cards:videos.slice(offset,offset+9).map(v=>({title:v.name,href:v.url})),hasMore:offset+9<videos.length});
+    }
+    if(href.startsWith("https://dasfootball.com/")) {
       return new Response(highlightHtml ?? "",{headers:{"Content-Type":"text/html"}});
     }
     if(href==="https://cdn.example.org/public-clip.mp4" || /^https:\/\/cdn\.example\.org\/public-clip-\d+\.mp4$/.test(href)) {
@@ -446,7 +452,7 @@ test("Private Admin /highlights returns verified public MP4 links, never web pag
   assert.match(result,/https:\/\/cdn\.example\.org\/public-clip\.mp4/);
   assert.doesNotMatch(result,/dasfootball\.com\/team-a|\.m3u8|key_data|stream_url|test-service-key/);
   assert.ok(mock.calls.some(c=>c.url==="https://cdn.example.org/public-clip.mp4"));
-  assert.equal(mock.calls.filter(c=>c.url==="https://dasfootball.com/").length,1);
+  assert.equal(mock.calls.filter(c=>c.url.includes("/api/homepage-posts/")).length,1);
 });
 
 test("Telegram Highlights Next returns subsequent five matches and final page",async()=>{
