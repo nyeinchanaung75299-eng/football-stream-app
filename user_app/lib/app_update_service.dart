@@ -246,7 +246,9 @@ class AppUpdateService {
             'NCA $version${latestBuild > currentBuild ? ' available' : ''}',
           ),
           content: Text(
-            notes.isEmpty
+            latestBuild <= currentBuild
+                ? 'This is the current published release. Save or share its verified APK.'
+                : notes.isEmpty
                 ? 'A newer version of NCA is ready. Update now?'
                 : notes,
           ),

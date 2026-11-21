@@ -145,40 +145,54 @@ class _HighlightsPageState extends State<HighlightsPage> {
                             style: TextStyle(fontSize: 12)),
                         for (final line in lines)
                           Card(
-                              margin: const EdgeInsets.only(top: 12),
-                              child: Padding(
+                            margin: const EdgeInsets.only(top: 12),
+                            child: Padding(
                                 padding: const EdgeInsets.all(12),
                                 child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                          '${line['label']} • ${line['stream_type'].toString().toUpperCase()}',
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.bold)),
-                                      const SizedBox(height: 6),
-                                      SelectableText(
-                                          line['stream_url'].toString(),
-                                          maxLines: 4),
-                                      for (final field in [
-                                        'referer',
-                                        'origin',
-                                        'user_agent'
-                                      ])
-                                        if (line[field] != null)
-                                          SelectableText(
-                                              '$field: ${line[field]}',
-                                              style:
-                                                  const TextStyle(fontSize: 12),
-                                              maxLines: 2),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                          checks[line['id']] ??
-                                              (line['link_check'] is Map
-                                                  ? 'Link reachable • HTTP ${(line['link_check'] as Map)['http']}'
-                                                  : 'Link not checked'),
-                                          style: const TextStyle(fontSize: 12)),
-                                      Wrap(spacing: 6, children: [
+                                      Row(children: [
+                                        Expanded(
+                                            child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                              Text(
+                                                  '${line['label']} • ${line['stream_type'].toString().toUpperCase()}',
+                                                  style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.bold)),
+                                              const SizedBox(height: 6),
+                                              SelectableText(
+                                                  line['stream_url'].toString(),
+                                                  maxLines: 1),
+                                              for (final field in [
+                                                'referer',
+                                                'origin',
+                                                'user_agent'
+                                              ])
+                                                if (line[field] != null)
+                                                  SelectableText(
+                                                      '$field: ${line[field]}',
+                                                      style: const TextStyle(
+                                                          fontSize: 10.5),
+                                                      maxLines: 1),
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                  checks[line['id']] ??
+                                                      (line['link_check'] is Map
+                                                          ? 'Link reachable • HTTP ${(line['link_check'] as Map)['http']}'
+                                                          : 'Link not checked'),
+                                                  style: const TextStyle(
+                                                      fontSize: 10.5)),
+                                            ])),
+                                        IconButton(
+                                            tooltip: 'Copy URL',
+                                            icon:
+                                                const Icon(Icons.copy_rounded),
+                                            onPressed: () => _copy(
+                                                line['stream_url'].toString())),
                                         FilledButton(
                                             onPressed: adding
                                                     .contains(line['id'])
@@ -211,12 +225,8 @@ class _HighlightsPageState extends State<HighlightsPage> {
                                                     : added.contains(line['id'])
                                                         ? 'ADDED ✓'
                                                         : 'ADD')),
-                                        TextButton.icon(
-                                            icon: const Icon(Icons.copy,
-                                                size: 18),
-                                            label: const Text('Copy URL'),
-                                            onPressed: () => _copy(
-                                                line['stream_url'].toString())),
+                                      ]),
+                                      Wrap(spacing: 6, children: [
                                         TextButton.icon(
                                             icon: const Icon(
                                                 Icons.content_paste,
@@ -267,8 +277,8 @@ class _HighlightsPageState extends State<HighlightsPage> {
                                                     }
                                                   }),
                                       ]),
-                                    ]),
-                              )),
+                                    ])),
+                          ),
                         if (lines.isEmpty)
                           const Padding(
                               padding: EdgeInsets.symmetric(vertical: 16),

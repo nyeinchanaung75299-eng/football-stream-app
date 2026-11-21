@@ -906,7 +906,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'stream_type': stream.type,
           'referer': stream.referer,
           'origin': stream.origin,
-          'label': '${_sourceLabel(provider)} · Detected',
+          'label': '${_sourceLabel(provider)} · ${stream.type.toUpperCase()}',
           'resolution': 'Auto',
           'health_status': 'unknown',
           'discovery_mode': 'source_browser',
