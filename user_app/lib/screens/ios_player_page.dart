@@ -71,8 +71,11 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
   BoxFit _fitMode = BoxFit.contain;
   double _userPlaybackRate = 1.0;
   bool _controlsVisible = true;
-  String get _fitLabel => _fitMode == BoxFit.contain ? 'Fit'
-      : _fitMode == BoxFit.fill ? 'Full' : 'Zoom';
+  String get _fitLabel => _fitMode == BoxFit.contain
+      ? 'Fit'
+      : _fitMode == BoxFit.fill
+      ? 'Full'
+      : 'Zoom';
   bool get _portraitChannel =>
       widget.sources.isNotEmpty &&
       widget.sources.first['portraitStart'] == true;
@@ -347,6 +350,13 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
     if (origin.startsWith('http://') || origin.startsWith('https://')) {
       headers['Origin'] = origin;
     }
+    final userAgent = (source['userAgent'] ?? '').toString().trim();
+    if (userAgent.isNotEmpty &&
+        userAgent.length <= 1024 &&
+        !userAgent.contains('\r') &&
+        !userAgent.contains('\n')) {
+      headers['User-Agent'] = userAgent;
+    }
     return headers;
   }
 
@@ -469,8 +479,10 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
     }
 
     final source = widget.sources[index];
-    final url = (_routeOverrides[index] ?? source['url'] ?? source['stream_url'] ?? '')
-        .toString().trim();
+    final url =
+        (_routeOverrides[index] ?? source['url'] ?? source['stream_url'] ?? '')
+            .toString()
+            .trim();
     if (url.isEmpty) {
       await _fallbackToNext('empty_source');
       return;
@@ -521,13 +533,16 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
     _recoveryRequestedFor = _playbackToken;
 
     if (_hasPendingRoute(_selectedIndex)) {
-      _routeOverrides[_selectedIndex] =
-          widget.sources[_selectedIndex]['routeFallbackUrl'].toString();
+      _routeOverrides[_selectedIndex] = widget
+          .sources[_selectedIndex]['routeFallbackUrl']
+          .toString();
       _sameLineRecoveryCount = 0;
-      unawaited(AnalyticsService.capture(
-        'playback route fallback',
-        properties: const {'route': 'vercel'},
-      ));
+      unawaited(
+        AnalyticsService.capture(
+          'playback route fallback',
+          properties: const {'route': 'vercel'},
+        ),
+      );
       await _openLine(_selectedIndex, recovery: true);
       return;
     }
@@ -707,29 +722,34 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
         actions: [
           TextButton(
             onPressed: () => setState(() {
-              _fitMode = _fitMode == BoxFit.contain ? BoxFit.fill
-                  : _fitMode == BoxFit.fill ? BoxFit.cover : BoxFit.contain;
+              _fitMode = _fitMode == BoxFit.contain
+                  ? BoxFit.fill
+                  : _fitMode == BoxFit.fill
+                  ? BoxFit.cover
+                  : BoxFit.contain;
             }),
-            child: Text(_fitLabel, style: const TextStyle(
-              color: Colors.white, fontSize: 12)),
+            child: Text(
+              _fitLabel,
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
           ),
           IconButton(
-              tooltip: 'Rotate video',
-              icon: const Icon(Icons.screen_rotation),
-              onPressed: () {
-                _landscape = !_landscape;
-                unawaited(
-                  SystemChrome.setPreferredOrientations(
-                    _landscape
-                        ? [
-                            DeviceOrientation.landscapeLeft,
-                            DeviceOrientation.landscapeRight,
-                          ]
-                        : [DeviceOrientation.portraitUp],
-                  ),
-                );
-              },
-            ),
+            tooltip: 'Rotate video',
+            icon: const Icon(Icons.screen_rotation),
+            onPressed: () {
+              _landscape = !_landscape;
+              unawaited(
+                SystemChrome.setPreferredOrientations(
+                  _landscape
+                      ? [
+                          DeviceOrientation.landscapeLeft,
+                          DeviceOrientation.landscapeRight,
+                        ]
+                      : [DeviceOrientation.portraitUp],
+                ),
+              );
+            },
+          ),
           const SizedBox(width: 4),
         ],
       ),
@@ -744,121 +764,125 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
                 heightFactor: 1,
                 alignment: Alignment.center,
                 child: AspectRatio(
-                  aspectRatio: MediaQuery.orientationOf(context) == Orientation.portrait
+                  aspectRatio:
+                      MediaQuery.orientationOf(context) == Orientation.portrait
                       ? 16 / 9
                       : MediaQuery.sizeOf(context).aspectRatio,
                   child: Stack(
                     fit: StackFit.expand,
-                children: [
-                  if (widget.sources.isNotEmpty)
-                    Video(
-                      controller: _videoController,
-                      // Preserve the source aspect ratio. Full-bleed stretch
-                      // can make faces and pitch markings look distorted.
-                      fit: _fitMode,
-                      fill: Colors.black,
-                      controls: NoVideoControls,
-                      wakelock: true,
-                      pauseUponEnteringBackgroundMode: true,
-                      resumeUponEnteringForegroundMode: false,
-                    ),
-                  Positioned.fill(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onTap: () => setState(() =>
-                        _controlsVisible = !_controlsVisible),
-                    ),
-                  ),
-                  if (_controlsVisible)
-                    Positioned(
-                      left: 0, right: 0, bottom: 0,
-                      child: IOSCompactPlayerControls(
-                        player: _player,
-                        playing: _playing,
-                        rate: _userPlaybackRate,
-                        onRateChanged: (rate) =>
-                            setState(() => _userPlaybackRate = rate),
+                    children: [
+                      if (widget.sources.isNotEmpty)
+                        Video(
+                          controller: _videoController,
+                          // Preserve the source aspect ratio. Full-bleed stretch
+                          // can make faces and pitch markings look distorted.
+                          fit: _fitMode,
+                          fill: Colors.black,
+                          controls: NoVideoControls,
+                          wakelock: true,
+                          pauseUponEnteringBackgroundMode: true,
+                          resumeUponEnteringForegroundMode: false,
+                        ),
+                      Positioned.fill(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onTap: () => setState(
+                            () => _controlsVisible = !_controlsVisible,
+                          ),
+                        ),
                       ),
-                    ),
-                  if (_opening || _buffering)
-                    IgnorePointer(
-                      child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 15,
-                            vertical: 11,
+                      if (_controlsVisible)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: IOSCompactPlayerControls(
+                            player: _player,
+                            playing: _playing,
+                            rate: _userPlaybackRate,
+                            onRateChanged: (rate) =>
+                                setState(() => _userPlaybackRate = rate),
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: .68),
-                            borderRadius: BorderRadius.circular(14),
+                        ),
+                      if (_opening || _buffering)
+                        IgnorePointer(
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 15,
+                                vertical: 11,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: .68),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.2,
+                                      color: const Color(0xFF54E6C1),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    _progress?.started == true
+                                        ? 'Buffering…'
+                                        : 'Starting stream…',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.2,
-                                  color: const Color(0xFF54E6C1),
+                        ),
+                      if (_errorText != null)
+                        Center(
+                          child: Container(
+                            margin: const EdgeInsets.all(24),
+                            padding: const EdgeInsets.all(18),
+                            constraints: const BoxConstraints(maxWidth: 420),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF161616),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: Colors.white12),
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons
+                                      .signal_wifi_statusbar_connected_no_internet_4_rounded,
+                                  color: Colors.white70,
+                                  size: 34,
                                 ),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                _progress?.started == true
-                                    ? 'Buffering…'
-                                    : 'Starting stream…',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
+                                const SizedBox(height: 12),
+                                Text(
+                                  _errorText!,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    height: 1.35,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(height: 14),
+                                FilledButton.icon(
+                                  onPressed: _pickLine,
+                                  icon: const Icon(Icons.dns_rounded),
+                                  label: const Text('CHOOSE ANOTHER LINE'),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                  if (_errorText != null)
-                    Center(
-                      child: Container(
-                        margin: const EdgeInsets.all(24),
-                        padding: const EdgeInsets.all(18),
-                        constraints: const BoxConstraints(maxWidth: 420),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF161616),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: Colors.white12),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons
-                                  .signal_wifi_statusbar_connected_no_internet_4_rounded,
-                              color: Colors.white70,
-                              size: 34,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              _errorText!,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                height: 1.35,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-                            FilledButton.icon(
-                              onPressed: _pickLine,
-                              icon: const Icon(Icons.dns_rounded),
-                              label: const Text('CHOOSE ANOTHER LINE'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
+                    ],
                   ),
                 ),
               ),

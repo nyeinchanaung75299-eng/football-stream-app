@@ -285,9 +285,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
     if (kIsWeb && !_isManualSource) {
       _sourceQuery = ui.query;
       _sourceSearch.text = ui.query;
-      dayFilter = (source == 'fawa' || _isExperimentalSource)
-          ? 'all'
-          : ui.dayFilter;
+      dayFilter =
+          (source == 'fawa' || _isExperimentalSource) ? 'all' : ui.dayFilter;
       availableOnly = _isExperimentalSource ? false : ui.availableOnly;
       sourceMatches = AdminWebSourceCache.rows(source) ?? const [];
     }
@@ -861,13 +860,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
     );
   }
 
-  Future<void> _openSourceDetector(Map<String, dynamic> match,
-      Map<String, dynamic> anchor, String provider,
+  Future<void> _openSourceDetector(
+      Map<String, dynamic> match, Map<String, dynamic> anchor, String provider,
       {bool quickHls = false, String? playerUrl}) async {
     if (!mounted || !_currentSession || source != provider) return;
     final url = (playerUrl ??
             (source == 'crichd'
-                ? (anchor['watch_url'] ?? anchor['page_url'] ?? match['page_url'])
+                ? (anchor['watch_url'] ??
+                    anchor['page_url'] ??
+                    match['page_url'])
                 : (anchor['page_url'] ?? match['page_url'])))
         .toString()
         .trim();
@@ -877,38 +878,46 @@ class _SocoImportPageState extends State<SocoImportPage> {
         uri.host.isEmpty ||
         uri.userInfo.isNotEmpty ||
         (quickHls &&
-            (provider != 'crichd' ||
-                cricHdBrowserPlayerPage(url) == null))) {
+            (provider != 'crichd' || cricHdBrowserPlayerPage(url) == null))) {
       message('This source has not published a player page URL.');
       return;
     }
-    final selected =
-        await Navigator.of(context).push<DetectedStream>(MaterialPageRoute(
+    final selected = await Navigator.of(context).push<Object>(MaterialPageRoute(
       settings: const RouteSettings(name: '/admin/stream-detector'),
       builder: (_) => StreamDetectorPage(
         initialUrl: url,
         selectionMode: true,
         autoSelectHls: quickHls,
+        qualityMode: quickHls,
       ),
     ));
     if (selected == null || !mounted || !_currentSession || source != provider)
       return;
-    final line = <String, dynamic>{
-      'url': selected.url,
-      'stream_type': selected.type,
-      'referer': selected.referer,
-      'origin': selected.origin,
-      'label': '${_sourceLabel(provider)} · Detected',
-      'resolution': 'Auto',
-      'health_status': 'unknown',
-      'discovery_mode': 'source_browser'
-    };
+    final streams = selected is DetectedStream
+        ? [selected]
+        : selected is List
+            ? selected.whereType<DetectedStream>().toList()
+            : <DetectedStream>[];
+    if (streams.isEmpty) return;
+    final lines = [
+      for (final stream in streams)
+        <String, dynamic>{
+          'url': stream.url,
+          'stream_type': stream.type,
+          'referer': stream.referer,
+          'origin': stream.origin,
+          'label': '${_sourceLabel(provider)} · Detected',
+          'resolution': 'Auto',
+          'health_status': 'unknown',
+          'discovery_mode': 'source_browser',
+        }
+    ];
     final key = _anchorKey(match, anchor, provider: provider);
     setState(() {
-      _anchorLineCounts[key] = 1;
+      _anchorLineCounts[key] = lines.length;
       _anchorStatuses[key] = 'detected';
     });
-    await _showQualityPicker(match: match, anchor: anchor, lines: [line]);
+    await _showQualityPicker(match: match, anchor: anchor, lines: lines);
   }
 
   Future<void> _openAnchor(
@@ -936,15 +945,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
           'room_num': room,
           'schedule_id': match['schedule_id'],
           'page_url': anchor['page_url'] ?? match['page_url'],
-          if (provider == 'crichd')
-            'watch_url': anchor['watch_url'],
+          if (provider == 'crichd') 'watch_url': anchor['watch_url'],
           // Cola URLs are checked before the operator can import them.
           // Other rotating providers keep the fast metadata-only path.
           'skip_probe': provider != 'cola' && !_isExperimentalSource,
           // These sources return unverified public candidates promptly;
           // don't wait for repeated server probes on an explicit tap.
-          if (provider == 'crichd' || provider == 'roxie')
-            'preview_only': true,
+          if (provider == 'crichd' || provider == 'roxie') 'preview_only': true,
         },
       );
 
@@ -958,11 +965,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
           .map((row) => Map<String, dynamic>.from(row as Map))
           .where((row) => (row['url'] ?? '').toString().trim().isNotEmpty)
           .toList();
-      // CricHD Android: one tap opens the existing authorized WebView
-      // observer only if the resolver has no lines. A single observed HLS
-      // returns to Quality Picker automatically; a blocked page or multiple
-      // playlists leaves the old detector UI for manual selection. No
-      // verification bypass, hidden player, or shared session extraction.
+      // CricHD: reuse the on-device browser session for bounded discovery.
+      // Show verification/Play only when interaction is needed; verified
+      // playlists return to the same Copy/ADD quality cards.
       if (provider == 'crichd' && !kIsWeb && lines.isEmpty) {
         final selectedPlayer = cricHdQuickDetectPlayer(anchor, data);
         if (selectedPlayer != null) {
@@ -982,7 +987,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
           data['diagnostics'] is Map &&
           (data['diagnostics'] as Map)['access_denied'] == true;
       if (provider == 'crichd' &&
-          lines.isEmpty && data is Map && !playerDenied) {
+          lines.isEmpty &&
+          data is Map &&
+          !playerDenied) {
         final page = (data['browser_player_url'] ?? '').toString();
         final target = Uri.tryParse(page);
         if (target != null &&
@@ -991,8 +998,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
                 .contains(target.host) &&
             target.userInfo.isEmpty) {
           try {
-            final scan = await const WebsiteDetectorService()
-                .scan(page, browser: true);
+            final scan =
+                await const WebsiteDetectorService().scan(page, browser: true);
             if (!current()) return;
             lines = scan.links
                 .where((item) => item['type'] == 'hls')
@@ -1053,8 +1060,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
       // detector directly, never a video player or an automated challenge.
       // The detector reports only permitted 2xx media responses.
       if (provider == 'crichd' && playerDenied && lines.isEmpty) {
-        final browserPage = cricHdBrowserPlayerPage(
-            data['browser_player_url']?.toString());
+        final browserPage =
+            cricHdBrowserPlayerPage(data['browser_player_url']?.toString());
         if (browserPage != null) {
           await _openSourceDetector(match, anchor, provider);
           return;
@@ -1322,12 +1329,15 @@ class _SocoImportPageState extends State<SocoImportPage> {
                               tooltip: 'Copy video URL',
                               icon: const Icon(Icons.copy_rounded),
                               onPressed: () async {
-                                await Clipboard.setData(ClipboardData(text: url));
+                                await Clipboard.setData(
+                                    ClipboardData(text: url));
                                 unawaited(AnalyticsService.capture(
                                   'source link copied',
                                   properties: {
                                     'source': source,
-                                    'stream_type': (line['stream_type'] ?? 'auto').toString(),
+                                    'stream_type':
+                                        (line['stream_type'] ?? 'auto')
+                                            .toString(),
                                     'copied_field': 'url',
                                   },
                                 ));
@@ -1336,57 +1346,59 @@ class _SocoImportPageState extends State<SocoImportPage> {
                             )
                           else
                             PopupMenuButton<String>(
-                            tooltip: 'Copy link or headers',
-                            icon: const Icon(Icons.copy_rounded),
-                            itemBuilder: (_) => [
-                              const PopupMenuItem(
-                                  value: 'url', child: Text('Copy video URL')),
-                              if (referer.isNotEmpty)
+                              tooltip: 'Copy link or headers',
+                              icon: const Icon(Icons.copy_rounded),
+                              itemBuilder: (_) => [
                                 const PopupMenuItem(
-                                    value: 'referer',
-                                    child: Text('Copy Referer')),
-                              if (origin.isNotEmpty)
+                                    value: 'url',
+                                    child: Text('Copy video URL')),
+                                if (referer.isNotEmpty)
+                                  const PopupMenuItem(
+                                      value: 'referer',
+                                      child: Text('Copy Referer')),
+                                if (origin.isNotEmpty)
+                                  const PopupMenuItem(
+                                      value: 'origin',
+                                      child: Text('Copy Origin')),
                                 const PopupMenuItem(
-                                    value: 'origin',
-                                    child: Text('Copy Origin')),
-                              const PopupMenuItem(
-                                  value: 'all',
-                                  child: Text('Copy all details')),
-                            ],
-                            onSelected: (field) async {
-                              final value = switch (field) {
-                                'referer' => referer,
-                                'origin' => origin,
-                                'all' => [
-                                    'URL: $url',
-                                    if (referer.isNotEmpty) 'Referer: $referer',
-                                    if (origin.isNotEmpty) 'Origin: $origin',
-                                  ].join('\n'),
-                                _ => url,
-                              };
-                              await Clipboard.setData(
-                                  ClipboardData(text: value));
-                              unawaited(
-                                AnalyticsService.capture(
-                                  'source link copied',
-                                  properties: {
-                                    'source': source,
-                                    'stream_type':
-                                        (line['stream_type'] ?? 'auto')
-                                            .toString(),
-                                    'copied_field': field,
-                                  },
-                                ),
-                              );
-                              final label = switch (field) {
-                                'referer' => 'Referer',
-                                'origin' => 'Origin',
-                                'all' => 'Stream details',
-                                _ => '${_sourceLabel(source)} link',
-                              };
-                              message('$label copied.');
-                            },
-                          ),
+                                    value: 'all',
+                                    child: Text('Copy all details')),
+                              ],
+                              onSelected: (field) async {
+                                final value = switch (field) {
+                                  'referer' => referer,
+                                  'origin' => origin,
+                                  'all' => [
+                                      'URL: $url',
+                                      if (referer.isNotEmpty)
+                                        'Referer: $referer',
+                                      if (origin.isNotEmpty) 'Origin: $origin',
+                                    ].join('\n'),
+                                  _ => url,
+                                };
+                                await Clipboard.setData(
+                                    ClipboardData(text: value));
+                                unawaited(
+                                  AnalyticsService.capture(
+                                    'source link copied',
+                                    properties: {
+                                      'source': source,
+                                      'stream_type':
+                                          (line['stream_type'] ?? 'auto')
+                                              .toString(),
+                                      'copied_field': field,
+                                    },
+                                  ),
+                                );
+                                final label = switch (field) {
+                                  'referer' => 'Referer',
+                                  'origin' => 'Origin',
+                                  'all' => 'Stream details',
+                                  _ => '${_sourceLabel(source)} link',
+                                };
+                                message('$label copied.');
+                              },
+                            ),
                           FilledButton(
                             onPressed: () async {
                               final added = await _addLine(

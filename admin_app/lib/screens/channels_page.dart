@@ -59,8 +59,15 @@ const channelGroupPresets = <String>[
 ];
 
 const channelQuickGroups = <String>[
-  'All', 'beIN Sports', 'TNT Sports', 'Fubo', 'FanCode',
-  'CazéTV', 'Arena Sports', 'FOX Sports', 'TSN',
+  'All',
+  'beIN Sports',
+  'TNT Sports',
+  'Fubo',
+  'FanCode',
+  'CazéTV',
+  'Arena Sports',
+  'FOX Sports',
+  'TSN',
 ];
 
 String catalogGroup(Map<String, dynamic> channel) {
@@ -77,7 +84,8 @@ class ChannelUploadPage extends StatelessWidget {
 }
 
 class ChannelsPage extends StatefulWidget {
-  const ChannelsPage({super.key, this.embedded = false, this.initialQuery = ''});
+  const ChannelsPage(
+      {super.key, this.embedded = false, this.initialQuery = ''});
   final String initialQuery;
 
   /// Dashboard uses the same catalog in its persistent bottom navigation.
@@ -106,7 +114,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
 
   Future<void> _loadGroupPositions() async {
     try {
-      final positions = await ChannelGroupOrderService(Supabase.instance.client).positions();
+      final positions =
+          await ChannelGroupOrderService(Supabase.instance.client).positions();
       if (mounted) setState(() => groupPositions = positions);
     } catch (_) {
       // Fall back to legacy preset ordering if the network is unavailable.
@@ -167,7 +176,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
       context: context,
       builder: (dialog) => AlertDialog(
         title: const Text('Delete TV channel?'),
-        content: Text('Permanently delete "$name", its stream lines and linked match lines? This cannot be undone.'),
+        content: Text(
+            'Permanently delete "$name", its stream lines and linked match lines? This cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialog).pop(false),
@@ -188,7 +198,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not delete channel. Please retry.')),
+          const SnackBar(
+              content: Text('Could not delete channel. Please retry.')),
         );
       }
     } finally {
@@ -269,18 +280,18 @@ class _ChannelsPageState extends State<ChannelsPage> {
                       ? ar.compareTo(br)
                       : a.compareTo(b);
                 });
-              final activeGroup =
-                  groupCounts.containsKey(selectedGroup) ? selectedGroup : 'All';
+              final activeGroup = groupCounts.containsKey(selectedGroup)
+                  ? selectedGroup
+                  : 'All';
               final rows = snapshot.data!
                   .where((r) =>
                       channelMatchesSearch(r, search.text) &&
-                      (activeGroup == 'All' ||
-                          catalogGroup(r) == activeGroup))
+                      (activeGroup == 'All' || catalogGroup(r) == activeGroup))
                   .toList();
               rows.sort((a, b) {
-                final byGroup =
-                    availableGroups.indexOf(catalogGroup(a)).compareTo(
-                      availableGroups.indexOf(catalogGroup(b)));
+                final byGroup = availableGroups
+                    .indexOf(catalogGroup(a))
+                    .compareTo(availableGroups.indexOf(catalogGroup(b)));
                 if (byGroup != 0) return byGroup;
                 final byOrder = ((a['sort_order'] as num?)?.toInt() ?? 0)
                     .compareTo((b['sort_order'] as num?)?.toInt() ?? 0);
@@ -305,7 +316,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
                       items: [
                         DropdownMenuItem(
                           value: 'All',
-                          child: Text('All Channels (${snapshot.data!.length})'),
+                          child:
+                              Text('All Channels (${snapshot.data!.length})'),
                         ),
                         for (final group in availableGroups)
                           DropdownMenuItem(
@@ -314,7 +326,8 @@ class _ChannelsPageState extends State<ChannelsPage> {
                           ),
                       ],
                       onChanged: (group) {
-                        if (group != null) setState(() => selectedGroup = group);
+                        if (group != null)
+                          setState(() => selectedGroup = group);
                       },
                     ),
                   ),
@@ -344,82 +357,90 @@ class _ChannelsPageState extends State<ChannelsPage> {
                     child: rows.isEmpty
                         ? const Center(child: Text('No matching channels.'))
                         : ListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
-                itemCount: rows.length,
-                itemBuilder: (context, index) {
-                  final row = rows[index];
-                  final image = row['image_url']?.toString() ?? '';
-                  final group = catalogGroup(row);
-                  final showHeading = index == 0 ||
-                      catalogGroup(rows[index - 1]) != group;
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (showHeading)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(7, 10, 7, 7),
-                          child: Text(
-                            '$group (${rows.where((r) => catalogGroup(r) == group).length})',
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w800),
+                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
+                            itemCount: rows.length,
+                            itemBuilder: (context, index) {
+                              final row = rows[index];
+                              final image = row['image_url']?.toString() ?? '';
+                              final group = catalogGroup(row);
+                              final showHeading = index == 0 ||
+                                  catalogGroup(rows[index - 1]) != group;
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  if (showHeading)
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          7, 10, 7, 7),
+                                      child: Text(
+                                        '$group (${rows.where((r) => catalogGroup(r) == group).length})',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium
+                                            ?.copyWith(
+                                                fontWeight: FontWeight.w800),
+                                      ),
+                                    ),
+                                  Card(
+                                    child: ListTile(
+                                      enabled: addingChannelId == null,
+                                      leading: image.startsWith('https://')
+                                          ? ResilientLogo(
+                                              value: image,
+                                              channelId: row['id']?.toString(),
+                                              width: 52,
+                                              height: 42,
+                                              fit: BoxFit.contain,
+                                              fallback: const Icon(Icons.tv),
+                                            )
+                                          : const Icon(Icons.tv),
+                                      title:
+                                          Text(row['name']?.toString() ?? ''),
+                                      subtitle: Text(
+                                        '${row['category']} • ${row['is_active'] == true ? 'Visible' : 'Hidden'}',
+                                      ),
+                                      trailing: addingChannelId ==
+                                              row['id'].toString()
+                                          ? const SizedBox(
+                                              width: 22,
+                                              height: 22,
+                                              child: CircularProgressIndicator(
+                                                  strokeWidth: 2),
+                                            )
+                                          : PopupMenuButton<String>(
+                                              tooltip: 'Channel actions',
+                                              enabled: addingChannelId == null,
+                                              onSelected: (action) {
+                                                if (action == 'match') {
+                                                  addToMatch(row);
+                                                } else if (action == 'delete') {
+                                                  deleteChannel(row);
+                                                } else {
+                                                  edit(row);
+                                                }
+                                              },
+                                              itemBuilder: (_) => const [
+                                                PopupMenuItem(
+                                                  value: 'match',
+                                                  child: Text('Add to match'),
+                                                ),
+                                                PopupMenuItem(
+                                                  value: 'edit',
+                                                  child: Text('Edit channel'),
+                                                ),
+                                                PopupMenuItem(
+                                                  value: 'delete',
+                                                  child: Text('Delete Channel'),
+                                                ),
+                                              ],
+                                            ),
+                                      onTap: () => edit(row),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
                           ),
-                        ),
-                      Card(
-                    child: ListTile(
-                      enabled: addingChannelId == null,
-                      leading: image.startsWith('https://')
-                          ? ResilientLogo(
-                              value: image, channelId: row['id']?.toString(),
-                              width: 52,
-                              height: 42,
-                              fit: BoxFit.contain,
-                              fallback: const Icon(Icons.tv),
-                            )
-                          : const Icon(Icons.tv),
-                      title: Text(row['name']?.toString() ?? ''),
-                      subtitle: Text(
-                        '${row['category']} • ${row['is_active'] == true ? 'Visible' : 'Hidden'}',
-                      ),
-                      trailing: addingChannelId == row['id'].toString()
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : PopupMenuButton<String>(
-                              tooltip: 'Channel actions',
-                              enabled: addingChannelId == null,
-                              onSelected: (action) {
-                                if (action == 'match') {
-                                  addToMatch(row);
-                                } else if (action == 'delete') {
-                                  deleteChannel(row);
-                                } else {
-                                  edit(row);
-                                }
-                              },
-                              itemBuilder: (_) => const [
-                                PopupMenuItem(
-                                  value: 'match',
-                                  child: Text('Add to match'),
-                                ),
-                                PopupMenuItem(
-                                  value: 'edit',
-                                  child: Text('Edit channel'),
-                                ),
-                                PopupMenuItem(
-                                  value: 'delete',
-                                  child: Text('Delete Channel'),
-                                ),
-                              ],
-                            ),
-                      onTap: () => edit(row),
-                      ),
-                      ),
-                    ],
-                  );
-                },
-              ),
                   ),
                 ],
               );
@@ -459,21 +480,27 @@ class _ChannelsPageState extends State<ChannelsPage> {
 
 class _Line {
   _Line([Map<String, dynamic>? row])
-    : id = row?['id']?.toString(),
-      originalUrl = row?['stream_url']?.toString() ?? '',
-      configurationStatus = row?['configuration_status']?.toString() ?? 'unverified',
-      label = TextEditingController(
-        text: row?['label']?.toString() ?? 'Server 1',
-      ),
-      url = TextEditingController(text: row?['stream_url']?.toString() ?? ''),
-      referer = TextEditingController(text: row?['referer']?.toString() ?? ''),
-      keyId = TextEditingController(text: row?['key_id']?.toString() ?? ''),
-      keyData = TextEditingController(text: row?['key_data']?.toString() ?? '');
+      : id = row?['id']?.toString(),
+        originalUrl = row?['stream_url']?.toString() ?? '',
+        original = Map<String, dynamic>.from(row ?? const {}),
+        configurationStatus =
+            row?['configuration_status']?.toString() ?? 'unverified',
+        label = TextEditingController(
+          text: row?['label']?.toString() ?? 'Server 1',
+        ),
+        url = TextEditingController(text: row?['stream_url']?.toString() ?? ''),
+        referer =
+            TextEditingController(text: row?['referer']?.toString() ?? ''),
+        origin = TextEditingController(text: row?['origin']?.toString() ?? ''),
+        keyId = TextEditingController(text: row?['key_id']?.toString() ?? ''),
+        keyData =
+            TextEditingController(text: row?['key_data']?.toString() ?? '');
   final String? id;
+  final Map<String, dynamic> original;
   final String originalUrl, configurationStatus;
-  final TextEditingController label, url, referer, keyId, keyData;
+  final TextEditingController label, url, referer, origin, keyId, keyData;
   void dispose() {
-    for (final field in [label, url, referer, keyId, keyData]) {
+    for (final field in [label, url, referer, origin, keyId, keyData]) {
       field.dispose();
     }
   }
@@ -518,7 +545,8 @@ class _ChannelEditorState extends State<_ChannelEditor> {
     try {
       final rows = await Supabase.instance.client
           .from('channel_lines')
-          .select('id,label,stream_url,referer,key_id,key_data,configuration_status')
+          .select(
+              'id,label,stream_url,stream_type,referer,origin,key_id,key_data,sort_order,configuration_status')
           .eq('channel_id', widget.channel!['id'])
           .order('sort_order');
       if (!mounted) return;
@@ -574,6 +602,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
               line.label.text.trim().isEmpty ||
               !valid(line.url.text.trim()) ||
               !valid(line.referer.text.trim(), optional: true) ||
+              !valid(line.origin.text.trim(), optional: true) ||
               (line.keyId.text.trim().isEmpty !=
                   line.keyData.text.trim().isEmpty),
         )) {
@@ -582,7 +611,6 @@ class _ChannelEditorState extends State<_ChannelEditor> {
     }
     setState(() => saving = true);
     final db = Supabase.instance.client;
-    String? createdId;
     try {
       final fields = {
         'name': name.text.trim(),
@@ -593,85 +621,68 @@ class _ChannelEditorState extends State<_ChannelEditor> {
             (widget.channel?['image_url']?.toString() ?? '').trim())
           'image_locked': true,
         'sort_order': int.tryParse(order.text) ?? 0,
-        'is_active': widget.channel == null ? false : active,
+        'is_active': active,
       };
-      final id =
-          widget.channel?['id']?.toString() ??
-          (await db.from('channels').insert(fields).select('id').single())['id']
-              .toString();
-      if (widget.channel == null)
-        createdId = id;
-      else
-        await db.from('channels').update(fields).eq('id', id);
-      final saved = <String>{};
+      final edits = <Map<String, dynamic>>[];
       for (var index = 0; index < lines.length; index++) {
         final line = lines[index];
-        final referer = line.referer.text.trim();
         final url = line.url.text.trim();
-        final type = url.contains('.m3u8')
+        final path = Uri.parse(url).path.toLowerCase();
+        final type = path.endsWith('.m3u8')
             ? 'hls'
-            : url.contains('.mpd')
-            ? 'dash'
-            : url.contains('.mp4')
-            ? 'mp4'
-            : url.contains('.flv')
-            ? 'flv'
-            : 'auto';
-        final fields = {
-          'channel_id': id,
+            : path.endsWith('.mpd')
+                ? 'dash'
+                : path.endsWith('.mp4')
+                    ? 'mp4'
+                    : path.endsWith('.flv')
+                        ? 'flv'
+                        : 'auto';
+        String? nullable(String text) =>
+            text.trim().isEmpty ? null : text.trim();
+        final values = <String, dynamic>{
           'label': line.label.text.trim(),
           'stream_url': url,
-          'stream_type': type,
-          'referer': referer.isEmpty ? null : referer,
-          'origin': referer.isEmpty ? null : Uri.parse(referer).origin,
-          'key_id': line.keyId.text.trim().isEmpty
-              ? null
-              : line.keyId.text.trim(),
-          'key_data': line.keyData.text.trim().isEmpty
-              ? null
-              : line.keyData.text.trim(),
-          'sort_order': index,
-          'is_active': true,
-          'health_status': 'unknown',
-          'health_latency_ms': null,
-          'health_http_status': null,
-          'last_checked_at': null,
-          'configuration_status': line.keyId.text.trim().isNotEmpty && line.keyData.text.trim().isNotEmpty
-              ? 'configured'
-              : (line.url.text.trim() == line.originalUrl ? line.configurationStatus : 'unverified'),
+          'referer': nullable(line.referer.text),
+          'origin': nullable(line.origin.text),
+          'key_id': nullable(line.keyId.text),
+          'key_data': nullable(line.keyData.text),
+          'sort_order': line.original['sort_order'] ?? index,
+          'stream_type': url == line.originalUrl
+              ? (line.original['stream_type'] ?? type)
+              : type,
         };
-        if (line.id == null) {
-          final row = await db
-              .from('channel_lines')
-              .insert(fields)
-              .select('id')
-              .single();
-          saved.add(row['id'].toString());
-        } else {
-          await db.from('channel_lines').update(fields).eq('id', line.id!);
-          saved.add(line.id!);
+        final changed = <String, dynamic>{
+          if (line.id != null) 'id': line.id,
+          for (final entry in values.entries)
+            if (line.id == null || entry.value != line.original[entry.key])
+              entry.key: entry.value,
+        };
+        if (line.id == null ||
+            changed.keys.any((key) => const {
+                  'stream_url',
+                  'stream_type',
+                  'referer',
+                  'origin',
+                  'key_id',
+                  'key_data'
+                }.contains(key))) {
+          changed['configuration_status'] = line.keyId.text.trim().isNotEmpty
+              ? 'configured'
+              : url == line.originalUrl
+                  ? line.configurationStatus
+                  : 'unverified';
         }
+        edits.add(changed);
       }
-      if (widget.channel != null) {
-        final old = await db
-            .from('channel_lines')
-            .select('id')
-            .eq('channel_id', id);
-        for (final row in old) {
-          if (!saved.contains(row['id'].toString())) {
-            await db.from('channel_lines').delete().eq('id', row['id']);
-          }
-        }
-      } else if (active) {
-        await db.from('channels').update({'is_active': true}).eq('id', id);
-      }
+      await db.rpc('save_channel_editor', params: {
+        'p_channel_id': widget.channel?['id'],
+        'p_fields': fields,
+        'p_lines': edits,
+        'p_removed_ids':
+            removed.map((line) => line.id).whereType<String>().toList(),
+      });
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
-      if (createdId != null) {
-        try {
-          await db.from('channels').delete().eq('id', createdId);
-        } catch (_) {}
-      }
       if (mounted) notice('Save failed: $error');
     } finally {
       if (mounted) setState(() => saving = false);
@@ -680,100 +691,106 @@ class _ChannelEditorState extends State<_ChannelEditor> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(widget.channel == null ? 'Add Channel' : 'Edit Channel'),
-    ),
-    body: loading
-        ? const Center(child: CircularProgressIndicator())
-        : ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-            children: [
-              TextField(
-                controller: name,
-                decoration: const InputDecoration(labelText: 'Channel name'),
-              ),
-              DropdownButtonFormField<String>(
-                key: ValueKey('category-preset-${category.text}'),
-                value: channelGroupPresets.contains(category.text.trim())
-                    ? category.text.trim()
-                    : null,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Channel group',
-                ),
-                hint: const Text('Choose a network group'),
-                items: [
-                  for (final group in channelGroupPresets)
-                    DropdownMenuItem(value: group, child: Text(group)),
-                ],
-                onChanged: (group) {
-                  if (group != null) setState(() => category.text = group);
-                },
-              ),
-              TextField(
-                controller: category,
-                decoration: const InputDecoration(
-                  labelText: 'Category (custom if needed)',
-                ),
-              ),
-              TextField(
-                controller: image,
-                decoration: const InputDecoration(
-                  labelText: 'Image URL (HTTPS)',
-                ),
-              ),
-              TextField(
-                controller: order,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Order'),
-              ),
-              SwitchListTile(
-                title: const Text('Visible to viewers'),
-                value: active,
-                onChanged: (value) => setState(() => active = value),
-              ),
-              for (var i = 0; i < lines.length; i++)
-                Card(
-                  key: ObjectKey(lines[i]),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      children: [
-                        TextField(
-                          controller: lines[i].url,
-                          decoration: const InputDecoration(
-                            labelText: 'Stream URL (M3U8 / MPD / MP4)',
-                          ),
-                        ),
-                        TextField(
-                          controller: lines[i].referer,
-                          decoration: const InputDecoration(
-                            labelText: 'Referer (optional)',
-                          ),
-                        ),
-                        TextField(
-                          controller: lines[i].keyId,
-                          decoration: const InputDecoration(
-                            labelText: 'Key One / ClearKey ID (optional)',
-                          ),
-                        ),
-                        TextField(
-                          controller: lines[i].keyData,
-                          decoration: const InputDecoration(
-                            labelText: 'Key Two / ClearKey value (optional)',
-                          ),
-                        ),
-                      ],
+        appBar: AppBar(
+          title: Text(widget.channel == null ? 'Add Channel' : 'Edit Channel'),
+        ),
+        body: loading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                children: [
+                  TextField(
+                    controller: name,
+                    decoration:
+                        const InputDecoration(labelText: 'Channel name'),
+                  ),
+                  DropdownButtonFormField<String>(
+                    key: ValueKey('category-preset-${category.text}'),
+                    value: channelGroupPresets.contains(category.text.trim())
+                        ? category.text.trim()
+                        : null,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Channel group',
+                    ),
+                    hint: const Text('Choose a network group'),
+                    items: [
+                      for (final group in channelGroupPresets)
+                        DropdownMenuItem(value: group, child: Text(group)),
+                    ],
+                    onChanged: (group) {
+                      if (group != null) setState(() => category.text = group);
+                    },
+                  ),
+                  TextField(
+                    controller: category,
+                    decoration: const InputDecoration(
+                      labelText: 'Category (custom if needed)',
                     ),
                   ),
-                ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: saving || loadFailed ? null : save,
-                child: Text(saving ? 'SAVING…' : 'SAVE CHANNEL'),
+                  TextField(
+                    controller: image,
+                    decoration: const InputDecoration(
+                      labelText: 'Image URL (HTTPS)',
+                    ),
+                  ),
+                  TextField(
+                    controller: order,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Order'),
+                  ),
+                  SwitchListTile(
+                    title: const Text('Visible to viewers'),
+                    value: active,
+                    onChanged: (value) => setState(() => active = value),
+                  ),
+                  for (var i = 0; i < lines.length; i++)
+                    Card(
+                      key: ObjectKey(lines[i]),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          children: [
+                            TextField(
+                              controller: lines[i].url,
+                              decoration: const InputDecoration(
+                                labelText: 'Stream URL (M3U8 / MPD / MP4)',
+                              ),
+                            ),
+                            TextField(
+                              controller: lines[i].referer,
+                              decoration: const InputDecoration(
+                                labelText: 'Referer (optional)',
+                              ),
+                            ),
+                            TextField(
+                              controller: lines[i].origin,
+                              decoration: const InputDecoration(
+                                  labelText: 'Origin (optional)'),
+                            ),
+                            TextField(
+                              controller: lines[i].keyId,
+                              decoration: const InputDecoration(
+                                labelText: 'Key One / ClearKey ID (optional)',
+                              ),
+                            ),
+                            TextField(
+                              controller: lines[i].keyData,
+                              decoration: const InputDecoration(
+                                labelText:
+                                    'Key Two / ClearKey value (optional)',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: saving || loadFailed ? null : save,
+                    child: Text(saving ? 'SAVING…' : 'SAVE CHANNEL'),
+                  ),
+                ],
               ),
-
-            ],
-          ),
-  );
+      );
 }

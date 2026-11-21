@@ -1,9 +1,13 @@
+import 'apk_action.dart';
+import 'dart:ui' show Rect;
 import 'dart:async';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
+import 'package:flutter_file_dialog/flutter_file_dialog.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Resume incomplete downloads with a verified HTTP range. If a server ignores
@@ -12,6 +16,11 @@ import 'package:path_provider/path_provider.dart';
 Future<void> downloadAndInstallApk(
   String url, {
   required String expectedSha256,
+  ApkAction action = ApkAction.install,
+  Rect? sharePositionOrigin,
+  http.Client Function()? clientFactory,
+  Future<Directory> Function()? temporaryDirectory,
+  Future<void> Function(String, ApkAction)? deliverVerifiedFile,
   void Function(double value)? onProgress,
 }) async {
   final expected = expectedSha256.trim().toLowerCase();
@@ -24,8 +33,8 @@ Future<void> downloadAndInstallApk(
   }
 
   const maxBytes = 45 * 1024 * 1024;
-  final client = http.Client();
-  final dir = await getTemporaryDirectory();
+  final client = clientFactory?.call() ?? http.Client();
+  final dir = await (temporaryDirectory?.call() ?? getTemporaryDirectory());
   final file = File('${dir.path}/NCA-admin-update.apk');
   var received = 0;
   int? total;
@@ -39,8 +48,8 @@ Future<void> downloadAndInstallApk(
         if (received > 0) request.headers['Range'] = 'bytes=$received-';
 
         final response = await client.send(request).timeout(
-          const Duration(seconds: 20),
-        );
+              const Duration(seconds: 20),
+            );
         if (response.statusCode == 416 && received > 0) {
           // The object could have changed. Re-fetch from byte zero.
           received = 0;
@@ -50,7 +59,8 @@ Future<void> downloadAndInstallApk(
           continue;
         }
         if (response.statusCode != 200 && response.statusCode != 206) {
-          throw HttpException('APK download failed (HTTP ${response.statusCode}).');
+          throw HttpException(
+              'APK download failed (HTTP ${response.statusCode}).');
         }
 
         final append = response.statusCode == 206;
@@ -107,12 +117,33 @@ Future<void> downloadAndInstallApk(
       throw StateError('Downloaded APK failed SHA-256 verification.');
     }
     onProgress?.call(1);
+    if (deliverVerifiedFile != null) {
+      await deliverVerifiedFile(file.path, action);
+      return;
+    }
+    // Export only after hash verification. Android's document picker and
+    // FileProvider require no photo/storage permission.
+    if (action == ApkAction.save) {
+      await FlutterFileDialog.saveFile(
+          params: SaveFileDialogParams(
+              sourceFilePath: file.path, fileName: 'NCA-admin-update.apk'));
+      return;
+    }
+    if (action == ApkAction.share) {
+      final result = await SharePlus.instance.share(ShareParams(files: [
+        XFile(file.path, mimeType: 'application/vnd.android.package-archive')
+      ], title: 'NCA-admin APK', sharePositionOrigin: sharePositionOrigin));
+      if (result.status == ShareResultStatus.unavailable)
+        throw StateError('APK sharing unavailable.');
+      return;
+    }
     final openResult = await OpenFilex.open(
       file.path,
       type: 'application/vnd.android.package-archive',
     );
     if (openResult.type != ResultType.done) {
-      throw StateError('Could not open Android installer: ${openResult.message}');
+      throw StateError(
+          'Could not open Android installer: ${openResult.message}');
     }
   } finally {
     client.close();

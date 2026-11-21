@@ -21,12 +21,14 @@ class StreamDetectorPage extends StatefulWidget {
       {super.key,
       this.initialUrl = '',
       this.selectionMode = false,
-      this.autoSelectHls = false});
+      this.autoSelectHls = false,
+      this.qualityMode = false});
   final String initialUrl;
   final bool selectionMode;
 
   /// CricHD-only quick flow; other uses of this screen remain unchanged.
   final bool autoSelectHls;
+  final bool qualityMode;
 
   @override
   State<StreamDetectorPage> createState() => _StreamDetectorPageState();
@@ -38,6 +40,30 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
   String? _currentPage;
   String? _error;
   int _progress = 0;
+  bool _showBrowser = false, _needsBrowser = false, _returning = false;
+  Timer? _browserFallback, _qualityTimer;
+
+  void _scheduleQuality() {
+    _qualityTimer?.cancel();
+    if (!widget.qualityMode || !_detection.loaded || _returning) return;
+    _qualityTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted || !_detection.loaded) return;
+      final lines = _streams
+          .where((item) => _detection.checks[item.url]?.live == true)
+          .toList();
+      if (lines.isNotEmpty) _complete(lines);
+    });
+  }
+
+  void _complete(Object result) {
+    if (!mounted || _returning || ModalRoute.of(context)?.isCurrent != true)
+      return;
+    _returning = true;
+    _qualityTimer?.cancel();
+    _browserFallback?.cancel();
+    Navigator.of(context).pop(result);
+  }
+
   late final HlsDetectionSession _detection;
   List<DetectedStream> get _streams => _detection.streams;
 
@@ -87,12 +113,22 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
       },
       quickSelect: widget.selectionMode && widget.autoSelectHls,
       onChanged: () {
-        if (mounted) setState(() {});
+        if (mounted) {
+          setState(() {});
+          _scheduleQuality();
+        }
       },
       onSelected: (stream) {
-        if (mounted) Navigator.of(context).pop(stream);
+        if (mounted) {
+          _complete(widget.qualityMode ? [stream] : stream);
+        }
       },
     );
+    if (widget.qualityMode) {
+      _browserFallback = Timer(const Duration(seconds: 10), () {
+        if (mounted) setState(() => _needsBrowser = true);
+      });
+    }
     final uri = Uri.tryParse(widget.initialUrl.trim());
     if (uri != null &&
         const {'http', 'https'}.contains(uri.scheme.toLowerCase()) &&
@@ -104,6 +140,8 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
 
   @override
   void dispose() {
+    _browserFallback?.cancel();
+    _qualityTimer?.cancel();
     _detection.dispose();
     _address.dispose();
     super.dispose();
@@ -212,7 +250,8 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
     final colors = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Stream Detector'),
+        title: Text(
+            widget.qualityMode ? 'Finding CricHD links' : 'Stream Detector'),
         actions: [
           IconButton(
             tooltip: 'Clear detected streams',
@@ -225,139 +264,166 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _address,
-                        onChanged: (_) {
-                          _currentPage = null;
-                          _resetDetection();
-                        },
-                        keyboardType: TextInputType.url,
-                        textInputAction: TextInputAction.go,
-                        onSubmitted: (_) => _openAddress(),
-                        decoration: const InputDecoration(
-                          labelText: 'Website URL',
-                          hintText: 'https://example.com/watch',
-                          isDense: true,
-                          prefixIcon: Icon(Icons.public),
+          if (!widget.qualityMode || _showBrowser)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _address,
+                          onChanged: (_) {
+                            _currentPage = null;
+                            _resetDetection();
+                          },
+                          keyboardType: TextInputType.url,
+                          textInputAction: TextInputAction.go,
+                          onSubmitted: (_) => _openAddress(),
+                          decoration: const InputDecoration(
+                            labelText: 'Website URL',
+                            hintText: 'https://example.com/watch',
+                            isDense: true,
+                            prefixIcon: Icon(Icons.public),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      onPressed: _openAddress,
-                      child: const Text('GO'),
-                    ),
-                  ],
-                ),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(_error!, style: TextStyle(color: colors.error)),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: _openAddress,
+                        child: const Text('GO'),
+                      ),
+                    ],
                   ),
-                const SizedBox(height: 7),
-                Row(
-                  children: [
-                    TextButton.icon(
-                      onPressed: () {
-                        setState(() => _resetDetection());
-                        _browser?.goBack();
-                      },
-                      icon: const Icon(Icons.arrow_back, size: 18),
-                      label: const Text('Back'),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child:
+                          Text(_error!, style: TextStyle(color: colors.error)),
                     ),
-                    TextButton.icon(
-                      onPressed: () {
-                        setState(() => _resetDetection(page: _currentPage));
-                        _browser?.reload();
-                      },
-                      icon: const Icon(Icons.refresh, size: 18),
-                      label: const Text('Reload'),
-                    ),
-                    const Spacer(),
-                    TextButton.icon(
-                      onPressed: _scanPage,
-                      icon: const Icon(Icons.radar, size: 18),
-                      label: const Text('Rescan'),
-                    ),
-                  ],
-                ),
-              ],
+                  const SizedBox(height: 7),
+                  Row(
+                    children: [
+                      TextButton.icon(
+                        onPressed: () {
+                          setState(() => _resetDetection());
+                          _browser?.goBack();
+                        },
+                        icon: const Icon(Icons.arrow_back, size: 18),
+                        label: const Text('Back'),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          setState(() => _resetDetection(page: _currentPage));
+                          _browser?.reload();
+                        },
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: const Text('Reload'),
+                      ),
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: _scanPage,
+                        icon: const Icon(Icons.radar, size: 18),
+                        label: const Text('Rescan'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
           if (_progress > 0 && _progress < 100)
             LinearProgressIndicator(value: _progress / 100),
-          SizedBox(
-            height: 280,
-            child: InAppWebView(
-              initialUrlRequest: URLRequest(url: WebUri('about:blank')),
-              initialUserScripts: UnmodifiableListView([
-                UserScript(
-                    source: detectorResourceObserver,
-                    injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-                    forMainFrameOnly: false),
+          if (widget.qualityMode && !_showBrowser)
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(_needsBrowser
+                    ? 'The source may need verification or Play. Open its browser to continue.'
+                    : 'Finding links… Existing browser verification is kept on this device.'),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                    onPressed: () => setState(() => _showBrowser = true),
+                    icon: const Icon(Icons.public),
+                    label: const Text('Open source browser')),
               ]),
-              initialSettings: InAppWebViewSettings(
-                javaScriptEnabled: true,
-                useOnLoadResource: true,
-                useShouldInterceptRequest: true,
-                mediaPlaybackRequiresUserGesture: true,
-                allowsInlineMediaPlayback: true,
-              ),
-              onWebViewCreated: (controller) {
-                _browser = controller;
-                controller.addJavaScriptHandler(
-                  handlerName: 'NcaMediaResources',
-                  callback: _resourceEvent,
-                );
-                if (_address.text.isNotEmpty) _openAddress();
-              },
-              onLoadStart: (_, url) {
-                final value = url?.toString();
-                if (value == null) return;
-                setState(() => _resetDetection(page: value));
-                _capture(value);
-              },
-              onProgressChanged: (_, progress) {
-                if (mounted) setState(() => _progress = progress);
-              },
-              // Resource timing also observes late/iframe loads. A callback
-              // only rescans the current document; never copy its raw URL,
-              // which could belong to a page that has already navigated away.
-              onLoadResource: (_, resource) {
-                if (DetectedStream.fromRequest(
-                        resource.url?.toString() ?? '') !=
-                    null) {
-                  _scanPage();
-                }
-              },
-              onUpdateVisitedHistory: (_, url, __) {
-                final value = url?.toString();
-                if (value == null || value == _currentPage) return;
-                setState(() => _resetDetection(page: value));
-              },
-              // Android: observe resource URLs, returning null means normal
-              // loading continues. Other platforms rescan the current document after load.
-              shouldInterceptRequest: (_, request) async {
-                _capture(request.url.toString(), request.headers);
-                return null;
-              },
-              onLoadStop: (_, url) async {
-                if (url?.toString() != _currentPage) return;
-                final generation = _detection.generation;
-                await _scanPage();
-                if (!mounted || generation != _detection.generation) return;
-                _detection.documentFinished(generation);
-              },
             ),
+          SizedBox(
+            height: widget.qualityMode && !_showBrowser ? 1 : 280,
+            child: Opacity(
+                opacity: widget.qualityMode && !_showBrowser ? 0 : 1,
+                child: IgnorePointer(
+                    ignoring: widget.qualityMode && !_showBrowser,
+                    child: InAppWebView(
+                      initialUrlRequest: URLRequest(url: WebUri('about:blank')),
+                      initialUserScripts: UnmodifiableListView([
+                        UserScript(
+                            source: detectorResourceObserver,
+                            injectionTime:
+                                UserScriptInjectionTime.AT_DOCUMENT_START,
+                            forMainFrameOnly: false),
+                      ]),
+                      initialSettings: InAppWebViewSettings(
+                        javaScriptEnabled: true,
+                        useOnLoadResource: true,
+                        useShouldInterceptRequest: true,
+                        mediaPlaybackRequiresUserGesture: true,
+                        allowsInlineMediaPlayback: true,
+                      ),
+                      onWebViewCreated: (controller) {
+                        _browser = controller;
+                        controller.addJavaScriptHandler(
+                          handlerName: 'NcaMediaResources',
+                          callback: _resourceEvent,
+                        );
+                        if (_address.text.isNotEmpty) _openAddress();
+                      },
+                      onLoadStart: (_, url) {
+                        final value = url?.toString();
+                        if (value == null) return;
+                        setState(() => _resetDetection(page: value));
+                        _capture(value);
+                      },
+                      onProgressChanged: (_, progress) {
+                        if (mounted) setState(() => _progress = progress);
+                      },
+                      // Resource timing also observes late/iframe loads. A callback
+                      // only rescans the current document; never copy its raw URL,
+                      // which could belong to a page that has already navigated away.
+                      onLoadResource: (_, resource) {
+                        if (DetectedStream.fromRequest(
+                                resource.url?.toString() ?? '') !=
+                            null) {
+                          _scanPage();
+                        }
+                      },
+                      onUpdateVisitedHistory: (_, url, __) {
+                        final value = url?.toString();
+                        if (value == null || value == _currentPage) return;
+                        setState(() => _resetDetection(
+                            page: value, loaded: _detection.loaded));
+                        unawaited(_scanPage());
+                      },
+                      // Android: observe resource URLs, returning null means normal
+                      // loading continues. Other platforms rescan the current document after load.
+                      shouldInterceptRequest: (_, request) async {
+                        _capture(request.url.toString(), request.headers);
+                        return null;
+                      },
+                      onLoadStop: (_, url) async {
+                        if (url?.toString() != _currentPage) return;
+                        final generation = _detection.generation;
+                        await _scanPage();
+                        if (!mounted || generation != _detection.generation)
+                          return;
+                        _detection.documentFinished(generation);
+                        _scheduleQuality();
+                      },
+                    ))),
           ),
-          if (widget.autoSelectHls)
+          if (widget.autoSelectHls && !widget.qualityMode)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 6, 14, 2),
               child: Text(
@@ -381,23 +447,24 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const Spacer(),
-                Text(
-                  'Play video above',
-                  style: TextStyle(color: colors.onSurfaceVariant),
-                ),
+                if (!widget.qualityMode)
+                  Text('Play video above',
+                      style: TextStyle(color: colors.onSurfaceVariant)),
               ],
             ),
           ),
           const SizedBox(height: 5),
           Expanded(
             child: _streams.isEmpty
-                ? const Center(
+                ? Center(
                     child: Padding(
-                      padding: EdgeInsets.all(18),
+                      padding: const EdgeInsets.all(18),
                       child: Text(
-                        'Open a website and play an authorized video. '
-                        'M3U8, MPD, MP4 and FLV requests will appear here. '
-                        'On iOS some network requests are not visible.',
+                        widget.qualityMode
+                            ? 'Waiting for source links. If the source needs verification or Play, use Open source browser.'
+                            : 'Open a website and play an authorized video. '
+                                'M3U8, MPD, MP4 and FLV requests will appear here. '
+                                'On iOS some network requests are not visible.',
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -465,7 +532,8 @@ class _StreamDetectorPageState extends State<StreamDetectorPage> {
                                   ),
                                   FilledButton.icon(
                                     onPressed: () => widget.selectionMode
-                                        ? Navigator.pop(context, item)
+                                        ? _complete(
+                                            widget.qualityMode ? [item] : item)
                                         : _useInServer(item),
                                     icon: const Icon(Icons.add_link, size: 18),
                                     label: Text(widget.selectionMode

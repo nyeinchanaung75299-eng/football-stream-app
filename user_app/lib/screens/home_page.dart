@@ -17,6 +17,7 @@ import '../native_player.dart';
 import 'source_browser_page.dart';
 import '../viewer_navigation.dart';
 import 'channels_page.dart';
+import 'highlights_page.dart';
 import 'network_diagnostics_page.dart';
 import '../widgets/theme_mode_button.dart';
 import '../widgets/premium_bottom_nav.dart';
@@ -72,7 +73,8 @@ class _HomePageState extends State<HomePage> {
   Timer? _feedRefresh;
   DateTime? _lastBackgroundPoll;
   DateTime? _lastLiveSuccess;
-  bool get _liveNeedsRefresh => _lastLiveSuccess == null ||
+  bool get _liveNeedsRefresh =>
+      _lastLiveSuccess == null ||
       DateTime.now().difference(_lastLiveSuccess!) >=
           const Duration(seconds: 60);
   bool _openingPlayer = false;
@@ -194,7 +196,9 @@ class _HomePageState extends State<HomePage> {
   List<Future<T> Function()> _apiJobs<T>(Future<T> Function(String) load) {
     var winnerRecorded = false;
     return publicApiRequests<T>(
-      _publicApiBases, load, onHealthy: (base) {
+      _publicApiBases,
+      load,
+      onHealthy: (base) {
         if (!winnerRecorded) {
           winnerRecorded = true;
           rememberVerifiedPublicApiBase(base);
@@ -234,11 +238,13 @@ class _HomePageState extends State<HomePage> {
           !_openingPlayer &&
           (state == null || state == AppLifecycleState.resumed) &&
           ModalRoute.of(context)?.isCurrent != false) {
-        final live = _feed.data?.any((match) => match['is_live'] == true) ?? false;
+        final live =
+            _feed.data?.any((match) => match['is_live'] == true) ?? false;
         final now = DateTime.now();
         // Keep live matches fresh; avoid repeating unchanged off-air catalog
         // requests every minute when no match is in progress.
-        if (!live && _lastBackgroundPoll != null &&
+        if (!live &&
+            _lastBackgroundPoll != null &&
             now.difference(_lastBackgroundPoll!) < const Duration(minutes: 2)) {
           return;
         }
@@ -368,7 +374,10 @@ class _HomePageState extends State<HomePage> {
               't': DateTime.now().millisecondsSinceEpoch.toString(),
             },
           ),
-          headers: publicApiHeaders(base, extra: const {'Cache-Control': 'no-cache'}),
+          headers: publicApiHeaders(
+            base,
+            extra: const {'Cache-Control': 'no-cache'},
+          ),
         )
         .timeout(const Duration(seconds: 5));
 
@@ -400,17 +409,21 @@ class _HomePageState extends State<HomePage> {
     String matchId,
   ) async {
     final uri =
-        Uri.parse('$base/matches/${Uri.encodeComponent(matchId)}/streams')
-            .replace(
-              queryParameters: {
-                't': DateTime.now().millisecondsSinceEpoch.toString(),
-              },
-            );
+        Uri.parse(
+          '$base/matches/${Uri.encodeComponent(matchId)}/streams',
+        ).replace(
+          queryParameters: {
+            't': DateTime.now().millisecondsSinceEpoch.toString(),
+          },
+        );
 
     final response = await http
         .get(
           uri,
-          headers: publicApiHeaders(base, extra: const {'Cache-Control': 'no-cache'}),
+          headers: publicApiHeaders(
+            base,
+            extra: const {'Cache-Control': 'no-cache'},
+          ),
         )
         .timeout(const Duration(seconds: 12));
 
@@ -448,7 +461,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadPublicApiStreams(String matchId) {
-    return sourceRoutePolicy.read((base) => _loadPublicApiStreamsFrom(base, matchId));
+    return sourceRoutePolicy.read(
+      (base) => _loadPublicApiStreamsFrom(base, matchId),
+    );
   }
 
   Future<List<Map<String, dynamic>>> _resolveLinks(
@@ -1012,7 +1027,9 @@ class _HomePageState extends State<HomePage> {
       ' vs ${englishKnownFootballName((match['away_team'] ?? 'Away').toString())}';
 
   String _streamDisplayLabel(Map<String, dynamic> row, int index) {
-    final raw = shortMatchLineLabel((row['label'] ?? row['resolution'] ?? 'Server').toString());
+    final raw = shortMatchLineLabel(
+      (row['label'] ?? row['resolution'] ?? 'Server').toString(),
+    );
     return RegExp(r'^YYZB\b', caseSensitive: false).hasMatch(raw)
         ? englishStreamLabel(raw, index: index)
         : raw;
@@ -1228,11 +1245,14 @@ class _HomePageState extends State<HomePage> {
                         final sourceIndex = visibleIndices[index];
                         final source = nativeSources[sourceIndex];
                         final blocked = (source['blockedReason'] ?? '')
-                            .toString().trim().isNotEmpty;
+                            .toString()
+                            .trim()
+                            .isNotEmpty;
                         final lineName = compactStreamLineTitle(
                           label: (source['label'] ?? '').toString(),
                           resolution: (source['resolution'] ?? '').toString(),
-                          streamType: (source['streamType'] ?? 'auto').toString(),
+                          streamType: (source['streamType'] ?? 'auto')
+                              .toString(),
                           index: sourceIndex,
                         );
                         return Material(
@@ -1240,21 +1260,28 @@ class _HomePageState extends State<HomePage> {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                             side: BorderSide(
-                              color: colors.outlineVariant.withValues(alpha: .55),
+                              color: colors.outlineVariant.withValues(
+                                alpha: .55,
+                              ),
                             ),
                           ),
                           clipBehavior: Clip.antiAlias,
                           child: ListTile(
                             dense: true,
                             contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 1,
+                              horizontal: 12,
+                              vertical: 1,
                             ),
                             onTap: blocked
                                 ? null
-                                : () => Navigator.pop(sheetContext, sourceIndex),
-                            leading: Icon(blocked
-                                ? Icons.lock_outline_rounded
-                                : Icons.live_tv_rounded, size: 20),
+                                : () =>
+                                      Navigator.pop(sheetContext, sourceIndex),
+                            leading: Icon(
+                              blocked
+                                  ? Icons.lock_outline_rounded
+                                  : Icons.live_tv_rounded,
+                              size: 20,
+                            ),
                             title: Text(
                               lineName,
                               maxLines: 1,
@@ -1465,6 +1492,13 @@ class _HomePageState extends State<HomePage> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Highlights',
+            icon: const Icon(Icons.movie_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const HighlightsPage()),
+            ),
+          ),
+          IconButton(
             tooltip: 'Refresh',
             onPressed: () => refresh(silent: true),
             icon: const Icon(Icons.refresh_rounded),
@@ -1487,13 +1521,16 @@ class _HomePageState extends State<HomePage> {
             return _StateMessage(
               icon: Icons.vpn_key_off_outlined,
               title: 'Live feed unavailable',
-              subtitle: 'Network temporarily unavailable. Tap refresh to retry backup routes.',
+              subtitle:
+                  'Network temporarily unavailable. Tap refresh to retry backup routes.',
               onPressed: refresh,
             );
           }
 
           final matches = [...?_feed.data];
-          final linkedIndex = matches.indexWhere((m) => m['id'] == widget.initialMatchId);
+          final linkedIndex = matches.indexWhere(
+            (m) => m['id'] == widget.initialMatchId,
+          );
           if (linkedIndex > 0) matches.insert(0, matches.removeAt(linkedIndex));
           if (matches.isEmpty) {
             return _StateMessage(
