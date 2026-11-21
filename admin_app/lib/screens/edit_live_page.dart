@@ -3,6 +3,9 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../analytics_service.dart';
+import '../services/match_paging.dart';
+import '../services/myanmar_time.dart';
+import '../widgets/unsaved_changes_guard.dart';
 import '../services/repository_logo.dart';
 import '../widgets/resilient_logo.dart';
 import 'live_links_page.dart';
@@ -28,14 +31,9 @@ class _EditLivePageState extends State<EditLivePage> {
   }
 
   Future<List<Map<String, dynamic>>> _load() async {
-    final data = await Supabase.instance.client
-        .from('matches')
-        .select(
-          'id,league,home_team,away_team,home_logo_url,away_logo_url,'
-          'kickoff_at,sort_order,is_live,is_active,is_featured,publish_state,'
-          'deleted_at',
-        )
-        .timeout(const Duration(seconds: 8));
+    final data = await loadAdminMatches(Supabase.instance.client,
+        columns:
+            'id,league,home_team,away_team,home_logo_url,away_logo_url,kickoff_at,sort_order,is_live,is_active,is_featured,publish_state,deleted_at');
 
     final rows = List<Map<String, dynamic>>.from(data)
         .where((row) => row['deleted_at'] == null)
@@ -71,7 +69,7 @@ class _EditLivePageState extends State<EditLivePage> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete match?'),
         content: const Text(
-          'This hides the match and permanently deletes all of its live links.',
+          'Permanently delete this match and all its live links from the database? This cannot be undone.',
         ),
         actions: [
           TextButton(
@@ -88,32 +86,11 @@ class _EditLivePageState extends State<EditLivePage> {
     if (confirmed != true) return;
 
     try {
-      // A zero-row UPDATE can silently succeed when RLS blocks a write.
-      // Require the updated row before claiming the match was deleted.
-      final deleted = await Supabase.instance.client
-          .from('matches')
-          .update({
-            'is_active': false,
-            'is_featured': false,
-            'is_live': false,
-            'publish_state': 'draft',
-            'deleted_at': DateTime.now().toUtc().toIso8601String(),
-          })
-          .eq('id', id)
-          .select('id,is_active,is_featured,publish_state,deleted_at')
-          .single();
-
-      if (deleted['deleted_at'] == null ||
-          deleted['is_active'] != false ||
-          deleted['is_featured'] != false ||
-          deleted['publish_state'] != 'draft') {
-        throw StateError('Match deletion was not saved. Please retry.');
-      }
-
-      await Supabase.instance.client
-          .from('stream_links')
-          .delete()
-          .eq('match_id', id);
+      final deleted = await Supabase.instance.client.rpc(
+          'permanently_delete_match',
+          params: {'p_match_id': id}).timeout(const Duration(seconds: 15));
+      if (deleted is! Map || deleted['deleted'] != true)
+        throw StateError('Match deletion was not confirmed.');
       await AnalyticsService.capture('match deleted',
           properties: {'match_id': id});
       _message('Match deleted.');
@@ -263,7 +240,7 @@ class _LiveEditCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final kickoff = _kickoffOf(match).toLocal();
+    final kickoff = myanmarTime(_kickoffOf(match));
     final isLive = match['is_live'] == true;
     final home = '${match['home_team'] ?? 'Home'}';
     final away = '${match['away_team'] ?? 'Away'}';
@@ -484,6 +461,7 @@ class _EditMatchPage extends StatefulWidget {
 }
 
 class _EditMatchPageState extends State<_EditMatchPage> {
+  final _formExit = FormExitHandle();
   late final league =
       TextEditingController(text: '${widget.match['league'] ?? ''}');
   late final home =
@@ -498,7 +476,7 @@ class _EditMatchPageState extends State<_EditMatchPage> {
           originalRepositoryLogoUrl('${widget.match['away_logo_url'] ?? ''}'));
   late final order =
       TextEditingController(text: '${widget.match['sort_order'] ?? 0}');
-  late DateTime kickoff = _kickoffOf(widget.match).toLocal();
+  late DateTime kickoff = myanmarTime(_kickoffOf(widget.match));
   late bool live = widget.match['is_live'] == true;
   late bool active = widget.match['is_active'] == true;
   late bool featured = widget.match['is_featured'] != false;
@@ -511,6 +489,7 @@ class _EditMatchPageState extends State<_EditMatchPage> {
     for (final field in [league, home, away, homeLogo, awayLogo, order]) {
       field.dispose();
     }
+    _formExit.dispose();
     super.dispose();
   }
 
@@ -564,23 +543,29 @@ class _EditMatchPageState extends State<_EditMatchPage> {
     }
     setState(() => saving = true);
     try {
-      await Supabase.instance.client.from('matches').update({
-        'league': league.text.trim(),
-        'home_team': home.text.trim(),
-        'away_team': away.text.trim(),
-        'home_logo_url': homeLogo.text.trim().isEmpty
-            ? null
-            : originalRepositoryLogoUrl(homeLogo.text.trim()),
-        'away_logo_url': awayLogo.text.trim().isEmpty
-            ? null
-            : originalRepositoryLogoUrl(awayLogo.text.trim()),
-        'kickoff_at': kickoff.toUtc().toIso8601String(),
-        'sort_order': int.tryParse(order.text) ?? 0,
-        'is_featured': featured,
-        'publish_state': published ? 'published' : 'draft',
-        'is_live': live,
-        'is_active': active,
-      }).eq('id', widget.match['id']);
+      await Supabase.instance.client
+          .from('matches')
+          .update({
+            'league': league.text.trim(),
+            'home_team': home.text.trim(),
+            'away_team': away.text.trim(),
+            'home_logo_url': homeLogo.text.trim().isEmpty
+                ? null
+                : originalRepositoryLogoUrl(homeLogo.text.trim()),
+            'away_logo_url': awayLogo.text.trim().isEmpty
+                ? null
+                : originalRepositoryLogoUrl(awayLogo.text.trim()),
+            'kickoff_at': myanmarWallToUtc(kickoff).toIso8601String(),
+            'sort_order': int.tryParse(order.text) ?? 0,
+            'is_featured': featured,
+            'publish_state': published ? 'published' : 'draft',
+            'is_live': live,
+            'is_active': active,
+          })
+          .eq('id', widget.match['id'])
+          .select('id')
+          .single()
+          .timeout(const Duration(seconds: 12));
       await AnalyticsService.capture(
         'match updated',
         properties: {
@@ -591,7 +576,7 @@ class _EditMatchPageState extends State<_EditMatchPage> {
           'is_active': active,
         },
       );
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) _formExit.savedPop(context, true);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -622,7 +607,18 @@ class _EditMatchPageState extends State<_EditMatchPage> {
       );
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => UnsavedChangesGuard(
+      handle: _formExit,
+      controllers: [league, home, away, homeLogo, awayLogo, order],
+      busy: saving,
+      dirty: () =>
+          kickoff != myanmarTime(_kickoffOf(widget.match)) ||
+          live != (widget.match['is_live'] == true) ||
+          active != (widget.match['is_active'] == true) ||
+          featured != (widget.match['is_featured'] != false) ||
+          published !=
+              ((widget.match['publish_state'] ?? 'published') == 'published'),
+      child: Scaffold(
         appBar: AppBar(title: const Text('Live Edit')),
         body: SafeArea(
           child: SingleChildScrollView(
@@ -726,7 +722,7 @@ class _EditMatchPageState extends State<_EditMatchPage> {
             ),
           ),
         ),
-      );
+      ));
 }
 
 DateTime _kickoffOf(Map<String, dynamic> match) =>

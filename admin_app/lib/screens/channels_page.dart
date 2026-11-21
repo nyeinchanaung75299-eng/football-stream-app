@@ -1,3 +1,4 @@
+import '../widgets/unsaved_changes_guard.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -527,6 +528,24 @@ class _ChannelEditorState extends State<_ChannelEditor> {
     text: widget.channel?['sort_order']?.toString() ?? '0',
   );
   late bool active = widget.channel?['is_active'] != false;
+  final _formExit = FormExitHandle();
+  String originalState = "";
+  String get formState => [
+        name.text,
+        category.text,
+        image.text,
+        order.text,
+        active,
+        for (final l in lines)
+          [
+            l.label.text,
+            l.url.text,
+            l.referer.text,
+            l.origin.text,
+            l.keyId.text,
+            l.keyData.text
+          ]
+      ].toString();
   final lines = <_Line>[];
   final removed = <_Line>[];
   bool loading = false, loadFailed = false, saving = false;
@@ -539,6 +558,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
       loading = true;
       unawaited(loadLines());
     }
+    originalState = formState;
   }
 
   Future<void> loadLines() async {
@@ -556,6 +576,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
         );
         if (lines.isEmpty) lines.add(_Line());
         loading = false;
+        originalState = formState;
       });
     } catch (error) {
       if (!mounted) return;
@@ -575,6 +596,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
     for (final line in [...lines, ...removed]) {
       line.dispose();
     }
+    _formExit.dispose();
     super.dispose();
   }
 
@@ -681,7 +703,7 @@ class _ChannelEditorState extends State<_ChannelEditor> {
         'p_removed_ids':
             removed.map((line) => line.id).whereType<String>().toList(),
       });
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) _formExit.savedPop(context, true);
     } catch (error) {
       if (mounted) notice('Save failed: $error');
     } finally {
@@ -690,7 +712,25 @@ class _ChannelEditorState extends State<_ChannelEditor> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => UnsavedChangesGuard(
+      handle: _formExit,
+      controllers: [
+        name,
+        category,
+        image,
+        order,
+        for (final l in lines) ...[
+          l.label,
+          l.url,
+          l.referer,
+          l.origin,
+          l.keyId,
+          l.keyData
+        ]
+      ],
+      dirty: () => !loading && originalState != formState,
+      busy: saving,
+      child: Scaffold(
         appBar: AppBar(
           title: Text(widget.channel == null ? 'Add Channel' : 'Edit Channel'),
         ),
@@ -792,5 +832,5 @@ class _ChannelEditorState extends State<_ChannelEditor> {
                   ),
                 ],
               ),
-      );
+      ));
 }

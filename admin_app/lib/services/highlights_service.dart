@@ -33,12 +33,14 @@ class HighlightsService {
         .timeout(const Duration(seconds: 15));
   }
 
-  Future<List<Map<String, dynamic>>> saved() async =>
+  Future<List<Map<String, dynamic>>> saved(
+          {int offset = 0, int limit = 50}) async =>
       List<Map<String, dynamic>>.from(await Supabase.instance.client
           .from('highlights')
           .select('id,title,video_url,is_active')
           .order('created_at', ascending: false)
-          .limit(200)
+          .order('id')
+          .range(offset, offset + limit - 1)
           .timeout(const Duration(seconds: 15)));
   Future<void> remove(String id) async {
     final rows = await Supabase.instance.client

@@ -713,7 +713,29 @@ async function handleStreams(request, matchId, env, publicOrigin) {
   }
 
   try {
-    const metadata = await loadStreamMetadata(env, matchId);
+    let metadata = await loadStreamMetadata(env, matchId);
+    if (metadata.match_valid && metadata.imported_sources?.length) {
+      const {refreshImportedSources}=await import('./imported_source_refresh.mjs');
+      const secret=env.PLAYBACK_BACKEND_SECRET.trim();
+      const deadline=Date.now()+8000;
+      const budget=(cap)=>{const left=deadline-Date.now();if(left<=0)throw new Error("Refresh budget exhausted");return Math.min(cap,left);};
+      const renewed=await refreshImportedSources(metadata,{
+        rpc:async(name,fields)=>{
+          const {data}=await fetchJsonWithTimeout(env.SUPABASE_URL.replace(/\/+$/,'')+'/rest/v1/rpc/'+name,
+            {method:'POST',headers:{apikey:env.SUPABASE_PUBLISHABLE_KEY,'Content-Type':'application/json'},body:JSON.stringify({...fields,p_secret:secret})},budget(1500));
+          return data;
+        },
+        resolve:async(ref)=>{
+          const {data}=await fetchJsonWithTimeout(env.SUPABASE_URL.replace(/\/+$/,'')+'/functions/v1/soco-links',
+            {method:'POST',headers:{apikey:env.SUPABASE_PUBLISHABLE_KEY,'Content-Type':'application/json'},body:JSON.stringify({
+              action:'streams',source:ref.source,refresh_match_id:matchId,refresh_link_id:ref.link_id,
+              refresh_lease:ref.refresh_lease,refresh_secret:secret,skip_probe:true,preview_only:true,
+            })},budget(4500));
+          return data;
+        },
+      });
+      if(renewed)metadata=await loadStreamMetadata(env,matchId);
+    }
     if (!metadata.match_valid) {
       return json({ error: "Match not found." }, 404, {
         "Cache-Control": "no-store, max-age=0",

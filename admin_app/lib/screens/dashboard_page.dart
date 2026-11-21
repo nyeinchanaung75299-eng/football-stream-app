@@ -23,7 +23,6 @@ import 'telegram_setup_page.dart';
 import 'repository_matches_page.dart';
 import 'epg_discrepancies_page.dart';
 import 'suppressed_source_lines_page.dart';
-import 'highlights_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -39,10 +38,17 @@ class _DashboardPageState extends State<DashboardPage> {
   final Set<int> _visitedTabs = {0};
   int _guideRevision = 0;
   static const _mutatingSections = <String>{
-    'manual-match', 'stream-servers', 'matches-scores',
-    'upload-channels', 'channel-management', 'channel-health',
-    'connected-channels', 'livetv-sports', 'deleted-source-lines',
-    'epg-discrepancies', 'stream-sources',
+    'manual-match',
+    'stream-servers',
+    'matches-scores',
+    'upload-channels',
+    'channel-management',
+    'channel-health',
+    'connected-channels',
+    'livetv-sports',
+    'deleted-source-lines',
+    'epg-discrepancies',
+    'stream-sources',
   };
 
   @override
@@ -62,12 +68,14 @@ class _DashboardPageState extends State<DashboardPage> {
       'admin section opened',
       properties: {'section': section},
     );
-    unawaited(Navigator.of(context).push<void>(
+    unawaited(Navigator.of(context)
+        .push<void>(
       MaterialPageRoute(
         settings: RouteSettings(name: '/admin/$section'),
         builder: (_) => page,
       ),
-    ).then((_) {
+    )
+        .then((_) {
       if (!mounted || !_mutatingSections.contains(section)) return;
       // Web has explicit success callbacks for the source picker. Do not
       // evict guides simply because an Admin previewed a provider.
@@ -88,68 +96,70 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _tabContent(int index, ColorScheme colors) => SafeArea(
-    top: index != 0,
-    bottom: false,
-    child: switch (index) {
-      0 => _controls(context, colors),
-      1 => StreamSourcePickerPage(
-        embedded: true,
-        onSourceMutated: _invalidateGuidesAfterEdit,
-      ),
-      2 => _tools(context, colors),
-      3 => TvSchedulesPage(
-        key: ValueKey('admin-tv-$_guideRevision'),
-        embedded: true,
-        active: _tab == 3,
-      ),
-      5 => const HighlightsPage(),
-      _ => MyChannelsGuidePage(
-        key: ValueKey('admin-channels-$_guideRevision'),
-        embedded: true,
-        active: _tab == 4,
-      ),
-    },
-  );
+        top: index != 0,
+        bottom: false,
+        child: switch (index) {
+          0 => _controls(context, colors),
+          1 => StreamSourcePickerPage(
+              embedded: true,
+              onSourceMutated: _invalidateGuidesAfterEdit,
+            ),
+          2 => _tools(context, colors),
+          3 => TvSchedulesPage(
+              key: ValueKey('admin-tv-$_guideRevision'),
+              embedded: true,
+              active: _tab == 3,
+            ),
+          _ => MyChannelsGuidePage(
+              key: ValueKey('admin-channels-$_guideRevision'),
+              embedded: true,
+              active: _tab == 4,
+            ),
+        },
+      );
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: _tab == 0 ? AppBar(
-        title: const Text('NCA Admin'),
-        actions: [
-          IconButton(
-            tooltip: 'App Version',
-            icon: const Icon(Icons.info_outline_rounded),
-            onPressed: () => showAdminVersionDialog(context),
-          ),
-          IconButton(
-            tooltip: 'Check Admin APK update',
-            icon: const Icon(Icons.system_update_alt_rounded),
-            onPressed: () => AdminUpdateService.check(context),
-          ),
-          const ThemeModeButton(),
-          IconButton(
-            tooltip: 'Logout',
-            onPressed: () async {
-              await AnalyticsService.capture('admin logout');
-              if (kIsWeb) {
-                AdminWebSourceCache.clear();
-                TvScheduleService.invalidateShared();
-              }
-              await Supabase.instance.client.auth.signOut();
-              // The old private widget tree is destroyed by AuthGate on
-              // sign-out; clear the session-scoped tab registry as well.
-              if (mounted) setState(() {
-                _visitedTabs.clear();
-                _tab = 0;
-              });
-            },
-            icon: const Icon(Icons.logout_rounded),
-          ),
-          const SizedBox(width: 6),
-        ],
-      ) : null,
+      appBar: _tab == 0
+          ? AppBar(
+              title: const Text('NCA Admin'),
+              actions: [
+                IconButton(
+                  tooltip: 'App Version',
+                  icon: const Icon(Icons.info_outline_rounded),
+                  onPressed: () => showAdminVersionDialog(context),
+                ),
+                IconButton(
+                  tooltip: 'Check Admin APK update',
+                  icon: const Icon(Icons.system_update_alt_rounded),
+                  onPressed: () => AdminUpdateService.check(context),
+                ),
+                const ThemeModeButton(),
+                IconButton(
+                  tooltip: 'Logout',
+                  onPressed: () async {
+                    await AnalyticsService.capture('admin logout');
+                    {
+                      AdminWebSourceCache.clear();
+                      TvScheduleService.invalidateShared();
+                    }
+                    await Supabase.instance.client.auth.signOut();
+                    // The old private widget tree is destroyed by AuthGate on
+                    // sign-out; clear the session-scoped tab registry as well.
+                    if (mounted)
+                      setState(() {
+                        _visitedTabs.clear();
+                        _tab = 0;
+                      });
+                  },
+                  icon: const Icon(Icons.logout_rounded),
+                ),
+                const SizedBox(width: 6),
+              ],
+            )
+          : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (index) {
@@ -159,7 +169,6 @@ class _DashboardPageState extends State<DashboardPage> {
             1 => 'stream-sources',
             2 => 'tools',
             3 => 'tv-schedule',
-            5 => 'highlights',
             _ => 'my-channels',
           };
           AnalyticsService.capture(
@@ -197,11 +206,6 @@ class _DashboardPageState extends State<DashboardPage> {
             selectedIcon: Icon(Icons.tv_rounded),
             label: 'My Channels',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.video_library_outlined),
-            selectedIcon: Icon(Icons.video_library_rounded),
-            label: 'Highlights',
-          ),
         ],
       ),
       // Lazy Offstage: never mount unseen tabs, retain successful data,
@@ -225,143 +229,157 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _controls(BuildContext context, ColorScheme colors) => ListView(
-    key: const PageStorageKey('admin-controls'),
-    padding: const EdgeInsets.fromLTRB(12, 14, 12, 22),
-    children: [
-      Text(
-        'Live Management',
-        style: Theme.of(context).textTheme.headlineSmall
-            ?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -.4),
-      ),
-      const SizedBox(height: 12),
-      _ActionCard(
-        icon: Icons.star_rounded,
-        title: 'Pick Big Matches',
-        iconColor: const Color(0xFFF59E0B),
-        onTap: () =>
-            open(context, FixtureImportPage(
-              onPublished: _invalidateGuidesAfterEdit,
-            ), 'pick-big-matches'),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.add_circle_outline_rounded,
-        title: 'Upload Live',
-        iconColor: const Color(0xFF0EA5E9),
-        onTap: () => open(context, const LiveUploadPage(), 'manual-match'),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.link_rounded,
-        title: 'Upload Live Links',
-        iconColor: const Color(0xFF7C3AED),
-        onTap: () => open(context, const LiveLinksPage(), 'stream-servers'),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.sports_score_rounded,
-        title: 'Edit & Delete Live',
-        iconColor: colors.primary,
-        onTap: () => open(context, const EditLivePage(), 'matches-scores'),
-      ),
-      const SizedBox(height: 8),
-      const SizedBox(height: 12),
-      Text(
-        'Channel Management',
-        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.add_circle_outline_rounded,
-        title: 'Upload Channels',
-        iconColor: const Color(0xFF54E6C1),
-        onTap: () => open(context, const ChannelUploadPage(), 'upload-channels'),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.edit_note_rounded,
-        title: 'Edit & Delete Channels',
-        iconColor: const Color(0xFF6099FF),
-        onTap: () => open(context, const ChannelsPage(), 'channel-management'),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.health_and_safety_outlined,
-        title: 'Channel Health',
-        iconColor: const Color(0xFF10B981),
-        onTap: () => open(context, const ChannelHealthPage(), 'channel-health'),
-      ),
-    ],
-  );
+        key: const PageStorageKey('admin-controls'),
+        padding: const EdgeInsets.fromLTRB(12, 14, 12, 22),
+        children: [
+          Text(
+            'Live Management',
+            style: Theme.of(context)
+                .textTheme
+                .headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -.4),
+          ),
+          const SizedBox(height: 12),
+          _ActionCard(
+            icon: Icons.star_rounded,
+            title: 'Pick Big Matches',
+            iconColor: const Color(0xFFF59E0B),
+            onTap: () => open(
+                context,
+                FixtureImportPage(
+                  onPublished: _invalidateGuidesAfterEdit,
+                ),
+                'pick-big-matches'),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.add_circle_outline_rounded,
+            title: 'Upload Live',
+            iconColor: const Color(0xFF0EA5E9),
+            onTap: () => open(context, const LiveUploadPage(), 'manual-match'),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.link_rounded,
+            title: 'Upload Live Links',
+            iconColor: const Color(0xFF7C3AED),
+            onTap: () => open(context, const LiveLinksPage(), 'stream-servers'),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.sports_score_rounded,
+            title: 'Edit & Delete Live',
+            iconColor: colors.primary,
+            onTap: () => open(context, const EditLivePage(), 'matches-scores'),
+          ),
+          const SizedBox(height: 8),
+          const SizedBox(height: 12),
+          Text(
+            'Channel Management',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                ),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.add_circle_outline_rounded,
+            title: 'Upload Channels',
+            iconColor: const Color(0xFF54E6C1),
+            onTap: () =>
+                open(context, const ChannelUploadPage(), 'upload-channels'),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.edit_note_rounded,
+            title: 'Edit & Delete Channels',
+            iconColor: const Color(0xFF6099FF),
+            onTap: () =>
+                open(context, const ChannelsPage(), 'channel-management'),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.health_and_safety_outlined,
+            title: 'Channel Health',
+            iconColor: const Color(0xFF10B981),
+            onTap: () =>
+                open(context, const ChannelHealthPage(), 'channel-health'),
+          ),
+        ],
+      );
 
   Widget _tools(BuildContext context, ColorScheme colors) => ListView(
-    key: const PageStorageKey('admin-tools'),
-    padding: const EdgeInsets.fromLTRB(12, 14, 12, 22),
-    children: [
-      Text(
-        'Tools',
-        style: Theme.of(context).textTheme.headlineSmall
-            ?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -.4),
-      ),
-      const SizedBox(height: 12),
-      _ActionCard(
-        icon: Icons.sports_soccer_rounded,
-        title: 'Repository Matches',
-        iconColor: colors.primary,
-        onTap: () => open(
-          context,
-          RepositoryMatchesPage(
-            onMutated: _invalidateGuidesAfterEdit,
+        key: const PageStorageKey('admin-tools'),
+        padding: const EdgeInsets.fromLTRB(12, 14, 12, 22),
+        children: [
+          Text(
+            'Tools',
+            style: Theme.of(context)
+                .textTheme
+                .headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -.4),
           ),
-          'repository-matches',
-        ),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.sync_rounded,
-        title: 'DarkByte Channels',
-        iconColor: const Color(0xFF54E6C1),
-        onTap: () => open(context, const ConnectedChannelsPage(), 'connected-channels'),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.sports_soccer_rounded,
-        title: 'LiveTV Sports',
-        iconColor: const Color(0xFF54E6C1),
-        onTap: () => open(context, const ConnectedChannelsPage(sportsOnly: true), 'livetv-sports'),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.restore_rounded,
-        title: 'Deleted source lines • Allow again',
-        iconColor: const Color(0xFF6099FF),
-        onTap: () => open(context, const SuppressedSourceLinesPage(), 'deleted-source-lines'),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.report_problem_outlined,
-        title: 'EPG mismatch reports',
-        iconColor: const Color(0xFFF59E0B),
-        onTap: () => open(context, const EpgDiscrepanciesPage(), 'epg-discrepancies'),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.send_rounded,
-        title: 'Connect Telegram Bots',
-        iconColor: const Color(0xFF54E6C1),
-        onTap: () => open(context, const TelegramSetupPage(), 'telegram-bots'),
-      ),
-      const SizedBox(height: 8),
-      _ActionCard(
-        icon: Icons.info_outline_rounded,
-        title: 'App Version / About',
-        iconColor: colors.primary,
-        onTap: () => showAdminVersionDialog(context),
-      ),
-    ],
-  );
+          const SizedBox(height: 12),
+          _ActionCard(
+            icon: Icons.sports_soccer_rounded,
+            title: 'Repository Matches',
+            iconColor: colors.primary,
+            onTap: () => open(
+              context,
+              RepositoryMatchesPage(
+                onMutated: _invalidateGuidesAfterEdit,
+              ),
+              'repository-matches',
+            ),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.sync_rounded,
+            title: 'DarkByte Channels',
+            iconColor: const Color(0xFF54E6C1),
+            onTap: () => open(
+                context, const ConnectedChannelsPage(), 'connected-channels'),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.sports_soccer_rounded,
+            title: 'LiveTV Sports',
+            iconColor: const Color(0xFF54E6C1),
+            onTap: () => open(context,
+                const ConnectedChannelsPage(sportsOnly: true), 'livetv-sports'),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.restore_rounded,
+            title: 'Deleted source lines • Allow again',
+            iconColor: const Color(0xFF6099FF),
+            onTap: () => open(context, const SuppressedSourceLinesPage(),
+                'deleted-source-lines'),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.report_problem_outlined,
+            title: 'EPG mismatch reports',
+            iconColor: const Color(0xFFF59E0B),
+            onTap: () => open(
+                context, const EpgDiscrepanciesPage(), 'epg-discrepancies'),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.send_rounded,
+            title: 'Connect Telegram Bots',
+            iconColor: const Color(0xFF54E6C1),
+            onTap: () =>
+                open(context, const TelegramSetupPage(), 'telegram-bots'),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.info_outline_rounded,
+            title: 'App Version / About',
+            iconColor: colors.primary,
+            onTap: () => showAdminVersionDialog(context),
+          ),
+        ],
+      );
 }
 
 class _ActionCard extends StatelessWidget {

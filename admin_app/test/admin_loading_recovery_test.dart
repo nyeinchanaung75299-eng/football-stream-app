@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:football_admin/screens/fixture_import_page.dart';
 import 'package:football_admin/screens/live_links_page.dart';
 import 'package:football_admin/screens/soco_import_page.dart';
+import 'package:football_admin/services/admin_web_source_cache.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -47,6 +48,7 @@ void main() {
     }));
   });
 
+  setUp(AdminWebSourceCache.clear);
   tearDownAll(() async => Supabase.instance.dispose());
 
   http.Response jsonResponse(Object? data) =>
@@ -147,8 +149,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('source detail keeps its provider selector-free',
-      (tester) async {
+  testWidgets('source detail keeps its provider selector-free', (tester) async {
     var fawa = 0;
     handler = (_) async => jsonResponse([]);
     await http.runWithClient(() async {
@@ -158,7 +159,7 @@ void main() {
       expect(find.textContaining('First Fawa'), findsOneWidget);
       expect(find.text('ColaTV'), findsNothing);
       await tester.pump(const Duration(minutes: 1));
-      expect(fawa, 2);
+      expect(fawa, 1); // Session cache avoids a minute-by-minute refetch.
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },
@@ -219,7 +220,13 @@ void main() {
       if (request.url.path.endsWith('/matches')) return jsonResponse([match()]);
       if (request.method == 'POST') {
         writes++;
-        return jsonResponse({'id': 'saved-line'});
+        return jsonResponse({
+          'ok': true,
+          'match_id': 'match-1',
+          'lines': [
+            {'id': 'saved-line'}
+          ]
+        });
       }
       return jsonResponse(null);
     };
@@ -239,11 +246,10 @@ void main() {
       await tester.tap(find.text('Home vs Away'));
       await tester.pumpAndSettle();
       expect(writes, 1);
-      expect(healthChecks, 1);
+      expect(healthChecks, 0);
       expect(health.isCompleted, isFalse);
-      expect(find.text('Select Stream Quality'), findsNothing);
-      expect(find.textContaining('added. Health check is pending.'),
-          findsOneWidget);
+      expect(find.text('Select Stream Quality'), findsOneWidget);
+      expect(find.text('ADDED ✓'), findsOneWidget);
       health.complete(jsonResponse({'health_status': 'healthy'}));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);

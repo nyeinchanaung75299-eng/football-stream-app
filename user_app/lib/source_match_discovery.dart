@@ -1,3 +1,5 @@
+import 'myanmar_time.dart';
+
 typedef SourceMatch = Map<String, dynamic>;
 
 DateTime? sourceMatchKickoff(SourceMatch match) =>
@@ -37,7 +39,8 @@ List<SourceMatch> sourceMatchAnchors(SourceMatch match, String source) {
     if (anchors.isNotEmpty) return anchors;
   }
   // Soco/YYZB schedule IDs identify fixtures, not streamer rooms.
-  if (source == 'soco' || source == 'yyzb' || source == 'arena') return const [];
+  if (source == 'soco' || source == 'yyzb' || source == 'arena')
+    return const [];
   final room = (match['source_id'] ?? match['schedule_id'] ?? '')
       .toString()
       .trim();
@@ -55,6 +58,11 @@ int compareSourceMatches(
 }) {
   // Always use kickoff time first. Hot/live flags do not belong ahead of
   // earlier matches; otherwise a 02:30 hot fixture jumps above 00:30 fixtures.
+  if (a['source'] == 'fawa' && b['source'] == 'fawa') {
+    final am = (a['schedule_minutes'] as num?)?.toInt() ?? 99999,
+        bm = (b['schedule_minutes'] as num?)?.toInt() ?? 99999;
+    if (am != bm) return am.compareTo(bm);
+  }
   final at = sourceMatchKickoff(a), bt = sourceMatchKickoff(b);
   if (at != null && bt != null) {
     final time = at.compareTo(bt);
@@ -86,7 +94,7 @@ List<SourceMatch> filterSourceMatches(
   String? league,
   DateTime? now,
 }) {
-  final today = (now ?? DateTime.now()).toLocal();
+  final today = myanmarTime(now ?? DateTime.now());
   final terms = query
       .trim()
       .toLowerCase()
@@ -96,11 +104,13 @@ List<SourceMatch> filterSourceMatches(
   return matches.where((match) {
     // Apply the room policy to older local/mirror catalogs as well as fresh
     // API data. A fixture ID is never evidence that a stream room exists.
-    if (source == 'yyzb' &&
-        sourceMatchAnchors(match, source).isEmpty) return false;
+    if (source == 'yyzb' && sourceMatchAnchors(match, source).isEmpty)
+      return false;
     if (streamsOnly && sourceMatchAnchors(match, source).isEmpty) return false;
     if (todayOnly) {
-      final kickoff = sourceMatchKickoff(match)?.toLocal();
+      final kickoff = sourceMatchKickoff(match) == null
+          ? null
+          : myanmarTime(sourceMatchKickoff(match)!);
       if (kickoff == null ||
           kickoff.year != today.year ||
           kickoff.month != today.month ||
@@ -114,7 +124,8 @@ List<SourceMatch> filterSourceMatches(
       match['away_team'],
       if ([match['home_team'], match['away_team']].any(
         (name) => name?.toString().toLowerCase().contains('tottenham') ?? false,
-      )) 'Spurs စပါး',
+      ))
+        'Spurs စပါး',
     ].whereType<String>().join(' ').toLowerCase();
     return terms.every(text.contains);
   }).toList();

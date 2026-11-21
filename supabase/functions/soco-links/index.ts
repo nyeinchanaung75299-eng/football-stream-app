@@ -5,7 +5,7 @@ import { englishFootballName, firstFootballName, providerEnglishName, sourceFoot
 import { sourceMatchRows, isFootballSourceRow, hasPublishedSourceRoom } from "../_shared/source_match_rows.mjs";
 import { sourceLogo } from "../_shared/source_team_logos.mjs";
 import { loadYyzbFootballCatalogue } from '../_shared/yyzb_schedule.mjs';
-import { fawaScheduleTimezoneConfirmed, fawaMyanmarTimeLabel } from '../_shared/fawa_schedule_time.mjs';
+import {parseFawaCatalog} from '../_shared/fawa_catalog.mjs';
 import { probeStreamFirstChunk } from "../_shared/stream_probe.mjs";
 
 const corsHeaders = {
@@ -41,10 +41,22 @@ Deno.serve(async (req) => {
     const body: Record<string, any> = req.method === "GET"
       ? Object.fromEntries(requestUrl.searchParams.entries())
       : await req.json().catch(() => ({}));
-    const viewerPublic =
+    let trustedRefresh=false;
+    if(body.refresh_link_id){
+      const backend=createClient(Deno.env.get('SUPABASE_URL')!,Deno.env.get('SUPABASE_ANON_KEY')!);
+      const {data:metadata,error}=await backend.rpc('get_stream_metadata_for_gateway',{
+        p_match_id:body.refresh_match_id,p_secret:body.refresh_secret,
+      });
+      const reference=metadata?.imported_sources?.find((r:any)=>r.link_id===body.refresh_link_id&&r.refresh_lease===body.refresh_lease&&r.source===body.source);
+      if(error||!metadata?.match_valid||!reference||Date.now()-Date.parse(reference.last_attempt_at)>120000)return json({error:'Invalid refresh context'},403);
+      for(const key of ['room_num','schedule_id','page_url','watch_url','source_id'])delete body[key];
+      Object.assign(body,reference.room);
+      trustedRefresh=true;
+    }
+    const viewerPublic = !trustedRefresh && (
       body.viewer_public === true ||
       body.viewer_public === "true" ||
-      body.viewer_public === "1";
+      body.viewer_public === "1");
     const source = normalizeSource(body.source);
     if (source === null) {
       return json({ error: "Unsupported source." }, 400);
@@ -56,7 +68,7 @@ Deno.serve(async (req) => {
     // this function only in explicit read-only source-browser mode; this
     // function fetches public provider match/stream metadata and never writes
     // application data.
-    if (!viewerPublic) {
+    if (!viewerPublic && !trustedRefresh) {
       const authHeader = req.headers.get("Authorization") ?? "";
       if (!authHeader.startsWith("Bearer ")) {
         return json({ error: "Not signed in." }, 401);
@@ -383,148 +395,9 @@ async function roomStreams(args: {
 }
 
 async function fawaMatches() {
-  const html = await fetchFawaText(FAWA_HOME);
-  const sourceIsGmtPlusOne = fawaScheduleTimezoneConfirmed(html);
-  const grouped = new Map<string, any>();
-
-  // Fawa has nested/unclosed <a> tags. Parsing one whole card with a single
-  // regex is brittle, so anchor each record on the stable name element and
-  // inspect only the nearby markup for its href + league/time text.
-  const nameRegex =
-    /<div\s+class=["']user-item__name["'][^>]*>([\s\S]*?)<\/div>/gi;
-
-  let hit: RegExpExecArray | null;
-  while ((hit = nameRegex.exec(html)) !== null) {
-    const name = decodeHtml(stripTags(hit[1])).replace(/\s+/g, " ").trim();
-    if (!/\bvs\b/i.test(name)) continue;
-
-    const before = html.slice(Math.max(0, hit.index - 1800), hit.index);
-    const hrefRegex = /href=["']([^"']+\.html)["']/gi;
-    let hrefHit: RegExpExecArray | null;
-    let href = "";
-    while ((hrefHit = hrefRegex.exec(before)) !== null) {
-      href = decodeHtml(hrefHit[1]).trim();
-    }
-    if (!href) continue;
-
-    const after = html.slice(nameRegex.lastIndex, nameRegex.lastIndex + 900);
-    const playingHit = after.match(
-      /class=["']user-item__playing["'][^>]*>([\s\S]*?)<\/div>/i,
-    );
-    const playing = playingHit
-      ? decodeHtml(stripTags(playingHit[1])).replace(/\s+/g, " ").trim()
-      : "Football";
-
-    const baseName = name
-      .replace(/\s*---\s*CH\s*\d+\s*$/i, "")
-      .trim();
-    const teams = baseName.split(/\s+vs\s+/i);
-    if (teams.length < 2) continue;
-
-    const key = baseName.toLowerCase();
-    const existing = grouped.get(key) ?? {
-      source: "fawa",
-      source_id: key,
-      page_url: absoluteFawaUrl(href),
-      league:
-        playing.replace(/\s+\d{1,2}:\d{2}\s*$/, "").trim() ||
-        "Football",
-      home_team: teams[0]?.trim() || baseName,
-      away_team: teams[1]?.trim() || "",
-      home_logo: null,
-      away_logo: null,
-      match_time: null,
-      time_label: fawaMyanmarTimeLabel(playing, sourceIsGmtPlusOne),
-      source_time_label: playing,
-      source_timezone: sourceIsGmtPlusOne ? 'GMT+1' : 'unverified',
-      hot: false,
-      status: null,
-      match_status: null,
-      anchors: [],
-    };
-
-    const anchorKey = absoluteFawaUrl(href);
-    if (
-      anchorKey &&
-      !existing.anchors.some((item: any) => item.page_url === anchorKey)
-    ) {
-      existing.anchors.push({
-        uid: href,
-        nick_name: channelLabel(name),
-        icon: null,
-        room_num: href,
-        page_url: anchorKey,
-      });
-    }
-
-    grouped.set(key, existing);
-  }
-
-  // Fallback for Fawa revisions that drop the user-item__name class.
-  // Only same-site .html links whose visible text contains "vs" are accepted.
-  if (grouped.size === 0) {
-    const anchorRegex =
-      /<a\b[^>]*href=["']([^"']+\.html(?:\?[^"']*)?)["'][^>]*>([\s\S]{0,2200}?)<\/a>/gi;
-    let anchorHit: RegExpExecArray | null;
-    while ((anchorHit = anchorRegex.exec(html)) !== null) {
-      const href = decodeHtml(anchorHit[1]).trim();
-      const visible = decodeHtml(stripTags(anchorHit[2]))
-        .replace(/\s+/g, " ")
-        .trim();
-      if (!/\bvs\b/i.test(visible)) continue;
-
-      const cleaned = visible
-        .replace(/\s*---\s*CH\s*\d+\s*$/i, "")
-        .trim();
-      const teams = cleaned.split(/\s+vs\s+/i);
-      if (teams.length < 2) continue;
-
-      const pageUrl = absoluteFawaUrl(href);
-      if (!pageUrl) continue;
-      const key = cleaned.toLowerCase();
-
-      const existing = grouped.get(key) ?? {
-        source: "fawa",
-        source_id: key,
-        page_url: pageUrl,
-        league: "Football",
-        home_team: teams[0]?.trim() || cleaned,
-        away_team: teams[1]?.trim() || "",
-        home_logo: null,
-        away_logo: null,
-        match_time: null,
-        time_label: null,
-        hot: false,
-        status: null,
-        match_status: null,
-        anchors: [],
-      };
-
-      if (!existing.anchors.some((item: any) => item.page_url === pageUrl)) {
-        existing.anchors.push({
-          uid: href,
-          nick_name: channelLabel(visible),
-          icon: null,
-          room_num: href,
-          page_url: pageUrl,
-        });
-      }
-
-      grouped.set(key, existing);
-    }
-  }
-
-  const matches = [...grouped.values()].sort((a, b) =>
-    String(a.home_team).localeCompare(String(b.home_team))
-  );
-
-  return json({
-    ok: true,
-    matches,
-    results: matches.length,
-    source: "fawa",
-    generated_at: new Date().toISOString(),
-  });
+ const html=await fetchFawaText(FAWA_HOME);
+ const matches=parseFawaCatalog(html);
+ return json({ok:true,source:'fawa',matches,results:matches.length,generated_at:new Date().toISOString()});
 }
 
 async function fawaStreams(body: any) {

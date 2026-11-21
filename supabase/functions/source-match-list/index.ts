@@ -5,7 +5,7 @@ import { englishFootballName, firstFootballName, providerEnglishName, sourceFoot
 import { sourceMatchRows, isFootballSourceRow, hasPublishedSourceRoom } from "../_shared/source_match_rows.mjs";
 import { sourceLogo } from "../_shared/source_team_logos.mjs";
 import { loadYyzbFootballCatalogue } from '../_shared/yyzb_schedule.mjs';
-import { fawaScheduleTimezoneConfirmed, fawaMyanmarTimeLabel } from '../_shared/fawa_schedule_time.mjs';
+import {parseFawaCatalog} from '../_shared/fawa_catalog.mjs';
 import { footballHighlights } from '../_shared/football_highlights.mjs';
 
 const corsHeaders = {
@@ -291,139 +291,9 @@ async function jsonpMatches(args: {
 }
 
 async function fawaMatches() {
-  const html = await fetchFawaText(FAWA_HOME);
-  const sourceIsGmtPlusOne = fawaScheduleTimezoneConfirmed(html);
-  const grouped = new Map<string, any>();
-  const nameRegex =
-    /<div\s+class=["']user-item__name["'][^>]*>([\s\S]*?)<\/div>/gi;
-
-  let hit: RegExpExecArray | null;
-  while ((hit = nameRegex.exec(html)) !== null) {
-    const name = decodeHtml(stripTags(hit[1])).replace(/\s+/g, " ").trim();
-    if (!/\bvs\b/i.test(name)) continue;
-
-    const before = html.slice(Math.max(0, hit.index - 1800), hit.index);
-    const hrefRegex = /href=["']([^"']+\.html)["']/gi;
-    let hrefHit: RegExpExecArray | null;
-    let href = "";
-    while ((hrefHit = hrefRegex.exec(before)) !== null) {
-      href = decodeHtml(hrefHit[1]).trim();
-    }
-    if (!href) continue;
-
-    const after = html.slice(nameRegex.lastIndex, nameRegex.lastIndex + 900);
-    const playingHit = after.match(
-      /class=["']user-item__playing["'][^>]*>([\s\S]*?)<\/div>/i,
-    );
-    const playing = playingHit
-      ? decodeHtml(stripTags(playingHit[1])).replace(/\s+/g, " ").trim()
-      : "Football";
-
-    const baseName = name
-      .replace(/\s*---\s*CH\s*\d+\s*$/i, "")
-      .trim();
-    const teams = baseName.split(/\s+vs\s+/i);
-    if (teams.length < 2) continue;
-
-    const key = baseName.toLowerCase();
-    const existing = grouped.get(key) ?? {
-      source: "fawa",
-      source_id: key,
-      page_url: absoluteFawaUrl(href),
-      league:
-        playing.replace(/\s+\d{1,2}:\d{2}\s*$/, "").trim() ||
-        "Football",
-      home_team: teams[0]?.trim() || baseName,
-      away_team: teams[1]?.trim() || "",
-      match_time: null,
-      time_label: fawaMyanmarTimeLabel(playing, sourceIsGmtPlusOne),
-      source_time_label: playing,
-      source_timezone: sourceIsGmtPlusOne ? 'GMT+1' : 'unverified',
-      hot: false,
-      anchors: [],
-    };
-
-    const pageUrl = absoluteFawaUrl(href);
-    if (
-      pageUrl &&
-      !existing.anchors.some((item: any) => item.page_url === pageUrl)
-    ) {
-      existing.anchors.push({
-        uid: href,
-        nick_name: channelLabel(name),
-        room_num: href,
-        page_url: pageUrl,
-      });
-    }
-
-    grouped.set(key, existing);
-  }
-
-  // Fallback for Fawa revisions that drop the user-item__name class.
-  // Only same-site .html links whose visible text contains "vs" are accepted.
-  if (grouped.size === 0) {
-    const anchorRegex =
-      /<a\b[^>]*href=["']([^"']+\.html(?:\?[^"']*)?)["'][^>]*>([\s\S]{0,2200}?)<\/a>/gi;
-    let anchorHit: RegExpExecArray | null;
-    while ((anchorHit = anchorRegex.exec(html)) !== null) {
-      const href = decodeHtml(anchorHit[1]).trim();
-      const visible = decodeHtml(stripTags(anchorHit[2]))
-        .replace(/\s+/g, " ")
-        .trim();
-      if (!/\bvs\b/i.test(visible)) continue;
-
-      const cleaned = visible
-        .replace(/\s*---\s*CH\s*\d+\s*$/i, "")
-        .trim();
-      const teams = cleaned.split(/\s+vs\s+/i);
-      if (teams.length < 2) continue;
-
-      const pageUrl = absoluteFawaUrl(href);
-      if (!pageUrl) continue;
-      const key = cleaned.toLowerCase();
-
-      const existing = grouped.get(key) ?? {
-        source: "fawa",
-        source_id: key,
-        page_url: pageUrl,
-        league: "Football",
-        home_team: teams[0]?.trim() || cleaned,
-        away_team: teams[1]?.trim() || "",
-        home_logo: null,
-        away_logo: null,
-        match_time: null,
-        time_label: null,
-        hot: false,
-        status: null,
-        match_status: null,
-        anchors: [],
-      };
-
-      if (!existing.anchors.some((item: any) => item.page_url === pageUrl)) {
-        existing.anchors.push({
-          uid: href,
-          nick_name: channelLabel(visible),
-          icon: null,
-          room_num: href,
-          page_url: pageUrl,
-        });
-      }
-
-      grouped.set(key, existing);
-    }
-  }
-
-  const matches = [...grouped.values()].sort((a, b) =>
-    String(a.home_team).localeCompare(String(b.home_team))
-  );
-
-  return json({
-    ok: true,
-    source: "fawa",
-    matches,
-    results: matches.length,
-    generated_at: new Date().toISOString(),
-  });
+ const html=await fetchFawaText(FAWA_HOME);
+ const matches=parseFawaCatalog(html);
+ return json({ok:true,source:'fawa',matches,results:matches.length,generated_at:new Date().toISOString()});
 }
 
 async function colaMatches() {

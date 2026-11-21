@@ -40,6 +40,9 @@ jobs:
       - name: Checkout PR files
         uses: actions/checkout@v7
 
+      - name: Verify source clocks and safe imported-line renewal
+        run: node --test scripts/test_imported_source_refresh.mjs scripts/test_fawa_catalog.mjs
+
       - name: Verify browser JavaScript and player synchronization
         run: |
           node scripts/test_performance_regressions.mjs

@@ -66,6 +66,9 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Verify source clocks and safe imported-line renewal
+        run: node --test scripts/test_imported_source_refresh.mjs scripts/test_fawa_catalog.mjs
+
       - name: Test protected HLS/DASH proxy
         run: node scripts/test_protected_dash_proxy.mjs
 

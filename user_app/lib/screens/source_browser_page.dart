@@ -1,3 +1,4 @@
+import '../myanmar_time.dart';
 import '../source_route_policy.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -84,7 +85,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   ) {
     var winnerRecorded = false;
     return publicApiRequests<List<Map<String, dynamic>>>(
-      bases, load, onHealthy: (base) {
+      bases,
+      load,
+      onHealthy: (base) {
         if (!winnerRecorded) {
           winnerRecorded = true;
           rememberVerifiedPublicApiBase(base);
@@ -113,8 +116,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     _todayOnly = source == 'fawa' ? false : ui.todayOnly;
     _searchController.text = ui.query;
     _listScroll = ScrollController(initialScrollOffset: ui.scrollOffset);
-    _feed = LiveFeedController(_loadRemembered,
-        initialData: ViewerTabCache.sourceRows(source));
+    _feed = LiveFeedController(
+      _loadRemembered,
+      initialData: ViewerTabCache.sourceRows(source),
+    );
     if (!ViewerTabCache.sourceFresh(source)) {
       unawaited(_feed.refresh());
     }
@@ -132,7 +137,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         final live = _feed.data?.any(_live) ?? false;
         final now = DateTime.now();
         if (ViewerTabCache.sourceFresh(source)) return;
-        if (!live && _lastSourcePoll != null &&
+        if (!live &&
+            _lastSourcePoll != null &&
             now.difference(_lastSourcePoll!) < const Duration(minutes: 2)) {
           return;
         }
@@ -157,8 +163,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       _todayOnly = source == 'fawa' ? false : ui.todayOnly;
       _listScroll.dispose();
       _listScroll = ScrollController(initialScrollOffset: ui.scrollOffset);
-      _feed = LiveFeedController(_loadRemembered,
-          initialData: ViewerTabCache.sourceRows(source));
+      _feed = LiveFeedController(
+        _loadRemembered,
+        initialData: ViewerTabCache.sourceRows(source),
+      );
       previousFeed.dispose();
       if (!ViewerTabCache.sourceFresh(source)) {
         unawaited(_feed.refresh());
@@ -170,30 +178,29 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   }
 
   void _rememberUi([String? tab]) {
-    ViewerTabCache.saveSourceUi(tab ?? source, ViewerSourceUiState(
-      query: _query,
-      league: _league,
-      todayOnly: _todayOnly,
-      scrollOffset: _listScroll.hasClients
-          ? _listScroll.offset
-          : ViewerTabCache.sourceUi(tab ?? source).scrollOffset,
-    ));
+    ViewerTabCache.saveSourceUi(
+      tab ?? source,
+      ViewerSourceUiState(
+        query: _query,
+        league: _league,
+        todayOnly: _todayOnly,
+        scrollOffset: _listScroll.hasClients
+            ? _listScroll.offset
+            : ViewerTabCache.sourceUi(tab ?? source).scrollOffset,
+      ),
+    );
   }
 
   Future<List<Map<String, dynamic>>> _loadRemembered() {
     final requestedSource = source;
-    return ViewerTabCache.loadSource(
-      requestedSource,
-      () async {
-        final rows = await _loadMatches();
-        if (source != requestedSource) {
-          // A response from the old tab must never overwrite a new tab.
-          throw StateError('Source tab was changed during refresh');
-        }
-        return rows;
-      },
-      force: true,
-    );
+    return ViewerTabCache.loadSource(requestedSource, () async {
+      final rows = await _loadMatches();
+      if (source != requestedSource) {
+        // A response from the old tab must never overwrite a new tab.
+        throw StateError('Source tab was changed during refresh');
+      }
+      return rows;
+    }, force: true);
   }
 
   void _cancelSourceOperation() {
@@ -516,9 +523,20 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     if (value is List) return value.map(_safeSourceCacheValue).toList();
     if (value is Map) {
       const blocked = <String>{
-        'stream_url', 'url', 'key_id', 'key_data', 'token', 'headers',
-        'authorization', 'cookie', 'license_url', 'drm', 'stream_links',
-        'secret', 'access_token', 'refresh_token',
+        'stream_url',
+        'url',
+        'key_id',
+        'key_data',
+        'token',
+        'headers',
+        'authorization',
+        'cookie',
+        'license_url',
+        'drm',
+        'stream_links',
+        'secret',
+        'access_token',
+        'refresh_token',
       };
       return <String, dynamic>{
         for (final entry in value.entries)
@@ -545,9 +563,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     } catch (_) {}
   }
 
-  Future<List<Map<String, dynamic>>?> _loadLastGood({
-    String? forSource,
-  }) async {
+  Future<List<Map<String, dynamic>>?> _loadLastGood({String? forSource}) async {
     final requested = forSource ?? source;
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -578,8 +594,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     LiveFeedController<List<Map<String, dynamic>>> expectedFeed,
   ) async {
     final cached = await _loadLastGood(forSource: requested);
-    if (cached == null || !mounted || source != requested ||
-        !identical(_feed, expectedFeed)) return;
+    if (cached == null ||
+        !mounted ||
+        source != requested ||
+        !identical(_feed, expectedFeed))
+      return;
     ViewerTabCache.seedStaleSourceIfMissing(requested, cached);
     expectedFeed.seedIfMissing(cached);
   }
@@ -661,7 +680,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     final response = await http
         .post(
           Uri.parse(base + '/sources/' + (sourceName ?? source) + '/streams'),
-          headers: publicApiHeaders(base, extra: const {'Content-Type': 'application/json'}),
+          headers: publicApiHeaders(
+            base,
+            extra: const {'Content-Type': 'application/json'},
+          ),
           body: jsonEncode({
             'skip_probe': true,
             'room_num':
@@ -669,7 +691,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             'schedule_id': m['schedule_id'] ?? m['source_id'],
             'source_id': m['source_id'],
             'page_url': anchor['page_url'] ?? m['page_url'],
-            if (anchor['player_url'] != null) 'player_url': anchor['player_url'],
+            if (anchor['player_url'] != null)
+              'player_url': anchor['player_url'],
             'anchor_name':
                 anchor['nick_name'] ?? anchor['name'] ?? anchor['room_num'],
           }),
@@ -849,10 +872,13 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       );
       if (rows.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(
-            title + ' lists streamer rooms, but none returned a playable '
-            'video line right now. Try again closer to kickoff.',
-          )),
+          SnackBar(
+            content: Text(
+              title +
+                  ' lists streamer rooms, but none returned a playable '
+                      'video line right now. Try again closer to kickoff.',
+            ),
+          ),
         );
         return;
       }
@@ -1007,138 +1033,153 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         top: true,
         bottom: false,
         child: AnimatedBuilder(
-        animation: _feed,
-        builder: (_, _) {
-          if (_feed.loading && !_feed.hasData) {
-            return _SourceLoading(title: title);
-          }
-          if (_feed.error != null && !_feed.hasData) {
-            return _StateView(
-              title: title + ' unavailable',
-              text: source == 'fawa'
-                  ? 'Fawa website or source API is unreachable. Refresh later.'
-                  : 'Network temporarily unavailable. Refresh to retry backup routes.',
-              onRefresh: _refresh,
-            );
-          }
+          animation: _feed,
+          builder: (_, _) {
+            if (_feed.loading && !_feed.hasData) {
+              return _SourceLoading(title: title);
+            }
+            if (_feed.error != null && !_feed.hasData) {
+              return _StateView(
+                title: title + ' unavailable',
+                text: source == 'fawa'
+                    ? 'Fawa website or source API is unreachable. Refresh later.'
+                    : 'Network temporarily unavailable. Refresh to retry backup routes.',
+                onRefresh: _refresh,
+              );
+            }
 
-          // A failed refresh may retain the last visible feed. Do not show
-          // fixtures that became stale while the source was unreachable.
-          final allMatches = (_feed.data ?? const <Map<String, dynamic>>[])
-              .where((row) => source != 'soco' || !_stale(row))
-              .toList();
-          if (allMatches.isEmpty) {
-            return _StateView(
-              title: 'No $title matches',
-              text: 'No matches are available from this source right now.',
-              onRefresh: _refresh,
-            );
-          }
+            // A failed refresh may retain the last visible feed. Do not show
+            // fixtures that became stale while the source was unreachable.
+            final allMatches = (_feed.data ?? const <Map<String, dynamic>>[])
+                .where((row) => source != 'soco' || !_stale(row))
+                .toList();
+            if (allMatches.isEmpty) {
+              return _StateView(
+                title: 'No $title matches',
+                text: 'No matches are available from this source right now.',
+                onRefresh: _refresh,
+              );
+            }
 
-          // YYZB mirrors its website's own football-room catalogue:
-          // an actual streamer room is mandatory and there is no score-only
-          // fallback view.
-          final availableMatches = source == 'yyzb'
-              ? allMatches
-                  .where((row) => sourceMatchAnchors(row, source).isNotEmpty)
-                  .toList()
-              : allMatches;
-          final matches = filterSourceMatches(
-            availableMatches,
-            source: source,
-            todayOnly: source == 'fawa' ? false : _todayOnly,
-            query: _query,
-            league: _league,
-          );
-          return RefreshIndicator(
-            onRefresh: _refresh,
-            child: CustomScrollView(
-              controller: _listScroll,
-              physics: const AlwaysScrollableScrollPhysics(),
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              slivers: [
-                if (_feed.error != null && _feed.hasData)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(12, 5, 12, 3),
-                      child: Text('Offline • showing last available results',
-                        style: TextStyle(fontSize: 11)),
-                    ),
-                  ),
-                SliverToBoxAdapter(
-                  child: SourceMatchFilters(
-                    controller: _searchController,
-                    todayOnly: _todayOnly,
-                    league: _league,
-                    leagues: sourceMatchLeagues(availableMatches),
-                    visibleCount: matches.length,
-                    showDateChoices: source != 'yyzb' && source != 'fawa',
-                    onRefresh: _refresh,
-                    onQueryChanged: (value) => setState(() => _query = value),
-                    onTodayChanged: (value) =>
-                        setState(() => _todayOnly = value),
-                    onLeagueChanged: (value) => setState(() => _league = value),
-                  ),
-                ),
-                if (matches.isEmpty)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text('No matches for these filters'),
-                          const SizedBox(height: 6),
-                          TextButton(
-                            onPressed: _clearFilters,
-                            child: const Text('Clear filters'),
-                          ),
-                        ],
+            // YYZB mirrors its website's own football-room catalogue:
+            // an actual streamer room is mandatory and there is no score-only
+            // fallback view.
+            final availableMatches = source == 'yyzb'
+                ? allMatches
+                      .where(
+                        (row) => sourceMatchAnchors(row, source).isNotEmpty,
+                      )
+                      .toList()
+                : allMatches;
+            final matches = filterSourceMatches(
+              availableMatches,
+              source: source,
+              todayOnly: source == 'fawa' ? false : _todayOnly,
+              query: _query,
+              league: _league,
+            );
+            return RefreshIndicator(
+              onRefresh: _refresh,
+              child: CustomScrollView(
+                controller: _listScroll,
+                physics: const AlwaysScrollableScrollPhysics(),
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                slivers: [
+                  if (_feed.error != null && _feed.hasData)
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(12, 5, 12, 3),
+                        child: Text(
+                          'Offline • showing last available results',
+                          style: TextStyle(fontSize: 11),
+                        ),
                       ),
                     ),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(10, 6, 10, 16),
-                    sliver: SliverList.separated(
-                      itemCount: matches.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (_, index) {
-                        final m = matches[index];
-                        final live = _live(m);
-                        final anchors = _anchors(m);
-                        final ready = anchors.isNotEmpty;
-                        final time = sourceMatchKickoff(m)?.toLocal();
-
-                        return PremiumMatchCard(
-                          league: (m['league'] ?? 'Football').toString(),
-                          homeName: (m['home_team'] ?? 'Home').toString(),
-                          awayName: (m['away_team'] ?? 'Away').toString(),
-                          homeLogo: repositoryLogoUrl((m['home_logo'] ?? m['home_logo_url'] ?? '').toString()),
-                          awayLogo: repositoryLogoUrl((m['away_logo'] ?? m['away_logo_url'] ?? '').toString()),
-                          kickoff: time,
-                          timeLabel: sourceMatchScheduleLabel(m, source),
-                          timeZoneLabel: '',
-                          isLive: live,
-                          canWatch: ready,
-                          actionLabel: source == 'soco'
-                                  ? (ready
-                                      ? 'CHECK  •  ${anchors.length} ROOMS'
-                                      : 'NO STREAM ROOMS YET')
-                                  : ready
-                                      ? (anchors.length > 1
-                                          ? 'WATCH  •  ${anchors.length} SOURCES'
-                                          : 'WATCH')
-                                      : 'NOT READY',
-                          onWatch: () => _watch(m),
-                        );
-                      },
+                  SliverToBoxAdapter(
+                    child: SourceMatchFilters(
+                      controller: _searchController,
+                      todayOnly: _todayOnly,
+                      league: _league,
+                      leagues: sourceMatchLeagues(availableMatches),
+                      visibleCount: matches.length,
+                      showDateChoices: source != 'yyzb' && source != 'fawa',
+                      onRefresh: _refresh,
+                      onQueryChanged: (value) => setState(() => _query = value),
+                      onTodayChanged: (value) =>
+                          setState(() => _todayOnly = value),
+                      onLeagueChanged: (value) =>
+                          setState(() => _league = value),
                     ),
                   ),
-              ],
-            ),
-          );
-        },
+                  if (matches.isEmpty)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('No matches for these filters'),
+                            const SizedBox(height: 6),
+                            TextButton(
+                              onPressed: _clearFilters,
+                              child: const Text('Clear filters'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(10, 6, 10, 16),
+                      sliver: SliverList.separated(
+                        itemCount: matches.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (_, index) {
+                          final m = matches[index];
+                          final live = _live(m);
+                          final anchors = _anchors(m);
+                          final ready = anchors.isNotEmpty;
+                          final instant = sourceMatchKickoff(m);
+                          final time = instant == null
+                              ? null
+                              : myanmarTime(instant);
+
+                          return PremiumMatchCard(
+                            league: (m['league'] ?? 'Football').toString(),
+                            homeName: (m['home_team'] ?? 'Home').toString(),
+                            awayName: (m['away_team'] ?? 'Away').toString(),
+                            homeLogo: repositoryLogoUrl(
+                              (m['home_logo'] ?? m['home_logo_url'] ?? '')
+                                  .toString(),
+                            ),
+                            awayLogo: repositoryLogoUrl(
+                              (m['away_logo'] ?? m['away_logo_url'] ?? '')
+                                  .toString(),
+                            ),
+                            kickoff: time,
+                            timeLabel: sourceMatchScheduleLabel(m, source),
+                            timeZoneLabel: '',
+                            isLive: live,
+                            canWatch: ready,
+                            actionLabel: source == 'soco'
+                                ? (ready
+                                      ? 'CHECK  •  ${anchors.length} ROOMS'
+                                      : 'NO STREAM ROOMS YET')
+                                : ready
+                                ? (anchors.length > 1
+                                      ? 'WATCH  •  ${anchors.length} SOURCES'
+                                      : 'WATCH')
+                                : 'NOT READY',
+                            onWatch: () => _watch(m),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
         ),
       ),
       bottomNavigationBar: PremiumBottomNav(
