@@ -1,4 +1,4 @@
-import {confirmedRepositoryRemovals} from '../_shared/repository_snapshot_removals.mjs';
+import {confirmedRepositoryRemovals,unobservedRepositoryEntries} from '../_shared/repository_snapshot_removals.mjs';
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {createClient} from "jsr:@supabase/supabase-js@2";
 import {fetchDarkbyteCatalog,sourceHash} from "../_shared/darkbyte_catalog.mjs";
@@ -50,14 +50,15 @@ async function synchronize(client:any,force:boolean,source:string){
    const previous=await check(client.from('channel_source_catalog')
     .select('id,streams,event_meta').eq('source_id','repository').eq('is_present',true).limit(15000));
    removedRepositoryIds=confirmedRepositoryRemovals(snapshot,previous||[]);
-   snapshot.entries=preserveRepositoryMatchLines(snapshot.entries,previous||[]);
+   snapshot.entries=preserveRepositoryMatchLines(snapshot.entries,unobservedRepositoryEntries(snapshot,previous||[]));
   }
-  const committed=await check(client.rpc("commit_connected_channel_source_sync",{
+  if(source==='repository'&&!snapshot.complete)return await check(client.rpc('commit_repository_partial_snapshot',{
+   p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,p_removed_ids:removedRepositoryIds,
+  }));
+  return await check(client.rpc("commit_connected_channel_source_sync",{
    p_source:source,p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,
    p_complete:snapshot.complete,p_unchanged:snapshot.unchanged,
   }));
-  if(removedRepositoryIds.length)await check(client.rpc("hide_confirmed_repository_removals",{p_revision:snapshot.revision,p_ids:removedRepositoryIds}));
-  return committed;
  }catch(error){
   console.error('Channel source sync failed',{source,code:(error as any)?.code||'source_fetch',reason:(error as Error)?.name});
   await client.from("channel_source_state").update({status:"unavailable",last_checked_at:new Date().toISOString(),
