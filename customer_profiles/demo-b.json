@@ -1,0 +1,24 @@
+{
+  "id": "customer-b",
+  "test_only": true,
+  "viewer_name": "Demo B TV",
+  "admin_name": "Demo B Admin",
+  "viewer_package": "com.demob.viewer",
+  "admin_package": "com.demob.admin",
+  "supabase_ref": "bbbbbbbbbbbbbbbbbbbb",
+  "publishable_key": "sb_publishable_placeholder_b",
+  "repository": "customer-demo-b/football-suite",
+  "hosts": {
+    "api": "api.customer-b.example",
+    "auth": "auth.customer-b.example",
+    "relay": "relay.customer-b.example",
+    "web": "web.customer-b.example",
+    "guide": "guide.customer-b.example",
+    "fawa41": "fawa41.customer-b.example",
+    "fawa44": "fawa44.customer-b.example",
+    "fawa55": "fawa55.customer-b.example",
+    "fawa59": "fawa59.customer-b.example"
+  },
+  "primary_color": "#C04080",
+  "logo_png": "customer_profiles/assets/demo-b.png"
+}

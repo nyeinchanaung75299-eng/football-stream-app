@@ -15,6 +15,7 @@ export const BOT_COMMANDS = Object.freeze({
     {command:"help",description:"Viewer commands and help"},
   ],
   admin: [
+    {command:"backup_source",description:"Download verified project source recovery ZIP"},
     {command:"start",description:"Open private Admin menu"},
     {command:"menu",description:"Show private Admin buttons"},
     {command:"tools",description:"Admin tools"},

@@ -4,6 +4,7 @@ const repositories={};
 for(const repo of REPOSITORY_TREE_SOURCES){
  const response=await fetch('https://api.github.com/repos/'+repo+'/git/trees/HEAD?recursive=1',{
   headers:{Accept:'application/vnd.github+json',...(process.env.GH_TOKEN?{Authorization:'Bearer '+process.env.GH_TOKEN}:{})},signal:AbortSignal.timeout(15000)});
+ if(response.status===404){await response.body?.cancel();repositories[repo]={status:404};continue;}
  if(!response.ok)throw Error('Repository metadata fetch failed: '+response.status);
  const data=await response.json();
  if(data.truncated||!Array.isArray(data.tree)||!/^[a-f\d]{40}$/.test(data.sha||'')||data.tree.length>5000)throw Error('Incomplete repository metadata');

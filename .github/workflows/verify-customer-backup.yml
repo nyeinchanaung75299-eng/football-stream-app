@@ -1,0 +1,20 @@
+name: Verify Customer Profiles and Project Backups
+on:
+  pull_request:
+    paths: ['customer_profiles/**', 'scripts/customer_*.py', 'scripts/project_backup.py', 'scripts/test_customer_profile.py', 'scripts/test_project_backup.py', 'supabase/functions/_shared/telegram_project_backup.mjs', 'scripts/test_telegram_project_backup.mjs', 'supabase/functions/_shared/repository_snapshot_removals.mjs', 'scripts/test_repository_snapshot_removals.*', '.github/workflows/verify-customer-backup.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolation-and-backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: |
+          python3 -m unittest discover -s scripts -p 'test_customer_profile.py'
+          python3 -m unittest discover -s scripts -p 'test_project_backup.py'
+          python3 scripts/project_backup.py --output /tmp/verified-backup
+          node --test scripts/test_telegram_project_backup.mjs scripts/test_repository_snapshot_removals.mjs scripts/test_repository_trees.mjs scripts/test_repository_matches.mjs

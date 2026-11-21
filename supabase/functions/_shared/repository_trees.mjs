@@ -19,8 +19,8 @@ export async function readRepositoryTrees(repositories,{fetcher=fetch,signal,now
  try{
   try{
    const data=await read(mirror,fetcher,combined),age=now-Date.parse(data.fetched_at);
-   if(Number.isFinite(age)&&age>=-60000&&age<=30*60000&&repositories.every(repo=>validTree(data.repositories?.[repo])))
-    return repositories.map(repo=>data.repositories[repo]);
+   if(Number.isFinite(age)&&age>=-60000&&age<=30*60000&&repositories.every(repo=>validTree(data.repositories?.[repo])||(allowMissing&&data.repositories?.[repo]?.status===404)))
+    return repositories.map(repo=>data.repositories[repo]?.status===404?null:data.repositories[repo]);
   }catch{/* Fall back to GitHub without trusting a partial/stale mirror. */}
   return await Promise.all(repositories.map(async repo=>{
    try{
