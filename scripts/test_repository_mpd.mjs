@@ -1,6 +1,31 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {parseMpdData,mpdIdentity,uniqueMpdEntries} from '../supabase/functions/_shared/repository_mpd.mjs';
+import {parseMpdData,mpdIdentity,uniqueMpdEntries,fetchRepositoryMpds} from '../supabase/functions/_shared/repository_mpd.mjs';
+import {repositoryChannelUpdates} from '../supabase/functions/_shared/repository_updates.mjs';
+
+test('only the opt-in scheduled updater accepts explicit missing repositories',async()=>{
+ const sha='a'.repeat(40),tree={sha,truncated:false,tree:[{path:'provider_1/sports.json',type:'blob',size:100}]};
+ const cfy={sha,truncated:false,tree:[{path:'api/events.json',type:'blob',size:100}]};
+ const fetched=[];
+ const fetcher=async url=>{
+  fetched.push(url);
+  if(url.endsWith('repository-trees.json'))return Response.json({fetched_at:new Date().toISOString(),repositories:{
+   'rohmanabdu/lian':{status:404},'rohmanabdu/deqiaa':{status:404},'darkbyteprojects/iptv_png':tree,'Roshavarma/cfy':cfy}});
+  if(url.includes('api.github.com/repos/rohmanabdu/'))return new Response('',{status:404});
+  if(url.includes('api.github.com/repos/darkbyteprojects/'))return Response.json(tree);
+  if(url.includes('api.github.com/repos/Roshavarma/'))return Response.json(cfy);
+  return Response.json([{title:'Sports HD',link:'https://media.example.org/sports.mpd'}]);
+ };
+ await assert.rejects(fetchRepositoryMpds({fetcher}),/unavailable/i);
+ fetched.length=0;
+ const snapshot=await repositoryChannelUpdates([],{fetcher});
+ assert.equal(snapshot.complete,false);assert.equal(snapshot.entries.length,2);
+ assert.deepEqual(snapshot.missingRepositories,['rohmanabdu/lian','rohmanabdu/deqiaa']);
+ assert.equal(fetched.some(url=>url.includes('api.github.com')),false);
+ assert.equal(snapshot.probed,0);
+ await assert.rejects(repositoryChannelUpdates([],{fetcher:async()=>Response.json({fetched_at:new Date().toISOString(),repositories:
+  Object.fromEntries(['rohmanabdu/lian','rohmanabdu/deqiaa','darkbyteprojects/iptv_png','Roshavarma/cfy'].map(r=>[r,{status:404}]))})}),/No published repository/);
+});
 
 test('M3U in a JSON-named file keeps ClearKey, headers and unconfigured Widevine separately',()=>{
  const data=`#EXTM3U

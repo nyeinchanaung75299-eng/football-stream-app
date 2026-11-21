@@ -14,9 +14,9 @@ const team=x=>{
  const base=suffix?value.slice(0,-suffix.length):value;
  return (aliases.get(key(base))||base)+suffix;
 };
-const competition=row=>/\bwomen(?:'s)?\b|\bladies\b|\bwsl\b|femenin|frauen|femminile/i.test([row.league,row.home_team,row.away_team].join(' '))?'women':'';
-const football=/football|soccer|premier\s*league|bundesliga|serie\s*a|la\s*liga|ligue\s*1|champions\s*league|europa\s*league|eredivisie|efl|\bfa\s*cup\b/i;
-const otherSport=/cricket|badminton|tennis|basketball|volleyball|motogp|motorsport|formula|\bufc\b|boxing|\bnfl\b|\bnba\b|rugby|hockey|baseball/i;
+const competition=row=>row.competition_tag||(/\bwomen(?:'s)?\b|\bladies\b|\bwsl\b|femenin|frauen|femminile/i.test([row.league,row.home_team,row.away_team].join(' '))?'women':'');
+const football=/football|soccer|premier\s*league|bundesliga|serie\s*a|la\s*liga|ligue\s*1|champions\s*league|europa\s*league|eredivisie|efl|\bfa\s*cup\b|\bepl\b|\bwsl\b|scottish\s+premiership|brasileir[aã]o|(?:con\.?|conmebol)\s+sudamericana|super\s+lig\b|ta[cç]a\s+de\s+portugal/i;
+const otherSport=/cricket|badminton|tennis|basketball|volleyball|motogp|motorsport|formula|\bf1\b|\bufc\b|boxing|\bnfl\b|\bnba\b|\bnhl\b|\bwwe\b|\bwbbl\b|rugby|hockey|baseball/i;
 const logo=x=>publicSourceUrl(x,{httpsOnly:true})?.href||null;
 
 export function repositoryKickoff(value){
@@ -80,13 +80,17 @@ export function parseRepositoryMatches(text,context){
    if(row.visible===false||[0,'0',false].includes(row.publish))continue;
    const e=row.eventInfo||{},home=row.teamA,away=row.teamB;
    const category=clean([e.eventCat,row.cat,row.category,e.eventName,row.eventName].filter(Boolean).join(' '));
-   if(otherSport.test(category)||!football.test(category))continue;
+   // Provider 6 publishes English football as EPL/Championship rather than
+   // eventCat=Football. Keep the ambiguous Championship alias source-scoped.
+   const providerFootball=context.source_file==='provider_6/live_events.json'&&/^Championship(?:\s|$)/i.test(clean(row.cat));
+   if(otherSport.test(category)||!football.test(category)&&!providerFootball)continue;
    const a=team(typeof home==='object'?home?.name:e.teamA||home),b=team(typeof away==='object'?away?.name:e.teamB||away);
    if(!a||!b||key(a)===key(b))continue;
    const candidates=[row.resolved_streams,row.streams,row.channels_data,row.formats].find(x=>Array.isArray(x)&&x.length)||[];
    rows.push({...context,home_team:a,away_team:b,home_logo_url:logo(home?.logo||e.teamAFlag),away_logo_url:logo(away?.logo||e.teamBFlag),
     kickoff_at:repositoryKickoff(e.startTime||row.startTime),end_at:repositoryKickoff(e.endTime),
     league:clean(e.eventName||row.eventName||category).slice(0,120),football_proven:true,
+    competition_tag:competition({league:category,home_team:a,away_team:b}),
     streams:candidates.filter(x=>x?.visible!==false&&![0,'0',false].includes(x?.publish)).map(nativeLine).filter(Boolean)});
   }
  }
