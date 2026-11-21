@@ -53,8 +53,11 @@ def load_profile(path):
   raise ValueError('Only a client publishable key belongs in a profile')
  if not p['test_only'] and (any(h.endswith('.example') for h in p['hosts'].values()) or 'placeholder' in p['publishable_key']):
   raise ValueError('Production profile cannot contain demo endpoints or keys')
- logo=(ROOT/p['logo_png']).resolve()
- if ROOT not in logo.parents or logo.is_symlink() or not logo.is_file() or not logo.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'):raise ValueError('A local PNG buyer logo is required')
+ if not isinstance(p['logo_png'],str):raise ValueError('A relative PNG logo path is required')
+ relative=Path(p['logo_png'])
+ if relative.is_absolute() or '..' in relative.parts:raise ValueError('Logo path must stay relative to the source checkout')
+ logo=ROOT/relative
+ if any(path.is_symlink() for path in [logo,*logo.parents] if path!=ROOT) or ROOT not in logo.resolve().parents or not logo.is_file() or not logo.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'):raise ValueError('A local PNG buyer logo is required')
  return p
 
 def mapping(p):

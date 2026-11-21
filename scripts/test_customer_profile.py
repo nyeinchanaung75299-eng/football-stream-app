@@ -20,4 +20,11 @@ class ProfileTests(unittest.TestCase):
    with self.assertRaises(ValueError):load_profile(path)
    p['supabase_ref']='aaaaaaaaaaaaaaaaaaaa';p['service_role_key']='must-not-export';path.write_text(json.dumps(p))
    with self.assertRaises(ValueError):load_profile(path)
+ def test_logo_path_cannot_escape_export_or_overwrite_checkout(self):
+  p=json.loads((ROOT/'customer_profiles/demo-a.json').read_text())
+  with tempfile.TemporaryDirectory() as tmp:
+   profile=Path(tmp)/'profile.json'
+   for logo in [str(ROOT/'customer_profiles/assets/demo-a.png'),'customer_profiles/../customer_profiles/assets/demo-a.png']:
+    p['logo_png']=logo;profile.write_text(json.dumps(p))
+    with self.assertRaises(ValueError):load_profile(profile)
 if __name__=='__main__':unittest.main()
