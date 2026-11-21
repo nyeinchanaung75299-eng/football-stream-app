@@ -173,6 +173,19 @@ class _SourceQualitySheetState extends State<SourceQualitySheet> {
                                               overflow: TextOverflow.ellipsis,
                                               style: const TextStyle(
                                                   fontSize: 11)),
+                                          for (final field in [
+                                            'resolution',
+                                            'referer',
+                                            'origin'
+                                          ])
+                                            if ('${line[field] ?? ''}'
+                                                .isNotEmpty)
+                                              Text('$field: ${line[field]}',
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                      fontSize: 11)),
                                           Text(
                                               added.contains(i)
                                                   ? 'ADDED ✓'

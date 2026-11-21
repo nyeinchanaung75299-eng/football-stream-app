@@ -902,9 +902,26 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                                         sheetError = null;
                                       });
                                       try {
-                                        await Supabase.instance.client
+                                        final changedPlayback =
+                                            (web ? '' : url.text.trim()) !=
+                                                    (row['stream_url'] ?? '') ||
+                                                effectiveType !=
+                                                    row['stream_type'] ||
+                                                nullable(ref.text) !=
+                                                    row['referer'] ||
+                                                nullable(org.text) !=
+                                                    row['origin'] ||
+                                                nullable(kid.text) !=
+                                                    row['key_id'] ||
+                                                nullable(key.text) !=
+                                                    row['key_data'];
+                                        var edit = Supabase.instance.client
                                             .from('stream_links')
                                             .update({
+                                              if (changedPlayback)
+                                                'channel_id': null,
+                                              if (changedPlayback)
+                                                'channel_line_id': null,
                                               'label': name.text.trim().isEmpty
                                                   ? 'Server'
                                                   : name.text.trim(),
@@ -933,7 +950,24 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                                             })
                                             .eq('id', row['id'])
                                             .eq('stream_url',
-                                                row['stream_url'] ?? '')
+                                                row['stream_url'] ?? '');
+                                        for (final field in [
+                                          'label',
+                                          'resolution',
+                                          'stream_type',
+                                          'referer',
+                                          'origin',
+                                          'key_id',
+                                          'key_data',
+                                          'use_webview',
+                                          'webview_url'
+                                        ]) {
+                                          if (row.containsKey(field))
+                                            edit = row[field] == null
+                                                ? edit.isFilter(field, null)
+                                                : edit.eq(field, row[field]);
+                                        }
+                                        await edit
                                             .select('id')
                                             .single()
                                             .timeout(

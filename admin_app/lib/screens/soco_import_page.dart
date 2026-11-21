@@ -367,7 +367,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   Future<List<Map<String, dynamic>>> _loadTargetMatches() async {
     final data = await loadAdminMatches(Supabase.instance.client,
         columns:
-            'id,home_team,away_team,kickoff_at,sort_order,is_live,is_active,is_finished,is_featured,publish_state,deleted_at',
+            'id,league,home_team,away_team,kickoff_at,sort_order,is_live,is_active,is_finished,is_featured,publish_state,deleted_at',
         activeOnly: true,
         publishedOnly: true);
 
@@ -777,7 +777,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
   Future<String?> _chooseDestination() async {
     final loaded = await _loadTargetMatches();
-    if (!mounted || loaded.isEmpty) return null;
+    if (!mounted) return null;
+    if (loaded.isEmpty) {
+      message(
+          'No active NCA match is available. Create or publish a match in Controls first.');
+      return null;
+    }
 
     final targets = suggestDestinations(loaded, _destinationSourceMatch,
         preferred: targetMatchId);
