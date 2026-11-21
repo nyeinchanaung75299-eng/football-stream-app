@@ -22,6 +22,26 @@ void main() {
     }));
   });
   tearDownAll(() async=>Supabase.instance.dispose());
+  testWidgets('new GitHub sources have named filters and selecting one performs only a catalog read', (tester) async {
+    tester.view.physicalSize=const Size(390,844);tester.view.devicePixelRatio=1;
+    addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
+    final providers=<int>[];
+    await http.runWithClient(() async {
+      await tester.pumpWidget(const MaterialApp(home:ConnectedChannelsPage()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('All providers'));await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('SM IPTV').last);
+      await tester.tap(find.text('SM IPTV').last);await tester.pumpAndSettle();
+      expect(providers,[0,9]);expect(find.text('SM fixture'),findsOneWidget);
+      expect(find.textContaining('SM IPTV • Sports'),findsOneWidget);
+      expect(tester.takeException(),isNull);await tester.pumpWidget(const SizedBox.shrink());
+    },()=>MockClient((request) async {
+      final body=jsonDecode(request.body) as Map;expect(body['action'],'catalog');providers.add(body['provider'] as int);
+      return http.Response(jsonEncode({'ok':true,'state':{'enabled':true,'status':'ok'},'total':1,
+        'entries':[{'id':'gh:smiptv:fixture','provider':9,'kind':'channel','name':'SM fixture','category':'Sports','stream_count':1}]}),200,
+        headers:{'content-type':'application/json'});
+    }));
+  });
   test('only source catalog reads can be replayed after a route timeout', () {
     expect(GatewayRequest.canRetry('channel-source-sync',{'action':'catalog'}),isTrue);
     expect(GatewayRequest.canRetry('channel-source-sync',{'action':'details'}),isTrue);

@@ -125,51 +125,36 @@ export function createTelegramHandler({ mode, env, fetcher = fetch, clock = () =
     if (!Number.isSafeInteger(start) || start < 0 || start > 150) {
       return {responseText: 'Invalid Highlights page. Use /highlights to restart.'};
     }
-    const result = await footballHighlights({
-      provider: 'dasfootball', action: 'catalog', force: start === 0,
-    }, {fetcher});
-    const candidates = [];
-    for (const entry of result.entries || []) {
-      const lines = [];
-      for (const line of entry.lines || []) {
-        if (line.stream_type !== 'mp4' ||
-            line.referer || line.origin || line.user_agent) continue;
-        try {
-          const url = new URL(line.stream_url);
-          if (url.protocol !== 'https:' || url.search || url.hash ||
-              !/\.mp4$/i.test(url.pathname)) continue;
-          lines.push({...line, stream_url: url.href});
-        } catch (_) { /* Ignore invalid or protected external video URLs. */ }
-      }
-      if (lines.length) candidates.push({
-        title: text(entry.title || 'Football highlights', 96),
-        lines: lines.slice(0, 2),
-      });
-    }
-
     const available = [];
-    let cursor = Math.min(start, candidates.length);
-    let scanned = 0;
-    // Bounded scans prevent a broken provider from tying up the webhook.
-    while (cursor < candidates.length && scanned < 12 && available.length < 5) {
-      const count = Math.min(5 - available.length, 12 - scanned, candidates.length - cursor);
-      const batch = candidates.slice(cursor, cursor + count);
-      cursor += count;
-      scanned += count;
-      const checked = await Promise.all(batch.map(async item => {
-        const results = await Promise.all(item.lines.map(async line => {
-          try {
-            const check = await checkHighlightLine(line, {fetcher});
-            return check.status === 'reachable' ? line.stream_url : null;
-          } catch (_) { return null; }
-        }));
-        const url = results.find(Boolean);
-        return url ? {title: item.title, url} : null;
+    let cursor = start, scanned = 0, hasNext = false;
+    // Catalog entries are now lazy and paginated. Advance the source cursor,
+    // including unsupported clips, rather than counting only playable results.
+    while (scanned < 12 && available.length < 5) {
+      const result = await footballHighlights({provider:'dasfootball', action:'catalog',
+        offset:cursor, force:start===0 && scanned===0}, {fetcher});
+      const entries=result.entries || [];
+      if (!entries.length) break;
+      const count=Math.min(5-available.length,12-scanned,entries.length);
+      const batch=entries.slice(0,count);
+      cursor+=count;scanned+=count;
+      hasNext=result.has_more===true || count<entries.length;
+      const checked=await Promise.all(batch.map(async item=>{
+        try {
+          const {entry}=await footballHighlights({provider:'dasfootball',action:'details',entry_id:item.id},{fetcher});
+          for (const line of entry.lines || []) {
+            if (line.stream_type!=='mp4' || line.referer || line.origin || line.user_agent) continue;
+            const url=new URL(line.stream_url);
+            if (url.protocol!=='https:' || url.search || url.hash || !/\.mp4$/i.test(url.pathname)) continue;
+            const check=await checkHighlightLine(line,{fetcher});
+            if(check.status==='reachable')return {title:text(entry.title || 'Football highlights',96),url:url.href};
+          }
+        } catch (_) { /* Keep the cursor moving past unsupported media. */ }
+        return null;
       }));
       available.push(...checked.filter(Boolean));
+      if(!hasNext)break;
     }
 
-    const hasNext = cursor < candidates.length;
     const heading = '🎬 FOOTBALL HIGHLIGHTS — DIRECT MP4';
     const listing = available.length
       ? available.map((item, i) => (i + 1) + '. ' + item.title +

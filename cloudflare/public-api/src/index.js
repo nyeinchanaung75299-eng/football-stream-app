@@ -70,6 +70,17 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
+    if(url.pathname==='/highlights'&&request.method==='GET'){
+      if(!(await allowRequest(request,env,'public-highlights',40)))return json({error:'Too many requests'},429);
+      if(!env.SUPABASE_URL)return json({error:'Highlights unavailable'},503);
+      const target=new URL(env.SUPABASE_URL.replace(/\/+$/,'')+'/functions/v1/public-highlights');
+      for(const key of ['action','offset','query','entry_id','refresh'])if(url.searchParams.has(key))target.searchParams.set(key,url.searchParams.get(key));
+      try{
+        const {data,status}=await fetchJsonWithTimeout(target.toString(),{method:'GET',headers:{Accept:'application/json'}},12000);
+        return json(data,status,{'Cache-Control':'no-store'});
+      }catch{return json({error:'Highlights unavailable'},503,{'Cache-Control':'no-store'});}
+    }
+
     if (url.pathname === "/admin/stream-detect-browser" && request.method === "POST") {
       const { handleBrowserStreamScan } =
         await import("./browser_stream_scanner.mjs");

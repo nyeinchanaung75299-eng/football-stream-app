@@ -17,6 +17,7 @@ import '../channel_match_search.dart';
 import '../widgets/premium_bottom_nav.dart';
 import 'home_page.dart';
 import 'source_browser_page.dart';
+import 'highlight_source_page.dart';
 import '../viewer_navigation.dart';
 import '../viewer_tab_cache.dart';
 
@@ -508,6 +509,7 @@ class _ChannelsPageState extends State<ChannelsPage>
   }
 
   void navigate(int index) {
+    if(index==7){Navigator.of(context).pushReplacement(MaterialPageRoute<void>(builder:(_)=>const HighlightsSourcePage()));return;}
     ViewerTabCache.channelUi = ViewerChannelsUiState(
       search: search.text,
       group: selectedGroup,

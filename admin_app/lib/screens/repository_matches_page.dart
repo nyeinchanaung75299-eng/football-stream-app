@@ -27,7 +27,7 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
   Future<Map<String, dynamic>> load() =>
       source.request('catalog', {'query': search.text.trim(), 'page': page});
   void refresh() {
-    if (mounted) setState(() => catalog = load());
+    if (mounted) setState(() { catalog = load(); });
   }
 
   @override

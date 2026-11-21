@@ -71,8 +71,11 @@ jobs:
           node --test scripts/test_livetv_sports.mjs
           node --test scripts/test_repository_mpd.mjs
           node --test scripts/test_repository_matches.mjs scripts/test_repository_trees.mjs scripts/test_channel_media_probe.mjs scripts/test_channel_health_api.mjs
+          node --test scripts/test_connected_github_sources.mjs
+          node --test scripts/test_repository_from_hub.mjs scripts/test_combat_sports.mjs scripts/test_hub_request_scopes.mjs scripts/test_crichd_combat.mjs
           node --test scripts/test_epg_host_match.mjs
           node --test scripts/test_football_highlights.mjs
+          node --test scripts/test_public_highlights.mjs
           node --test supabase/functions/_shared/nca_private_admin_bot.test.mjs
       - name: Set up Java
         uses: actions/setup-java@v4

@@ -60,7 +60,7 @@ void main() {
       await tester.tap(find.text('Tools').last);
       await tester.pumpAndSettle();
       expect(find.text('Repository Matches'), findsOneWidget);
-      expect(find.text('DarkByte Channels'), findsOneWidget);
+      expect(find.text('Stream Hub'), findsOneWidget);
       expect(find.text('LiveTV Sports'), findsOneWidget);
       expect(find.text('Deleted source lines • Allow again'), findsOneWidget);
       expect(find.text('EPG mismatch reports'), findsOneWidget);

@@ -3,6 +3,7 @@ import {configuration,publicSourceUrl,sourceHash} from './darkbyte_catalog.mjs';
 import {readRepositoryTrees} from './repository_trees.mjs';
 import {mpdIdentity,MPD_REPOSITORIES} from './repository_mpd.mjs';
 import {englishFootballName} from './football_names.mjs';
+import {NEW_GITHUB_SOURCES,readGithubDocuments} from './github_source_formats.mjs';
 const clean=x=>String(x??'').replace(/<[^>]*>/g,' ').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim();
 const key=x=>clean(x).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
 const aliases=new Map(Object.entries({manutd:'Manchester United',manchesterutd:'Manchester United',manunited:'Manchester United',
@@ -16,7 +17,7 @@ const team=x=>{
 };
 const competition=row=>row.competition_tag||(/\bwomen(?:'s)?\b|\bladies\b|\bwsl\b|femenin|frauen|femminile/i.test([row.league,row.home_team,row.away_team].join(' '))?'women':'');
 const football=/football|soccer|premier\s*league|bundesliga|serie\s*a|la\s*liga|ligue\s*1|champions\s*league|europa\s*league|eredivisie|efl|\bfa\s*cup\b|\bepl\b|\bwsl\b|scottish\s+premiership|brasileir[aã]o|(?:con\.?|conmebol)\s+sudamericana|super\s+lig\b|ta[cç]a\s+de\s+portugal/i;
-const otherSport=/cricket|badminton|tennis|basketball|volleyball|motogp|motorsport|formula|\bf1\b|\bufc\b|boxing|\bnfl\b|\bnba\b|\bnhl\b|\bwwe\b|\bwbbl\b|rugby|hockey|baseball/i;
+const otherSport=/american\s*football|mixed\s*martial\s*arts|cricket|badminton|tennis|basketball|volleyball|motogp|motorsport|formula|\bf1\b|\bufc\b|boxing|\bnfl\b|\bnba\b|\bnhl\b|\bwwe\b|\bwbbl\b|rugby|hockey|baseball/i;
 const logo=x=>publicSourceUrl(x,{httpsOnly:true})?.href||null;
 
 export function repositoryKickoff(value){
@@ -83,13 +84,15 @@ export function parseRepositoryMatches(text,context){
    // Provider 6 publishes English football as EPL/Championship rather than
    // eventCat=Football. Keep the ambiguous Championship alias source-scoped.
    const providerFootball=context.source_file==='provider_6/live_events.json'&&/^Championship(?:\s|$)/i.test(clean(row.cat));
-   if(otherSport.test(category)||!football.test(category)&&!providerFootball)continue;
+   const unclassified=context.repository===NEW_GITHUB_SOURCES[0].repository&&row.unclassified_sports===true;
+   if(otherSport.test(category)||!football.test(category)&&!providerFootball&&!unclassified)continue;
    const a=team(typeof home==='object'?home?.name:e.teamA||home),b=team(typeof away==='object'?away?.name:e.teamB||away);
    if(!a||!b||key(a)===key(b))continue;
    const candidates=[row.resolved_streams,row.streams,row.channels_data,row.formats].find(x=>Array.isArray(x)&&x.length)||[];
    rows.push({...context,home_team:a,away_team:b,home_logo_url:logo(home?.logo||e.teamAFlag),away_logo_url:logo(away?.logo||e.teamBFlag),
     kickoff_at:repositoryKickoff(e.startTime||row.startTime),end_at:repositoryKickoff(e.endTime),
-    league:clean(e.eventName||row.eventName||category).slice(0,120),football_proven:true,
+    source_civil_date:e.sourceCivilDate||null,source_time:e.sourceTime||null,
+    league:clean(e.eventName||row.eventName||category).slice(0,120),football_proven:!unclassified,
     competition_tag:competition({league:category,home_team:a,away_team:b}),
     streams:candidates.filter(x=>x?.visible!==false&&![0,'0',false].includes(x?.publish)).map(nativeLine).filter(Boolean)});
   }
@@ -102,17 +105,19 @@ export async function mergeRepositoryMatches(rows,{now=Date.now()}={}){
  for(const row of rows)if(row.football_proven&&row.kickoff_at){const pair=key(row.home_team)+':'+key(row.away_team)+':'+competition(row);const list=known.get(pair)||[];list.push(row);known.set(pair,list);}
  for(const row of rows){
   const home=key(row.home_team),away=key(row.away_team);if(!home||!away||home===away)continue;
-  const peers=known.get(home+':'+away+':'+competition(row))||[];
+  const peers=(known.get(home+':'+away+':'+competition(row))||[]).filter(peer=>!row.source_civil_date||
+   Math.abs(Date.parse(peer.kickoff_at.slice(0,10))-Date.parse(row.source_civil_date))<=86400000);
   if(!row.football_proven&&!peers.length)continue;
   const dates=[...new Set(peers.map(r=>r.kickoff_at.slice(0,10)))];
   const kickoff=row.kickoff_at||(dates.length===1?peers[0].kickoff_at:null);
   if(kickoff&&(Date.parse(row.end_at||kickoff)+6*3600000<now||Date.parse(kickoff)>now+14*86400000))continue;
-  const date=kickoff?.slice(0,10)||'undated';
+  const date=kickoff?.slice(0,10)||row.source_civil_date||'undated';
   const id='repo:match:'+(await sourceHash(home+':'+away+':'+date+(competition(row)?':'+competition(row):''))).slice(0,28);
   let entry=grouped.get(id);
   if(!entry){entry={id,provider:8,kind:'event',name:(row.home_team+' vs '+row.away_team).slice(0,120),category:'Football',
    source_file:'reviewed repository fixtures',image_url:null,streams:[],unsupported_count:0,
-   event_meta:{home_team:row.home_team,away_team:row.away_team,home_logo_url:null,away_logo_url:null,kickoff_at:kickoff,league:row.league,repositories:[]}};grouped.set(id,entry);}
+   event_meta:{home_team:row.home_team,away_team:row.away_team,home_logo_url:null,away_logo_url:null,kickoff_at:kickoff,
+    source_civil_date:row.source_civil_date||null,source_time:row.source_time||null,league:row.league,repositories:[]}};grouped.set(id,entry);}
   const meta=entry.event_meta;
   meta.home_logo_url ||= row.home_logo_url;meta.away_logo_url ||= row.away_logo_url;
   if(row.league&&row.league!=='Football'&&!/^live\s*events?$/i.test(row.league))meta.league=row.league;
@@ -153,8 +158,8 @@ export async function fetchRepositoryMatches({fetcher=fetch,revision=null}={}){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
  try{
   const opts={fetcher,signal:controller.signal,limit:3*1024*1024};
-  const trees=await readRepositoryTrees(MPD_REPOSITORIES,{...opts,allowMissing:true});
-  const missingRepositories=MPD_REPOSITORIES.filter((_,i)=>trees[i]===null);
+  const trees=await readRepositoryTrees(MPD_REPOSITORIES,{...opts,allowMissing:true,isolateFailures:true});
+  const failed=new Set(MPD_REPOSITORIES.filter((_,i)=>trees[i]===null));
   const revisions=trees.map(tree=>{if(tree===null)return 'missing';if(tree.truncated||!Array.isArray(tree.tree)||!/^[a-f\d]{40}$/.test(tree.sha||''))throw Error('Incomplete repository tree');return tree.sha;});
   const digest=await sourceHash(revisions.join(':'));
   // Rebuild even unchanged snapshots so finished fixtures age out naturally.
@@ -165,9 +170,10 @@ export async function fetchRepositoryMatches({fetcher=fetch,revision=null}={}){
    const match=repo==='darkbyteprojects/iptv_png'?/^provider_[1-6]\/live_events\.json$/.test(path):repo==='Roshavarma/cfy'?path==='api/events.json':/^(?:hasill|finall(?:\.json)?|playlist_final\.json|(?:pl|pll)\/rama+a?2(?:\.json)?)$/.test(path);
    if(match){if(item.size>3*1024*1024)throw Error('Repository fixture file exceeds budget');tasks.push({repository:repo,revision:revisions[i],source_file:path,blob_sha:item.sha});}
   }
-  if(!tasks.length||tasks.length>50)throw Error('Invalid repository fixture list');
+  if((!tasks.length&&!NEW_GITHUB_SOURCES.some(source=>trees[MPD_REPOSITORIES.indexOf(source.repository)]))||tasks.length>50)throw Error('Invalid repository fixture list');
   let cursor=0;const parsed=new Array(tasks.length);
   await Promise.all(Array.from({length:5},async()=>{while(cursor<tasks.length){const i=cursor++,task=tasks[i];
+   try{
    const response=await fetcher('https://raw.githubusercontent.com/'+task.repository+'/'+task.revision+'/'+task.source_file,{redirect:'error',signal:controller.signal});
    if(!response.ok){await response.body?.cancel();throw Object.assign(Error('Repository fixture file unavailable'),{code:'repository_file_http_'+response.status});}
    const bytes=new Uint8Array(await response.arrayBuffer());if(bytes.length>3*1024*1024)throw Error('Repository fixture file too large');
@@ -175,8 +181,19 @@ export async function fetchRepositoryMatches({fetcher=fetch,revision=null}={}){
    const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-1',blob))].map(b=>b.toString(16).padStart(2,'0')).join('');
    if(hash!==task.blob_sha)throw Error('Repository file did not match its published Git blob');
    parsed[i]=parseRepositoryMatches(new TextDecoder().decode(bytes),{...task,publisher_blob_verified:true});
+   }catch{failed.add(task.repository);parsed[i]=[];}
   }}));
-  return {revision:digest,unchanged:false,entries:await mergeRepositoryMatches(parsed.flat()),
+  for(const source of NEW_GITHUB_SOURCES){
+   const tree=trees[MPD_REPOSITORIES.indexOf(source.repository)];if(!tree)continue;
+   try{
+   for(const doc of await readGithubDocuments(source.repository,tree,{fetcher,signal:controller.signal,fixturesOnly:true})){
+    parsed.push(parseRepositoryMatches(JSON.stringify(doc.rows),{repository:source.repository,revision:tree.sha,source_file:doc.path}));
+   }
+   }catch{failed.add(source.repository);}
+  }
+  const missingRepositories=MPD_REPOSITORIES.filter(repo=>failed.has(repo));
+  if(missingRepositories.length===MPD_REPOSITORIES.length)throw Error('No published fixture source available');
+  return {revision:digest,unchanged:false,entries:await mergeRepositoryMatches(parsed.flat().filter(row=>!failed.has(row.repository))),
    complete:missingRepositories.length===0,missingRepositories};
  }finally{clearTimeout(timer);controller.abort();}
 }

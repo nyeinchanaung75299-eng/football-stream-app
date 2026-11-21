@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {parseRepositoryMatches,mergeRepositoryMatches,repositoryKickoff,preserveRepositoryMatchLines,fetchRepositoryMatches} from '../supabase/functions/_shared/repository_matches.mjs';
 import {createHash} from 'node:crypto';
+import {NEW_GITHUB_SOURCES} from '../supabase/functions/_shared/github_source_formats.mjs';
 import {publicRepositoryUpdate,orderConfigurationProbes} from '../supabase/functions/_shared/repository_updates.mjs';
 const context={repository:'Roshavarma/cfy',source_file:'api/events.json'};
 const row={cat:'Football',eventInfo:{teamA:'Napoli',teamB:'Inter Milan',eventName:'Serie A',startTime:'2026/11/08 14:00:00 +0000',teamAFlag:'https://logos.example.org/napoli.png',teamBFlag:'https://logos.example.org/inter.png'},
@@ -114,6 +115,7 @@ test('missing upstream fixture repository does not prevent a verified Darkbyte u
  const snapshot=await fetchRepositoryMatches({fetcher:async url=>{
   if(url.endsWith('repository-trees.json'))return Response.json({fetched_at:'2000-01-01T00:00:00Z',repositories:{}});
   if(url.includes('/rohmanabdu/'))return new Response('',{status:404});
+  if(NEW_GITHUB_SOURCES.some(x=>url.includes('/'+x.repository+'/git/trees/')))return new Response('',{status:404});
   if(url.includes('/darkbyteprojects/iptv_png/git/trees/'))return Response.json(tree);
   if(url.includes('/Roshavarma/cfy/git/trees/'))return Response.json(empty);
   if(url.includes('/darkbyteprojects/iptv_png/')&&url.endsWith('/provider_1/live_events.json')){
@@ -122,7 +124,7 @@ test('missing upstream fixture repository does not prevent a verified Darkbyte u
   throw Error('Unexpected URL: '+url);
  }});
  assert.equal(snapshot.complete,false);
- assert.deepEqual(snapshot.missingRepositories,['rohmanabdu/lian','rohmanabdu/deqiaa']);
+ assert.deepEqual(snapshot.missingRepositories,['rohmanabdu/lian','rohmanabdu/deqiaa',...NEW_GITHUB_SOURCES.map(x=>x.repository)]);
  assert.equal(rawCalls,1);
  assert(snapshot.entries.some(entry=>entry.name==='Wales vs Portugal'&&entry.streams.length===1));
 });

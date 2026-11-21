@@ -34,6 +34,7 @@ class PremiumBottomNav extends StatelessWidget {
     (icon: Icons.tv_outlined, selected: Icons.tv_rounded, label: 'ColaTV'),
     (icon: Icons.language_outlined, selected: Icons.language_rounded, label: 'Fawa'),
     (icon: Icons.tv_outlined, selected: Icons.tv_rounded, label: 'Channels'),
+    (icon: Icons.video_library_outlined, selected: Icons.video_library_rounded, label: 'HL'),
   ];
 
   @override

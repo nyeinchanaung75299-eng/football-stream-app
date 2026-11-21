@@ -52,7 +52,26 @@ class FakeHighlights extends HighlightsService {
   }
 }
 
+class PagedHighlights extends HighlightsService {
+  final calls=<Map<String,dynamic>>[];
+  @override Future<Map<String,dynamic>> request(String action,[Map<String,dynamic> fields=const {}])async{
+    calls.add(fields);final offset=fields['offset'] as int? ?? 0;
+    final query=fields['query']?.toString()??'';
+    return {'entries':[for(var i=offset==0?0:10;i<(offset==0?12:15);i++){'id':'paged-$i','title':query.isEmpty?'Highlight $i':'$query $i','lines':[]}],
+      'has_more':offset==0,'next_offset':offset+12};
+  }
+}
+
 void main() {
+  testWidgets('source pagination deduplicates, stops loading and sends a new search',(tester)async{
+    final service=PagedHighlights();
+    await tester.pumpWidget(MaterialApp(home:HighlightsPage(service:service)));await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView),const Offset(0,-1800));await tester.pumpAndSettle();
+    expect(service.calls.map((x)=>x['offset']),[0,12]);expect(find.textContaining('15 highlights'),findsOneWidget);
+    expect(find.text('Load more highlights'),findsNothing);
+    await tester.enterText(find.byType(TextField),'arsenal');await tester.pump(const Duration(milliseconds:400));await tester.pumpAndSettle();
+    expect(service.calls.last['query'],'arsenal');expect(tester.takeException(),isNull);
+  });
   testWidgets('failed refresh retains extracted links and Retry recovers',
       (tester) async {
     final service = FakeHighlights();
@@ -75,7 +94,7 @@ void main() {
   });
 
   testWidgets(
-      'an extraction with no working links removes that row and exposes no fallback',
+      'an extraction with no working links keeps metadata and exposes no fallback',
       (tester) async {
     final service = FakeHighlights()..noLinks = true;
     await tester
@@ -83,7 +102,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Home vs Away'));
     await tester.pumpAndSettle();
-    expect(find.text('Home vs Away'), findsNothing);
+    expect(find.text('Home vs Away'), findsOneWidget);
     expect(find.text('Copy URL'), findsNothing);
     expect(find.textContaining('No working direct link'), findsOneWidget);
     expect(tester.takeException(), isNull);

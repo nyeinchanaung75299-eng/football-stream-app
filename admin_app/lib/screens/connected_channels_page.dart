@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/channel_source_service.dart';
 import '../services/connected_channel_source.dart';
 import '../widgets/match_destination_sheet.dart';
+import '../connected_channel_providers.dart';
 
 class ConnectedChannelsPage extends StatefulWidget {
   const ConnectedChannelsPage({super.key, this.sportsOnly = false});
@@ -28,7 +29,7 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
   });
   void refresh({bool resetPage = false}) {
     if (resetPage) page = 0;
-    setState(() => catalog = load());
+    setState(() { catalog = load(); });
   }
   @override
   void dispose() { _debounce?.cancel(); search.dispose(); super.dispose(); }
@@ -157,7 +158,7 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
     final linked = connection.isNotEmpty;
     return ListTile(dense: true,
       title: Text(row['name']?.toString() ?? 'Channel', maxLines: 2),
-      subtitle: Text('Provider ${row['provider']} • ${row['category']} • '
+      subtitle: Text('${connectedChannelProviderName(row['provider'])} • ${row['category']} • '
         '${linked ? connection['source_missing'] == true ? 'Source missing' : connection['follow_updates'] == true ? 'Following' : 'Paused' : count > 0 ? '$count lines' : row['kind'] == 'playlist' ? 'Playlist' : 'Unresolved'}'
         '${widget.sportsOnly ? row['epg_id'] != null ? ' • EPG linked' : ' • No verified EPG' : ''}'),
       onTap: () => details(row),
@@ -176,7 +177,7 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
   }
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(widget.sportsOnly ? 'LiveTV Sports' : 'DarkByte Channels'), actions: [
+    appBar: AppBar(title: Text(widget.sportsOnly ? 'LiveTV Sports' : 'Stream Hub'), actions: [
       TextButton.icon(onPressed: working ? null : () => mutate('sync', const {}),
         icon: working ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.sync, size: 18),
         label: const Text('Sync now')),
@@ -194,13 +195,16 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
         SwitchListTile.adaptive(dense: true, title: const Text('Auto-sync every 5 minutes', style: TextStyle(fontSize: 13)),
           subtitle: Text('${state['status']} • ${checked == null ? 'Not checked yet' : DateFormat('dd MMM, h:mm a').format(checked)}', style: const TextStyle(fontSize: 11)),
           value: state['enabled'] == true, onChanged: working ? null : (value) => mutate('settings', {'enabled': value})),
+        if ((state['unavailable_repositories'] as List? ?? []).isNotEmpty)
+          Padding(padding: const EdgeInsets.symmetric(horizontal:12,vertical:4),child:Text(
+            'Unavailable sources: ${(state['unavailable_repositories'] as List).join(', ')}. Saved entries are retained.',style:const TextStyle(fontSize:11))),
         Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: TextField(controller: search,
           decoration: const InputDecoration(hintText: 'Search source channels', prefixIcon: Icon(Icons.search), isDense: true),
           onChanged: (_) { _debounce?.cancel(); _debounce = Timer(const Duration(milliseconds: 350), () => refresh(resetPage: true)); })),
         if (!widget.sportsOnly) Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Row(children: [
           Expanded(child: DropdownButton<int>(isExpanded: true, value: provider,
             items: [const DropdownMenuItem(value: 0, child: Text('All providers')),
-              for (var i = 1; i <= 6; i++) DropdownMenuItem(value: i, child: Text('Provider $i'))],
+              for (final source in connectedChannelProviders.entries) DropdownMenuItem(value: source.key, child: Text(source.value))],
             onChanged: (value) { provider = value ?? 0; refresh(resetPage: true); })),
           const SizedBox(width: 10),
           Expanded(child: DropdownButton<String>(isExpanded: true, value: kind,

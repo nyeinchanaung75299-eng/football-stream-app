@@ -30,3 +30,7 @@ verify_jwt = false
 # its handler. It cannot route Admin/Auth/REST requests or video bytes.
 [functions.viewer-network-api]
 verify_jwt = false
+
+# Public, read-only Highlights catalog/details; no Admin auth or write actions.
+[functions.public-highlights]
+verify_jwt = false

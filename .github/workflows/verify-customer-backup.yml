@@ -18,6 +18,7 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_project_backup.py'
           python3 scripts/project_backup.py --output /tmp/verified-backup
           node --test scripts/test_telegram_project_backup.mjs scripts/test_repository_snapshot_removals.mjs scripts/test_repository_trees.mjs scripts/test_repository_matches.mjs
+          node --test scripts/test_connected_github_sources.mjs
   customer-android:
     runs-on: ubuntu-latest
     strategy:

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -21,42 +22,81 @@ class _HighlightsPageState extends State<HighlightsPage> {
   DateTime? _loadedAt;
   String? _error;
   bool _opening = false;
+  final _scroll = ScrollController();
+  Timer? _debounce;
+  int _epoch = 0, _nextOffset = 0;
+  bool _hasMore = true;
+  String _loadedQuery = '';
 
   @override
   void initState() {
     super.initState();
+    _scroll.addListener(_loadNearEnd);
     _load();
   }
 
   @override
   void dispose() {
     _search.dispose();
+    _debounce?.cancel();
+    _scroll.dispose();
     super.dispose();
   }
 
-  Future<void> _load({bool force = false}) {
-    if (_inFlight != null) return _inFlight!;
+  void _loadNearEnd() {
+    if (_scroll.hasClients &&
+        _scroll.position.extentAfter < 300 &&
+        _hasMore &&
+        _inFlight == null &&
+        _error == null) _load(more: true);
+  }
+
+  Future<void> _load({bool force = false, bool more = false}) {
+    if (_inFlight != null && more) return _inFlight!;
     if (!force &&
+        !more &&
+        _loadedQuery == _search.text.trim() &&
         _loadedAt != null &&
         DateTime.now().difference(_loadedAt!) < const Duration(minutes: 5)) {
       return Future.value();
     }
-    final operation = _fetch(force);
+    if (!more) _epoch++;
+    final operation = _fetch(
+        force, more, more ? _nextOffset : 0, _search.text.trim(), _epoch);
     _inFlight = operation;
     operation.whenComplete(() {
       if (identical(_inFlight, operation)) _inFlight = null;
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadNearEnd();
+        });
+      }
     });
     return operation;
   }
 
-  Future<void> _fetch(bool force) async {
+  Future<void> _fetch(
+      bool force, bool more, int offset, String query, int epoch) async {
     try {
-      final data = await widget.service.request('catalog', {'force': force});
-      if (!mounted) return;
+      final data = await widget.service.request(
+          'catalog', {'force': force, 'offset': offset, 'query': query});
+      if (!mounted || epoch != _epoch) return;
       setState(() {
         _error = null;
-        if (data['unavailable'] != true || _data == null) _data = data;
+        if (data['unavailable'] != true || _data == null) {
+          final entries = <String, Map<String, dynamic>>{
+            if (more)
+              for (final row in highlightMaps(_data?['entries']))
+                row['id'].toString(): row,
+            for (final row in highlightMaps(data['entries']))
+              row['id'].toString(): row,
+          };
+          _data = {...data, 'entries': entries.values.toList()};
+          _hasMore = data['has_more'] == true;
+          _nextOffset = (data['next_offset'] as num?)?.toInt() ?? offset;
+          _loadedQuery = query;
+        }
         if (data['unavailable'] == true) {
           _error = (data['warnings'] as List? ??
                   ['Could not extract highlight links.'])
@@ -66,7 +106,7 @@ class _HighlightsPageState extends State<HighlightsPage> {
         }
       });
     } catch (_) {
-      if (mounted)
+      if (mounted && epoch == _epoch)
         setState(() => _error =
             'Could not refresh. Showing the last successful links, if available.');
     }
@@ -294,9 +334,7 @@ class _HighlightsPageState extends State<HighlightsPage> {
   Widget build(BuildContext context) {
     final loading = _inFlight != null;
     final rows = highlightMaps(_data?['entries'])
-        .where((row) =>
-            highlightMaps(row['lines']).isNotEmpty &&
-            highlightMatchesQuery(row, _search.text))
+        .where((row) => highlightMatchesQuery(row, _search.text))
         .toList();
     final warnings = (_data?['warnings'] as List? ?? [])
         .map((value) => value.toString())
@@ -326,7 +364,15 @@ class _HighlightsPageState extends State<HighlightsPage> {
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
             child: TextField(
                 controller: _search,
-                onChanged: (_) => setState(() {}),
+                onChanged: (_) {
+                  setState(() {
+                    _hasMore = false;
+                    _epoch++;
+                  });
+                  _debounce?.cancel();
+                  _debounce = Timer(const Duration(milliseconds: 350),
+                      () => _load(force: true));
+                },
                 decoration: InputDecoration(
                     hintText: 'Search teams or highlights',
                     prefixIcon: const Icon(Icons.search),
@@ -335,8 +381,10 @@ class _HighlightsPageState extends State<HighlightsPage> {
                         : IconButton(
                             tooltip: 'Clear search',
                             icon: const Icon(Icons.close),
-                            onPressed: () =>
-                                setState(() => _search.clear()))))),
+                            onPressed: () {
+                              setState(() => _search.clear());
+                              _load(force: true);
+                            })))),
         Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
             child: Align(
@@ -365,9 +413,12 @@ class _HighlightsPageState extends State<HighlightsPage> {
             child: RefreshIndicator(
                 onRefresh: () => _load(force: true),
                 child: ListView.builder(
+                  controller: _scroll,
+                  physics: const AlwaysScrollableScrollPhysics(),
                   key: const PageStorageKey('highlights-dasfootball'),
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
-                  itemCount: rows.isEmpty ? 1 : rows.length,
+                  itemCount:
+                      rows.isEmpty ? 1 : rows.length + (_hasMore ? 1 : 0),
                   itemBuilder: (context, index) {
                     if (rows.isEmpty)
                       return Padding(
@@ -375,6 +426,12 @@ class _HighlightsPageState extends State<HighlightsPage> {
                           child: Text(loading
                               ? 'Extracting highlight links…'
                               : 'No extracted links to show. Refresh or clear your search.'));
+                    if (index >= rows.length)
+                      return TextButton(
+                          onPressed: loading ? null : () => _load(more: true),
+                          child: Text(loading
+                              ? 'Loading more…'
+                              : 'Load more highlights'));
                     final row = rows[index];
                     final count = highlightMaps(row['lines']).length;
                     final published =

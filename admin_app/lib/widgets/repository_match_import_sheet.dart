@@ -94,7 +94,7 @@ class _RepositoryMatchImportSheetState
                 'Lines missing required DRM data are skipped.',
                 textAlign: TextAlign.center),
             const SizedBox(height: 8),
-            const Text('You can edit the match and its lines in Controls.',
+            const Text('You can import without lines and add them later in Controls. Viewer shows NOT READY until a playable line is available.',
                 textAlign: TextAlign.center),
             const SizedBox(height: 16),
             SizedBox(

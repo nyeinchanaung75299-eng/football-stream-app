@@ -72,7 +72,8 @@ begin
  r:=public.publish_repository_match('repo:match:'||repeat('c',28),'2026-11-21T19:00:00+06:30');
  if r->>'created'<>'true' or not exists(select from public.matches where id=(r->>'match_id')::uuid and kickoff_at='2026-11-21T12:30:00Z'::timestamptz) then raise exception 'Explicit MMT kickoff lost';end if;
  r:=public.publish_repository_match('repo:match:'||repeat('d',28));
- if r->>'code'<>'no_importable_lines' or exists(select from public.matches where home_team='Test D') then raise exception 'Missing DRM published an empty match';end if;
+ if r->>'ok'<>'true' or r->>'added_lines'<>'0' or not exists(select from public.matches where home_team='Test D')
+  or exists(select from public.stream_links where match_id=(r->>'match_id')::uuid) then raise exception 'Metadata-only import invented a playable line';end if;
  -- Simulate Controls: soft-delete the match AND remove its old live lines.
  update public.matches set deleted_at=now(),is_active=false,is_featured=false,
    publish_state='draft' where id=mid;
