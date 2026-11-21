@@ -10,6 +10,7 @@ test('UFC, other MMA, Boxing and ONE retain their own categories and published d
  assert.equal(combatClassification({source_category:'MMA',league:'ONE Championship Kickboxing'}).discipline,'Kickboxing');
  assert.equal(combatClassification('ONE Championship').discipline,'Unknown');
  assert.equal(combatClassification('Football Premier League'),null);
+ assert.equal(combatClassification({source_category:'Football',league:'Premier League Boxing Day'}),null);
  assert.equal(combatClassification('UFC Boxing'),null);
 });
 test('safe event identity merges sources and lines but does not conflate dates, fighters or disciplines',async()=>{

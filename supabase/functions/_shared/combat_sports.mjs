@@ -5,6 +5,7 @@ const norm=x=>clean(x).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerC
 export const combatCategories={ufc:'UFC',mma:'MMA',boxing:'Boxing',one:'ONE Championship'};
 export function combatClassification(value){
  const text=typeof value==='string'?value:[value.source_category,value.league,value.name,value.discipline].filter(Boolean).join(' ');
+ if(/\b(?:football|soccer|cricket|basketball)\b/i.test(text))return null;
  const one=/\bone\s+(?:championship|friday\s+fights|fight\s+night)\b/i.test(text),ufc=/\bufc\b/i.test(text),boxing=/\bboxing\b/i.test(text),mma=/\bmma\b|mixed\s+martial\s+arts/i.test(text);
  if(one&&ufc)return null;
  if(!one&&ufc&&boxing)return null;
