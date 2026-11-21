@@ -16,6 +16,15 @@ import '../services/function_gateway.dart';
 import '../services/stream_library_service.dart';
 import '../source_line_validation.dart';
 import '../source_match_search.dart';
+import '../services/myanmar_time.dart';
+import '../services/source_match_suggestions.dart';
+import '../services/source_import_service.dart';
+import '../services/source_resolution_cache.dart';
+import '../services/match_paging.dart';
+import '../widgets/source_quality_sheet.dart';
+import '../widgets/match_destination_sheet.dart';
+import 'live_links_page.dart';
+import 'stream_preview_page.dart';
 import '../services/stream_detector_service.dart';
 import '../services/website_detector_service.dart';
 import '../source_room_status.dart';
@@ -128,7 +137,7 @@ bool sourceSessionMatches({
 }) =>
     pageUser != null &&
     activeUser == pageUser &&
-    (!isWeb || pageGeneration == currentGeneration);
+    pageGeneration == currentGeneration;
 
 class SocoImportPage extends StatefulWidget {
   const SocoImportPage({
@@ -175,6 +184,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
         defaultValue: '0',
       ).trim() ==
       '1';
+  late final SourceImportService _importer =
+      SourceImportService(Supabase.instance.client);
+  Map<String, dynamic>? _destinationSourceMatch;
+  Map<String, dynamic> _importRoom = const {};
+  int _extractionGeneration = 0;
   String? targetMatchId;
   bool loading = false;
   bool availableOnly = false;
@@ -251,10 +265,12 @@ class _SocoImportPageState extends State<SocoImportPage> {
   void initState() {
     super.initState();
     _streamLibrary = StreamLibraryService(Supabase.instance.client);
-    _sourceSessionGeneration = AdminWebSourceCache.sessionGeneration;
     _sourceSessionUserId =
         Supabase.instance.client.auth.currentSession?.user.id;
-    targetMatchId = widget.initialMatchId;
+    AdminWebSourceCache.bindUser(_sourceSessionUserId);
+    _sourceSessionGeneration = AdminWebSourceCache.sessionGeneration;
+    SourceResolutionCache.bind(_sourceSessionUserId);
+    targetMatchId = widget.initialMatchId ?? AdminWebSourceCache.recentMatchId;
     if (widget.initialReferer != null) {
       _playzReferer.text = widget.initialReferer!;
       final page = Uri.tryParse(widget.initialReferer!);
@@ -282,7 +298,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         ? 'all'
         : 'today';
     final ui = AdminWebSourceCache.ui(source);
-    if (kIsWeb && !_isManualSource) {
+    if (!_isManualSource) {
       _sourceQuery = ui.query;
       _sourceSearch.text = ui.query;
       dayFilter =
@@ -306,7 +322,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   void dispose() {
     _sourceLoadEpoch += 1;
     _sourceRefreshTimer?.cancel();
-    if (kIsWeb && !_isManualSource && _currentSession) {
+    if (!_isManualSource && _currentSession) {
       AdminWebSourceCache.saveUi(
           source,
           AdminSourceUiState(
@@ -330,8 +346,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
   Future<void> _refreshSourceInBackground() async {
     if (!mounted || _isManualSource || loading || _backgroundRefreshBusy)
       return;
-    if (kIsWeb && (!_currentSession || AdminWebSourceCache.fresh(source)))
-      return;
+    if (!_currentSession || AdminWebSourceCache.fresh(source)) return;
     final state = WidgetsBinding.instance.lifecycleState;
     if (_extractingAnchorKey != null ||
         (state != null && state != AppLifecycleState.resumed) ||
@@ -350,17 +365,11 @@ class _SocoImportPageState extends State<SocoImportPage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadTargetMatches() async {
-    final data = await Supabase.instance.client
-        .from('matches')
-        .select(
-          'id,home_team,away_team,kickoff_at,sort_order,is_live,is_active,'
-          'is_finished,is_featured,publish_state,deleted_at',
-        )
-        .eq('is_active', true)
-        .order('kickoff_at', ascending: true)
-        .order('sort_order', ascending: true)
-        .order('home_team', ascending: true)
-        .timeout(const Duration(seconds: 10));
+    final data = await loadAdminMatches(Supabase.instance.client,
+        columns:
+            'id,home_team,away_team,kickoff_at,sort_order,is_live,is_active,is_finished,is_featured,publish_state,deleted_at',
+        activeOnly: true,
+        publishedOnly: true);
 
     final now = DateTime.now();
     const staleKickoffGrace = Duration(hours: 5);
@@ -446,8 +455,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
         mounted &&
         source == provider &&
         epoch == _sourceLoadEpoch &&
-        (!kIsWeb ||
-            (sessionGeneration == _sourceSessionGeneration && _currentSession));
+        (sessionGeneration == _sourceSessionGeneration && _currentSession);
     if (!silent) {
       setState(() {
         loading = true;
@@ -546,7 +554,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       if (!silent) {
         final detail = e.toString().replaceFirst('Exception: ', '');
         setState(() {
-          if (!kIsWeb || sourceMatches.isEmpty) {
+          if (sourceMatches.isEmpty) {
             sourceMatches = const [];
           }
           errorText =
@@ -753,24 +761,16 @@ class _SocoImportPageState extends State<SocoImportPage> {
       return rows.toList();
     }
 
-    // Experimental providers display Myanmar Time independently of the
-    // device timezone. Use that same clock for the Today/Tomorrow filters.
-    // Keep the original device-local behavior for existing NCA sources.
+    // Source cards and date filters use the same Myanmar calendar.
     const mmOffset = Duration(hours: 6, minutes: 30);
-    final now = _isExperimentalSource
-        ? DateTime.now().toUtc().add(mmOffset)
-        : DateTime.now();
+    final now = DateTime.now().toUtc().add(mmOffset);
     final wanted = dayFilter == 'tomorrow'
         ? DateTime(now.year, now.month, now.day + 1)
         : DateTime(now.year, now.month, now.day);
 
     return rows.where((row) {
       final parsed = DateTime.tryParse(row['match_time']?.toString() ?? '');
-      final time = parsed == null
-          ? null
-          : _isExperimentalSource
-              ? parsed.toUtc().add(mmOffset)
-              : parsed.toLocal();
+      final time = parsed == null ? null : parsed.toUtc().add(mmOffset);
       return time != null && _sameDate(time, wanted);
     }).toList();
   }
@@ -779,85 +779,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
     final loaded = await _loadTargetMatches();
     if (!mounted || loaded.isEmpty) return null;
 
-    final targets = List<Map<String, dynamic>>.from(loaded);
-    final suggestedId = targetMatchId;
-    if (suggestedId != null) {
-      targets.sort((a, b) {
-        final aSuggested = a['id']?.toString() == suggestedId;
-        final bSuggested = b['id']?.toString() == suggestedId;
-        if (aSuggested == bSuggested) return 0;
-        return aSuggested ? -1 : 1;
-      });
-    }
-
+    final targets = suggestDestinations(loaded, _destinationSourceMatch,
+        preferred: targetMatchId);
     return showModalBottomSheet<String>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: .72,
-        maxChildSize: .9,
-        minChildSize: .45,
-        builder: (context, controller) => Column(
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 2, 16, 10),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Choose NCA match',
-                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
-                ),
-              ),
-            ),
-            Expanded(
-              child: ListView.separated(
-                controller: controller,
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
-                itemCount: targets.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 4),
-                itemBuilder: (context, index) {
-                  final m = targets[index];
-                  final kickoff = DateTime.tryParse(
-                    m['kickoff_at']?.toString() ?? '',
-                  )?.toLocal();
-                  final when = kickoff == null
-                      ? '--:--'
-                      : DateFormat('dd MMM • h:mm a', 'en_US').format(kickoff);
-
-                  return ListTile(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    tileColor:
-                        Theme.of(context).colorScheme.surfaceContainerLow,
-                    leading: const Icon(Icons.sports_soccer_rounded),
-                    title: Text(
-                      '${englishKnownFootballName('${m['home_team']}')} vs ${englishKnownFootballName('${m['away_team']}')}',
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    subtitle: Text(when),
-                    trailing: m['id']?.toString() == suggestedId
-                        ? const Text(
-                            'CURRENT',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          )
-                        : null,
-                    onTap: () =>
-                        Navigator.pop(sheetContext, m['id']?.toString()),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+        context: context,
+        useSafeArea: true,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (_) => MatchDestinationSheet(matches: targets));
   }
 
   Future<void> _openSourceDetector(
@@ -917,43 +846,66 @@ class _SocoImportPageState extends State<SocoImportPage> {
       _anchorLineCounts[key] = lines.length;
       _anchorStatuses[key] = 'detected';
     });
+    _importRoom = {
+      'room_num': anchor['room_num'],
+      'schedule_id': match['schedule_id'],
+      'page_url': anchor['page_url'] ?? match['page_url'],
+      'watch_url': anchor['watch_url']
+    };
     await _showQualityPicker(match: match, anchor: anchor, lines: lines);
   }
 
   Future<void> _openAnchor(
-    Map<String, dynamic> match,
-    Map<String, dynamic> anchor,
-  ) async {
+      Map<String, dynamic> match, Map<String, dynamic> anchor,
+      {bool force = false}) async {
     final room = anchor['room_num']?.toString().trim() ?? '';
     if (room.isEmpty) return;
 
     final extractingKey = _anchorKey(match, anchor);
     final provider = source;
-    bool current() => mounted && _currentSession && source == provider;
     if (_extractingAnchorKey != null) return;
+    final extractionEpoch = ++_extractionGeneration;
+    bool current() =>
+        mounted &&
+        _currentSession &&
+        source == provider &&
+        extractionEpoch == _extractionGeneration;
     // A manual tap takes priority over background checking. Any queued
     // probe results become stale and cannot block the quality picker.
     ++_anchorStatusEpoch;
     setState(() => _extractingAnchorKey = extractingKey);
 
     try {
-      final data = await FunctionGateway.invoke(
-        'soco-links',
-        body: {
-          'action': 'streams',
-          'source': provider,
-          'room_num': room,
-          'schedule_id': match['schedule_id'],
-          'page_url': anchor['page_url'] ?? match['page_url'],
-          if (provider == 'crichd') 'watch_url': anchor['watch_url'],
-          // Cola URLs are checked before the operator can import them.
-          // Other rotating providers keep the fast metadata-only path.
-          'skip_probe': provider != 'cola' && !_isExperimentalSource,
-          // These sources return unverified public candidates promptly;
-          // don't wait for repeated server probes on an explicit tap.
-          if (provider == 'crichd' || provider == 'roxie') 'preview_only': true,
-        },
-      );
+      _importRoom = {
+        'room_num': room,
+        'schedule_id': match['schedule_id'],
+        'page_url': anchor['page_url'] ?? match['page_url'],
+        'watch_url': anchor['watch_url']
+      };
+      final dynamic data =
+          await SourceResolutionCache.load(provider, _importRoom, () async {
+        final resolved = await FunctionGateway.invoke(
+          'soco-links',
+          body: {
+            'action': 'streams',
+            'source': provider,
+            'room_num': room,
+            'schedule_id': match['schedule_id'],
+            'page_url': anchor['page_url'] ?? match['page_url'],
+            if (provider == 'crichd') 'watch_url': anchor['watch_url'],
+            // Cola URLs are checked before the operator can import them.
+            // Other rotating providers keep the fast metadata-only path.
+            'skip_probe': provider != 'cola' && !_isExperimentalSource,
+            // These sources return unverified public candidates promptly;
+            // don't wait for repeated server probes on an explicit tap.
+            if (provider == 'crichd' || provider == 'roxie')
+              'preview_only': true,
+          },
+        );
+        if (resolved is! Map)
+          throw const FormatException('Invalid source response');
+        return Map<String, dynamic>.from(resolved);
+      }, force: force);
 
       final rows = data is Map ? data['lines'] : null;
       if (!current()) return;
@@ -1144,468 +1096,93 @@ class _SocoImportPageState extends State<SocoImportPage> {
     required List<Map<String, dynamic>> lines,
     dynamic sourceLiveStatus,
   }) async {
-    final anchorName = (anchor['nick_name'] ?? 'Streamer').toString().trim();
-    final importName =
-        source == 'yyzb' ? _anchorImportName(anchor) : anchorName;
-
+    final provider = source;
+    final anchorName = source == 'yyzb'
+        ? _anchorImportName(anchor)
+        : (anchor['nick_name'] ?? 'Streamer').toString();
+    _destinationSourceMatch = match;
+    if (mounted) setState(() => _extractingAnchorKey = null);
     await showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        final colors = Theme.of(sheetContext).colorScheme;
-        return SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 22),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Select Stream Quality',
-                  style: Theme.of(sheetContext)
-                      .textTheme
-                      .titleLarge
-                      ?.copyWith(fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${_sourceMatchTitle(match)} • $anchorName',
-                  style: TextStyle(color: colors.onSurfaceVariant),
-                ),
-                if (sourceLiveStatus != null) ...[
-                  const SizedBox(height: 8),
-                  Builder(
-                    builder: (context) {
-                      final live = sourceLiveStatus == true ||
-                          sourceLiveStatus == 1 ||
-                          sourceLiveStatus.toString() == '1';
-                      return Align(
-                        alignment: Alignment.centerLeft,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 9,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: (live ? Colors.green : Colors.orange)
-                                .withValues(alpha: .12),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            live ? 'SOURCE LIVE' : 'SOURCE NOT LIVE',
-                            style: TextStyle(
-                              color: live ? Colors.green : Colors.orange,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-                if (lines.any(
-                    (line) => line['discovery_mode'] == 'source_browser')) ...[
-                  const SizedBox(height: 8),
-                  const Text(
-                      'Detected in the source browser. Playback is not verified; session links may expire.',
-                      style: TextStyle(fontSize: 12)),
-                ],
-                const SizedBox(height: 12),
-                ...lines.map((line) {
-                  final label = (line['label'] ?? 'Stream').toString();
-                  final type =
-                      (line['stream_type'] ?? 'auto').toString().toUpperCase();
-                  final url = (line['url'] ?? '').toString();
-                  final referer = (line['referer'] ?? '').toString().trim();
-                  final origin = (line['origin'] ?? '').toString().trim();
-                  final health =
-                      (line['health_status'] ?? '').toString().toLowerCase();
+        context: context,
+        useSafeArea: true,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheet) => SourceQualitySheet(
+              title:
+                  '${_sourceMatchTitle(match)} • ${provider == 'yyzb' ? englishSourceAnchorName(anchor, 0) : anchorName}',
+              lines: lines,
+              onAdd: (selected) async {
+                if (!_currentSession || source != provider) return null;
+                return _addLines(selected, anchorName);
+              },
+              onRefresh: () {
+                Navigator.pop(sheet);
+                _extractingAnchorKey = null;
+                unawaited(_openAnchor(match, anchor, force: true));
+              },
+              onTest: (line) => Navigator.of(sheet).push<void>(
+                  MaterialPageRoute(
+                      builder: (_) => StreamPreviewPage(
+                          stream: DetectedStream(
+                              url: '${line['url']}',
+                              type: '${line['stream_type'] ?? 'auto'}',
+                              referer: '${line['referer'] ?? ''}',
+                              origin: '${line['origin'] ?? ''}')))),
+              onOpenMatch: (id) {
+                Navigator.pop(sheet);
+                Navigator.of(context).push<void>(MaterialPageRoute(
+                    builder: (_) => LiveLinksPage(initialMatchId: id)));
+              },
+            ));
+  }
 
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-                      child: Row(
-                        children: [
-                          Icon(
-                            type == 'HLS'
-                                ? Icons.play_circle_fill_rounded
-                                : Icons.video_file_rounded,
-                            color: colors.primary,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        source == 'yyzb'
-                                            ? englishStreamLabel(label)
-                                            : label,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                        ),
-                                      ),
-                                    ),
-                                    if (health.isNotEmpty)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 7,
-                                          vertical: 3,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: (health == 'healthy'
-                                                  ? Colors.green
-                                                  : health == 'failed' ||
-                                                          health == 'dead'
-                                                      ? Colors.red
-                                                      : Colors.orange)
-                                              .withValues(alpha: .12),
-                                          borderRadius: BorderRadius.circular(
-                                            999,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          health.toUpperCase(),
-                                          style: TextStyle(
-                                            color: health == 'healthy'
-                                                ? Colors.green
-                                                : health == 'failed' ||
-                                                        health == 'dead'
-                                                    ? Colors.red
-                                                    : Colors.orange,
-                                            fontSize: 9.5,
-                                            fontWeight: FontWeight.w900,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  url,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    color: colors.onSurfaceVariant,
-                                  ),
-                                ),
-                                if (referer.isNotEmpty) ...[
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'Referer: $referer',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 10.5,
-                                      color: colors.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ],
-                                if (origin.isNotEmpty) ...[
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'Origin: $origin',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 10.5,
-                                      color: colors.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          if (const {'soco', 'yyzb', 'cola'}.contains(source))
-                            IconButton(
-                              tooltip: 'Copy video URL',
-                              icon: const Icon(Icons.copy_rounded),
-                              onPressed: () async {
-                                await Clipboard.setData(
-                                    ClipboardData(text: url));
-                                unawaited(AnalyticsService.capture(
-                                  'source link copied',
-                                  properties: {
-                                    'source': source,
-                                    'stream_type':
-                                        (line['stream_type'] ?? 'auto')
-                                            .toString(),
-                                    'copied_field': 'url',
-                                  },
-                                ));
-                                message('Video URL copied.');
-                              },
-                            )
-                          else
-                            PopupMenuButton<String>(
-                              tooltip: 'Copy link or headers',
-                              icon: const Icon(Icons.copy_rounded),
-                              itemBuilder: (_) => [
-                                const PopupMenuItem(
-                                    value: 'url',
-                                    child: Text('Copy video URL')),
-                                if (referer.isNotEmpty)
-                                  const PopupMenuItem(
-                                      value: 'referer',
-                                      child: Text('Copy Referer')),
-                                if (origin.isNotEmpty)
-                                  const PopupMenuItem(
-                                      value: 'origin',
-                                      child: Text('Copy Origin')),
-                                const PopupMenuItem(
-                                    value: 'all',
-                                    child: Text('Copy all details')),
-                              ],
-                              onSelected: (field) async {
-                                final value = switch (field) {
-                                  'referer' => referer,
-                                  'origin' => origin,
-                                  'all' => [
-                                      'URL: $url',
-                                      if (referer.isNotEmpty)
-                                        'Referer: $referer',
-                                      if (origin.isNotEmpty) 'Origin: $origin',
-                                    ].join('\n'),
-                                  _ => url,
-                                };
-                                await Clipboard.setData(
-                                    ClipboardData(text: value));
-                                unawaited(
-                                  AnalyticsService.capture(
-                                    'source link copied',
-                                    properties: {
-                                      'source': source,
-                                      'stream_type':
-                                          (line['stream_type'] ?? 'auto')
-                                              .toString(),
-                                      'copied_field': field,
-                                    },
-                                  ),
-                                );
-                                final label = switch (field) {
-                                  'referer' => 'Referer',
-                                  'origin' => 'Origin',
-                                  'all' => 'Stream details',
-                                  _ => '${_sourceLabel(source)} link',
-                                };
-                                message('$label copied.');
-                              },
-                            ),
-                          FilledButton(
-                            onPressed: () async {
-                              final added = await _addLine(
-                                line: line,
-                                anchorName: importName,
-                              );
-                              if (added && sheetContext.mounted) {
-                                Navigator.pop(sheetContext);
-                              }
-                            },
-                            child: const Text('ADD'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }),
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    targetMatchId == null
-                        ? 'Each ADD will ask which NCA match to use.'
-                        : 'Each ADD will still ask for the NCA match. The selected destination is shown first.',
-                    style: TextStyle(
-                      color: colors.onSurfaceVariant,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
+  Future<Map<String, dynamic>?> _addLines(
+      List<Map<String, dynamic>> lines, String anchorName) async {
+    if (_addingLine || !_currentSession) return null;
+    setState(() => _addingLine = true);
+    final provider = source;
+    final room = Map<String, dynamic>.from(_importRoom);
+    try {
+      final target = await _chooseDestination();
+      if (target == null || !mounted || !_currentSession || source != provider)
+        return null;
+      final payload = [
+        for (final line in lines)
+          {
+            ...line,
+            'source_line_id': line['id'] ?? line['label'],
+            'source_label': line['label'],
+            'label':
+                '${_sourceLabel(provider)} • $anchorName • ${line['label'] ?? 'Stream'}',
+          }
+      ];
+      final result = await _importer.save(
+          matchId: target, source: provider, room: room, lines: payload);
+      if (!mounted || !_currentSession) return result;
+      targetMatchId = target;
+      AdminWebSourceCache.rememberMatch(target);
+      // Health/video checks stay explicit in the quality sheet. A batch ADD
+      // must not fan out a probe per selected line on Vercel/Edge Functions.
+      widget.onMutated?.call();
+      message('Added ${lines.length} line(s). Video playback is not verified.');
+      return result;
+    } finally {
+      if (mounted)
+        setState(() => _addingLine = false);
+      else
+        _addingLine = false;
+    }
   }
 
   Future<bool> _addLine({
     required Map<String, dynamic> line,
     required String anchorName,
   }) async {
-    if (_addingLine || !_currentSession) return false;
-    setState(() => _addingLine = true);
-    final provider = source;
     try {
-      // Always require an explicit destination confirmation. The dropdown and
-      // initial match only suggest which match should appear first.
-      final presetTarget = targetMatchId;
-      final target = await _chooseDestination();
-      if (target == null || !_currentSession || !mounted) return false;
-
-      final url = (line['url'] ?? '').toString().trim();
-      if (url.isEmpty) return false;
-
-      final sourceName = _sourceLabel(provider);
-      final label = (line['label'] ?? sourceName).toString();
-      final type = (line['stream_type'] ?? 'auto').toString();
-      final resolution = (line['resolution'] ?? label).toString();
-      final fullLabel = '$sourceName • $anchorName • $label';
-
-      final exact = await Supabase.instance.client
-          .from('stream_links')
-          .select('id,is_active,expires_at')
-          .eq('match_id', target)
-          .eq('stream_url', url)
-          .maybeSingle()
-          .timeout(const Duration(seconds: 10));
-
-      if (!_currentSession || !mounted) return false;
-      Map<String, dynamic> saved;
-      if (exact != null) {
-        // A previously imported short-lived line may have been disabled after
-        // its signed URL expired. Re-enable it when the source returns the same
-        // URL again instead of treating it as an unusable duplicate.
-        saved = await Supabase.instance.client
-            .from('stream_links')
-            .update({
-              'label': fullLabel,
-              'resolution': resolution,
-              'stream_type': type,
-              'referer': nullable(line['referer']?.toString()),
-              'origin': nullable(line['origin']?.toString()),
-              ...sourceLineKeyFields(line),
-              'is_active': true,
-              'expires_at': line['expires_at'],
-              'health_status': 'unknown',
-              'health_latency_ms': null,
-              'last_checked_at': null,
-            })
-            .eq('id', exact['id'])
-            .select('id')
-            .single()
-            .timeout(const Duration(seconds: 12));
-      } else {
-        // Soco/YYZB/Cola signed URLs rotate. Match the logical line by its
-        // stable label/type/resolution and replace the expired URL in-place so
-        // the viewer gets the fresh token without accumulating dead rows.
-        final sameLogical = await Supabase.instance.client
-            .from('stream_links')
-            .select('id')
-            .eq('match_id', target)
-            .eq('label', fullLabel)
-            .eq('stream_type', type)
-            .eq('resolution', resolution)
-            .maybeSingle()
-            .timeout(const Duration(seconds: 10));
-
-        if (!_currentSession || !mounted) return false;
-        if (sameLogical != null) {
-          saved = await Supabase.instance.client
-              .from('stream_links')
-              .update({
-                'stream_url': url,
-                'referer': nullable(line['referer']?.toString()),
-                'origin': nullable(line['origin']?.toString()),
-                ...sourceLineKeyFields(line),
-                'is_active': true,
-                'expires_at': line['expires_at'],
-                'health_status': 'unknown',
-                'health_latency_ms': null,
-                'last_checked_at': null,
-              })
-              .eq('id', sameLogical['id'])
-              .select('id')
-              .single()
-              .timeout(const Duration(seconds: 12));
-        } else {
-          saved = await Supabase.instance.client
-              .from('stream_links')
-              .insert({
-                'match_id': target,
-                'label': fullLabel,
-                'resolution': resolution,
-                'stream_type': type,
-                'stream_url': url,
-                'referer': nullable(line['referer']?.toString()),
-                'origin': nullable(line['origin']?.toString()),
-                ...sourceLineKeyFields(line),
-                'use_webview': false,
-                'webview_url': null,
-                'send_notification': false,
-                'is_active': true,
-                'expires_at': line['expires_at'],
-              })
-              .select('id')
-              .single()
-              .timeout(const Duration(seconds: 12));
-        }
-      }
-
-      if (!_currentSession || !mounted) return false;
-      // Saving is complete. A slow health check must not keep ADD waiting or
-      // invite a duplicate submission. Its result is keyed to the saved row,
-      // never to whichever provider/destination the UI later selects.
-      unawaited(_checkSavedLine(saved['id'].toString(), provider));
-      unawaited(
-        AnalyticsService.capture(
-          'source line imported',
-          properties: {
-            'source': provider,
-            'stream_type': type,
-            'resolution': resolution,
-            'destination_preset': presetTarget != null,
-            'health_status': 'pending',
-          },
-        ),
-      );
-
-      final shownLabel = provider == 'yyzb' ? englishStreamLabel(label) : label;
-      message('$sourceName $shownLabel added. Health check is pending.');
-      widget.onMutated?.call();
-      return true;
-    } on TimeoutException {
-      message('Could not confirm the save. Refresh before trying again.');
-      return false;
+      return await _addLines([line], anchorName) != null;
     } catch (_) {
-      message('Could not add the server. Please retry.');
+      message('Save was not confirmed. Your selection is kept.');
       return false;
-    } finally {
-      if (mounted && _currentSession) {
-        setState(() => _addingLine = false);
-      } else {
-        _addingLine = false;
-      }
-    }
-  }
-
-  Future<void> _checkSavedLine(String id, String provider) async {
-    try {
-      final checked = await FunctionGateway.invoke(
-        'stream-health',
-        body: {'link_id': id},
-      ).timeout(const Duration(seconds: 12));
-      unawaited(
-        AnalyticsService.capture(
-          'stream health checked',
-          properties: {
-            'scope': 'link',
-            'source': provider,
-            if (checked is Map && checked['health_status'] != null)
-              'health_status': checked['health_status'].toString(),
-          },
-        ),
-      );
-    } catch (_) {
-      // System Health and Stream Servers show the eventual persisted result.
-      // Do not show an error on a newer source/destination screen.
     }
   }
 
@@ -2185,7 +1762,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
       body: RefreshIndicator(
         onRefresh: _loadSoco,
         child: ListView(
-          controller: kIsWeb ? _sourceScroll : null,
+          controller: _sourceScroll,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
           children: [
             if (_isManualSource) _manualSourceCard(colors),
@@ -2295,11 +1872,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
               final parsedKickoff = DateTime.tryParse(
                 match['match_time']?.toString() ?? '',
               );
-              final kickoff = _isExperimentalSource && parsedKickoff != null
-                  ? parsedKickoff
-                      .toUtc()
-                      .add(const Duration(hours: 6, minutes: 30))
-                  : parsedKickoff?.toLocal();
+              final kickoff =
+                  parsedKickoff == null ? null : myanmarTime(parsedKickoff);
               final displayKickoff = kickoff;
               final anchors = List<Map<String, dynamic>>.from(
                 match['anchors'] ?? const [],
@@ -2371,7 +1945,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                                       ? match['time_label'].toString()
                                       : 'Unknown time')
                                   : '${DateFormat('dd MMM • h:mm a', 'en_US').format(displayKickoff)}'
-                                      '${_isExperimentalSource ? ' MMT' : ''}'
+                                      ' MMT'
                                       '${match['kickoff_estimated'] == true ? ' • ESTIMATED' : ''}',
                           style: TextStyle(color: colors.onSurfaceVariant),
                         ),
@@ -2384,6 +1958,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
                               style: TextStyle(fontSize: 11)),
                         ),
                       const SizedBox(height: 12),
+                      if (_extractingAnchorKey != null)
+                        TextButton.icon(
+                            onPressed: () {
+                              ++_extractionGeneration;
+                              setState(() => _extractingAnchorKey = null);
+                            },
+                            icon: const Icon(Icons.close),
+                            label: const Text('Cancel link search')),
                       if (anchors.isEmpty)
                         Text(
                           'No streamer is listed yet.',

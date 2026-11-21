@@ -7,8 +7,7 @@ import 'package:football_admin/screens/highlights_page.dart';
 import 'package:football_admin/services/diagnostics_service.dart';
 
 void main() {
-  testWidgets(
-      'Bottom tabs keep controls usable and never scan automatically',
+  testWidgets('Bottom tabs keep controls usable and never scan automatically',
       (tester) async {
     tester.view.physicalSize = const Size(320, 844);
     tester.view.devicePixelRatio = 1;
@@ -17,7 +16,7 @@ void main() {
     var requests = 0;
     await http.runWithClient(() async {
       await tester.pumpWidget(const MaterialApp(home: DashboardPage()));
-      expect(find.byType(NavigationDestination), findsNWidgets(6));
+      expect(find.byType(NavigationDestination), findsNWidgets(5));
       final destinations = tester
           .widgetList<NavigationDestination>(
             find.byType(NavigationDestination),
@@ -25,7 +24,7 @@ void main() {
           .toList();
       expect(
         destinations.map((destination) => destination.label),
-      ['Controls', 'Sources', 'Tools', 'TV Schedule', 'My Channels', 'Highlights'],
+        ['Controls', 'Sources', 'Tools', 'TV Schedule', 'My Channels'],
       );
       expect(find.text('Stream Detector'), findsNothing);
       expect(find.text('Pick Big Matches'), findsOneWidget);
@@ -75,10 +74,18 @@ void main() {
       // Tools should only rearrange navigation, not invoke any network sync.
       expect(requests, 0);
       expect(find.byType(HighlightsPage), findsNothing);
+      await tester.tap(find.text('Sources').last);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Highlights'), 180,
+          scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('Highlights'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Highlights').last);
       await tester.pumpAndSettle();
       expect(find.byType(HighlightsPage), findsOneWidget);
       expect(find.text('Search teams or highlights'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Controls').last);
       await tester.pumpAndSettle();
       expect(find.text('Pick Big Matches'), findsOneWidget);

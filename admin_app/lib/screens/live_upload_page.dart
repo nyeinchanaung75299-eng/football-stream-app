@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
+import '../widgets/unsaved_changes_guard.dart';
+import '../services/myanmar_time.dart';
+import 'package:uuid/uuid.dart';
 import '../services/repository_logo.dart';
 
 class LiveUploadPage extends StatefulWidget {
@@ -21,7 +24,11 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
   final awayLogo = TextEditingController();
   final order = TextEditingController(text: '0');
 
-  DateTime kickoff = DateTime.now().add(const Duration(hours: 1));
+  late DateTime kickoff =
+      myanmarTime(DateTime.now().add(const Duration(hours: 1)));
+  late final initialKickoff = kickoff;
+  final _formExit = FormExitHandle();
+  final _matchId = const Uuid().v4();
   bool isLive = false;
   bool loading = false;
 
@@ -37,14 +44,15 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
     ]) {
       controller.dispose();
     }
+    _formExit.dispose();
     super.dispose();
   }
 
   Future<void> pickDate() async {
     final result = await showDatePicker(
       context: context,
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now().add(const Duration(days: 3650)),
+      firstDate: myanmarTime(DateTime.now()).subtract(const Duration(days: 30)),
+      lastDate: myanmarTime(DateTime.now()).add(const Duration(days: 3650)),
       initialDate: kickoff,
     );
     if (result != null) {
@@ -95,25 +103,31 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
 
     setState(() => loading = true);
     try {
-      await Supabase.instance.client.from('matches').insert({
-        'league': league.text.trim(),
-        'home_team': homeTeam.text.trim(),
-        'away_team': awayTeam.text.trim(),
-        'home_logo_url': homeLogo.text.trim().isEmpty
-            ? null
-            : originalRepositoryLogoUrl(homeLogo.text.trim()),
-        'away_logo_url': awayLogo.text.trim().isEmpty
-            ? null
-            : originalRepositoryLogoUrl(awayLogo.text.trim()),
-        'kickoff_at': kickoff.toUtc().toIso8601String(),
-        'sort_order': int.tryParse(order.text) ?? 0,
-        'is_live': isLive,
-        'is_active': true,
-        'is_featured': true,
-        'publish_state': 'published',
-        'source': 'manual',
-        'status_short': isLive ? 'LIVE' : 'NS',
-      }).timeout(const Duration(seconds: 12));
+      await Supabase.instance.client
+          .from('matches')
+          .upsert({
+            'id': _matchId,
+            'league': league.text.trim(),
+            'home_team': homeTeam.text.trim(),
+            'away_team': awayTeam.text.trim(),
+            'home_logo_url': homeLogo.text.trim().isEmpty
+                ? null
+                : originalRepositoryLogoUrl(homeLogo.text.trim()),
+            'away_logo_url': awayLogo.text.trim().isEmpty
+                ? null
+                : originalRepositoryLogoUrl(awayLogo.text.trim()),
+            'kickoff_at': myanmarWallToUtc(kickoff).toIso8601String(),
+            'sort_order': int.tryParse(order.text) ?? 0,
+            'is_live': isLive,
+            'is_active': true,
+            'is_featured': true,
+            'publish_state': 'published',
+            'source': 'manual',
+            'status_short': isLive ? 'LIVE' : 'NS',
+          })
+          .select('id')
+          .single()
+          .timeout(const Duration(seconds: 12));
 
       unawaited(AnalyticsService.capture(
         'manual match created',
@@ -127,7 +141,7 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Live match uploaded.')),
       );
-      Navigator.pop(context);
+      _formExit.savedPop(context);
     } on TimeoutException {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -150,152 +164,157 @@ class _LiveUploadPageState extends State<LiveUploadPage> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Upload Live Match')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-        children: [
-          _Section(
-            icon: Icons.emoji_events_outlined,
-            title: 'Match details',
-            child: Column(
-              children: [
-                TextField(
-                  controller: league,
-                  decoration: const InputDecoration(
-                    labelText: 'League',
-                    hintText: 'Premier League',
-                    prefixIcon: Icon(Icons.emoji_events_outlined),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Row(
+    return UnsavedChangesGuard(
+        handle: _formExit,
+        controllers: [league, homeTeam, awayTeam, homeLogo, awayLogo, order],
+        busy: loading,
+        dirty: () => isLive || kickoff != initialKickoff,
+        child: Scaffold(
+          appBar: AppBar(title: const Text('Upload Live Match')),
+          body: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+            children: [
+              _Section(
+                icon: Icons.emoji_events_outlined,
+                title: 'Match details',
+                child: Column(
                   children: [
-                    Expanded(
-                      child: TextField(
-                        controller: homeTeam,
-                        decoration: const InputDecoration(
-                          labelText: 'Home team',
-                          prefixIcon: Icon(Icons.home_filled),
-                        ),
+                    TextField(
+                      controller: league,
+                      decoration: const InputDecoration(
+                        labelText: 'League',
+                        hintText: 'Premier League',
+                        prefixIcon: Icon(Icons.emoji_events_outlined),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        controller: awayTeam,
-                        decoration: const InputDecoration(
-                          labelText: 'Away team',
-                          prefixIcon: Icon(Icons.flight_takeoff_rounded),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: homeTeam,
+                            decoration: const InputDecoration(
+                              labelText: 'Home team',
+                              prefixIcon: Icon(Icons.home_filled),
+                            ),
+                          ),
                         ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: awayTeam,
+                            decoration: const InputDecoration(
+                              labelText: 'Away team',
+                              prefixIcon: Icon(Icons.flight_takeoff_rounded),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _Section(
+                icon: Icons.image_outlined,
+                title: 'Team logos',
+                subtitle: 'Paste direct .png/.jpg links — no gallery upload.',
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: homeLogo,
+                      keyboardType: TextInputType.url,
+                      decoration: const InputDecoration(
+                        labelText: 'Home logo URL',
+                        hintText: 'https://.../home.png',
+                        prefixIcon: Icon(Icons.link_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: awayLogo,
+                      keyboardType: TextInputType.url,
+                      decoration: const InputDecoration(
+                        labelText: 'Away logo URL',
+                        hintText: 'https://.../away.png',
+                        prefixIcon: Icon(Icons.link_rounded),
                       ),
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          _Section(
-            icon: Icons.image_outlined,
-            title: 'Team logos',
-            subtitle: 'Paste direct .png/.jpg links — no gallery upload.',
-            child: Column(
-              children: [
-                TextField(
-                  controller: homeLogo,
-                  keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(
-                    labelText: 'Home logo URL',
-                    hintText: 'https://.../home.png',
-                    prefixIcon: Icon(Icons.link_rounded),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: awayLogo,
-                  keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(
-                    labelText: 'Away logo URL',
-                    hintText: 'https://.../away.png',
-                    prefixIcon: Icon(Icons.link_rounded),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          _Section(
-            icon: Icons.schedule_rounded,
-            title: 'Schedule',
-            child: Column(
-              children: [
-                Row(
+              ),
+              const SizedBox(height: 12),
+              _Section(
+                icon: Icons.schedule_rounded,
+                title: 'Schedule • MMT',
+                child: Column(
                   children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: pickDate,
-                        icon: const Icon(Icons.calendar_month_rounded),
-                        label: Text(
-                          DateFormat('dd MMM yyyy').format(kickoff),
-                          overflow: TextOverflow.ellipsis,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: pickDate,
+                            icon: const Icon(Icons.calendar_month_rounded),
+                            label: Text(
+                              DateFormat('dd MMM yyyy').format(kickoff),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: pickTime,
+                            icon: const Icon(Icons.schedule_rounded),
+                            label: Text(
+                                DateFormat('h:mm a', 'en_US').format(kickoff)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: order,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Display order',
+                        prefixIcon: Icon(Icons.format_list_numbered_rounded),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: pickTime,
-                        icon: const Icon(Icons.schedule_rounded),
-                        label:
-                            Text(DateFormat('h:mm a', 'en_US').format(kickoff)),
+                    const SizedBox(height: 8),
+                    SwitchListTile.adaptive(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                      title: const Text(
+                        'Mark as LIVE now',
+                        style: TextStyle(fontWeight: FontWeight.w700),
                       ),
+                      subtitle: Text(
+                        isLive
+                            ? 'The LIVE badge will be shown immediately.'
+                            : 'You can turn this on later.',
+                        style: TextStyle(color: colors.onSurfaceVariant),
+                      ),
+                      value: isLive,
+                      onChanged: (v) => setState(() => isLive = v),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: order,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Display order',
-                    prefixIcon: Icon(Icons.format_list_numbered_rounded),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SwitchListTile.adaptive(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                  title: const Text(
-                    'Mark as LIVE now',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  subtitle: Text(
-                    isLive
-                        ? 'The LIVE badge will be shown immediately.'
-                        : 'You can turn this on later.',
-                    style: TextStyle(color: colors.onSurfaceVariant),
-                  ),
-                  value: isLive,
-                  onChanged: (v) => setState(() => isLive = v),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: loading ? null : save,
+                icon: loading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.cloud_upload_rounded),
+                label: Text(loading ? 'UPLOADING...' : 'UPLOAD LIVE MATCH'),
+              ),
+            ],
           ),
-          const SizedBox(height: 18),
-          FilledButton.icon(
-            onPressed: loading ? null : save,
-            icon: loading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.cloud_upload_rounded),
-            label: Text(loading ? 'UPLOADING...' : 'UPLOAD LIVE MATCH'),
-          ),
-        ],
-      ),
-    );
+        ));
   }
 }
 

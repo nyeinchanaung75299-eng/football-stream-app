@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
 import '../football_english.dart';
+import '../services/manual_source_url.dart';
+import '../source_line_validation.dart';
+import '../services/match_paging.dart';
+import '../widgets/unsaved_changes_guard.dart';
 import '../services/function_gateway.dart';
 import '../services/channel_source_service.dart';
 import '../services/match_line_label.dart';
@@ -31,6 +35,41 @@ class LiveLinksPage extends StatefulWidget {
 }
 
 class _LiveLinksPageState extends State<LiveLinksPage> {
+  final _formExit = FormExitHandle();
+  final _drafts = <String, Map<String, String>>{};
+  Map<String, String> get _draft => {
+        'name': serverName.text,
+        'url': link.text,
+        'referer': referer.text,
+        'origin': origin.text,
+        'kid': keyId.text,
+        'key': keyData.text,
+        'web': webViewUrl.text,
+        'type': streamType,
+        'webMode': useWebView.toString()
+      };
+  bool get _hasDraft =>
+      link.text.trim().isNotEmpty ||
+      webViewUrl.text.trim().isNotEmpty ||
+      referer.text.trim().isNotEmpty ||
+      origin.text.trim().isNotEmpty ||
+      keyId.text.trim().isNotEmpty ||
+      keyData.text.trim().isNotEmpty ||
+      serverName.text != 'Server 1';
+  void _restoreDraft(Map<String, String> value) {
+    serverName.text = value['name'] ?? 'Server 1';
+    link.text = value['url'] ?? '';
+    referer.text = value['referer'] ?? '';
+    origin.text = value['origin'] ?? '';
+    keyId.text = value['kid'] ?? '';
+    keyData.text = value['key'] ?? '';
+    webViewUrl.text = value['web'] ?? '';
+    streamType = value['type'] ?? 'auto';
+    useWebView = value['webMode'] == 'true';
+    selectedChannel = null;
+    selectedChannelName = null;
+  }
+
   String? selectedChannelName;
   ChannelStreamSelection? selectedChannel;
   final serverName = TextEditingController(text: 'Server 1');
@@ -114,6 +153,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     ]) {
       controller.dispose();
     }
+    _formExit.dispose();
     super.dispose();
   }
 
@@ -133,7 +173,15 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
   void selectMatch(String? value) {
     setState(() {
+      final unassigned = matchId == null && _hasDraft ? _draft : null;
+      final channel = matchId == null ? selectedChannel : null;
+      if (matchId != null) _drafts[matchId!] = _draft;
       matchId = value;
+      _restoreDraft(value == null ? {} : (_drafts[value] ?? unassigned ?? {}));
+      if (channel != null && value != null) {
+        selectedChannel = channel;
+        selectedChannelName = channel.displayLabel;
+      }
       _linksFuture = value == null ? null : _startLinksLoad();
       _epgFuture = value == null ? null : _syncEpg(value);
     });
@@ -157,9 +205,9 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
     var addedLines = 0;
     try {
-      final sync = await Supabase.instance.client.functions
-          .invoke('auto-match-channels', body: {'match_id': id})
-          .timeout(const Duration(seconds: 30));
+      final sync = await Supabase.instance.client.functions.invoke(
+          'auto-match-channels',
+          body: {'match_id': id}).timeout(const Duration(seconds: 30));
       if (sync.data is Map) {
         addedLines = ((sync.data as Map)['addedLines'] as num?)?.toInt() ?? 0;
       }
@@ -204,10 +252,11 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   Widget _autoGuideCard(ColorScheme colors) {
     // Do not render auto-EPG UI for an incomplete / non-database match ID.
     // This also keeps legacy manual editor and its recovery UI unchanged.
-    if (matchId == null || !RegExp(
-      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-      caseSensitive: false,
-    ).hasMatch(matchId!)) return const SizedBox.shrink();
+    if (matchId == null ||
+        !RegExp(
+          r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+          caseSensitive: false,
+        ).hasMatch(matchId!)) return const SizedBox.shrink();
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -238,14 +287,15 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.tv),
                         title: Text(row['channels'] is Map
-                            ? ((row['channels'] as Map)['name']?.toString()
-                                ?? 'TV Channel')
+                            ? ((row['channels'] as Map)['name']?.toString() ??
+                                'TV Channel')
                             : 'TV Channel'),
                         subtitle: Text(row['auto_attached'] == true
                             ? 'Direct channel line auto-saved to match'
                             : 'EPG verified • direct line not attached'),
                       ),
-                    Text('Protected channels are listed for reference. '
+                    Text(
+                        'Protected channels are listed for reference. '
                         'DRM keys and session URLs are not copied.',
                         style: TextStyle(
                             color: colors.onSurfaceVariant, fontSize: 12)),
@@ -311,16 +361,11 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   }
 
   Future<List<Map<String, dynamic>>> loadMatches() async {
-    final data = await Supabase.instance.client
-        .from('matches')
-        .select(
-          'id,home_team,away_team,home_logo_url,away_logo_url,league,kickoff_at,sort_order,is_live,is_active,'
-          'is_finished,is_featured,publish_state,deleted_at',
-        )
-        .order('kickoff_at', ascending: true)
-        .order('sort_order', ascending: true)
-        .order('home_team', ascending: true)
-        .timeout(const Duration(seconds: 10));
+    final data = await loadAdminMatches(Supabase.instance.client,
+        columns:
+            'id,home_team,away_team,home_logo_url,away_logo_url,league,kickoff_at,sort_order,is_live,is_active,is_finished,is_featured,publish_state,deleted_at',
+        activeOnly: true,
+        publishedOnly: true);
 
     return List<Map<String, dynamic>>.from(data).where((row) {
       // Live matches are Admin-controlled. Do not hide them from the
@@ -346,6 +391,33 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     return List<Map<String, dynamic>>.from(data);
   }
 
+  String? _validateInput(
+      String value, String type, String ref, String org, String kid, String key,
+      {bool web = false}) {
+    final uri = Uri.tryParse(value.trim());
+    if (web) {
+      if (uri == null ||
+          !const {'http', 'https'}.contains(uri.scheme) ||
+          uri.host.isEmpty ||
+          uri.userInfo.isNotEmpty) return 'Enter a valid HTTP(S) player URL.';
+    } else if (!isValidManualStreamUrl(value, streamType: type))
+      return 'Enter a direct video URL, not a website page.';
+    for (final header in [ref, org]) {
+      if (header.trim().isEmpty) continue;
+      final parsed = Uri.tryParse(header.trim());
+      if (parsed == null ||
+          !const {'http', 'https'}.contains(parsed.scheme) ||
+          parsed.host.isEmpty ||
+          parsed.userInfo.isNotEmpty ||
+          header.contains('\n') ||
+          header.contains('\r'))
+        return 'Referer and Origin must be valid HTTP(S) URLs.';
+    }
+    return web
+        ? null
+        : manualClearKeyError(streamType: type, keyId: kid, keyData: key);
+  }
+
   Future<void> addLink() async {
     if (loading) return;
     if (matchId == null) {
@@ -363,6 +435,18 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       return;
     }
 
+    final effectiveInput =
+        useWebView ? webViewUrl.text.trim() : link.text.trim();
+    final type = detectStreamType(link.text, fallback: streamType);
+    final inputError = _validateInput(effectiveInput, type, referer.text,
+        origin.text, keyId.text, keyData.text,
+        web: useWebView);
+    if (inputError != null) {
+      message(inputError);
+      return;
+    }
+    final savedMatchId = matchId!;
+    final sentDraft = _draft;
     setState(() => loading = true);
 
     try {
@@ -374,7 +458,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
           : detectStreamType(link.text, fallback: streamType);
 
       await Supabase.instance.client.from('stream_links').insert({
-        'match_id': matchId,
+        'match_id': savedMatchId,
         if (!useWebView && selectedChannel?.channelLineId != null)
           'channel_id': selectedChannel!.channelId,
         if (!useWebView && selectedChannel?.channelLineId != null)
@@ -400,7 +484,7 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
       unawaited(AnalyticsService.capture(
         'stream added',
         properties: {
-          'match_id': matchId!,
+          'match_id': savedMatchId,
           'stream_type': effectiveType,
           'use_webview': useWebView,
           'has_referer': referer.text.trim().isNotEmpty,
@@ -412,19 +496,17 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
       if (!mounted) return;
 
-      message('Server added.');
-      serverName.text = 'Server 1';
-      link.clear();
-      referer.clear();
-      origin.clear();
-      keyId.clear();
-      keyData.clear();
-      webViewUrl.clear();
-      streamType = 'auto';
-      useWebView = false;
-      selectedChannelName = null;
-      selectedChannel = null;
-      reloadLinks();
+      if (matchId == savedMatchId &&
+          _draft.entries.every((e) => sentDraft[e.key] == e.value)) {
+        _restoreDraft({});
+        _drafts.remove(savedMatchId);
+        message('Server added.');
+        reloadLinks();
+      } else {
+        _drafts.remove(savedMatchId);
+        if (matchId == savedMatchId)
+          message('Server added. Your newer draft was kept.');
+      }
     } on TimeoutException {
       if (mounted) {
         message('Could not confirm the save. Refresh before trying again.');
@@ -514,7 +596,13 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     if (ok != true) return;
 
     try {
-      await Supabase.instance.client.from('stream_links').delete().eq('id', id);
+      await Supabase.instance.client
+          .from('stream_links')
+          .delete()
+          .eq('id', id)
+          .select('id')
+          .single()
+          .timeout(const Duration(seconds: 12));
 
       unawaited(AnalyticsService.capture(
         'stream deleted',
@@ -539,6 +627,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
           .from('stream_links')
           .update({'is_active': value})
           .eq('id', id)
+          .select('id')
+          .single()
           .timeout(const Duration(seconds: 12));
       unawaited(AnalyticsService.capture('stream active changed',
           properties: {'is_active': value}));
@@ -602,7 +692,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
 
   Future<void> editLink(Map<String, dynamic> row) async {
     final name = TextEditingController(
-      text: conciseMatchLineLabel('${row['label'] ?? row['resolution'] ?? 'Server'}'),
+      text: conciseMatchLineLabel(
+          '${row['label'] ?? row['resolution'] ?? 'Server'}'),
     );
     final url = TextEditingController(text: '${row['stream_url'] ?? ''}');
     final ref = TextEditingController(text: '${row['referer'] ?? ''}');
@@ -611,6 +702,9 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     final key = TextEditingController(text: '${row['key_data'] ?? ''}');
     final webUrl = TextEditingController(text: '${row['webview_url'] ?? ''}');
 
+    final sheetExit = FormExitHandle();
+    bool sheetSaving = false;
+    String? sheetError;
     try {
       String type = (row['stream_type'] ?? 'auto').toString();
       if (!streamTypes.containsKey(type)) type = 'auto';
@@ -623,214 +717,260 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
         builder: (sheetContext) {
           return StatefulBuilder(
             builder: (context, setSheetState) {
-              return Padding(
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  top: 16,
-                  bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+              return UnsavedChangesGuard(
+                  handle: sheetExit,
+                  controllers: [name, url, ref, org, kid, key, webUrl],
+                  busy: sheetSaving,
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      left: 16,
+                      right: 16,
+                      top: 16,
+                      bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+                    ),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Expanded(
-                            child: Text(
-                              'Edit Server',
-                              style: TextStyle(
-                                fontSize: 21,
-                                fontWeight: FontWeight.w900,
+                          Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'Edit Server',
+                                  style: TextStyle(
+                                    fontSize: 21,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => Navigator.pop(sheetContext, false),
-                            icon: const Icon(Icons.close_rounded),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: name,
-                        decoration: const InputDecoration(
-                          labelText: 'Server name',
-                          hintText: 'Main / Backup / Server 1',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: type,
-                        decoration: const InputDecoration(
-                          labelText: 'Stream type',
-                        ),
-                        items: streamTypes.entries
-                            .map(
-                              (e) => DropdownMenuItem(
-                                value: e.key,
-                                child: Text(e.value),
+                              IconButton(
+                                onPressed: sheetSaving
+                                    ? null
+                                    : () => Navigator.of(sheetContext)
+                                        .maybePop(false),
+                                icon: const Icon(Icons.close_rounded),
                               ),
-                            )
-                            .toList(),
-                        onChanged: web
-                            ? null
-                            : (v) => setSheetState(() => type = v ?? 'auto'),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: url,
-                        enabled: !web,
-                        minLines: 2,
-                        maxLines: 4,
-                        onChanged: (value) {
-                          final detected = detectStreamType(value);
-                          if (detected != 'auto' && detected != type) {
-                            setSheetState(() => type = detected);
-                          }
-                        },
-                        decoration: const InputDecoration(
-                          labelText: 'Stream URL',
-                          helperText:
-                              'm3u8 / mpd / flv / mp4 is detected automatically.',
-                        ),
-                      ),
-                      if (!web && type == 'dash') ...[
-                        const SizedBox(height: 12),
-                        _dashCompatibilityNotice(context),
-                      ],
-                      const SizedBox(height: 8),
-                      ExpansionTile(
-                        tilePadding: EdgeInsets.zero,
-                        title: const Text(
-                          'Advanced options',
-                          style: TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        subtitle: const Text(
-                          'Only open this if the source requires headers, ClearKey or WebView.',
-                        ),
-                        children: [
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: ref,
-                            decoration: const InputDecoration(
-                              labelText: 'Referer header',
-                              hintText: 'Optional',
-                            ),
+                            ],
                           ),
                           const SizedBox(height: 12),
                           TextField(
-                            controller: org,
+                            controller: name,
                             decoration: const InputDecoration(
-                              labelText: 'Origin header',
-                              hintText: 'Optional',
+                              labelText: 'Server name',
+                              hintText: 'Main / Backup / Server 1',
                             ),
                           ),
                           const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            value: type,
+                            decoration: const InputDecoration(
+                              labelText: 'Stream type',
+                            ),
+                            items: streamTypes.entries
+                                .map(
+                                  (e) => DropdownMenuItem(
+                                    value: e.key,
+                                    child: Text(e.value),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: web
+                                ? null
+                                : (v) =>
+                                    setSheetState(() => type = v ?? 'auto'),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: url,
+                            enabled: !web,
+                            minLines: 2,
+                            maxLines: 4,
+                            onChanged: (value) {
+                              final detected = detectStreamType(value);
+                              if (detected != 'auto' && detected != type) {
+                                setSheetState(() => type = detected);
+                              }
+                            },
+                            decoration: const InputDecoration(
+                              labelText: 'Stream URL',
+                              helperText:
+                                  'm3u8 / mpd / flv / mp4 is detected automatically.',
+                            ),
+                          ),
                           if (!web && type == 'dash') ...[
-                            TextField(
-                              controller: kid,
-                              decoration: const InputDecoration(
-                                labelText: 'ClearKey keyID',
-                                hintText: 'Optional',
-                              ),
-                            ),
                             const SizedBox(height: 12),
-                            TextField(
-                              controller: key,
-                              decoration: const InputDecoration(
-                                labelText: 'ClearKey keyData',
-                                hintText: 'Optional',
-                              ),
-                            ),
+                            _dashCompatibilityNotice(context),
                           ],
-                          const SizedBox(height: 4),
-                          SwitchListTile.adaptive(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Use WebView instead'),
-                            value: web,
-                            onChanged: (v) => setSheetState(() => web = v),
+                          const SizedBox(height: 8),
+                          ExpansionTile(
+                            tilePadding: EdgeInsets.zero,
+                            title: const Text(
+                              'Advanced options',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            subtitle: const Text(
+                              'Only open this if the source requires headers, ClearKey or WebView.',
+                            ),
+                            children: [
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: ref,
+                                decoration: const InputDecoration(
+                                  labelText: 'Referer header',
+                                  hintText: 'Optional',
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: org,
+                                decoration: const InputDecoration(
+                                  labelText: 'Origin header',
+                                  hintText: 'Optional',
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              if (!web && type == 'dash') ...[
+                                TextField(
+                                  controller: kid,
+                                  decoration: const InputDecoration(
+                                    labelText: 'ClearKey keyID',
+                                    hintText: 'Optional',
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: key,
+                                  decoration: const InputDecoration(
+                                    labelText: 'ClearKey keyData',
+                                    hintText: 'Optional',
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 4),
+                              SwitchListTile.adaptive(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Use WebView instead'),
+                                value: web,
+                                onChanged: (v) => setSheetState(() => web = v),
+                              ),
+                              if (web) ...[
+                                const SizedBox(height: 6),
+                                TextField(
+                                  controller: webUrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'WebView URL',
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
-                          if (web) ...[
-                            const SizedBox(height: 6),
-                            TextField(
-                              controller: webUrl,
-                              decoration: const InputDecoration(
-                                labelText: 'WebView URL',
-                              ),
+                          if (sheetError != null)
+                            Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 8),
+                                child: Text(sheetError!,
+                                    style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .error))),
+                          const SizedBox(height: 14),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: sheetSaving
+                                  ? null
+                                  : () async {
+                                      final effectiveType = web
+                                          ? 'auto'
+                                          : detectStreamType(url.text,
+                                              fallback: type);
+                                      final validation = _validateInput(
+                                          web ? webUrl.text : url.text,
+                                          effectiveType,
+                                          ref.text,
+                                          org.text,
+                                          kid.text,
+                                          key.text,
+                                          web: web);
+                                      if (validation != null) {
+                                        setSheetState(
+                                            () => sheetError = validation);
+                                        return;
+                                      }
+                                      setSheetState(() {
+                                        sheetSaving = true;
+                                        sheetError = null;
+                                      });
+                                      try {
+                                        await Supabase.instance.client
+                                            .from('stream_links')
+                                            .update({
+                                              'label': name.text.trim().isEmpty
+                                                  ? 'Server'
+                                                  : name.text.trim(),
+                                              'resolution':
+                                                  name.text.trim().isEmpty
+                                                      ? 'Server'
+                                                      : name.text.trim(),
+                                              'stream_type': effectiveType,
+                                              'stream_url':
+                                                  web ? '' : url.text.trim(),
+                                              'referer': nullable(ref.text),
+                                              'origin': nullable(org.text),
+                                              'key_id': !web &&
+                                                      effectiveType == 'dash'
+                                                  ? nullable(kid.text)
+                                                  : null,
+                                              'key_data': !web &&
+                                                      effectiveType == 'dash'
+                                                  ? nullable(key.text)
+                                                  : null,
+                                              'use_webview': web,
+                                              'webview_url': web
+                                                  ? nullable(webUrl.text)
+                                                  : null,
+                                              'send_notification': false,
+                                            })
+                                            .eq('id', row['id'])
+                                            .eq('stream_url',
+                                                row['stream_url'] ?? '')
+                                            .select('id')
+                                            .single()
+                                            .timeout(
+                                                const Duration(seconds: 12));
+                                        if (sheetContext.mounted)
+                                          sheetExit.savedPop(
+                                              sheetContext, true);
+                                      } catch (_) {
+                                        if (sheetContext.mounted)
+                                          setSheetState(() => sheetError =
+                                              'Save was not confirmed. Your changes are kept. Refresh the server before retrying.');
+                                      } finally {
+                                        if (sheetContext.mounted)
+                                          setSheetState(
+                                              () => sheetSaving = false);
+                                      }
+                                    },
+                              icon: const Icon(Icons.save_rounded),
+                              label: Text(
+                                  sheetSaving ? 'SAVING…' : 'SAVE CHANGES'),
                             ),
-                          ],
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 14),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: () => Navigator.pop(sheetContext, true),
-                          icon: const Icon(Icons.save_rounded),
-                          label: const Text('SAVE CHANGES'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
+                    ),
+                  ));
             },
           );
         },
       );
 
-      if (save != true) return;
-
-      if (!web && url.text.trim().isEmpty) {
-        message('Paste a stream URL before saving an active server.');
-        return;
-      }
-      if (web && webUrl.text.trim().isEmpty) {
-        message('Paste a WebView URL before saving an active server.');
-        return;
-      }
-
-      final effectiveType =
-          web ? 'auto' : detectStreamType(url.text, fallback: type);
-
-      try {
-        await Supabase.instance.client.from('stream_links').update({
-          'label': name.text.trim().isEmpty ? 'Server' : name.text.trim(),
-          'resolution': name.text.trim().isEmpty ? 'Server' : name.text.trim(),
-          'stream_type': effectiveType,
-          'stream_url': web ? '' : url.text.trim(),
-          'referer': nullable(ref.text),
-          'origin': nullable(org.text),
-          'key_id': !web && effectiveType == 'dash' ? nullable(kid.text) : null,
-          'key_data':
-              !web && effectiveType == 'dash' ? nullable(key.text) : null,
-          'use_webview': web,
-          'webview_url': web ? nullable(webUrl.text) : null,
-          'send_notification': false,
-        }).eq('id', row['id']);
-
-        unawaited(AnalyticsService.capture(
-          'stream updated',
-          properties: {
-            'stream_type': effectiveType,
-            'use_webview': web,
-            'has_referer': ref.text.trim().isNotEmpty,
-            'has_origin': org.text.trim().isNotEmpty,
-            'has_clearkey':
-                kid.text.trim().isNotEmpty && key.text.trim().isNotEmpty,
-          },
-        ));
-
-        if (mounted) {
-          message('Server updated.');
-          reloadLinks();
-        }
-      } catch (e) {
-        unawaited(AnalyticsService.capture('stream update failed'));
-        if (mounted) message('Server update failed: $e');
+      if (save == true && mounted) {
+        message('Server updated.');
+        reloadLinks();
       }
     } finally {
+      sheetExit.dispose();
       for (final controller in [name, url, ref, org, kid, key, webUrl]) {
         controller.dispose();
       }
@@ -842,7 +982,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
     ColorScheme colors, {
     int displayIndex = 0,
   }) {
-    final rawName = conciseMatchLineLabel('${row['label'] ?? row['resolution'] ?? 'Server'}');
+    final rawName = conciseMatchLineLabel(
+        '${row['label'] ?? row['resolution'] ?? 'Server'}');
     final name = RegExp(r'^YYZB\b', caseSensitive: false).hasMatch(rawName)
         ? englishStreamLabel(rawName, index: displayIndex)
         : rawName;
@@ -949,7 +1090,8 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
                         ),
                         Text(
                           'HTTP check cannot confirm decoded video. Open player to test.',
-                          style: TextStyle(fontSize: 10, color: colors.onSurfaceVariant),
+                          style: TextStyle(
+                              fontSize: 10, color: colors.onSurfaceVariant),
                         ),
                       ],
                     ),
@@ -1099,161 +1241,182 @@ class _LiveLinksPageState extends State<LiveLinksPage> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: AppBar(
-          title: Text(matchId == null ? 'Live Links' : 'Live Links Upload'),
-          leading: matchId == null
-              ? null
-              : BackButton(onPressed: () => selectMatch(null))),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-          future: _matchesFuture,
-          builder: (context, snapshot) {
-            if (snapshot.hasError)
-              return _loadFailure('Could not load matches.', reloadMatches);
-            if (!snapshot.hasData)
-              return const Center(child: CircularProgressIndicator());
-            final matches = snapshot.data!;
-            final selected = matches.where((m) => m['id'] == matchId).toList();
-            if (matchId == null || selected.isEmpty) {
-              if (matches.isEmpty)
-                return const Center(child: Text('No published matches yet.'));
-              return ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount:
-                      matches.length + (selectedChannelName == null ? 0 : 1),
-                  itemBuilder: (_, index) {
-                    if (selectedChannelName != null && index == 0) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Text('Choose a match for $selectedChannelName'),
-                      );
-                    }
-                    final row =
-                        matches[index - (selectedChannelName == null ? 0 : 1)];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: MatchStreamCard(
-                          match: row,
-                          onTap: () => selectMatch(row['id'] as String)),
-                    );
-                  });
-            }
-            return ListView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-                children: [
-                  Text(
-                      '${englishKnownFootballName(selected.first['home_team'].toString())} vs ${englishKnownFootballName(selected.first['away_team'].toString())}',
-                      style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 18),
-                  OutlinedButton.icon(
-                    onPressed: loading ? null : chooseChannel,
-                    icon: const Icon(Icons.tv),
-                    label: const Text('USE CHANNEL'),
-                  ),
-                  const SizedBox(height: 14),
-                  _input('Resolution', serverName),
-                  _input('Link', link, enabled: !useWebView),
-                  _input('Referer', referer),
-                  _input('Origin', origin),
-                  _input('keyID', keyId, enabled: !useWebView),
-                  _input('keyData', keyData, enabled: !useWebView),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                      onPressed: loading ? null : addLink,
-                      icon: const Icon(Icons.add_link),
-                      label: Text(loading ? 'SAVING...' : 'SAVE LINK')),
-                  const SizedBox(height: 22),
-                  _autoGuideCard(colors),
-                  if (matchId != null) ...[
-                    const SizedBox(height: 22),
-                    Wrap(
-                      alignment: WrapAlignment.spaceBetween,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          'Existing Servers',
-                          style:
-                              Theme.of(context).textTheme.titleLarge?.copyWith(
+    return UnsavedChangesGuard(
+        handle: _formExit,
+        controllers: [
+          serverName,
+          link,
+          referer,
+          origin,
+          keyId,
+          keyData,
+          webViewUrl
+        ],
+        dirty: () =>
+            _hasDraft || _drafts.values.any((d) => (d['url'] ?? '').isNotEmpty),
+        busy: loading,
+        child: Scaffold(
+          appBar: AppBar(
+              title: Text(matchId == null ? 'Live Links' : 'Live Links Upload'),
+              leading: matchId == null
+                  ? null
+                  : BackButton(onPressed: () => selectMatch(null))),
+          body: FutureBuilder<List<Map<String, dynamic>>>(
+              future: _matchesFuture,
+              builder: (context, snapshot) {
+                if (snapshot.hasError)
+                  return _loadFailure('Could not load matches.', reloadMatches);
+                if (!snapshot.hasData)
+                  return const Center(child: CircularProgressIndicator());
+                final matches = snapshot.data!;
+                final selected =
+                    matches.where((m) => m['id'] == matchId).toList();
+                if (matchId == null || selected.isEmpty) {
+                  if (matches.isEmpty)
+                    return const Center(
+                        child: Text('No published matches yet.'));
+                  return ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: matches.length +
+                          (selectedChannelName == null ? 0 : 1),
+                      itemBuilder: (_, index) {
+                        if (selectedChannelName != null && index == 0) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child:
+                                Text('Choose a match for $selectedChannelName'),
+                          );
+                        }
+                        final row = matches[
+                            index - (selectedChannelName == null ? 0 : 1)];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: MatchStreamCard(
+                              match: row,
+                              onTap: () => selectMatch(row['id'] as String)),
+                        );
+                      });
+                }
+                return ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+                    children: [
+                      Text(
+                          '${englishKnownFootballName(selected.first['home_team'].toString())} vs ${englishKnownFootballName(selected.first['away_team'].toString())}',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 18),
+                      OutlinedButton.icon(
+                        onPressed: loading ? null : chooseChannel,
+                        icon: const Icon(Icons.tv),
+                        label: const Text('USE CHANNEL'),
+                      ),
+                      const SizedBox(height: 14),
+                      _input('Resolution', serverName),
+                      _input('Link', link, enabled: !useWebView),
+                      _input('Referer', referer),
+                      _input('Origin', origin),
+                      _input('keyID', keyId, enabled: !useWebView),
+                      _input('keyData', keyData, enabled: !useWebView),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                          onPressed: loading ? null : addLink,
+                          icon: const Icon(Icons.add_link),
+                          label: Text(loading ? 'SAVING...' : 'SAVE LINK')),
+                      const SizedBox(height: 22),
+                      _autoGuideCard(colors),
+                      if (matchId != null) ...[
+                        const SizedBox(height: 22),
+                        Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(
+                              'Existing Servers',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(
                                     fontWeight: FontWeight.w900,
                                   ),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed:
+                                  testingHealth ? null : () => testHealth(),
+                              icon: testingHealth
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.monitor_heart_rounded),
+                              label: const Text('TEST ALL'),
+                            ),
+                            const SizedBox(width: 6),
+                            IconButton(
+                              tooltip: 'Refresh',
+                              onPressed: () {
+                                setState(() {
+                                  _matchesFuture = _startMatchesLoad();
+                                  _linksFuture = _startLinksLoad();
+                                  if (matchId != null) {
+                                    _epgFuture = _syncEpg(matchId!);
+                                  }
+                                });
+                              },
+                              icon: const Icon(Icons.refresh_rounded),
+                            ),
+                          ],
                         ),
-                        OutlinedButton.icon(
-                          onPressed: testingHealth ? null : () => testHealth(),
-                          icon: testingHealth
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.monitor_heart_rounded),
-                          label: const Text('TEST ALL'),
-                        ),
-                        const SizedBox(width: 6),
-                        IconButton(
-                          tooltip: 'Refresh',
-                          onPressed: () {
-                            setState(() {
-                              _matchesFuture = _startMatchesLoad();
-                              _linksFuture = _startLinksLoad();
-                              if (matchId != null) {
-                                _epgFuture = _syncEpg(matchId!);
-                              }
-                            });
+                        const SizedBox(height: 8),
+                        FutureBuilder<List<Map<String, dynamic>>>(
+                          key: ValueKey(matchId),
+                          future: _linksFuture ??= _startLinksLoad(),
+                          builder: (context, linkSnapshot) {
+                            if (linkSnapshot.hasError) {
+                              return _loadFailure(
+                                  'Could not load servers.', reloadLinks);
+                            }
+                            if (linkSnapshot.connectionState !=
+                                    ConnectionState.done ||
+                                !linkSnapshot.hasData) {
+                              return const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(20),
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+                            }
+
+                            final rows = linkSnapshot.data!;
+                            if (rows.isEmpty) {
+                              return Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(18),
+                                  child: Text(
+                                    'No servers added yet.',
+                                    style: TextStyle(
+                                      color: colors.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+
+                            return Column(
+                              children: rows
+                                  .asMap()
+                                  .entries
+                                  .map((entry) => _serverCard(
+                                      entry.value, colors,
+                                      displayIndex: entry.key))
+                                  .toList(),
+                            );
                           },
-                          icon: const Icon(Icons.refresh_rounded),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 8),
-                    FutureBuilder<List<Map<String, dynamic>>>(
-                      key: ValueKey(matchId),
-                      future: _linksFuture ??= _startLinksLoad(),
-                      builder: (context, linkSnapshot) {
-                        if (linkSnapshot.hasError) {
-                          return _loadFailure(
-                              'Could not load servers.', reloadLinks);
-                        }
-                        if (linkSnapshot.connectionState !=
-                                ConnectionState.done ||
-                            !linkSnapshot.hasData) {
-                          return const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(20),
-                              child: CircularProgressIndicator(),
-                            ),
-                          );
-                        }
-
-                        final rows = linkSnapshot.data!;
-                        if (rows.isEmpty) {
-                          return Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(18),
-                              child: Text(
-                                'No servers added yet.',
-                                style: TextStyle(
-                                  color: colors.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          );
-                        }
-
-                        return Column(
-                          children: rows
-                              .asMap()
-                              .entries
-                              .map((entry) => _serverCard(entry.value, colors,
-                                  displayIndex: entry.key))
-                              .toList(),
-                        );
-                      },
-                    ),
-                  ],
-                ]);
-          }),
-    );
+                    ]);
+              }),
+        ));
   }
 
   Widget _loadFailure(String text, VoidCallback retry) => Center(

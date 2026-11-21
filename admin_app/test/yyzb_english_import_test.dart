@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:football_admin/screens/soco_import_page.dart';
 import 'package:football_admin/screens/live_links_page.dart';
+import 'package:football_admin/services/admin_web_source_cache.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -42,6 +43,7 @@ void main() {
       },
     }));
   });
+  setUp(AdminWebSourceCache.clear);
   tearDownAll(() async => Supabase.instance.dispose());
 
   http.Response jsonResponse(Object? data) =>
@@ -159,7 +161,7 @@ void main() {
       const originalName = '阿亮（粤语）';
       const storedLabel = 'YYZB • $originalName • HD';
       final shownName = mirror ? 'YYZB Server 1' : 'Streamer 1 (Cantonese)';
-      var inserts = 0;
+      const inserts = 0;
       var updates = 0;
       var extraction = 0;
       final queryLabels = <String>[];
@@ -177,24 +179,20 @@ void main() {
             }
           ]);
         }
-        if (request.method == 'POST') {
-          inserts++;
-          return jsonResponse({'id': 'new-unwanted-row'});
-        }
-        if (request.method == 'PATCH') {
-          updates++;
-          expect(request.url.queryParameters['id'], 'eq.legacy-line');
-          expect((jsonDecode(request.body) as Map)['stream_url'],
-              'https://video.fixture.test/live.m3u8?signature=$extraction');
-          return jsonResponse({'id': 'legacy-line'});
-        }
-        if (request.url.queryParameters.containsKey('stream_url')) {
-          return jsonResponse(null); // Every extraction returns a rotated URL.
-        }
-        final label = request.url.queryParameters['label'];
-        queryLabels.add(label ?? '');
-        return jsonResponse(
-            label == 'eq.$storedLabel' ? {'id': 'legacy-line'} : null);
+        expect(request.url.path, endsWith('/rpc/import_match_source_lines'));
+        final payload = jsonDecode(request.body) as Map;
+        expect(payload['p_room']['room_num'], 'unchanged-room-7');
+        final line = (payload['p_lines'] as List).single as Map;
+        expect(line['label'], storedLabel);
+        expect(line['source_line_id'], 'HD');
+        updates++;
+        return jsonResponse({
+          'ok': true,
+          'match_id': 'match-1',
+          'lines': [
+            {'id': 'legacy-line'}
+          ]
+        });
       };
 
       await http.runWithClient(() async {
@@ -221,10 +219,13 @@ void main() {
           await tester.pump(const Duration(milliseconds: 600));
           await tester.tap(find.text('Home vs Away'));
           await tester.pumpAndSettle();
+          expect(find.text('ADDED ✓'), findsOneWidget);
+          await tester.tap(find.text('Close').last);
+          await tester.pumpAndSettle();
         }
         expect(updates, 2);
         expect(inserts, 0);
-        expect(queryLabels, ['eq.$storedLabel', 'eq.$storedLabel']);
+        expect(queryLabels, isEmpty); // Dedup/update is serialized by the RPC.
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
       },

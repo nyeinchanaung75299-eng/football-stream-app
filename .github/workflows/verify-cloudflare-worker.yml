@@ -28,6 +28,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Verify source clocks and safe imported-line renewal
+        run: node --test scripts/test_imported_source_refresh.mjs scripts/test_fawa_catalog.mjs
+
       - name: Verify existing worker routes and new scanner
         run: |
           python3 -m unittest discover -s scripts -p 'test_channel_epg.py'

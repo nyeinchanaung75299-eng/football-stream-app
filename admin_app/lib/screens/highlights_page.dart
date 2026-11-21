@@ -421,9 +421,37 @@ class SavedHighlightsPage extends StatefulWidget {
 }
 
 class _SavedHighlightsPageState extends State<SavedHighlightsPage> {
-  late Future<List<Map<String, dynamic>>> rows = widget.service.saved();
-  String? deleting;
-  void reload() => setState(() => rows = widget.service.saved());
+  final items = <Map<String, dynamic>>[];
+  String? deleting, error;
+  bool loading = false, hasMore = true;
+  @override
+  void initState() {
+    super.initState();
+    reload();
+  }
+
+  Future<void> reload({bool more = false}) async {
+    if (loading) return;
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final next = await widget.service.saved(offset: more ? items.length : 0);
+      if (!mounted) return;
+      setState(() {
+        if (!more) items.clear();
+        final ids = items.map((r) => r['id']).toSet();
+        items.addAll(next.where((r) => ids.add(r['id'])));
+        hasMore = next.length == 50;
+      });
+    } catch (_) {
+      if (mounted) setState(() => error = 'Could not load. Retry');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
   Future<void> remove(Map<String, dynamic> row) async {
     final yes = await showDialog<bool>(
         context: context,
@@ -455,32 +483,39 @@ class _SavedHighlightsPageState extends State<SavedHighlightsPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(title: const Text('Saved highlights'), actions: [
-        IconButton(onPressed: reload, icon: const Icon(Icons.refresh))
+        IconButton(
+            onPressed: loading ? null : reload, icon: const Icon(Icons.refresh))
       ]),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-          future: rows,
-          builder: (context, snapshot) {
-            if (snapshot.hasError)
-              return Center(
-                  child: TextButton(
-                      onPressed: reload,
-                      child: const Text('Could not load. Retry')));
-            if (!snapshot.hasData)
-              return const Center(child: CircularProgressIndicator());
-            if (snapshot.data!.isEmpty)
-              return const Center(
-                  child:
-                      Text('No saved highlights. Use ADD on a source link.'));
-            return ListView(children: [
-              for (final row in snapshot.data!)
-                ListTile(
-                    title: Text(row['title']?.toString() ?? 'Highlight'),
-                    subtitle: Text(row['video_url']?.toString() ?? '',
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                    trailing: IconButton(
-                        tooltip: 'Delete highlight',
-                        onPressed: deleting == null ? () => remove(row) : null,
-                        icon: const Icon(Icons.delete_outline)))
-            ]);
-          }));
+      body: RefreshIndicator(
+          onRefresh: reload,
+          child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                if (loading) const LinearProgressIndicator(),
+                if (error != null)
+                  TextButton(
+                      onPressed:
+                          loading ? null : () => reload(more: items.isNotEmpty),
+                      child: Text(error!)),
+                if (!loading && items.isEmpty && error == null)
+                  const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                          'No saved highlights. Use ADD on a source link.')),
+                for (final row in items)
+                  ListTile(
+                      title: Text(row['title']?.toString() ?? 'Highlight'),
+                      subtitle: Text(row['video_url']?.toString() ?? '',
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      trailing: IconButton(
+                          tooltip: 'Delete highlight',
+                          onPressed: deleting == null && !loading
+                              ? () => remove(row)
+                              : null,
+                          icon: const Icon(Icons.delete_outline))),
+                if (hasMore && items.isNotEmpty)
+                  OutlinedButton(
+                      onPressed: loading ? null : () => reload(more: true),
+                      child: const Text('Load more highlights')),
+              ])));
 }

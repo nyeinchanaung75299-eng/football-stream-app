@@ -11,8 +11,8 @@ import re
 from verify_android_update_signing import RELEASE_BASE, RELEASES, apk_identity
 
 NOTES = {
-    'Viewer': 'Removes unnecessary media/storage permissions while retaining the signed APK updater and Cloudflare-first playback routing.',
-    'Admin': 'Restores page-scoped CricHD iframe discovery; original logo URLs, Telegram line sharing, normal text keyboard and reduced Android permissions.',
+    'Viewer': 'Fawa football-only schedules with verified Myanmar clock labels, paginated highlights and safer on-demand renewal for imported live lines.',
+    'Admin': 'Highlights moved into Stream Sources; multi-line atomic ADD, safe retries and duplicate updates, recent source/match shortcuts, protected drafts, complete lists and permanent match deletion.',
 }
 
 

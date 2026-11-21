@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'source_resolution_cache.dart';
 
-/// Web-only, in-memory cache for authenticated Admin source catalogues.
+/// Session-only, in-memory cache for authenticated Admin source catalogues.
 /// Never persists private provider data or stream credentials to browser disk.
 class AdminSourceUiState {
   const AdminSourceUiState({
@@ -27,6 +27,19 @@ class _SourceSnapshot {
 class AdminWebSourceCache {
   AdminWebSourceCache._();
 
+  static final recentSources = <String>[];
+  static String? recentMatchId;
+  static void rememberSource(String provider) {
+    if (_userId == null) return;
+    recentSources.remove(provider);
+    recentSources.insert(0, provider);
+    if (recentSources.length > 3) recentSources.removeLast();
+  }
+
+  static void rememberMatch(String id) {
+    if (_userId != null) recentMatchId = id;
+  }
+
   static const ttl = Duration(minutes: 5);
   static String? _userId;
   static int _sessionEpoch = 0;
@@ -38,7 +51,7 @@ class AdminWebSourceCache {
   static final Map<String, AdminSourceUiState> _ui = {};
 
   static void bindUser(String? userId) {
-    if (!kIsWeb || _userId == userId) return;
+    if (_userId == userId) return;
     clear();
     _userId = userId;
   }
@@ -46,33 +59,34 @@ class AdminWebSourceCache {
   /// Also invalidates the generation captured by any still-running request.
   static void clear() {
     _sessionEpoch++;
+    SourceResolutionCache.clear();
     _entries.clear();
     _inFlight.clear();
     _ui.clear();
+    recentSources.clear();
+    recentMatchId = null;
     _userId = null;
   }
 
   static List<Map<String, dynamic>>? rows(String provider) =>
-      kIsWeb && _userId != null ? _entries[provider]?.rows : null;
+      _userId != null ? _entries[provider]?.rows : null;
 
   static bool fresh(String provider, {DateTime? at}) {
-    if (!kIsWeb || _userId == null) return false;
+    if (_userId == null) return false;
     final entry = _entries[provider];
     return entry != null &&
         (at ?? DateTime.now()).difference(entry.savedAt) < ttl;
   }
 
-  static AdminSourceUiState ui(String provider) =>
-      kIsWeb && _userId != null
-          ? _ui[provider] ?? const AdminSourceUiState()
-          : const AdminSourceUiState();
+  static AdminSourceUiState ui(String provider) => _userId != null
+      ? _ui[provider] ?? const AdminSourceUiState()
+      : const AdminSourceUiState();
 
   static void saveUi(String provider, AdminSourceUiState value) {
-    if (kIsWeb && _userId != null) _ui[provider] = value;
+    if (_userId != null) _ui[provider] = value;
   }
 
   static void invalidate(String provider) {
-    if (!kIsWeb) return;
     _entries.remove(provider);
     _ui.remove(provider);
   }
@@ -84,7 +98,7 @@ class AdminWebSourceCache {
     Future<List<Map<String, dynamic>>> Function() fetch, {
     bool force = false,
   }) {
-    if (!kIsWeb || _userId == null) return fetch();
+    if (_userId == null) return fetch();
     if (!force && fresh(provider)) {
       return Future.value(_entries[provider]!.rows);
     }
