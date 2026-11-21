@@ -100,6 +100,8 @@ def prepare(profile,output,root=ROOT):
   if src.is_symlink():raise ValueError('Symlinks are not allowed in an export')
   data=src.read_bytes()
   try:
+   if name in ('scripts/customer_profile.py','scripts/customer_build.py'):
+    rendered[name]=data;continue
    text=transform(data.decode(),p)
    if re.search(r'nyeinchanaung(?:[.]|[0-9])|woggzixprvyjnfjzsglz|phc_[A-Za-z0-9]',text,re.I):
     raise ValueError('Unmapped production reference in '+name)
@@ -116,6 +118,7 @@ def prepare(profile,output,root=ROOT):
   rendered[name]=data
  logo=(ROOT/p['logo_png']).read_bytes()
  rendered['user_app/assets/customer_icon.png']=logo
+ rendered[p['logo_png']]=logo
  for name in list(rendered):
   if name.endswith('nca_icon.png'):rendered[name]=logo
  out.mkdir(parents=True)

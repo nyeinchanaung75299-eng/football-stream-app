@@ -17,3 +17,11 @@ test('wrong hash never reaches Telegram',async()=>{
 test('arbitrary filenames cannot turn backup into a URL fetcher',async()=>{
  let calls=0;await assert.rejects(sendProjectBackup({chatId:123,token:'fixture-token',fetcher:async()=>{calls++;return Response.json({...manifest,filename:'https://elsewhere.example/data'});}}));assert.equal(calls,1);
 });
+import {createTelegramHandler} from '../supabase/functions/_shared/nca_private_admin_bot.mjs';
+test('unpaired users and groups cannot trigger a source download or database call',async()=>{
+ for(const message of [{chat:{id:456,type:'private'},from:{id:456}},{chat:{id:-123,type:'group'},from:{id:123}}]){
+  let calls=0;const handler=createTelegramHandler({mode:'admin',env:{TG_ADMIN_BOT_TOKEN:'fixture-token',TG_ADMIN_WEBHOOK_SECRET:'fixture-secret',TG_ADMIN_USER_IDS:'123',SUPABASE_URL:'https://db.example',SUPABASE_SERVICE_ROLE_KEY:'fixture-service'},fetcher:async()=>{calls++;throw Error('Unexpected network');}});
+  const response=await handler(new Request('https://bot.example',{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':'fixture-secret'},body:JSON.stringify({update_id:1,message:{...message,text:'/backup_source'}})}));
+  assert.equal(response.status,200);assert.equal(calls,0);
+ }
+});
