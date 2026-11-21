@@ -44,3 +44,4 @@ run_sql < "$repo_root/scripts/test_source_import_workflows.sql"
 
 run_sql < "$repo_root/scripts/test_repository_snapshot_removals.sql"
 run_sql < "$repo_root/scripts/test_repository_partial_imports.sql"
+run_sql < "$repo_root/scripts/test_four_github_sources.sql"

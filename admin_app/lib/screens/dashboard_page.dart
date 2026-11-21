@@ -334,7 +334,7 @@ class _DashboardPageState extends State<DashboardPage> {
           const SizedBox(height: 8),
           _ActionCard(
             icon: Icons.sync_rounded,
-            title: 'DarkByte Channels',
+            title: 'Stream Hub',
             iconColor: const Color(0xFF54E6C1),
             onTap: () => open(
                 context, const ConnectedChannelsPage(), 'connected-channels'),

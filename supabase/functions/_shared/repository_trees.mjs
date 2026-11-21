@@ -1,4 +1,6 @@
-export const REPOSITORY_TREE_SOURCES=['rohmanabdu/lian','rohmanabdu/deqiaa','darkbyteprojects/iptv_png','Roshavarma/cfy'];
+export const REPOSITORY_TREE_SOURCES=['rohmanabdu/lian','rohmanabdu/deqiaa','darkbyteprojects/iptv_png','Roshavarma/cfy',
+ 'nehalmahamuddev/SM-IPTV-Category-Playlists-Auto-Sync','dilzyking/allrounderlive',
+ 'sm-monirulislam/Upcoming-and-Live-Sports-Data','mdjamsad9/dudetvapi'];
 const mirror='https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/repository-trees.json';
 function validTree(tree){return tree&&!tree.truncated&&/^[a-f\d]{40}$/.test(tree.sha||'')&&Array.isArray(tree.tree)&&tree.tree.length<=5000;}
 async function read(url,fetcher,signal){
@@ -12,15 +14,16 @@ async function read(url,fetcher,signal){
 // Scheduled Actions use the repository-scoped token to publish metadata only.
 // Edge servers avoid shared anonymous GitHub API quotas. Raw files remain
 // pinned to the original tree revision and fixture blobs are SHA-verified.
-export async function readRepositoryTrees(repositories,{fetcher=fetch,signal,now=Date.now(),allowMissing=false}={}){
+export async function readRepositoryTrees(repositories,{fetcher=fetch,signal,now=Date.now(),allowMissing=false,isolateFailures=false}={}){
  if(repositories.some(repo=>!REPOSITORY_TREE_SOURCES.includes(repo)))throw Error('Unsupported repository');
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
  const combined=signal?AbortSignal.any([signal,controller.signal]):controller.signal;
  try{
   try{
    const data=await read(mirror,fetcher,combined),age=now-Date.parse(data.fetched_at);
-   if(Number.isFinite(age)&&age>=-60000&&age<=30*60000&&repositories.every(repo=>validTree(data.repositories?.[repo])||(allowMissing&&data.repositories?.[repo]?.status===404)))
-    return repositories.map(repo=>data.repositories[repo]?.status===404?null:data.repositories[repo]);
+   const unavailable=value=>allowMissing&&(value?.status===404||isolateFailures&&Number.isInteger(value?.status)&&value.status>=400&&value.status<=599);
+   if(Number.isFinite(age)&&age>=-60000&&age<=30*60000&&repositories.every(repo=>validTree(data.repositories?.[repo])||unavailable(data.repositories?.[repo])))
+    return repositories.map(repo=>unavailable(data.repositories[repo])?null:data.repositories[repo]);
   }catch{/* Fall back to GitHub without trusting a partial/stale mirror. */}
   return await Promise.all(repositories.map(async repo=>{
    try{
@@ -31,7 +34,7 @@ export async function readRepositoryTrees(repositories,{fetcher=fetch,signal,now
     // A deleted or temporarily unpublished repository must not stop fresh
     // fixture metadata from other still-published repositories. Only opt-in
     // callers can accept a partial snapshot; all other syncs still fail closed.
-    if(allowMissing&&error?.code==='repository_http_404')return null;
+    if(allowMissing&&(error?.code==='repository_http_404'||isolateFailures))return null;
     throw error;
    }
   }));

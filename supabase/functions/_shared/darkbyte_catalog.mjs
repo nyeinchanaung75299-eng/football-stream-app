@@ -1,6 +1,7 @@
 // Read only the repository's published data. Never download its private
 // builders, execute provider JavaScript, or call token/license APIs.
 import {readRepositoryTrees} from './repository_trees.mjs';
+import {publishedEventMeta} from './github_source_formats.mjs';
 const RAW='https://raw.githubusercontent.com/darkbyteprojects/iptv_png/';
 const clean=value=>String(value??'').replace(/<[^>]*>/g,' ').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim();
 const identity=value=>clean(value).normalize('NFKC').toLowerCase();
@@ -75,7 +76,7 @@ export async function parseDarkbyteFile(path,payload){
    const id='db:p'+provider+':'+kind+':'+(await sourceHash(provider+':'+kind+':'+identity(parent)+':'+clean(row.date))).slice(0,28);
    groups.set(id,{id,provider,kind,name:parent.slice(0,120),category,
     image_url:publicSourceUrl(row.image||row.logo||row.eventLogo,{httpsOnly:true})?.href||null,
-    source_file:path,streams:[],unsupported_count:1});
+    source_file:path,streams:[],unsupported_count:1,event_meta:kind==='event'?publishedEventMeta(row):{}});
   }
   for(const [index,item] of original.entries()){
    if(!enabled(item))continue;
@@ -84,7 +85,7 @@ export async function parseDarkbyteFile(path,payload){
    const id='db:p'+provider+':'+kind+':'+(await sourceHash(base)).slice(0,28);
    const entry=groups.get(id)||{id,provider,kind,name:(kind==='event'?parent+' • '+label:label).slice(0,120),category,
     image_url:publicSourceUrl(item.logo||row.image||row.logo||row.eventLogo,{httpsOnly:true})?.href||null,
-    source_file:path,streams:[],unsupported_count:0};
+    source_file:path,streams:[],unsupported_count:0,event_meta:kind==='event'?publishedEventMeta(row):{}};
    const config=configuration(item);
    if(config&&!entry.streams.some(line=>line.stream_url===config.stream_url)){
     const lineId=(await sourceHash(identity(label)+':'+config.stream_type+':'+entry.streams.length)).slice(0,24);
@@ -110,11 +111,11 @@ export async function readJson(target,{fetcher,signal,limit=3*1024*1024}){
   return JSON.parse(new TextDecoder().decode(bytes));
  }finally{clearTimeout(timer);controller.abort();}
 }
-export async function fetchDarkbyteCatalog({fetcher=fetch,revision=null}={}){
+export async function fetchDarkbyteCatalog({fetcher=fetch,revision=null,tree:providedTree=null}={}){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),28000);
  try{
   const options={fetcher,signal:controller.signal};
-  const [tree]=await readRepositoryTrees(['darkbyteprojects/iptv_png'],options);const sha=tree.sha;
+  const [tree]=providedTree?[providedTree]:await readRepositoryTrees(['darkbyteprojects/iptv_png'],options);const sha=tree.sha;
   if(!/^[a-f\d]{40}$/.test(sha||''))throw new Error('Invalid source revision.');
   if(revision===sha)return {revision:sha,unchanged:true,entries:[],complete:true};
   if(tree?.truncated||!Array.isArray(tree?.tree))throw new Error('Incomplete channel source tree.');

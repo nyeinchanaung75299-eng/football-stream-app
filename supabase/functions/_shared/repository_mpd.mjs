@@ -1,11 +1,10 @@
 // Parse published data only. Do not run repository builders, player scripts,
 // license servers or token endpoints. Credentials remain private Admin data.
 import {configuration,publicSourceUrl,sourceHash} from './darkbyte_catalog.mjs';
-import {readRepositoryTrees} from './repository_trees.mjs';
+import {readRepositoryTrees,REPOSITORY_TREE_SOURCES} from './repository_trees.mjs';
+import {NEW_GITHUB_SOURCES,readGithubDocuments} from './github_source_formats.mjs';
 
-export const MPD_REPOSITORIES = [
- 'rohmanabdu/lian','rohmanabdu/deqiaa','darkbyteprojects/iptv_png','Roshavarma/cfy',
-];
+export const MPD_REPOSITORIES = REPOSITORY_TREE_SOURCES;
 const clean = x => String(x ?? '').replace(/<[^>]*>/g,' ').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim();
 const transient = /^(token|access_token|auth|authorization|sig|signature|expires?|exp|e|hdnts|hdnea|aws_sessionid|x-amz-.+)$/i;
 export function mpdIdentity(value) {
@@ -96,6 +95,14 @@ export async function fetchRepositoryMpds({fetcher=fetch,deduplicate=true,allowM
   if(tree===null){revisions[repo]=null;continue;}
   if(tree.truncated||!Array.isArray(tree.tree)||!/^[a-f\d]{40}$/.test(tree.sha||''))throw new Error('Incomplete repository tree');
   revisions[repo]=tree.sha;
+  if(NEW_GITHUB_SOURCES.some(source=>source.repository===repo)){
+   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
+   try{for(const doc of await readGithubDocuments(repo,tree,{fetcher,signal:controller.signal})){
+    const parsed=parseMpdData(JSON.stringify(doc.rows),{repository:repo,revision:tree.sha,source_file:doc.path});
+    files.push({repository:repo,path:doc.path,mpds:parsed.length});entries.push(...parsed);
+   }}finally{clearTimeout(timer);controller.abort();}
+   continue;
+  }
   const paths=tree.tree.filter(x=>x.type==='blob'&&x.size<=3*1024*1024&&(
    repo==='darkbyteprojects/iptv_png'?/^provider_[1-6]\/(?:[\w-]+\.json|categories\/[\w-]+\.json)$/.test(x.path):
    repo==='Roshavarma/cfy'?x.path==='api/events.json':
