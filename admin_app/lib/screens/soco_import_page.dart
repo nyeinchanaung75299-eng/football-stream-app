@@ -193,6 +193,9 @@ class _SocoImportPageState extends State<SocoImportPage> {
   bool loading = false;
   bool availableOnly = false;
   String source = 'soco';
+  String _crichdSport = 'football';
+  String _combatCategory = 'all';
+  bool get _crichdCombat => source == 'crichd' && _crichdSport == 'combat';
   String dayFilter = 'today';
   String? errorText;
   String? _experimentalEmptyReason;
@@ -200,6 +203,13 @@ class _SocoImportPageState extends State<SocoImportPage> {
   String? _explainExperimentalResponse(dynamic data) {
     if (data is! Map || data['diagnostics'] is! Map) return null;
     final diagnostics = data['diagnostics'] as Map;
+    if (data['sport'] == 'combat') {
+      if (diagnostics['content_state'] ==
+          'source_unavailable_or_verification_required') {
+        return 'CricHD schedule could not be read or needs browser verification. No events or lines were invented.';
+      }
+      return 'No published events for this combat category on CricHD right now. Categories without a published section are unavailable.';
+    }
     final found = (diagnostics['candidate_count'] as num?)?.toInt() ?? 0;
     final confirmed =
         (diagnostics['confirmed_kickoff_count'] as num?)?.toInt() ?? 0;
@@ -437,6 +447,14 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
   Future<void> _loadSoco({bool silent = false}) async {
     final provider = source;
+    final isCombat = _crichdCombat;
+    final category = _combatCategory;
+    final requestBody = <String, dynamic>{
+      'source': provider,
+      if (isCombat) 'sport': 'combat',
+      if (isCombat) 'category': category
+    };
+    final cacheKey = isCombat ? 'crichd-combat-$category' : provider;
     // PlayZ currently supports direct-media manual import only.
     if (provider == 'playz') {
       ++_sourceLoadEpoch;
@@ -465,19 +483,19 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
     try {
       String? loadDiagnostic;
-      final parsed = await AdminWebSourceCache.load(provider, () async {
+      final parsed = await AdminWebSourceCache.load(cacheKey, () async {
         dynamic data;
-        if (!_enableNoVpnFallback) {
+        if (!_enableNoVpnFallback || isCombat) {
           data = await FunctionGateway.invoke(
             'source-match-list',
-            body: {'source': provider},
+            body: requestBody,
           );
           validateSourceMatchRows(data, provider);
         } else {
           try {
             data = await FunctionGateway.invoke(
               'source-match-list',
-              body: {'source': provider},
+              body: requestBody,
             );
             validateSourceMatchRows(data, provider);
           } catch (_) {
@@ -500,7 +518,7 @@ class _SocoImportPageState extends State<SocoImportPage> {
                         anchor is Map &&
                         (anchor['room_num']?.toString().trim().isNotEmpty ??
                             false))))
-            .where((row) => !_staleSourceMatch(row))
+            .where((row) => isCombat || !_staleSourceMatch(row))
             .toList();
 
         parsed.sort((a, b) => compareAdminSourceMatches(a, b, provider));
@@ -1713,7 +1731,8 @@ class _SocoImportPageState extends State<SocoImportPage> {
 
   String _sourceMatchTitle(Map<String, dynamic> match) {
     final home = (match['home_team'] ?? '').toString();
-    return '$home vs ${match['away_team'] ?? ''}';
+    return match['combat_event_name']?.toString() ??
+        '$home vs ${match['away_team'] ?? ''}';
   }
 
   String _sourceLabel(String value) {
@@ -1770,6 +1789,46 @@ class _SocoImportPageState extends State<SocoImportPage> {
           controller: _sourceScroll,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
           children: [
+            if (source == 'crichd') ...[
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'football', label: Text('Football')),
+                  ButtonSegment(value: 'combat', label: Text('Combat Sports'))
+                ],
+                selected: {_crichdSport},
+                onSelectionChanged: (values) {
+                  setState(() {
+                    _crichdSport = values.single;
+                    sourceMatches = const [];
+                    dayFilter = 'all';
+                  });
+                  unawaited(_loadSoco());
+                },
+              ),
+              if (_crichdCombat)
+                DropdownButton<String>(
+                  value: _combatCategory,
+                  isExpanded: true,
+                  items: [
+                    for (final item in const {
+                      'all': 'All combat sports',
+                      'ufc': 'UFC',
+                      'mma': 'MMA',
+                      'boxing': 'Boxing',
+                      'one': 'ONE Championship'
+                    }.entries)
+                      DropdownMenuItem(value: item.key, child: Text(item.value))
+                  ],
+                  onChanged: (value) {
+                    setState(() {
+                      _combatCategory = value ?? 'all';
+                      sourceMatches = const [];
+                    });
+                    unawaited(_loadSoco());
+                  },
+                ),
+              const SizedBox(height: 12),
+            ],
             if (_isManualSource) _manualSourceCard(colors),
             if (!_isManualSource) ...[
               TextField(

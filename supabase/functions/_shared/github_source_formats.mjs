@@ -21,8 +21,8 @@ export function publishedEventMeta(row){
  return {home_team:name(row.teamA||e.teamA)||null,away_team:name(row.teamB||e.teamB)||null,
   home_logo_url:clean(row.teamA?.logo||e.teamAFlag)||null,away_logo_url:clean(row.teamB?.logo||e.teamBFlag)||null,
   unclassified_sports:row.unclassified_sports===true,
-  league:clean(e.eventName||row.eventName)||null,source_category:clean(e.eventCat||row.category||row.cat)||null,
-  source_status:clean(row.status||row.channel_status)||null,source_time:clean(e.startTime||row.startTime||[row.date,row.time].filter(Boolean).join(' '))||null,
+  league:clean(e.eventName||row.eventName||row.event_name)||null,discipline:clean(e.discipline||row.discipline)||null,source_category:clean(e.eventCat||row.category||row.cat)||null,
+  source_status:clean(row.status||row.channel_status)||null,source_time:clean(e.startTime||e.sourceTime||row.startTime||[row.date,row.time].filter(Boolean).join(' '))||null,
   kickoff_at:utc(e.startTime||row.startTime),end_at:utc(e.endTime||row.endTime),source_civil_date:e.sourceCivilDate||null};
 }
 function media(row){
@@ -76,11 +76,19 @@ export function normalizeGithubDocument(repository,path,payload,channels=new Map
    const title=clean(row.name),streams=list(row.servers).map(media).filter(Boolean);
    const match=title.replace(/^\[live\]\s*/i,'').match(/^(.+?)\s+(?:vs\.?|v\.?|versus)\s+(.+?)(?:\s+[-•]\s+.+)?$/i);
    return {...row,title,image:row.logo,cat:row.category,resolved_streams:streams,
-    ...(match&&/live.?sports/i.test(row.category)?{eventInfo:{teamA:match[1],teamB:match[2],eventName:'Live Sports'},unclassified_sports:true}:{})};
+    ...(/live.?sports/i.test(row.category)?(match?{eventInfo:{teamA:match[1],teamB:match[2],eventName:'Live Sports'},unclassified_sports:true}:/\bufc\b|\bmma\b|\bboxing\b|one championship/i.test(title)?{eventInfo:{eventName:title,eventCat:row.category}}:{}):{})};
   });
  }
  if(source.key==='allrounder'){
-  if(!Array.isArray(payload))throw Error('Invalid Allrounder export');
+  if(!Array.isArray(payload)) {
+   const items=payload?.matches||payload?.event;
+   if(!Array.isArray(items))throw Error('Invalid Allrounder export');
+   return items.map(row=>{
+    const title=clean(row.title||row.name),pair=title.match(/^(.+?)\s+(?:vs\.?|v\.?|versus)\s+(.+)$/i);
+    const rawTime=[row.date,row.time||row.start_time].filter(Boolean).join(' ');
+    return event({...row,id:row.match_id||row.id,title}, {eventName:row.league||title,eventCat:row.sport||row.category,teamA:pair?.[1],teamB:pair?.[2],sourceTime:rawTime},list(row.servers).filter(x=>typeof x==='object'),row.sport||row.category);
+   });
+  }
   return payload.map(row=>event(row,{...row.event,eventCat:row.event?.category||row.cat,
    eventName:row.event?.name||row.title,startTime:row.event?.startTimeUTC,endTime:row.event?.endTimeUTC},list(row.dashStreams),row.cat));
  }
@@ -90,7 +98,7 @@ export function normalizeGithubDocument(repository,path,payload,channels=new Map
    const raw=row.eventInfo?.startTime||'',date=raw.match(/^(\d{2})\/(\d{2})\/(\d{4})\b/);
    const civil=date?`${date[3]}-${date[2]}-${date[1]}`:null;
    return event({...row,title:row.event_name},
-    {...row.eventInfo,eventCat:row.Category,sourceCivilDate:civil,sourceTime:raw},list(row.streams),row.Category);
+    {...row.eventInfo,eventName:row.eventInfo?.eventName||row.event_name,eventCat:row.Category,sourceCivilDate:civil,sourceTime:raw},list(row.streams),row.Category);
   });
  }
  if(!Array.isArray(payload))throw Error('Invalid DudeTV export');
@@ -105,7 +113,7 @@ export async function readGithubDocuments(repository,tree,{fetcher=fetch,signal,
  if(!source||!tree||tree.truncated||!/^[a-f\d]{40}$/.test(tree.sha||''))throw Error('Invalid source tree');
  const blobs=new Map(tree.tree.filter(x=>x.type==='blob').map(x=>[x.path,x]));
  const patterns={smiptv:/^output\/channels\.json$/,
-  allrounder:/^api\/(?:football|cricket)\.json$/,
+  allrounder:/^api\/(?:football|cricket|world-sports|today-events|event)\.json$/,
   smsports:/^Sports_data\.json$/,
   dudetv:/^public_decrypted\/(?:events_with_channels\.json|cats\/[\w-]+\.json)$/,
   cfy:/^api\/events\.json$/,lian:/^(?:hasill|finall(?:\.json)?|playlist_final\.json|(?:pl|pll)\/rama+a?2(?:\.json)?|config\d*\.json)$/,

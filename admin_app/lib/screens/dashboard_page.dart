@@ -9,6 +9,7 @@ import '../widgets/theme_mode_button.dart';
 import '../widgets/admin_version_dialog.dart';
 import 'channels_page.dart';
 import 'connected_channels_page.dart';
+import 'combat_sports_page.dart';
 import 'channel_health_page.dart';
 import 'edit_live_page.dart';
 import 'fixture_import_page.dart';
@@ -332,6 +333,13 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ),
           const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.sync_rounded,
+            title: 'Combat Sports',
+            iconColor: const Color(0xFF54E6C1),
+            onTap: () => open(context,const CombatSportsPage(),'combat-sports'),
+          ),
+          const SizedBox(height:8),
           _ActionCard(
             icon: Icons.sync_rounded,
             title: 'Stream Hub',

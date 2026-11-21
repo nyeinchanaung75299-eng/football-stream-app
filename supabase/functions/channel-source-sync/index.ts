@@ -4,6 +4,7 @@ import {createClient} from "jsr:@supabase/supabase-js@2";
 import {sourceHash} from "../_shared/darkbyte_catalog.mjs";
 import {fetchConnectedGithubCatalog} from '../_shared/connected_github_catalog.mjs';
 import {repositoryMatchesFromHub} from '../_shared/repository_from_hub.mjs';
+import {combatEventsFromHub,combatMatchesQuery} from '../_shared/combat_sports.mjs';
 import {fetchLiveTvSports,sportsNeedsDrm} from "../_shared/livetv_sports.mjs";
 import {preserveRepositoryMatchLines} from '../_shared/repository_matches.mjs';
 import {repositoryChannelUpdates,publicRepositoryUpdate} from '../_shared/repository_updates.mjs';
@@ -19,7 +20,7 @@ async function readStreamHub(client:any){
  for(let page=0;page<15;page++){
   const rows=await check(client.from('channel_source_catalog')
    .select('id,provider,kind,name,category,image_url,source_file,streams,event_meta')
-   .eq('source_id','darkbyte').eq('is_present',true).order('id').range(page*1000,page*1000+999));
+   .eq('source_id','darkbyte').eq('kind','event').eq('is_present',true).order('id').range(page*1000,page*1000+999));
   entries.push(...rows);if(rows.length<1000)break;
  }
  const after=await check(client.from('channel_source_state').select('last_checked_at').eq('id','darkbyte').single());
@@ -85,8 +86,12 @@ async function synchronize(client:any,force:boolean,source:string){
    // published streams were removed. Keep those configurations until a full
    // authoritative snapshot succeeds, and add new verified Darkbyte/CFY
    // event lines without multiplying duplicates.
-   const previous=await check(client.from('channel_source_catalog')
-    .select('id,streams,event_meta').eq('source_id','repository').eq('is_present',true).limit(15000));
+   const previous:any[]=[];
+   for(let page=0;page<15;page++){
+    const rows=await check(client.from('channel_source_catalog')
+     .select('id,streams,event_meta').eq('source_id','repository').eq('is_present',true).order('id').range(page*1000,page*1000+999));
+    previous.push(...rows);if(rows.length<1000)break;
+   }
    removedRepositoryIds=confirmedRepositoryRemovals(snapshot,previous||[]);
    snapshot.entries=preserveRepositoryMatchLines(snapshot.entries,unobservedRepositoryEntries(snapshot,previous||[]));
   }
@@ -122,6 +127,19 @@ export async function channelSourceRequest(req:Request,client:any){
  try{
   if(action==="sync")return json(await synchronize(client,role==="admin",source));
   if(action==='state')return json({ok:true,state:await check(client.from('channel_source_state').select(stateColumns).eq('id',source).single())});
+  if(action==='combat_catalog'||action==='combat_details'){
+   const hub=await readStreamHub(client);
+   const groups=await combatEventsFromHub(hub.entries);
+   if(action==='combat_details'){
+    const entry=groups.find(row=>row.id===body.entry_id);if(!entry)return json({error:'Combat event unavailable'},404);
+    return json({ok:true,entry,state:hub.state});
+   }
+   const query=String(body.query||'').trim().toLowerCase().slice(0,120),page=Math.max(0,Math.min(1000,Number(body.page)||0));
+   const rows=groups.filter(row=>(!body.category||body.category==='all'||row.category===body.category)&&
+    (!body.status||body.status==='all'||row.status===body.status)&&
+    combatMatchesQuery(row,query));
+   return json({ok:true,state:hub.state,total:rows.length,page,entries:rows.slice(page*50,page*50+50).map(({lines,...entry})=>entry)});
+  }
   if(action==='updates'&&source==='repository-imports'){
    const page=Math.max(0,Math.min(100,Number(body.page)||0));
    const {data,error,count}=await client.from('channel_repository_imports')
@@ -158,7 +176,7 @@ export async function channelSourceRequest(req:Request,client:any){
    return json({ok:true});
   }
   const id=String(body.entry_id||"");
-  if(!(source==='repository'?/^repo:match:[a-f\d]{28}$/:source==='livetv'?/^ltv:channel:[a-f\d]{28}$/:/^db:p[1-6]:(channel|event|video|playlist):[a-f\d]{28}$/).test(id))return json({error:"Invalid source entry"},400);
+  if(!(source==='repository'?/^repo:match:[a-f\d]{28}$/:source==='livetv'?/^ltv:channel:[a-f\d]{28}$/:/^(?:db:p[1-6]:(?:channel|event|video|playlist)|gh:(?:smiptv|allrounder|smsports|dudetv|cfy|lian|deqiaa)):[a-f\d]{28}$/).test(id))return json({error:"Invalid source entry"},400);
   if(action==="details"){
    const entry=await check(client.from("channel_source_catalog").select("id,name,kind,streams,playlist_url,is_present,event_meta").eq("id",id).eq('source_id',source).single());
    return json({ok:true,entry});

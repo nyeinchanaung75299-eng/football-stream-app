@@ -76,3 +76,12 @@ test('one failed file leaves its last catalog while a healthy changed repository
  assert.equal(result.complete,false);assert(result.entries.some(x=>x.id===previous[1].id));
  assert(result.entries.some(x=>x.id.startsWith('gh:smsports:')));assert(!result.entries.some(x=>x.id===previous[3].id));
 });
+test('published combat event titles survive Hub without inventing a fighter pair or kickoff',async()=>{
+ for(const key of ['smiptv','allrounder','smsports','dudetv']){
+  const source=NEW_GITHUB_SOURCES.find(s=>s.key===key);
+  const payload={smiptv:{channels:[{id:'ufc',name:'UFC 323',category:'live_sports',servers:[]}]},allrounder:{event:[{title:'UFC 323',category:'UFC',date:'22 Nov',start_time:'9 PM'}]},smsports:{matches:[{event_name:'UFC 323',Category:'UFC',eventInfo:{},streams:[]}]},dudetv:[{id:'ufc',title:'UFC 323',cat:'UFC',eventInfo:{eventName:'UFC 323'}}]}[key];
+  const normalized=normalizeGithubDocument(source.repository,'fixture.json',payload);
+  const entries=await githubCatalogEntries(source,[{path:'events.json',rows:normalized}],sha);
+  assert.equal(entries[0].kind,'event');assert.equal(entries[0].event_meta.home_team,null);assert.equal(entries[0].event_meta.kickoff_at,null);
+ }
+});

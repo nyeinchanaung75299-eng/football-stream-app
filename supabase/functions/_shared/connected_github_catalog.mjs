@@ -9,7 +9,7 @@ export async function githubCatalogEntries(source,documents,revision){
  for(const doc of documents)for(const row of doc.rows){
   if(row.visible===false||[false,0,'0'].includes(row.publish))continue;
   const e=row.eventInfo||{},home=clean(e.teamA),away=clean(e.teamB);
-  const kind=home&&away?'event':'channel',name=clean(home&&away?home+' vs '+away:row.title||row.name);
+  const kind=home&&away||e.eventName||e.startTime?'event':'channel',name=clean(home&&away?home+' vs '+away:row.title||row.name||e.eventName);
   if(!name)continue;
   const stable=String(row.id??[name,row.cat,e.startTime||''].join(':'));
   const id='gh:'+source.key+':'+(await sourceHash(kind+':'+stable)).slice(0,28);

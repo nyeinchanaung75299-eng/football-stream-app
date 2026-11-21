@@ -5,7 +5,7 @@ test_container="nca-db-security-test-$$"
 trap 'docker rm -f "$test_container" >/dev/null 2>&1 || true' EXIT
 docker run --rm -d --name "$test_container" -v "$repo_root:/nca-repo:ro" -e POSTGRES_PASSWORD=local-test-only postgres:17 -c wal_level=logical >/dev/null
 for attempt in {1..60}; do
-  if docker exec "$test_container" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+  if docker exec "$test_container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then break; fi
   sleep 1
 done
 docker exec "$test_container" createdb -U postgres nca_security_test
@@ -47,3 +47,5 @@ run_sql < "$repo_root/scripts/test_repository_partial_imports.sql"
 run_sql < "$repo_root/scripts/test_four_github_sources.sql"
 run_sql < "$repo_root/scripts/test_metadata_only_match_import.sql"
 run_sql < "$repo_root/scripts/test_stream_hub_pipeline.sql"
+
+run_sql < "$repo_root/scripts/test_stream_hub_commit_budget.sql"

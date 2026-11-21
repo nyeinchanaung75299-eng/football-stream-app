@@ -8,6 +8,8 @@ import { loadYyzbFootballCatalogue } from '../_shared/yyzb_schedule.mjs';
 import {parseFawaCatalog} from '../_shared/fawa_catalog.mjs';
 import { footballHighlights } from '../_shared/football_highlights.mjs';
 
+import { crichdCombatMatches } from '../_shared/crichd_combat.mjs';
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -72,6 +74,9 @@ Deno.serve(async (req) => {
       return json({ error: "Unsupported source." }, 400);
     }
 
+    if (source === 'crichd' && body.sport === 'combat') {
+      return json(await crichdCombatMatches({category:body.category}));
+    }
     if (isExperimentalFootballSource(source)) {
       return json(await experimentalMatches(source));
     }
