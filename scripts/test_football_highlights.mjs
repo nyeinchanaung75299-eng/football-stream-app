@@ -6,6 +6,7 @@ import {highlightSources,highlightLine,parseDasHighlights,checkHighlightLine,foo
 const html = rows => '<script type="application/ld+json">'+JSON.stringify({'@type':'ItemList',itemListElement:rows})+'</script>';
 const video = {'@type':'VideoObject',name:'Home vs Away',url:'https://dasfootball.com/home-vs-away-highlights-2026-11-12/',embedUrl:'https://cdn.example.org/highlight.mp4'};
 const response = body => new Response(body,{headers:{'Content-Type':'text/html'}});
+const cards=rows=>Response.json({cards:rows.map(row=>({slug:new URL(row.url).pathname.replace(/^\/+|\/+$/g,''),title:row.name})),hasMore:false});
 
 test('only native highlight media and safe non-secret headers are accepted',()=>{
   const line=highlightLine({link:'https://cdn.example.org/h.mp4|Referer=https://site.example.org/game&Origin=https://site.example.org&User-agent=Player&Cookie=secret&accountToken=secret'});
@@ -66,16 +67,17 @@ test('an initial source outage is explicit with no fabricated links or player fa
 });
 test('catalogue calls coalesce; extraction checks only requested link bytes and retains successful data after a failed refresh',async()=>{
   let calls=0,failed=false;
-  const fetcher=async target=>{calls++;if(target===video.embedUrl)return new Response(new Uint8Array([0,0,0,24,102,116,121,112]),{status:206});assert.equal(target,'https://dasfootball.com/');
+  const fetcher=async target=>{calls++;if(target===video.embedUrl)return new Response(new Uint8Array([0,0,0,24,102,116,121,112]),{status:206});
+    if(target===video.url)return response(html([video]));assert.equal(target,'https://dasfootball.com/api/homepage-posts/?offset=0');
     await new Promise(resolve=>setTimeout(resolve,5));
-    return failed?new Response('unavailable',{status:503}):response(html([video]));};
+    return failed?new Response('unavailable',{status:503}):cards([video]);};
   const a={provider:'dasfootball',force:true};
   const [one,two]=await Promise.all([footballHighlights(a,{fetcher}),footballHighlights(a,{fetcher})]);
   assert.equal(calls,1);assert.equal(one.total,1);assert.deepEqual(one,two);
   const details=await footballHighlights({provider:'dasfootball',action:'details',entry_id:one.entries[0].id},{fetcher});
-  assert.equal(details.entry.lines[0].stream_url,video.embedUrl);assert.equal(calls,2);
+  assert.equal(details.entry.lines[0].stream_url,video.embedUrl);assert.equal(calls,3);
   assert.equal(details.entry.lines[0].link_check.status,'reachable');
-  await footballHighlights({provider:'dasfootball',action:'details',entry_id:one.entries[0].id},{fetcher});assert.equal(calls,2);
+  await footballHighlights({provider:'dasfootball',action:'details',entry_id:one.entries[0].id},{fetcher});assert.equal(calls,3);
   failed=true;const stale=await footballHighlights(a,{fetcher});
   assert.equal(stale.stale,true);assert.equal(stale.entries.length,1);assert.equal(stale.updated_at,one.updated_at);
 });
@@ -85,11 +87,11 @@ test('unpublished entry and line URLs cannot turn extraction into an arbitrary U
   assert.equal(calls,0); // The previous fresh public catalogue is reused.
 });
 test('Get links excludes unreachable URLs instead of returning website or video-player fallbacks',async()=>{
-  const fetcher=async url=>url==='https://dasfootball.com/'?response(html([{...video,embedUrl:'https://cdn.example.org/deleted.mp4'}])):new Response('gone',{status:404});
+  const fetcher=async url=>url.includes('/api/homepage-posts/')?cards([video]):url===video.url?response(html([{...video,embedUrl:'https://cdn.example.org/deleted.mp4'}])):new Response('gone',{status:404});
   const data=await footballHighlights({force:true},{fetcher});
   const details=await footballHighlights({action:'details',entry_id:data.entries[0].id},{fetcher});
   assert.deepEqual(details.entry.lines,[]);
-  const list=await footballHighlights({}, {fetcher});assert.deepEqual(list.entries,[]);
+  const list=await footballHighlights({}, {fetcher});assert.equal(list.entries.length,1);assert.deepEqual(list.entries[0].lines,[]);
 });
 test('Highlights ships no player asset or player/browser-launch dependency',()=>{
   assert.equal(existsSync(new URL('../admin_app/web/highlight_player.html',import.meta.url)),false);

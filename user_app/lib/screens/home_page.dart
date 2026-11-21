@@ -17,7 +17,7 @@ import '../native_player.dart';
 import 'source_browser_page.dart';
 import '../viewer_navigation.dart';
 import 'channels_page.dart';
-import 'highlights_page.dart';
+import 'highlight_source_page.dart';
 import 'network_diagnostics_page.dart';
 import '../widgets/theme_mode_button.dart';
 import '../widgets/premium_bottom_nav.dart';
@@ -1495,7 +1495,7 @@ class _HomePageState extends State<HomePage> {
             tooltip: 'Highlights',
             icon: const Icon(Icons.movie_outlined),
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const HighlightsPage()),
+              MaterialPageRoute<void>(builder: (_) => const HighlightsSourcePage()),
             ),
           ),
           IconButton(
@@ -1597,6 +1597,7 @@ class _HomePageState extends State<HomePage> {
       bottomNavigationBar: PremiumBottomNav(
         selectedIndex: 0,
         onSelected: (index) async {
+          if(index==7){await Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>const HighlightsSourcePage()));return;}
           if (index == 0) {
             await refresh(silent: true);
             return;

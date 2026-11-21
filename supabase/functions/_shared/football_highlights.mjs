@@ -4,7 +4,7 @@ import {publicSourceUrl, readPublicSource} from './public_source_media.mjs';
 export const highlightSources = [
   {id:'dasfootball',name:'DasFootball',url:'https://dasfootball.com/',mode:'feed'},
 ];
-const cache = new Map(), inFlight = new Map();
+const cache = new Map(), inFlight = new Map(), entryCache=new Map(), searchCache=new Map();
 const clean = value => String(value || '').replace(/<[^>]*>/g,' ').replace(/&amp;/gi,'&')
   .replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/\s+/g,' ').trim();
 const excluded = /\b(?:full\s*match|(?:1st|2nd|first|second)\s*half|extra\s*time|ceremony|half\s*time\s*show|interview|press\s*conference)\b/i;
@@ -54,43 +54,81 @@ function structuredVideos(html) {
   }
   return videos;
 }
-export function parseDasHighlights(html) {
+function streamableId(value){
+ const address=publicSourceUrl(value);if(!address)return null;
+ const url=new URL(address);if(url.protocol!=='https:'||!['streamable.com','www.streamable.com'].includes(url.hostname))return null;
+ return url.pathname.match(/^\/(?:e\/)?([a-zA-Z0-9]{3,32})\/?$/)?.[1]||null;
+}
+export function parseDasHighlights(html,{includeEmbeds=false,sourcePage=null}={}) {
   const entries=new Map();
   for (const video of structuredVideos(html).slice(0,150)) {
-    const page=publicSourceUrl(video.url,'https://dasfootball.com/');
+    const page=publicSourceUrl(video.url||sourcePage,'https://dasfootball.com/');
     const title=clean(video.name);
     if (!page || new URL(page).hostname!=='dasfootball.com' || !/highlights/i.test(new URL(page).pathname) || !title || excluded.test(title)) continue;
     const lines=uniqueLines([video.contentUrl,video.embedUrl].map(link=>highlightLine({link,title:'Highlights'})));
     // Never list a website player as an extracted video URL.
-    if (!lines.length) continue;
+    const embedId=includeEmbeds?streamableId(video.embedUrl):null;
+    if (!lines.length&&!embedId) continue;
     const previous=entries.get(page);
     if (previous) {previous.lines=uniqueLines([...previous.lines,...lines]);continue;}
     const date=Date.parse(video.uploadDate || '');
     entries.set(page,{id:'dasfootball:'+page,provider:'dasfootball',title:title.slice(0,240),source_page_url:page,
       thumbnail_url:publicSourceUrl(Array.isArray(video.thumbnailUrl)?video.thumbnailUrl[0]:video.thumbnailUrl),
-      published_at:Number.isFinite(date)?new Date(date).toISOString():null,lines});
+      published_at:Number.isFinite(date)?new Date(date).toISOString():null,lines,...(embedId?{embed_id:embedId}:{})});
   }
   return [...entries.values()];
 }
 
-async function catalogue(fetcher,force=false) {
-  const previous=cache.get('dasfootball');
+function cardEntry(card,force=false){
+  const address=card.slug?'/'+card.slug+'/':card.href;
+  const page=publicSourceUrl(address,'https://dasfootball.com/');
+  const title=clean(card.title);
+  if(!page||new URL(page).hostname!=='dasfootball.com'||!/highlights/i.test(new URL(page).pathname)||!title||excluded.test(title))return null;
+  const id='dasfootball:'+page,old=entryCache.get(id);
+  const logo=card.thumbnailUrl||card.thumbnail_url||card.homeTeam?.logoUrl;
+  const entry={...old,id,provider:'dasfootball',title,source_page_url:page,
+    league:clean(card.categoryName)||old?.league||null,
+    thumbnail_url:publicSourceUrl(logo,'https://dasfootball.com/')||old?.thumbnail_url||null,
+    published_at:card.publishedAt||old?.published_at||null,lines:force?[]:old?.lines||[],
+    links_checked_at:force?null:old?.links_checked_at};
+  entryCache.set(id,entry);return entry;
+}
+async function catalogue(fetcher,force=false,{offset=0,query=''}={}) {
+  const key=query+'|'+offset,previous=cache.get(key);
   if (!force && previous && Date.now()-Date.parse(previous.updated_at)<300000) return previous;
-  if (inFlight.has('dasfootball')) return inFlight.get('dasfootball');
+  if (inFlight.has(key)) return inFlight.get(key);
   const work=(async()=>{
     try {
-      const {text}=await readPublicSource('https://dasfootball.com/',{fetcher,kind:'html',timeoutMs:5500,allowedHosts:['dasfootball.com']});
-      const data={entries:parseDasHighlights(text),warnings:[],updated_at:new Date().toISOString()};
-      cache.set('dasfootball',data);return data;
+      let cards,hasMore,nextOffset;
+      if(query){
+        let found=searchCache.get(query);
+        if(force||!found||Date.now()-found.time>300000){
+          const {text}=await readPublicSource('https://dasfootball.com/api/search/?q='+encodeURIComponent(query),{fetcher,kind:'json',timeoutMs:5500,allowedHosts:['dasfootball.com']});
+          const rows=JSON.parse(text);if(!Array.isArray(rows))throw Error('Invalid highlights search');
+          found={time:Date.now(),rows:rows.filter(r=>r.type==='article')};searchCache.set(query,found);
+        }
+        cards=found.rows.slice(offset,offset+9);nextOffset=offset+cards.length;hasMore=nextOffset<found.rows.length;
+      }else{
+        const {text}=await readPublicSource('https://dasfootball.com/api/homepage-posts/?offset='+offset,{fetcher,kind:'json',timeoutMs:5500,allowedHosts:['dasfootball.com']});
+        const payload=JSON.parse(text);if(!Array.isArray(payload.cards)||typeof payload.hasMore!=='boolean')throw Error('Invalid highlights catalogue');
+        cards=payload.cards;nextOffset=offset+cards.length;hasMore=payload.hasMore&&cards.length>0;
+      }
+      const entries=[...new Map(cards.map(card=>cardEntry(card,force)).filter(Boolean).map(e=>[e.id,e])).values()];
+      const data={entries,warnings:[],updated_at:new Date().toISOString(),has_more:hasMore&&nextOffset<5000,next_offset:nextOffset};
+      cache.set(key,data);
+      if(cache.size>200)cache.delete(cache.keys().next().value);
+      if(searchCache.size>50)searchCache.delete(searchCache.keys().next().value);
+      if(entryCache.size>3000)entryCache.delete(entryCache.keys().next().value);
+      return data;
     } catch(error) {
       const warnings=[clean(error.message) || 'Could not extract highlight links.'];
       return previous?{...previous,stale:true,warnings}:
-        {entries:[],updated_at:null,unavailable:true,warnings};
+        {entries:[],updated_at:null,unavailable:true,warnings,has_more:false,next_offset:offset};
     }
   })();
-  inFlight.set('dasfootball',work);
+  inFlight.set(key,work);
   try {return await work;}
-  finally {if (inFlight.get('dasfootball')===work) inFlight.delete('dasfootball');}
+  finally {if (inFlight.get(key)===work) inFlight.delete(key);}
 }
 
 // Bounded first-byte test only. No public arbitrary-URL checker: callers must
@@ -128,13 +166,34 @@ export async function footballHighlights(body,{fetcher=fetch}={}) {
   if (provider!=='dasfootball') throw Error('Unsupported highlights provider');
   const action=String(body.action || 'catalog');
   if (!['catalog','details','check'].includes(action)) throw Error('Unsupported highlights action');
-  const data=await catalogue(fetcher,body.force===true);
   if (action==='catalog') {
-    const entries=data.entries.filter(row=>row.lines.length);
+    const offset=Number(body.offset??0),query=clean(body.query).slice(0,80);
+    if(!Number.isInteger(offset)||offset<0||offset>5000)throw Error('Invalid highlights offset');
+    const data=await catalogue(fetcher,body.force===true,{offset,query});
+    const entries=data.entries;
     return {ok:true,source:'highlights',provider,sources:highlightSources,...data,entries,total:entries.length};
   }
-  const entry=data.entries.find(row=>row.id===body.entry_id);
-  if (!entry) throw Error('This highlight is no longer in the source. Refresh the list.');
+  const page=typeof body.entry_id==='string'&&body.entry_id.startsWith('dasfootball:')?publicSourceUrl(body.entry_id.slice(12)):null;
+  if(!page||new URL(page).hostname!=='dasfootball.com'||!/^[\w/-]+highlights[\w/-]*\/?$/i.test(new URL(page).pathname))throw Error('Invalid highlight entry');
+  let entry=entryCache.get(body.entry_id);
+  if(!entry||!entry.lines.length&&!entry.links_checked_at||entry.links_checked_at&&Date.now()-Date.parse(entry.links_checked_at)>300000){
+    const {text}=await readPublicSource(page,{fetcher,kind:'html',timeoutMs:5500,allowedHosts:['dasfootball.com']});
+    const extracted=parseDasHighlights(text,{includeEmbeds:true,sourcePage:page}).find(row=>row.source_page_url.replace(/\/+$/,'')===page.replace(/\/+$/,''));
+    if(!extracted)throw Error('No native highlight link published for this entry');
+    entry={...entry,...extracted,id:body.entry_id,source_page_url:page};
+    if(!entry.lines.length&&entry.embed_id){
+      try{
+        const {text}=await readPublicSource('https://api.streamable.com/videos/'+entry.embed_id,{fetcher,kind:'json',timeoutMs:5000,allowedHosts:['api.streamable.com']});
+        const media=JSON.parse(text);entry.lines=uniqueLines(['mp4','mp4-mobile'].map(key=>{
+          const file=media.files?.[key],address=publicSourceUrl(file?.url,'https://streamable.com/');
+          if(!address||!/(^|\.)streamable\.com$/i.test(new URL(address).hostname))return null;
+          if(Number.isFinite(file.duration))entry.duration=file.duration;
+          return highlightLine({link:address,title:file.height?`${file.height}p`:'Highlights'});
+        }));
+      }catch{entry.lines=[];}
+    }
+    entryCache.set(body.entry_id,entry);
+  }
   if (action==='details') {
     if (!entry.links_checked_at || Date.now()-Date.parse(entry.links_checked_at)>300000) {
       const checks=await Promise.all(entry.lines.slice(0,8).map(async line=>{

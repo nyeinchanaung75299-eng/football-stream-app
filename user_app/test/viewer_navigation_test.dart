@@ -6,7 +6,7 @@ void main(){
  testWidgets('Viewer tabs select Live 2 and each provider in the requested order',(tester)async{
   int? selected;
   await tester.pumpWidget(MaterialApp(home:Scaffold(bottomNavigationBar:PremiumBottomNav(selectedIndex:0,onSelected:(value)=>selected=value))));
-  const labels=['Live','Live 2','Soco','YYZB','ColaTV','Fawa','Channels'];
+  const labels=['Live','Live 2','Soco','YYZB','ColaTV','Fawa','Channels','HL'];
   expect(find.text('Totalsportek'),findsNothing);
   for(var i=0;i<labels.length;i++){
    await tester.tap(find.text(labels[i]));expect(selected,i);

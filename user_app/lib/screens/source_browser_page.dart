@@ -13,6 +13,7 @@ import '../network_endpoints.dart';
 import '../playback_routes.dart';
 import '../native_player.dart';
 import 'channels_page.dart';
+import 'highlight_source_page.dart';
 import '../live_feed_controller.dart';
 import '../player_loading.dart';
 import '../source_line_loader.dart';
@@ -1002,6 +1003,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   }
 
   void _select(int index) {
+    if(index==7){Navigator.of(context).pushReplacement(MaterialPageRoute<void>(builder:(_)=>const HighlightsSourcePage()));return;}
     _rememberUi();
     if (index == navIndex) {
       unawaited(_refresh());
