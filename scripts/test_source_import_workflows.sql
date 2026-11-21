@@ -74,6 +74,13 @@ end $$;
 set local role authenticated;
 select set_config('request.jwt.claim.sub','33000000-0000-0000-0000-000000000001',true);
 select public.permanently_delete_match('34000000-0000-0000-0000-000000000001');
+do $$begin
+ if public.permanently_delete_match('34000000-0000-0000-0000-000000000001')->>'already_deleted'<>'true' then raise exception 'Committed delete retry failed'; end if;
+end $$;
+select set_config('request.jwt.claim.sub','33000000-0000-0000-0000-000000000002',true);
+do $$begin
+ begin perform public.permanently_delete_match('34000000-0000-0000-0000-000000000001');raise exception 'Viewer deletion allowed';exception when insufficient_privilege then null;end;
+end $$;
 reset role;
 do $$ begin
  if exists(select from public.matches where id='34000000-0000-0000-0000-000000000001') or exists(select from public.stream_links where match_id='34000000-0000-0000-0000-000000000001') or exists(select from public.imported_source_lines where match_id='34000000-0000-0000-0000-000000000001') then raise exception 'Delete left content';end if;
