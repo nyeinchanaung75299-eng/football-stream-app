@@ -22,8 +22,18 @@ def android(app,kind,p,mode):
  for permission in ['INTERNET','ACCESS_NETWORK_STATE','REQUEST_INSTALL_PACKAGES']:
   if not any(e.get(ns+'name')=='android.permission.'+permission for e in root.findall('uses-permission')):ET.SubElement(root,'uses-permission',{ns+'name':'android.permission.'+permission})
  ET.SubElement(application,'meta-data',{ns+'name':'com.posthog.posthog.AUTO_INIT',ns+'value':'false'})
+ application.set(ns+'usesCleartextTraffic','false')
+ if kind=='viewer':
+  application.set(ns+'networkSecurityConfig','@xml/network_security_config')
+  network=ET.Element('network-security-config');ET.SubElement(network,'base-config',{'cleartextTrafficPermitted':'false'})
+  allowed=ET.SubElement(network,'domain-config',{'cleartextTrafficPermitted':'true'})
+  for host in [p['hosts'][role] for role in ['fawa41','fawa44','fawa55','fawa59']]+['193.47.62.41','193.47.62.44','193.47.62.55','193.47.62.59']:
+   ET.SubElement(allowed,'domain',{'includeSubdomains':'false'}).text=host
+  path=android/'app/src/main/res/xml/network_security_config.xml';path.parent.mkdir(parents=True,exist_ok=True);ET.ElementTree(network).write(path,encoding='unicode')
  if kind=='viewer':ET.SubElement(application,'activity',{ns+'name':'.NativePlayerActivity',ns+'exported':'false',ns+'screenOrientation':'unspecified',ns+'configChanges':'orientation|screenSize|keyboardHidden',ns+'theme':'@style/LaunchTheme'})
  tree.write(manifest,encoding='unicode')
+ from configure_android_permissions import configure
+ configure(manifest)
  icon=android/'app/src/main/res/drawable/customer_icon.png';icon.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(app.parent/'user_app/assets/customer_icon.png',icon)
  gradle=android/'app/build.gradle.kts'
  if not gradle.exists():raise ValueError('This builder requires the Flutter Kotlin Gradle template')
@@ -57,6 +67,7 @@ def main():
  for kind,folder in [('viewer','user_app'),('admin','admin_app')]:
   app=out/folder
   run([a.flutter,'create','--platforms='+('web' if a.target=='web' else 'android'),'.'],app)
+  if a.target!='web':run(['python3',out/'scripts/configure_gradle_distribution.py',app/'android/gradle/wrapper/gradle-wrapper.properties'],app)
   run([a.flutter,'pub','get'],app)
   if a.target=='web':
    manifest=app/'web/manifest.json'
