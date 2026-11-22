@@ -32,6 +32,14 @@ export function repositoryLineIdentity(line){
  return JSON.stringify([mpdIdentity(line.stream_url),line.stream_type,line.referer||'',line.origin||'',
   (line.key_id||'').toLowerCase(),(line.key_data||'').toLowerCase(),line.drm_type||'',line.license_url||'']);
 }
+// Keep the original line ID for saved mappings, while the match list
+// treats a complete, identical DRM pair as a single playback choice.
+export function repositoryDisplayLineIdentity(line){
+ const kid=String(line.key_id||'').toLowerCase(),data=String(line.key_data||'').toLowerCase();
+ if(line.stream_type==='dash'&&/^[a-f0-9]{32}$/.test(kid)&&/^[a-f0-9]{32}$/.test(data))
+  return JSON.stringify(['clearkey',kid,data]);
+ return repositoryLineIdentity(line);
+}
 function nativeLine(row){
  const c=configuration({...row,type:null});if(!c||c.stream_type==='auto')return null;
  const drm=clean(row.drm_type).toLowerCase();
@@ -127,9 +135,9 @@ export async function mergeRepositoryMatches(rows,{now=Date.now()}={}){
   if(row.league&&!/\s(?:vs\.?|versus)\s/i.test(row.league)&&row.league!=='Football'&&!/^live\s*(?:events?|sports)$/i.test(row.league))meta.league=row.league;
   if(!meta.repositories.includes(row.repository))meta.repositories.push(row.repository);
   for(const line of row.streams){
-   const identity=repositoryLineIdentity(line);
+   const identity=repositoryDisplayLineIdentity(line);
    if(entry.streams.some(l=>l._identity===identity))continue;
-   entry.streams.push({...line,id:(await sourceHash(identity)).slice(0,24),_identity:identity});
+   entry.streams.push({...line,id:(await sourceHash(repositoryLineIdentity(line))).slice(0,24),_identity:identity});
   }
  }
  return [...grouped.values()].map(entry=>({...entry,streams:entry.streams.map(({_identity,...line})=>line)}));
@@ -142,10 +150,10 @@ export function preserveRepositoryMatchLines(entries,oldEntries){
  return entries.map(entry=>{
   const old=previous.get(entry.id);
   if(!old)return entry;
-  const seen=new Set(entry.streams.map(repositoryLineIdentity));
+  const seen=new Set(entry.streams.map(repositoryDisplayLineIdentity));
   const kept=[];
   for(const line of old.streams||[]){
-   const identity=repositoryLineIdentity(line);
+   const identity=repositoryDisplayLineIdentity(line);
    if(!seen.has(identity)){kept.push(line);seen.add(identity);}
   }
   const oldMeta=old.event_meta||{},fresh=entry.event_meta||{};

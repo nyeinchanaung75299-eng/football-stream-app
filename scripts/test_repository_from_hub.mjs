@@ -50,3 +50,29 @@ test('same league, UTC kickoff and both source team IDs merge aliases and retain
  assert.equal(merged.streams[0].key_id,config.key_id);
  assert.equal(merged.streams[0].key_data,config.key_data);
 });
+
+test('corroborates an offset-free source clock and keeps one line per complete DRM pair', async () => {
+ const lineup = {
+  source_category:'Football', league:'Premier League',
+  home_logo_url:'https://img.sofascore.com/api/v1/team/44/image',
+  away_logo_url:'https://img.sofascore.com/api/v1/team/35/image',
+  away_team:'Manchester United',
+ };
+ const dash = {
+  stream_type:'dash', stream_url:'https://live.example.org/one.mpd',
+  key_id:'a'.repeat(32), key_data:'b'.repeat(32), label:'Shared channel name',
+ };
+ const result = await repositoryMatchesFromHub([
+  {...entry, streams:[dash], event_meta:{...lineup, home_team:'Liverpool FC',
+   source_repository:'dilzyking/allrounderlive', kickoff_at:'2026-11-22T16:30:00Z'}},
+  {...entry, streams:[
+   {...dash, stream_url:'https://other.example.org/two.mpd', label:'Different channel name'},
+   {...dash, key_data:'c'.repeat(32)},
+  ], event_meta:{...lineup, home_team:'Liverpool',
+   source_repository:'darkbyteprojects/iptv_png', source_time:'22/11/2026 16:30:00'}},
+ ], {now:Date.parse('2026-11-22T17:00:00Z')});
+ assert.equal(result.entries.length,1);
+ assert.equal(result.entries[0].event_meta.home_team,'Liverpool FC');
+ assert.equal(result.entries[0].streams.length,2);
+ assert.equal(result.entries[0].streams[0].label,result.entries[0].streams[1].label);
+});

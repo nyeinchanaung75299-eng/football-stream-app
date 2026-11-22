@@ -3,7 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {createClient} from "jsr:@supabase/supabase-js@2";
 import {sourceHash} from "../_shared/darkbyte_catalog.mjs";
 import {fetchConnectedGithubCatalog} from '../_shared/connected_github_catalog.mjs';
-import {repositoryMatchesFromHub} from '../_shared/repository_from_hub.mjs';
+import {reconcileUndatedRepositoryAliases,repositoryMatchesFromHub} from '../_shared/repository_from_hub.mjs';
 import {combatEventsFromHub,combatMatchesQuery} from '../_shared/combat_sports.mjs';
 import {fetchLiveTvSports,sportsNeedsDrm} from "../_shared/livetv_sports.mjs";
 import {preserveRepositoryMatchLines} from '../_shared/repository_matches.mjs';
@@ -92,8 +92,9 @@ async function synchronize(client:any,force:boolean,source:string){
      .select('id,streams,event_meta').eq('source_id','repository').eq('is_present',true).order('id').range(page*1000,page*1000+999));
     previous.push(...rows);if(rows.length<1000)break;
    }
-   removedRepositoryIds=confirmedRepositoryRemovals(snapshot,previous||[]);
-   snapshot.entries=preserveRepositoryMatchLines(snapshot.entries,unobservedRepositoryEntries(snapshot,previous||[]));
+   const reconciled=reconcileUndatedRepositoryAliases(snapshot.entries,previous);
+   snapshot.entries=preserveRepositoryMatchLines(reconciled.entries,unobservedRepositoryEntries(snapshot,previous));
+   removedRepositoryIds=[...new Set([...reconciled.superseded,...confirmedRepositoryRemovals(snapshot,previous)])];
   }
   if(source==='repository'&&!snapshot.complete)return await check(client.rpc('commit_repository_partial_snapshot',{
    p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,p_removed_ids:removedRepositoryIds,

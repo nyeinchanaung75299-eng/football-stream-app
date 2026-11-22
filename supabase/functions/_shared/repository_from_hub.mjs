@@ -1,6 +1,6 @@
 // The production Repository/Live 2 pipeline consumes the last committed Hub
 // snapshot. It performs no GitHub requests and cannot modify operator lines.
-import {parseRepositoryMatches,mergeRepositoryMatches} from './repository_matches.mjs';
+import {parseRepositoryMatches,mergeRepositoryMatches,preserveRepositoryMatchLines} from './repository_matches.mjs';
 import {sourceHash} from './darkbyte_catalog.mjs';
 import {REPOSITORY_TREE_SOURCES} from './repository_trees.mjs';
 const leagues = new Map([
@@ -15,12 +15,18 @@ function reviewedLeague(value) {
 function badgeId(value) {
  return /^https:\/\/img\.sofascore\.com\/api\/v1\/team\/(\d+)\/image(?:[?].*)?$/.exec(value || '')?.[1];
 }
-function fixtureEvidence(row) {
+function fixtureEvidence(row, kickoff = row.kickoff_at) {
  const home = badgeId(row.home_logo_url), away = badgeId(row.away_logo_url);
  const league = reviewedLeague(row.league);
- return home && away && home !== away && league && row.kickoff_at
-  ? JSON.stringify([league, home, away, row.kickoff_at, row.competition_tag || ''])
+ return home && away && home !== away && league && kickoff
+  ? JSON.stringify([league, home, away, kickoff, row.competition_tag || ''])
   : null;
+}
+// Only corroborate the literal clock and date against an independently
+// dated source with the same competition and ordered team IDs.
+function reportedWallClock(value) {
+ const parts=/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}:\d{2}:\d{2})$/.exec(value || '');
+ return parts ? `${parts[3]}-${parts[2]}-${parts[1]}T${parts[4]}.000Z` : null;
 }
 function mergeVerifiedAliases(rows) {
  const groups = new Map();
@@ -31,9 +37,19 @@ function mergeVerifiedAliases(rows) {
   group.push(row);
   groups.set(evidence, group);
  }
+ for (const row of rows) {
+  if (row.kickoff_at) continue;
+  const evidence=fixtureEvidence(row,reportedWallClock(row.source_time));
+  const confirmed=groups.get(evidence);
+  if (!confirmed?.some(peer=>peer.repository!==row.repository)) continue;
+  row.kickoff_at=confirmed[0].kickoff_at;
+  row.corroborated_clock=true;
+  confirmed.push(row);
+ }
  for (const group of groups.values()) {
   if (new Set(group.map(row => row.repository)).size < 2) continue;
   const canonical = [...group].sort((a, b) =>
+   Number(Boolean(a.corroborated_clock))-Number(Boolean(b.corroborated_clock)) ||
    Number(a.repository === 'mdjamsad9/dudetvapi') - Number(b.repository === 'mdjamsad9/dudetvapi') ||
    (b.home_team.length + b.away_team.length) - (a.home_team.length + a.away_team.length) ||
    a.home_team.localeCompare(b.home_team) || a.away_team.localeCompare(b.away_team)
@@ -45,6 +61,30 @@ function mergeVerifiedAliases(rows) {
   }
  }
  return rows;
+}
+export function reconcileUndatedRepositoryAliases(entries,previous) {
+ const confirmed=new Map();
+ for(const entry of entries){
+  const evidence=fixtureEvidence(entry.event_meta || {});
+  if(!evidence)continue;
+  const candidates=confirmed.get(evidence) || [];
+  candidates.push(entry.id);
+  confirmed.set(evidence,candidates);
+ }
+ const byId=new Map(entries.map(entry=>[entry.id,entry]));
+ const superseded=[];
+ for(const old of previous){
+  const meta=old.event_meta || {};
+  if(meta.kickoff_at||byId.has(old.id))continue;
+  const candidates=confirmed.get(fixtureEvidence(meta,reportedWallClock(meta.source_time)));
+  if(candidates?.length!==1)continue;
+  const candidate=byId.get(candidates[0]),origins=new Set(meta.repositories || []);
+  if(!candidate.event_meta.repositories?.some(repo=>!origins.has(repo)))continue;
+  const [merged]=preserveRepositoryMatchLines([candidate],[{...old,id:candidate.id}]);
+  byId.set(candidate.id,merged);
+  superseded.push(old.id);
+ }
+ return {entries:[...byId.values()],superseded};
 }
 export async function repositoryMatchesFromHub(entries,{revision='',missingRepositories=[],complete=true,now=Date.now()}={}){
  const missing=new Set(!complete&&!missingRepositories.length?REPOSITORY_TREE_SOURCES:missingRepositories),rows=[];
@@ -60,6 +100,6 @@ export async function repositoryMatchesFromHub(entries,{revision='',missingRepos
    resolved_streams:(entry.streams||[]).map(line=>({...line,title:line.label}))};
   rows.push(...parseRepositoryMatches(JSON.stringify([event]),{repository,source_file:entry.source_file}));
  }
- return {revision:await sourceHash('hub-repository-v2:'+revision),unchanged:false,
+ return {revision:await sourceHash('hub-repository-v3:'+revision),unchanged:false,
   entries:await mergeRepositoryMatches(mergeVerifiedAliases(rows),{now}),complete,missingRepositories:[...missing]};
 }
