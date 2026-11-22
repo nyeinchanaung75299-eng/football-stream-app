@@ -124,7 +124,7 @@ export async function mergeRepositoryMatches(rows,{now=Date.now()}={}){
     source_civil_date:row.source_civil_date||null,source_time:row.source_time||null,league:row.league,repositories:[]}};grouped.set(id,entry);}
   const meta=entry.event_meta;
   meta.home_logo_url ||= row.home_logo_url;meta.away_logo_url ||= row.away_logo_url;
-  if(row.league&&row.league!=='Football'&&!/^live\s*events?$/i.test(row.league))meta.league=row.league;
+  if(row.league&&!/\s(?:vs\.?|versus)\s/i.test(row.league)&&row.league!=='Football'&&!/^live\s*(?:events?|sports)$/i.test(row.league))meta.league=row.league;
   if(!meta.repositories.includes(row.repository))meta.repositories.push(row.repository);
   for(const line of row.streams){
    const identity=repositoryLineIdentity(line);
