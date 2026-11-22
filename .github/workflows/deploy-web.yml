@@ -182,6 +182,51 @@ jobs:
         with:
           path: user_app/build/web
 
+      - name: Publish verified Vercel web bundle
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          bundle_dir="$(mktemp -d)"
+          cp -R user_app/build/web/. "$bundle_dir"
+          sed -i 's|<base href="/football-stream-app/">|<base href="/">|' "$bundle_dir/index.html"
+          sed -i 's|<base href="/football-stream-app/admin/">|<base href="/admin/">|' "$bundle_dir/admin/index.html"
+          grep -q '<base href="/">' "$bundle_dir/index.html"
+          grep -q '<base href="/admin/">' "$bundle_dir/admin/index.html"
+          for entry in index.html admin/index.html; do
+            grep -q "flutter_bootstrap.js?v=${GITHUB_SHA::12}-" "$bundle_dir/$entry"
+          done
+          tar --exclude='./releases' --exclude='./admin/releases' -czf /tmp/nca-web-build.tar.gz -C "$bundle_dir" .
+          python3 - <<'PYTHON'
+          import hashlib, json, os, tarfile
+          from pathlib import Path
+          archive = Path("/tmp/nca-web-build.tar.gz")
+          with tarfile.open(archive) as bundle:
+              files = sum(item.isfile() for item in bundle)
+          metadata = {
+              "source_commit": os.environ["GITHUB_SHA"],
+              "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+              "size_bytes": archive.stat().st_size,
+              "files": files,
+          }
+          Path("/tmp/nca-web-build.json").write_text(json.dumps(metadata) + "\n")
+          PYTHON
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin feed
+          git worktree add --detach /tmp/nca-vercel-feed FETCH_HEAD
+          cd /tmp/nca-vercel-feed
+          mkdir -p public/web-release
+          cp /tmp/nca-web-build.tar.gz public/web-release/nca-web-build.tar.gz
+          cp /tmp/nca-web-build.json public/web-release/latest.json
+          git add public/web-release/nca-web-build.tar.gz public/web-release/latest.json
+          git commit -m "Publish verified Vercel bundle ${GITHUB_SHA::12}"
+          for attempt in 1 2 3; do
+            git fetch origin feed
+            git rebase FETCH_HEAD
+            if git push origin HEAD:feed; then exit 0; fi
+          done
+          exit 1
+
   deploy:
     needs: build
     runs-on: ubuntu-latest
