@@ -124,13 +124,13 @@ export async function fetchDarkbyteCatalog({fetcher=fetch,revision=null,tree:pro
   const paths=tree.tree.filter(item=>item.type==='blob'&&/^provider_[1-6]\/(?:[a-zA-Z0-9_-]+\.json|categories\/[a-zA-Z0-9_-]+\.json)$/.test(item.path))
    .map(item=>item.path).sort((a,b)=>Number(a.includes('/categories/'))-Number(b.includes('/categories/'))||a.localeCompare(b));
   if(!paths.length||paths.length>250)throw new Error('Invalid channel source file list.');
-  const entries=new Map(),files=new Array(paths.length);let next=0,failures=0;
+  const entries=new Map(),files=new Array(paths.length);let next=0;const failedPaths=[];
   await Promise.all(Array.from({length:5},async()=>{
    while(next<paths.length&&!controller.signal.aborted){const index=next++,path=paths[index];
     try{
      const payload=await readJson(RAW+sha+'/'+path,options);
      files[index]=await parseDarkbyteFile(path,payload);
-    }catch{failures++;}
+    }catch{failedPaths.push(path);}
    }
   }));
   // Merge in repository-path order, not HTTP completion order. Signed URL
@@ -146,6 +146,6 @@ export async function fetchDarkbyteCatalog({fetcher=fetch,revision=null,tree:pro
    }
   if(!entries.size||controller.signal.aborted)throw new Error('Published channel data unavailable.');
   const list=[...entries.values()].sort((a,b)=>a.id.localeCompare(b.id));
-  return {revision:sha,unchanged:false,entries:list,complete:failures===0,failed_files:failures};
+  return {revision:sha,unchanged:false,entries:list,complete:failedPaths.length===0,failed_files:failedPaths.length,failed_paths:failedPaths.sort()};
  }finally{clearTimeout(timer);controller.abort();}
 }

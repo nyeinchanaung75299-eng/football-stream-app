@@ -39,20 +39,31 @@ export async function fetchConnectedGithubCatalog({fetcher=fetch,revision=null,p
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),55000);
  try{
   const trees=await readRepositoryTrees(repositories,{fetcher,signal:controller.signal,allowMissing:true,isolateFailures:true});
-  const digest=await sourceHash('catalog-v3:'+trees.map(x=>x?.sha||'missing').join(':'));
+  const digest=await sourceHash('catalog-v4:'+trees.map(x=>x?.sha||'missing').join(':'));
   let complete=trees.every(Boolean);
+  let partialDarkbytePaths=[];
   const failed=new Set(repositories.filter((_,i)=>!trees[i]));
-  const fresh=repositories.every((repo,i)=>{const saved=previous.filter(row=>row.event_meta?.source_repository===repo);return saved.length&&saved.every(row=>row.event_meta?.source_revision===trees[i]?.sha&&row.event_meta?.catalog_schema_version===3);});
+  const fresh=repositories.every((repo,i)=>{const saved=previous.filter(row=>row.event_meta?.source_repository===repo);return saved.length&&saved.every(row=>row.event_meta?.source_revision===trees[i]?.sha&&row.event_meta?.catalog_schema_version===3&&!row.event_meta?.source_partial_fresh);});
   if(complete&&fresh&&digest===revision)return {revision:digest,unchanged:true,complete:true,entries:[],missingRepositories:[]};
   if(!trees.some(Boolean))throw Error('No connected GitHub source available');
   const batches=await Promise.all(repositories.map(async(repo,index)=>{
    const tree=trees[index],old=previous.filter(row=>row.event_meta?.source_repository===repo);
    if(!tree)return old;
-   if(old.length&&old.every(row=>row.event_meta?.source_revision===tree.sha&&row.event_meta?.catalog_schema_version===3))return old;
+   if(old.length&&old.every(row=>row.event_meta?.source_revision===tree.sha&&row.event_meta?.catalog_schema_version===3&&!row.event_meta?.source_partial_fresh))return old;
    try{if(repo===legacy){
     const snapshot=await fetchDarkbyteCatalog({fetcher,tree});
-    if(!snapshot.complete)throw Error('Incomplete Darkbyte export');
-    return snapshot.entries.map(row=>({...row,event_meta:{...row.event_meta,repositories:[repo],source_repository:repo,source_revision:tree.sha,catalog_schema_version:3}}));
+    if(!snapshot.complete){
+     complete=false;
+     failed.add(repo);
+     partialDarkbytePaths=snapshot.failed_paths;
+     console.warn('Darkbyte exports partially available',{failed_paths:partialDarkbytePaths});
+    }
+    const fresh=snapshot.entries.map(row=>({...row,event_meta:{...row.event_meta,repositories:[repo],source_repository:repo,source_revision:tree.sha,catalog_schema_version:3,source_partial_fresh:!snapshot.complete}}));
+    const freshIds=new Set(fresh.map(row=>row.id));
+    // A failed published file is not evidence of removal. Keep its entries
+    // and their original revisions until that file can be read again.
+    return snapshot.complete ? fresh : [...fresh,...old.filter(row=>partialDarkbytePaths.includes(row.source_file)&&!freshIds.has(row.id))
+     .map(row=>({...row,event_meta:{...row.event_meta,source_partial_fresh:false}}))];
    }
    const source=HUB_GITHUB_SOURCES.find(x=>x.repository===repo);
    const documents=await readGithubDocuments(repo,tree,{fetcher,signal:controller.signal});
@@ -62,6 +73,7 @@ export async function fetchConnectedGithubCatalog({fetcher=fetch,revision=null,p
     complete=false;failed.add(repo);return old;
    }
   }));
-  return {revision:digest,unchanged:false,complete,entries:batches.flat(),missingRepositories:repositories.filter(repo=>failed.has(repo))};
+  const snapshotRevision=partialDarkbytePaths.length?await sourceHash(digest+':'+partialDarkbytePaths.join(',')):digest;
+  return {revision:snapshotRevision,unchanged:false,complete,entries:batches.flat(),missingRepositories:repositories.filter(repo=>failed.has(repo))};
  }finally{clearTimeout(timer);controller.abort();}
 }
