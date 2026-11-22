@@ -29,6 +29,7 @@ void main() {
       expect(find.text('Stream Detector'), findsNothing);
       expect(find.text('Pick Big Matches'), findsOneWidget);
       expect(find.text('Edit & Delete Live'), findsOneWidget);
+      expect(find.text('HL Edit & Delete'), findsOneWidget);
       expect(find.text('Channel Management'), findsOneWidget);
       expect(find.text('Stream Source Picker'), findsNothing);
       expect(find.text('My Channels'), findsWidgets);
@@ -88,6 +89,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Controls').last);
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Pick Big Matches'), -160,
+          scrollable: find.byType(Scrollable).first);
       expect(find.text('Pick Big Matches'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());

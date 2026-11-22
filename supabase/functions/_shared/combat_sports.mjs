@@ -1,4 +1,4 @@
-import {sourceHash} from './darkbyte_catalog.mjs';
+import {sourceHash,publicSourceUrl} from './darkbyte_catalog.mjs';
 import {repositoryLineIdentity} from './repository_matches.mjs';
 const clean=x=>String(x??'').replace(/<[^>]*>/g,' ').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim();
 const norm=x=>clean(x).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -46,6 +46,8 @@ export async function combatEventsFromHub(rows,{now=Date.now()}={}){
    ...classification,home_team:home||null,away_team:away||null,kickoff_at:Number.isFinite(start)?new Date(start).toISOString():null,
    source_time:meta.source_time||null,end_at:meta.end_at||null,status:combatTimeStatus(meta,now),
    source_names:[],source_entries:[],lines:[],video_status:'not_checked',playback_verified:false};groups.set(identity,entry);}
+  entry.home_logo_url ||= publicSourceUrl(meta.home_logo_url,{httpsOnly:true})?.href || null;
+  entry.away_logo_url ||= publicSourceUrl(meta.away_logo_url,{httpsOnly:true})?.href || null;
   const source=clean(meta.source_name||meta.source_repository||'Darkbyte Provider '+row.provider);
   if(!entry.source_names.includes(source))entry.source_names.push(source);
   entry.source_entries.push(row.id);

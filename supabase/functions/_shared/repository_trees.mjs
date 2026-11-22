@@ -19,13 +19,18 @@ export async function readRepositoryTrees(repositories,{fetcher=fetch,signal,now
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
  const combined=signal?AbortSignal.any([signal,controller.signal]):controller.signal;
  try{
+  let mirrorRepositories;
   try{
    const data=await read(mirror,fetcher,combined),age=now-Date.parse(data.fetched_at);
-   const unavailable=value=>allowMissing&&(value?.status===404||isolateFailures&&Number.isInteger(value?.status)&&value.status>=400&&value.status<=599);
-   if(Number.isFinite(age)&&age>=-60000&&age<=30*60000&&repositories.every(repo=>validTree(data.repositories?.[repo])||unavailable(data.repositories?.[repo])))
-    return repositories.map(repo=>unavailable(data.repositories[repo])?null:data.repositories[repo]);
-  }catch{/* Fall back to GitHub without trusting a partial/stale mirror. */}
+   if(Number.isFinite(age)&&age>=-60000&&age<=30*60000)
+    mirrorRepositories=data.repositories;
+  }catch{/* Fall back to GitHub per source. */}
   return await Promise.all(repositories.map(async repo=>{
+   const mirrored=mirrorRepositories?.[repo];
+   if(validTree(mirrored))return mirrored;
+   if(allowMissing && mirrored?.status===404)return null;
+   // A failed mirror entry is retried independently. Other valid sources can
+   // commit even when the direct GitHub API is rate limited or unavailable.
    try{
     const tree=await read('https://api.github.com/repos/'+repo+'/git/trees/HEAD?recursive=1',fetcher,combined);
     if(!validTree(tree))throw Error('Incomplete repository tree');
@@ -34,7 +39,10 @@ export async function readRepositoryTrees(repositories,{fetcher=fetch,signal,now
     // A deleted or temporarily unpublished repository must not stop fresh
     // fixture metadata from other still-published repositories. Only opt-in
     // callers can accept a partial snapshot; all other syncs still fail closed.
-    if(allowMissing&&(error?.code==='repository_http_404'||isolateFailures))return null;
+    if(allowMissing&&(error?.code==='repository_http_404'||isolateFailures)){
+     console.warn('Repository metadata fetch failed',{repository:repo,code:error?.code||error?.name||'invalid_metadata'});
+     return null;
+    }
     throw error;
    }
   }));

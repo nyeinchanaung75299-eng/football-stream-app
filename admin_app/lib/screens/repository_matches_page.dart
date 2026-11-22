@@ -153,11 +153,16 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(line['label']?.toString() ?? 'Line'),
-                      subtitle: Text(
+                      subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(
                         line['configuration_status'] == 'requires_drm'
                             ? 'Needs DRM configuration'
                             : '${line['stream_type']?.toString().toUpperCase()} • Video not yet verified',
                       ),
+                        for (final field in const {'key_id': 'Key ID', 'key_data': 'Key Data'}.entries)
+                          if (line[field.key]?.toString().isNotEmpty == true)
+                            SelectableText('${field.value}: ${line[field.key]}'),
+                      ]),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [

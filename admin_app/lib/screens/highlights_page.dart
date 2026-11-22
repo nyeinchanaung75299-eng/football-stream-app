@@ -1,3 +1,4 @@
+import 'highlight_matches_page.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -243,8 +244,15 @@ class _HighlightsPageState extends State<HighlightsPage> {
                                                     update(
                                                         () => adding.add(id));
                                                     try {
-                                                      await widget.service
-                                                          .save(entry, line);
+                                                      final destinations = await widget.service.destinations();
+                                                      if (!sheet.mounted) return;
+                                                      final matchId = await chooseHighlightMatch(sheet, destinations);
+                                                      if (matchId == null || !sheet.mounted) return;
+                                                      if (matchId.isEmpty) {
+                                                        await widget.service.save(entry, line);
+                                                      } else {
+                                                        await widget.service.save(entry, line, matchId: matchId);
+                                                      }
                                                       if (sheet.mounted)
                                                         update(() =>
                                                             added.add(id));

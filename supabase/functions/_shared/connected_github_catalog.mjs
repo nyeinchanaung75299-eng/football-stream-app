@@ -57,7 +57,10 @@ export async function fetchConnectedGithubCatalog({fetcher=fetch,revision=null,p
    const source=HUB_GITHUB_SOURCES.find(x=>x.repository===repo);
    const documents=await readGithubDocuments(repo,tree,{fetcher,signal:controller.signal});
    return await githubCatalogEntries(source,documents,tree.sha);
-   }catch{complete=false;failed.add(repo);return old;}
+   }catch(error){
+    console.warn('Published repository data failed',{repository:repo,code:error?.code||error?.name||'invalid_export'});
+    complete=false;failed.add(repo);return old;
+   }
   }));
   return {revision:digest,unchanged:false,complete,entries:batches.flat(),missingRepositories:repositories.filter(repo=>failed.has(repo))};
  }finally{clearTimeout(timer);controller.abort();}

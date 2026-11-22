@@ -11,8 +11,8 @@ import re
 from verify_android_update_signing import RELEASE_BASE, RELEASES, apk_identity
 
 NOTES = {
-    'Viewer': 'Fawa football-only schedules with verified Myanmar clock labels, paginated highlights and safer on-demand renewal for imported live lines.',
-    'Admin': 'Highlights moved into Stream Sources; multi-line atomic ADD, safe retries and duplicate updates, recent source/match shortcuts, protected drafts, complete lists and permanent match deletion.',
+    'Viewer': 'Highlights now show Admin-managed matches, team badges, scores and saved videos through the Vercel relay. Repository fixtures use the shared Stream Hub catalog.',
+    'Admin': 'Move Live matches to Highlights, edit scores and highlight lines, publish Combat Sports from Pick Big Matches, and inspect source DRM details.',
 }
 
 

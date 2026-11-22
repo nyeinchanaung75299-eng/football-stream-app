@@ -4,48 +4,38 @@ import 'network_endpoints.dart';
 
 class PublicHighlightsService {
   const PublicHighlightsService({this.client});
+
   final http.Client? client;
-  Future<Map<String, dynamic>> request(
-    String action, {
-    int offset = 0,
-    String query = '',
-    String? entryId,
-    bool force = false,
-  }) async {
+  static const pageSize = 25;
+
+  Future<List<Map<String, dynamic>>> list(int offset) async {
     final transport = client ?? http.Client();
     try {
       for (final base in [
-        '$cloudflarePublicBase/highlights',
-        independentPublicBase.replaceFirst(
-          'viewer-network-api',
-          'public-highlights',
-        ),
+        vercelBackupBase,
+        Uri.parse(independentPublicBase).origin,
       ]) {
         try {
-          final uri = Uri.parse(base).replace(
-            queryParameters: {
-              'action': action,
-              'offset': '$offset',
-              if (query.isNotEmpty) 'query': query,
-              if (entryId != null) 'entry_id': entryId,
-              if (force) 'refresh': '1',
-            },
-          );
+          final uri = Uri.parse(
+            '$base/rest/v1/rpc/viewer_highlight_matches',
+          ).replace(queryParameters: {'p_offset': '$offset'});
           final response = await transport
-              .get(uri, headers: const {'Accept': 'application/json'})
-              .timeout(const Duration(seconds: 15));
+              .get(
+                uri,
+                headers: const {
+                  'Accept': 'application/json',
+                  'apikey': viewerPublicApiKey,
+                },
+              )
+              .timeout(const Duration(seconds: 12));
           if (response.statusCode != 200) continue;
           final data = jsonDecode(response.body);
-          if (data is Map &&
-              data['ok'] == true &&
-              data['source'] == 'highlights' &&
-              data['provider'] == 'dasfootball')
-            return Map<String, dynamic>.from(data);
+          if (data is List) return List<Map<String, dynamic>>.from(data);
         } catch (_) {
-          /* Try the independent public route, without Admin auth. */
+          // Try the direct public route if the relay is unavailable.
         }
       }
-      throw StateError('Highlights unavailable. Pull to refresh or retry.');
+      throw StateError('Highlights unavailable');
     } finally {
       if (client == null) transport.close();
     }

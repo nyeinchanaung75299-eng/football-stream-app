@@ -3,8 +3,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 class HighlightsService {
   const HighlightsService();
+  Future<PostgrestList> destinations() async => await Supabase.instance.client
+      .from('highlight_matches')
+      .select('id,home_team,away_team,league,kickoff_at')
+      .order('kickoff_at', ascending: false).limit(100);
+
   Future<void> save(
-      Map<String, dynamic> entry, Map<String, dynamic> line) async {
+      Map<String, dynamic> entry, Map<String, dynamic> line,
+      {String? matchId}) async {
     final uri = Uri.tryParse(line['stream_url']?.toString() ?? '');
     if (uri == null ||
         uri.scheme != 'https' ||
@@ -16,6 +22,7 @@ class HighlightsService {
     await Supabase.instance.client
         .from('highlights')
         .upsert({
+          if (matchId != null) 'match_id': matchId,
           'title': entry['title'],
           'thumbnail_url': entry['thumbnail_url'],
           'video_url': uri.toString(),

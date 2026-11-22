@@ -43,7 +43,9 @@ export function configuration(item){
  }
  const ext=media.pathname.match(/\.(m3u8|mpd|mp4|flv)(?:$|\/)/i)?.[1]?.toLowerCase();
  if(/\.(html?|js)$/i.test(media.pathname)||item.webLink===address)return null;
- const pair=String(item.api??item.clearKey??'').match(/^([a-f\d]{32}):([a-f\d]{32})$/i);
+ const explicitPair=item.key_id&&item.key_data?`${item.key_id}:${item.key_data}`:'';
+ const pair=[item.api,item.clearKey,explicitPair]
+  .map(value=>typeof value==='string'?value.match(/^([a-f\d]{32}):([a-f\d]{32})$/i):null).find(Boolean);
  if((item.type==='1'||item.type===1)&&!pair)return null;
  return {stream_url:media.href,stream_type:pair?'dash':({m3u8:'hls',mpd:'dash',mp4:'mp4',flv:'flv'}[ext]||'auto'),
   referer:headers.referer,origin:headers.origin,key_id:pair?.[1]||null,key_data:pair?.[2]||null};

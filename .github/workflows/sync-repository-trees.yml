@@ -1,0 +1,44 @@
+name: Refresh GitHub source metadata
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "3-58/5 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/sync-repository-trees.yml
+      - scripts/publish_repository_trees.mjs
+      - supabase/functions/_shared/repository_trees.mjs
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repository-tree-metadata
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read GitHub source trees
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/publish_repository_trees.mjs /tmp/repository-trees.json
+      - name: Publish metadata only
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git fetch origin feed
+            git switch --force-create feed FETCH_HEAD
+            cp /tmp/repository-trees.json public/repository-trees.json
+            git add public/repository-trees.json
+            git commit -m "Refresh GitHub source metadata"
+            if git push origin HEAD:feed; then exit 0; fi
+          done
+          exit 1

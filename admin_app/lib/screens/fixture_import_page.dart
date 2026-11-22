@@ -190,13 +190,15 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
   // Repository fixtures are metadata from the connected, admin-only catalog.
   // Do not manufacture start times or stream URLs. Existing native lines
   // continue through publish_repository_match, not publish_featured_matches.
-  Future<List<Map<String, dynamic>>> _loadRepositoryFixtures(
-      String requestedMode, DateTime requestedDate) async {
+  Future<List<Map<String, dynamic>>> _loadHubFixtures(
+      String provider, String requestedMode, DateTime requestedDate) async {
+    final combat = provider == 'combat';
+    final hub = combat ? ConnectedChannelSource() : _repository;
     final entries = <Map<String, dynamic>>[];
     // The server paginates 100 at a time. Bound to 5 requests/500 entries.
     for (var page = 0; page < 5; page++) {
-      final payload = await _repository.request('catalog', {
-        'kind': 'event', 'page': page,
+      final payload = await hub.request(combat ? 'combat_catalog' : 'catalog', {
+        if (!combat) 'kind': 'event', 'page': page,
       });
       final raw = payload['entries'];
       if (raw is! List) throw const FormatException('Repository catalog is invalid.');
@@ -211,12 +213,12 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     final wanted = DateTime(requestedDate.year, requestedDate.month, requestedDate.day);
     var missingTime = 0;
     for (final item in entries) {
-      final meta = item['event_meta'];
+      final meta = combat ? item : item['event_meta'];
       if (meta is! Map) continue;
       final home = (meta['home_team'] ?? '').toString().trim();
       final away = (meta['away_team'] ?? '').toString().trim();
       final id = (item['id'] ?? '').toString();
-      if (!id.startsWith('repo:match:') || home.isEmpty || away.isEmpty) continue;
+      if (!id.startsWith(combat ? 'combat:' : 'repo:match:') || home.isEmpty || away.isEmpty) continue;
       final utc = meta['kickoff_at']?.toString() ?? '';
       final mmt = _myanmarKickoff(utc);
       // A missing time requires explicit MMT time selection on import;
@@ -225,16 +227,16 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         missingTime++;
         if (requestedMode != 'all') continue;
       } else {
-        if (requestedMode == 'live') continue; // catalog has no verified live status
+        if (requestedMode == 'live') continue; // catalog does not verify playback
         if (requestedMode == 'date' &&
             DateTime(mmt.year, mmt.month, mmt.day) != wanted) continue;
       }
       rows.add({
         'fixture_id': _stableSourceFixtureId('repository::$id'),
-        'provider': 'repository',
+        'provider': provider,
         'repository_entry_id': id,
         'repository_entry': item,
-        'league_name': (meta['league'] ?? 'Football').toString(),
+        'league_name': (meta['league'] ?? meta['event_name'] ?? (combat ? 'Combat Sports' : 'Football')).toString(),
         'home_name': home, 'away_name': away,
         'home_logo': meta['home_logo_url'], 'away_logo': meta['away_logo_url'],
         'kickoff_at': mmt == null ? null : utc,
@@ -262,8 +264,8 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       throw ArgumentError.value(provider, 'provider',
           'Provider is not enabled for Pick Big Matches.');
     }
-    if (provider == 'repository') {
-      return _loadRepositoryFixtures(requestedMode, requestedDate);
+    if (provider == 'repository' || provider == 'combat') {
+      return _loadHubFixtures(provider, requestedMode, requestedDate);
     }
     dynamic data;
     if (!_enableNoVpnFallback) {
@@ -517,7 +519,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
       // Cola/football API requires confirmed kickoff. Repository supports
       // untimed events in All mode, but asks the Admin for an explicit MMT time.
       final timedRows = rows.where((row) =>
-          fixtureSource == 'repository' ||
+          fixtureSource == 'repository' || fixtureSource == 'combat' ||
           _myanmarKickoff(row['kickoff_at']) != null).toList();
       if (!current()) return;
       setState(() {
@@ -614,8 +616,13 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
         }
       }
       try {
-        final response = await client.rpc('publish_repository_match', params: {
-          'p_entry_id': entryId,
+        final combat = row['provider'] == 'combat';
+        final entry = row['repository_entry'] as Map;
+        final response = await client.rpc(combat ? 'publish_combat_match' : 'publish_repository_match', params: {
+          if (combat) ...{
+            'p_event_id': entryId,
+            'p_entries': entry['source_entries'],
+          } else 'p_entry_id': entryId,
           'p_kickoff_at': kickoff.toUtc().toIso8601String(),
         }).timeout(const Duration(seconds: 20));
         if (!mounted || client.auth.currentUser?.id != userId) return;
@@ -680,7 +687,7 @@ class _FixtureImportPageState extends State<FixtureImportPage> {
     setState(() => importing = true);
 
     try {
-      if (fixtureSource == 'repository') {
+      if (fixtureSource == 'repository' || fixtureSource == 'combat') {
         await _publishRepositorySelection(chosen);
         return;
       }

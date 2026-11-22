@@ -67,9 +67,9 @@ class _EditLivePageState extends State<EditLivePage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete match?'),
+        title: const Text('Move match to Highlights?'),
         content: const Text(
-          'Permanently delete this match and all its live links from the database? This cannot be undone.',
+          'The match details, logos and score move to Highlights. Its live links will be deleted.',
         ),
         actions: [
           TextButton(
@@ -78,7 +78,7 @@ class _EditLivePageState extends State<EditLivePage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('DELETE'),
+            child: const Text('MOVE TO HL'),
           ),
         ],
       ),
@@ -87,13 +87,13 @@ class _EditLivePageState extends State<EditLivePage> {
 
     try {
       final deleted = await Supabase.instance.client.rpc(
-          'permanently_delete_match',
+          'move_live_match_to_highlights',
           params: {'p_match_id': id}).timeout(const Duration(seconds: 15));
       if (deleted is! Map || deleted['deleted'] != true)
         throw StateError('Match deletion was not confirmed.');
       await AnalyticsService.capture('match deleted',
           properties: {'match_id': id});
-      _message('Match deleted.');
+      _message('Match moved to Highlights.');
       _reload();
     } catch (error) {
       await AnalyticsService.capture(

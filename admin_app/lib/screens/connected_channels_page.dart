@@ -1,3 +1,4 @@
+import '../services/line_share_payload.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -117,7 +118,12 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
             const SizedBox(height: 10),
             for (final line in lines) ListTile(contentPadding: EdgeInsets.zero,
               title: Text(line['label']?.toString() ?? 'Line'),
-              subtitle: Text(line['stream_type']?.toString().toUpperCase() ?? 'AUTO'),
+              subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(line['stream_type']?.toString().toUpperCase() ?? 'AUTO'),
+                for (final field in const {'key_id': 'Key ID', 'key_data': 'Key Data'}.entries)
+                  if (line[field.key]?.toString().isNotEmpty == true)
+                    SelectableText('${field.value}: ${line[field.key]}'),
+              ]),
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 if (lines.length > 1) IconButton(tooltip: 'Add to Match', icon: const Icon(Icons.playlist_add),
                   onPressed: working ? null : () { Navigator.pop(sheet); addToMatch(row, line); }),
@@ -125,10 +131,13 @@ class _ConnectedChannelsPageState extends State<ConnectedChannelsPage> {
                 icon: const Icon(Icons.copy),
                 itemBuilder: (_) => [
                   const PopupMenuItem(value: 'stream_url', child: Text('Copy video URL')),
+                  const PopupMenuItem(value: 'all', child: Text('Copy all line details')),
+                  if (line['key_id']?.toString().isNotEmpty == true) const PopupMenuItem(value: 'key_id', child: Text('Copy Key ID')),
+                  if (line['key_data']?.toString().isNotEmpty == true) const PopupMenuItem(value: 'key_data', child: Text('Copy Key Data')),
                   if (line['referer'] != null) const PopupMenuItem(value: 'referer', child: Text('Copy Referer')),
                   if (line['origin'] != null) const PopupMenuItem(value: 'origin', child: Text('Copy Origin')),
                 ],
-                onSelected: (field) => Clipboard.setData(ClipboardData(text: line[field]?.toString() ?? '')),
+                onSelected: (field) => Clipboard.setData(ClipboardData(text: field == 'all' ? LineSharePayload.details(line) : line[field]?.toString() ?? '')),
               )]),
             ),
             if (lines.length == 1) FilledButton.tonalIcon(

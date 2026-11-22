@@ -92,6 +92,10 @@ class _CombatSportsPageState extends State<CombatSportsPage> {
                                         '${line['source_name']} • ${line['stream_type'].toString().toUpperCase()} • Video not tested'),
                                     SelectableText(
                                         line['stream_url']?.toString() ?? ''),
+                                    if ((line['key_id']?.toString() ?? '').isNotEmpty)
+                                      SelectableText('Key ID: ${line['key_id']}'),
+                                    if ((line['key_data']?.toString() ?? '').isNotEmpty)
+                                      SelectableText('Key Data: ${line['key_data']}'),
                                     Wrap(children: [
                                       TextButton.icon(
                                           onPressed: () => Clipboard.setData(
@@ -101,6 +105,17 @@ class _CombatSportsPageState extends State<CombatSportsPage> {
                                                       '')),
                                           icon: const Icon(Icons.copy),
                                           label: const Text('Copy URL')),
+                                      TextButton.icon(
+                                          onPressed: () {
+                                            final details = <String>[];
+                                            for (final field in const ['label', 'source_name', 'stream_url', 'stream_type', 'referer', 'origin', 'user_agent', 'drm_type', 'license_url', 'key_id', 'key_data']) {
+                                              final value = line[field]?.toString() ?? '';
+                                              if (value.isNotEmpty) details.add('$field: $value');
+                                            }
+                                            Clipboard.setData(ClipboardData(text: details.join('\n')));
+                                          },
+                                          icon: const Icon(Icons.content_copy),
+                                          label: const Text('Copy all line details')),
                                       if ((line['key_data']?.toString() ?? '').isEmpty)
                                         TextButton.icon(
                                             onPressed: () => Navigator.of(sheet)

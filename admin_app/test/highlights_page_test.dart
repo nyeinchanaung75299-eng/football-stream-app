@@ -10,8 +10,11 @@ class FakeHighlights extends HighlightsService {
   bool noLinks = false;
   final savedLines = <Map<String, dynamic>>[];
   @override
+  Future<List<Map<String, dynamic>>> destinations() async => [];
+
+  @override
   Future<void> save(
-      Map<String, dynamic> entry, Map<String, dynamic> line) async {
+      Map<String, dynamic> entry, Map<String, dynamic> line, {String? matchId}) async {
     savedLines.add({...line, 'title': entry['title']});
   }
 
@@ -144,6 +147,8 @@ void main() {
     expect(service.requests, ['catalog', 'details']);
     expect(find.text('Select Stream Quality'), findsOneWidget);
     await tester.tap(find.text('ADD'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save as a standalone highlight'));
     await tester.pumpAndSettle();
     expect(service.savedLines.single['title'], 'Home vs Away');
     expect(service.savedLines.single['origin'], 'https://example.org');

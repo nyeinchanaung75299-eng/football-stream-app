@@ -108,11 +108,15 @@ export async function mergeRepositoryMatches(rows,{now=Date.now()}={}){
   const peers=(known.get(home+':'+away+':'+competition(row))||[]).filter(peer=>!row.source_civil_date||
    Math.abs(Date.parse(peer.kickoff_at.slice(0,10))-Date.parse(row.source_civil_date))<=86400000);
   if(!row.football_proven&&!peers.length)continue;
-  const dates=[...new Set(peers.map(r=>r.kickoff_at.slice(0,10)))];
-  const kickoff=row.kickoff_at||(dates.length===1?peers[0].kickoff_at:null);
+  const exactTimes=[...new Set(peers.map(r=>r.kickoff_at))].sort();
+  const kickoff=row.kickoff_at||(exactTimes.length===1?exactTimes[0]:null);
   if(kickoff&&(Date.parse(row.end_at||kickoff)+6*3600000<now||Date.parse(kickoff)>now+14*86400000))continue;
   const date=kickoff?.slice(0,10)||row.source_civil_date||'undated';
-  const id='repo:match:'+(await sourceHash(home+':'+away+':'+date+(competition(row)?':'+competition(row):''))).slice(0,28);
+  const sameDayTimes=exactTimes.filter(time=>time.startsWith(date));
+  // Keep the established ID for the first kickoff. A second fixture between
+  // the same teams on the same UTC date needs its own ID and stream list.
+  const extraKickoff=kickoff&&sameDayTimes.length>1&&kickoff!==sameDayTimes[0]?':'+kickoff:'';
+  const id='repo:match:'+(await sourceHash(home+':'+away+':'+date+(competition(row)?':'+competition(row):'')+extraKickoff)).slice(0,28);
   let entry=grouped.get(id);
   if(!entry){entry={id,provider:8,kind:'event',name:(row.home_team+' vs '+row.away_team).slice(0,120),category:'Football',
    source_file:'reviewed repository fixtures',image_url:null,streams:[],unsupported_count:0,

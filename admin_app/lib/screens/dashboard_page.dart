@@ -1,3 +1,4 @@
+import 'highlight_matches_page.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -274,6 +275,12 @@ class _DashboardPageState extends State<DashboardPage> {
             onTap: () => open(context, const EditLivePage(), 'matches-scores'),
           ),
           const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.video_library_outlined,
+            title: 'HL Edit & Delete',
+            iconColor: colors.primary,
+            onTap: () => open(context, const HighlightMatchesPage(), 'highlight-matches'),
+          ),
           const SizedBox(height: 12),
           Text(
             'Channel Management',

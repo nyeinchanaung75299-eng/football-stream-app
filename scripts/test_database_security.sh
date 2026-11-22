@@ -49,3 +49,5 @@ run_sql < "$repo_root/scripts/test_metadata_only_match_import.sql"
 run_sql < "$repo_root/scripts/test_stream_hub_pipeline.sql"
 
 run_sql < "$repo_root/scripts/test_stream_hub_commit_budget.sql"
+
+run_sql < "$repo_root/scripts/test_managed_highlights_and_combat.sql"

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import '../highlight_source_service.dart';
 import '../native_player.dart';
@@ -6,7 +5,6 @@ import '../viewer_navigation.dart';
 import '../widgets/premium_bottom_nav.dart';
 import 'channels_page.dart';
 import 'source_browser_page.dart';
-import 'highlights_page.dart';
 
 class HighlightsSourcePage extends StatefulWidget {
   const HighlightsSourcePage({
@@ -19,9 +17,8 @@ class HighlightsSourcePage extends StatefulWidget {
 }
 
 class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
-  final _search = TextEditingController(), _scroll = ScrollController();
+  final _scroll = ScrollController();
   final _items = <Map<String, dynamic>>[];
-  Timer? _debounce;
   bool _loading = false, _hasMore = true, _opening = false;
   int _offset = 0, _epoch = 0;
   String? _error;
@@ -34,8 +31,6 @@ class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
 
   @override
   void dispose() {
-    _debounce?.cancel();
-    _search.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -49,29 +44,17 @@ class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
       _load(more: true);
   }
 
-  Future<void> _load({bool more = false, bool force = false}) async {
-    if (more && _loading) return;
+  Future<void> _load({bool more = false}) async {
+    if (_loading) return;
     if (!more) _epoch++;
-    final epoch = _epoch,
-        offset = more ? _offset : 0,
-        query = _search.text.trim();
+    final epoch = _epoch, offset = more ? _offset : 0;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final data = await widget.service.request(
-        'catalog',
-        offset: offset,
-        query: query,
-        force: force,
-      );
+      final rows = await widget.service.list(offset);
       if (!mounted || epoch != _epoch) return;
-      if (data['unavailable'] == true)
-        throw StateError('Highlights unavailable');
-      final rows = (data['entries'] as List? ?? []).whereType<Map>().map(
-        (x) => Map<String, dynamic>.from(x),
-      );
       setState(() {
         final map = <String, Map<String, dynamic>>{
           if (more)
@@ -81,8 +64,8 @@ class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
         _items
           ..clear()
           ..addAll(map.values);
-        _offset = (data['next_offset'] as num?)?.toInt() ?? offset;
-        _hasMore = data['has_more'] == true && _offset > offset;
+        _offset = offset + rows.length;
+        _hasMore = rows.length == PublicHighlightsService.pageSize;
       });
     } catch (_) {
       if (mounted && epoch == _epoch)
@@ -101,12 +84,7 @@ class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
     if (_opening) return;
     setState(() => _opening = true);
     try {
-      final data = await widget.service.request(
-        'details',
-        entryId: row['id'].toString(),
-      );
-      final entry = data['entry'] as Map?;
-      final lines = (entry?['lines'] as List? ?? []).whereType<Map>().toList();
+      final lines = (row['lines'] as List? ?? []).whereType<Map>().toList();
       if (lines.isEmpty) throw StateError('No reachable video link');
       if (!mounted) return;
       int? selected = 0;
@@ -164,7 +142,7 @@ class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
 
   void _navigate(int index) {
     if (index == 7) {
-      _load(force: true);
+      _load();
       return;
     }
     if (index == 0) {
@@ -180,105 +158,152 @@ class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
     );
   }
 
+  Widget _badge(dynamic url) => SizedBox(
+    width: 52,
+    height: 52,
+    child: url == null || url.toString().isEmpty
+        ? const Icon(Icons.shield_outlined)
+        : Image.network(
+            url.toString(),
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => const Icon(Icons.shield_outlined),
+          ),
+  );
+
+  Widget _team(dynamic name, dynamic url) => Column(
+    children: [
+      _badge(url),
+      Text(name.toString(), textAlign: TextAlign.center),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Highlights'),
-      actions: [
-        IconButton(
-          tooltip: 'Published highlights',
-          icon: const Icon(Icons.video_library_outlined),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute<void>(builder: (_) => const HighlightsPage()),
-          ),
-        ),
-        IconButton(
-          tooltip: 'Refresh highlights',
-          icon: const Icon(Icons.refresh),
-          onPressed: _loading ? null : () => _load(force: true),
-        ),
-      ],
-    ),
-    body: Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: TextField(
-            controller: _search,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search),
-              hintText: 'Search teams, leagues or highlights',
+    body: SafeArea(
+      bottom: false,
+      child: Column(
+        children: [
+          if (_loading || _opening) const LinearProgressIndicator(),
+          if (_error != null)
+            TextButton(
+              onPressed: () => _load(more: _items.isNotEmpty),
+              child: Text(_error!),
             ),
-            onChanged: (_) {
-              _epoch++;
-              _debounce?.cancel();
-              _debounce = Timer(
-                const Duration(milliseconds: 350),
-                () => _load(force: true),
-              );
-            },
-          ),
-        ),
-        if (_loading || _opening) const LinearProgressIndicator(),
-        if (_error != null)
-          TextButton(
-            onPressed: () => _load(more: _items.isNotEmpty),
-            child: Text(_error!),
-          ),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: () => _load(force: true),
-            child: ListView.builder(
-              controller: _scroll,
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(12),
-              itemCount: _items.isEmpty
-                  ? 1
-                  : _items.length + (_hasMore ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (_items.isEmpty)
-                  return Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      _loading ? 'Loading highlights…' : 'No highlights found.',
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: () => _load(),
+              child: ListView.builder(
+                controller: _scroll,
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(12),
+                itemCount: _items.isEmpty
+                    ? 1
+                    : _items.length + (_hasMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (_items.isEmpty && _error != null)
+                    return const SizedBox.shrink();
+                  if (_items.isEmpty)
+                    return Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        _loading
+                            ? 'Loading highlights…'
+                            : 'No highlights found.',
+                      ),
+                    );
+                  if (index >= _items.length)
+                    return TextButton(
+                      onPressed: _loading ? null : () => _load(more: true),
+                      child: Text(
+                        _loading ? 'Loading more…' : 'Load more highlights',
+                      ),
+                    );
+                  final row = _items[index];
+                  final lines = (row['lines'] as List? ?? []);
+                  final score =
+                      row['home_score'] == null || row['away_score'] == null
+                      ? null
+                      : "${row['home_score']}–${row['away_score']}";
+                  final date = DateTime.tryParse(
+                    row['kickoff_at']?.toString() ?? '',
+                  )?.toUtc().add(const Duration(hours: 6, minutes: 30));
+                  return Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        children: [
+                          if (row['league'] != null)
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(row['league'].toString()),
+                            ),
+                          if (row['home_team'] != null)
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _team(
+                                    row['home_team'],
+                                    row['home_logo_url'],
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      if (score != null)
+                                        Text(
+                                          score,
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.headlineSmall,
+                                        ),
+                                      if (row['is_finished'] == true)
+                                        const Text('FT'),
+                                      if (date != null)
+                                        Text(
+                                          MaterialLocalizations.of(
+                                            context,
+                                          ).formatShortMonthDay(date),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                Expanded(
+                                  child: _team(
+                                    row['away_team'],
+                                    row['away_logo_url'],
+                                  ),
+                                ),
+                              ],
+                            )
+                          else
+                            ListTile(
+                              leading: _badge(row['thumbnail_url']),
+                              title: Text(
+                                row['title']?.toString() ?? 'Highlights',
+                              ),
+                            ),
+                          const Divider(),
+                          if (lines.isEmpty)
+                            const Text('Highlights not available yet')
+                          else
+                            FilledButton.icon(
+                              onPressed: _opening ? null : () => _play(row),
+                              icon: const Icon(Icons.play_arrow),
+                              label: const Text('Watch Highlights'),
+                            ),
+                        ],
+                      ),
                     ),
                   );
-                if (index >= _items.length)
-                  return TextButton(
-                    onPressed: _loading ? null : () => _load(more: true),
-                    child: Text(
-                      _loading ? 'Loading more…' : 'Load more highlights',
-                    ),
-                  );
-                final row = _items[index];
-                return Card(
-                  child: ListTile(
-                    leading: row['thumbnail_url'] == null
-                        ? const Icon(Icons.movie_outlined)
-                        : Image.network(
-                            row['thumbnail_url'].toString(),
-                            width: 64,
-                            height: 48,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) =>
-                                const Icon(Icons.movie_outlined),
-                          ),
-                    title: Text(row['title']?.toString() ?? 'Highlights'),
-                    subtitle: Text(
-                      [row['league'], row['published_at'], row['duration']]
-                          .where((x) => x != null && x.toString().isNotEmpty)
-                          .join(' • '),
-                    ),
-                    trailing: const Icon(Icons.play_circle_outline),
-                    onTap: _opening ? null : () => _play(row),
-                  ),
-                );
-              },
+                },
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     ),
     bottomNavigationBar: PremiumBottomNav(
       selectedIndex: 7,
