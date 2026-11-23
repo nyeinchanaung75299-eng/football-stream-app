@@ -16,7 +16,7 @@ NAMES = {
 }
 
 def version_from_pubspec(path):
-    match = re.search(r'^version:\\s*(\\d+\\.\\d+\\.\\d+)(?:\\+\\d+)?\\s*$',
+    match = re.search(r'^version:\s*(\d+\.\d+\.\d+)(?:\+\d+)?\s*$',
                       path.read_text(), re.M)
     if not match:
         raise ValueError('App version must be X.Y.Z in pubspec.yaml')
@@ -50,7 +50,7 @@ def stage(profile, build_results, output, build_number, *, apksigner='apksigner'
         if digest!=row.get('sha256'):
             raise ValueError('APK hash differs from signed build result')
         cert=subprocess.check_output([apksigner,'verify','--print-certs',str(path)],text=True)
-        match=re.search(r'certificate SHA-256 digest:\\s*([a-fA-F0-9]{64})',cert)
+        match=re.search(r'certificate SHA-256 digest:\s*([a-fA-F0-9]{64})',cert)
         expected=os.environ.get('CUSTOMER_'+app.upper()+'_CERT_SHA256','')
         if not match or not expected or match.group(1).lower()!=expected.lower():
             raise ValueError('Release signer changed or is not enrolled')
@@ -73,7 +73,7 @@ def stage(profile, build_results, output, build_number, *, apksigner='apksigner'
                   'apk_url':url,'abi':'arm64-v8a','sha256':digest,
                   'size_bytes':path.stat().st_size,'mandatory':False,
                   'notes':'Buyer-specific signed release candidate; publish after verified device QA.'}
-        (release/manifest_name).write_text(json.dumps(metadata,indent=2)+'\\n')
+        (release/manifest_name).write_text(json.dumps(metadata,indent=2)+'\n')
     (target/'RELEASE-CANDIDATE.json').write_text(json.dumps({
         'customer':profile['id'],'published':False,'real_device_qa':'required',
         'requires':'Customer-owned backend, exact signing identity, installed-app update test',
@@ -81,7 +81,7 @@ def stage(profile, build_results, output, build_number, *, apksigner='apksigner'
             name:hashlib.sha256((release/name).read_bytes()).hexdigest()
             for name in (NAMES['viewer'][0],NAMES['admin'][0])
         },
-    },indent=2)+'\\n')
+    },indent=2)+'\n')
     return target
 
 if __name__=='__main__':
@@ -94,4 +94,4 @@ if __name__=='__main__':
     try:
         stage(a.profile,a.build_results,a.output,a.build_number)
     except (OSError,ValueError,subprocess.CalledProcessError) as error:
-        p.exit(1,str(error)+'\\n')
+        p.exit(1,str(error)+'\n')
