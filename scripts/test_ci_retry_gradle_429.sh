@@ -12,6 +12,10 @@ if [[ "${NCA_FAIL_TYPE:-429}" == 429 ]] && (( count == 1 )); then
   echo 'Received status code 429 from server: Too Many Requests' >&2
   exit 1
 fi
+if [[ "${NCA_FAIL_TYPE:-429}" == ndk ]] && (( count == 1 )); then
+  echo 'Warning: An error occurred while preparing SDK package NDK: Error reading Zip content from a SeekableByteChannel.' >&2
+  exit 1
+fi
 if [[ "${NCA_FAIL_TYPE:-429}" == compile ]]; then
   echo 'Compilation error' >&2
   exit 1
@@ -21,6 +25,10 @@ SH
 chmod +x "$scratch/fake-build"
 echo 0 > "$scratch/count"
 NCA_TEST_COUNTER="$scratch/count" NCA_GRADLE_RETRY_DELAY=0 \
+  bash "$root/ci_retry_gradle_429.sh" "$scratch/fake-build"
+test "$(cat "$scratch/count")" -eq 2
+echo 0 > "$scratch/count"
+NCA_TEST_COUNTER="$scratch/count" NCA_FAIL_TYPE=ndk NCA_GRADLE_RETRY_DELAY=0 \
   bash "$root/ci_retry_gradle_429.sh" "$scratch/fake-build"
 test "$(cat "$scratch/count")" -eq 2
 echo 0 > "$scratch/count"
