@@ -3,6 +3,8 @@ import '../highlight_source_service.dart';
 import '../native_player.dart';
 import '../viewer_navigation.dart';
 import '../widgets/premium_bottom_nav.dart';
+import '../widgets/premium_match_card.dart';
+import '../widgets/source_match_filters.dart';
 import 'channels_page.dart';
 import 'source_browser_page.dart';
 
@@ -18,7 +20,11 @@ class HighlightsSourcePage extends StatefulWidget {
 
 class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
   final _scroll = ScrollController();
+  final _searchController = TextEditingController();
   final _items = <Map<String, dynamic>>[];
+  String _query = '';
+  String? _league;
+  bool _todayOnly = false;
   bool _loading = false, _hasMore = true, _opening = false;
   int _offset = 0, _epoch = 0;
   String? _error;
@@ -32,6 +38,7 @@ class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
   @override
   void dispose() {
     _scroll.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -158,35 +165,49 @@ class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
     );
   }
 
-  Widget _badge(dynamic url) => SizedBox(
-    width: 52,
-    height: 52,
-    child: url == null || url.toString().isEmpty
-        ? const Icon(Icons.shield_outlined)
-        : Image.network(
-            url.toString(),
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => const Icon(Icons.shield_outlined),
-          ),
-  );
-
-  Widget _team(dynamic name, dynamic url) => Column(
-    children: [
-      _badge(url),
-      Text(name.toString(), textAlign: TextAlign.center),
-    ],
-  );
+  // Filters are local to already-loaded pages, with pagination preserved.
+  List<Map<String, dynamic>> _visibleHighlights() {
+    final query = _query.trim().toLowerCase();
+    final nowMmt = DateTime.now().toUtc().add(const Duration(hours: 6, minutes: 30));
+    return _items.where((row) {
+      final league = (row['league'] ?? 'Highlights').toString();
+      if (_league != null && _league != league) return false;
+      final lookup = [league, row['home_team'], row['away_team'], row['title']]
+          .where((value) => value != null).join(' ').toLowerCase();
+      if (query.isNotEmpty && !lookup.contains(query)) return false;
+      if (!_todayOnly) return true;
+      final kickoff = DateTime.tryParse(row['kickoff_at']?.toString() ?? '');
+      if (kickoff == null) return false;
+      final mmt = kickoff.toUtc().add(const Duration(hours: 6, minutes: 30));
+      return mmt.year == nowMmt.year && mmt.month == nowMmt.month &&
+          mmt.day == nowMmt.day;
+    }).toList();
+  }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    final visible = _visibleHighlights();
+    final leagues = _items.map((row) => (row['league'] ?? 'Highlights').toString()).toSet().toList()..sort();
+    return Scaffold(
     body: SafeArea(
       bottom: false,
       child: Column(
         children: [
+          SourceMatchFilters(
+            controller: _searchController,
+            todayOnly: _todayOnly,
+            leagues: leagues,
+            league: _league,
+            visibleCount: visible.length,
+            onRefresh: () => _load(),
+            onQueryChanged: (value) => setState(() => _query = value),
+            onTodayChanged: (value) => setState(() => _todayOnly = value),
+            onLeagueChanged: (value) => setState(() => _league = value),
+          ),
           if (_loading || _opening) const LinearProgressIndicator(),
           if (_error != null)
             TextButton(
-              onPressed: () => _load(more: _items.isNotEmpty),
+              onPressed: () => _load(),
               child: Text(_error!),
             ),
           Expanded(
@@ -196,29 +217,29 @@ class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
                 controller: _scroll,
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(12),
-                itemCount: _items.isEmpty
+                itemCount: visible.isEmpty
                     ? 1
-                    : _items.length + (_hasMore ? 1 : 0),
+                    : visible.length + (_hasMore ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (_items.isEmpty && _error != null)
                     return const SizedBox.shrink();
-                  if (_items.isEmpty)
+                  if (visible.isEmpty)
                     return Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text(
                         _loading
                             ? 'Loading highlights…'
-                            : 'No highlights found.',
+                            : _items.isEmpty ? 'No highlights found.' : 'No highlights for these filters.',
                       ),
                     );
-                  if (index >= _items.length)
+                  if (index >= visible.length)
                     return TextButton(
                       onPressed: _loading ? null : () => _load(more: true),
                       child: Text(
                         _loading ? 'Loading more…' : 'Load more highlights',
                       ),
                     );
-                  final row = _items[index];
+                  final row = visible[index];
                   final lines = (row['lines'] as List? ?? []);
                   final score =
                       row['home_score'] == null || row['away_score'] == null
@@ -227,75 +248,25 @@ class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
                   final date = DateTime.tryParse(
                     row['kickoff_at']?.toString() ?? '',
                   )?.toUtc().add(const Duration(hours: 6, minutes: 30));
-                  return Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        children: [
-                          if (row['league'] != null)
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(row['league'].toString()),
-                            ),
-                          if (row['home_team'] != null)
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _team(
-                                    row['home_team'],
-                                    row['home_logo_url'],
-                                  ),
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      if (score != null)
-                                        Text(
-                                          score,
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.headlineSmall,
-                                        ),
-                                      if (row['is_finished'] == true)
-                                        const Text('FT'),
-                                      if (date != null)
-                                        Text(
-                                          MaterialLocalizations.of(
-                                            context,
-                                          ).formatShortMonthDay(date),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                                Expanded(
-                                  child: _team(
-                                    row['away_team'],
-                                    row['away_logo_url'],
-                                  ),
-                                ),
-                              ],
-                            )
-                          else
-                            ListTile(
-                              leading: _badge(row['thumbnail_url']),
-                              title: Text(
-                                row['title']?.toString() ?? 'Highlights',
-                              ),
-                            ),
-                          const Divider(),
-                          if (lines.isEmpty)
-                            const Text('Highlights not available yet')
-                          else
-                            FilledButton.icon(
-                              onPressed: _opening ? null : () => _play(row),
-                              icon: const Icon(Icons.play_arrow),
-                              label: const Text('Watch Highlights'),
-                            ),
-                        ],
-                      ),
+                  final hasLines = lines.isNotEmpty;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: PremiumMatchCard(
+                      league: (row['league'] ?? 'Highlights').toString(),
+                      homeName: (row['home_team'] ?? row['title'] ?? 'Highlights').toString(),
+                      awayName: (row['away_team'] ?? 'Video').toString(),
+                      homeLogo: (row['home_logo_url'] ?? row['thumbnail_url'])?.toString(),
+                      awayLogo: row['away_logo_url']?.toString(),
+                      kickoff: date,
+                      isLive: false,
+                      canWatch: hasLines && !_opening,
+                      actionLabel: hasLines ? 'WATCH HIGHLIGHTS' : 'HIGHLIGHTS NOT READY',
+                      metaLabel: [
+                        if (score != null) score,
+                        if (row['is_finished'] == true) 'FT',
+                      ].join(' • '),
+                      timeLabel: date == null ? 'HIGHLIGHTS' : null,
+                      onWatch: () => _play(row),
                     ),
                   );
                 },
@@ -309,5 +280,6 @@ class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
       selectedIndex: 7,
       onSelected: _navigate,
     ),
-  );
+   );
+  }
 }
