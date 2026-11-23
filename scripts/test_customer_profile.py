@@ -13,6 +13,11 @@ class ProfileTests(unittest.TestCase):
     self.assertFalse((Path(tmp)/name/'.github').exists())
     with self.assertRaises(ValueError):prepare(ROOT/f'customer_profiles/demo-{name}.json',Path(tmp)/name)
    self.assertNotEqual((Path(tmp)/'a/user_app/lib/main.dart').read_text(),(Path(tmp)/'b/user_app/lib/main.dart').read_text())
+   for name,color in (('a','2878D0'),('b','C04080')):
+    theme=(Path(tmp)/name/'user_app/lib/app_theme.dart').read_text()
+    self.assertIn('Color(0xFF'+color+')',theme)
+    for original in ('0xFF22D67B','0xFF0F9D58','0xFF35E58D','0xFF27C77D','0xFF19BFA2'):
+     self.assertNotIn('Color('+original+')',theme)
  def test_production_alias_and_unknown_field_rejected(self):
   p=json.loads((ROOT/'customer_profiles/demo-a.json').read_text())
   with tempfile.TemporaryDirectory() as tmp:
