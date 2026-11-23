@@ -83,8 +83,10 @@ def transform(text,p):
  text=text.replace('final config = PostHogConfig(_projectToken);','if (_projectToken.isEmpty) return;\n      final config = PostHogConfig(_projectToken);')
  text=text.replace('assets/nca_icon.webp','assets/customer_icon.png').replace('assets/nca_icon.png','assets/customer_icon.png')
  text=text.replace("title: 'NCA Admin'",'title: '+json.dumps(p['admin_name'])).replace("title: 'NCA'",'title: '+json.dumps(p['viewer_name']))
- text=text.replace('Color(0xFF16A34A)','Color(0xFF'+p['primary_color'][1:]+')')
- text=text.replace('Color(0xFF22D67B)','Color(0xFF'+p['primary_color'][1:]+')')
+ # Customer profile applies to both light/dark theme accents and legacy greens.
+ for original in ('0xFF16A34A','0xFF22D67B','0xFF0F9D58',
+                  '0xFF35E58D','0xFF27C77D','0xFF19BFA2'):
+  text=text.replace('Color('+original+')','Color(0xFF'+p['primary_color'][1:]+')')
  text=text.replace("'NCA Admin'",json.dumps(p['admin_name'])).replace("'NCA'",json.dumps(p['viewer_name']))
  text=re.sub(r'\bNCA\b',p['id'].upper(),text)
  return text
