@@ -15,9 +15,9 @@ def create(root,output):
   data=path.read_bytes()
   if re.search(rb'-----BEGIN (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----',data):raise ValueError('Private key found; backup blocked')
   files[name]=data
+ files['RESTORE-README.txt']=(f'Source snapshot: {sha}\\nVerify files using BACKUP-INVENTORY.json.\\nRestore Git repository, install pinned dependencies, provision the backend and apply migrations in filename order to a NEW empty database. Never replay historical migrations on production.\\nSigning keys, provider tokens, GitHub/Supabase/Cloudflare secrets and database DATA are not in this archive. Store those separately in an encrypted recovery vault. Do not generate a new signing key when updating an installed app.\\nAPK files: use private Admin bot /apk_admin and /apk_viewer.\\n').encode()
  inventory={'source_commit':sha,'files':{k:hashlib.sha256(v).hexdigest() for k,v in files.items()},'scope':'source-and-recovery-instructions','excluded':['database rows and user data','environment secrets','signing keystores','private customer profiles','APK binaries (available through /apk)']}
  files['BACKUP-INVENTORY.json']=json.dumps(inventory,indent=2).encode()
- files['RESTORE-README.txt']=(f'Source snapshot: {sha}\nVerify files using BACKUP-INVENTORY.json.\nRestore Git repository, install pinned dependencies, provision the backend and apply migrations in filename order to a NEW empty database. Never replay historical migrations on production.\nSigning keys, provider tokens, GitHub/Supabase/Cloudflare secrets and database DATA are not in this archive. Store those separately in an encrypted recovery vault. Do not generate a new signing key when updating an installed app.\nAPK files: use private Admin bot /apk_admin and /apk_viewer.\n').encode()
  target=out/'NCA-project-source.zip'
  with zipfile.ZipFile(target,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as archive:
   for name,data in sorted(files.items()):
