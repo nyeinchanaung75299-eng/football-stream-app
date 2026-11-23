@@ -44,6 +44,18 @@ jobs:
           "$tools/aapt" dump badging /tmp/customer-${{ matrix.customer }}/admin_app/build/app/outputs/flutter-apk/app-debug.apk > /tmp/customer-admin-identity.txt
           head -n 1 /tmp/customer-viewer-identity.txt | grep "name='com.demo${{ matrix.customer }}.viewer'"
           head -n 1 /tmp/customer-admin-identity.txt | grep "name='com.demo${{ matrix.customer }}.admin'"
+      - name: Verify native Viewer activity identity before distributing QA APKs
+        run: |
+          PACKAGE="com.demo${{ matrix.customer }}.viewer"
+          BASE="/tmp/customer-${{ matrix.customer }}/user_app/android/app/src/main/kotlin/com/demo${{ matrix.customer }}/viewer"
+          for file in MainActivity.kt NativePlayerActivity.kt PlaybackSourceSessions.java; do
+            test -f "$BASE/$file"
+            grep -q "package $PACKAGE" "$BASE/$file"
+            if grep -q 'package com.example.football_viewer' "$BASE/$file"; then
+              echo "Native activity still uses production template package." >&2
+              exit 1
+            fi
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: customer-${{ matrix.customer }}-qa-only
