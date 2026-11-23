@@ -39,6 +39,8 @@ def stage(profile, build_results, output, build_number, *, apksigner='apksigner'
     if target.exists():
         raise ValueError('Never overwrite an existing release candidate')
     checked={}
+    enrolled=set()
+    production_cert='9e5074f9e3195d70b0b80adf963b7f0f18a04ee2a3c3808c702ab07fda733b1e'
     for row in rows:
         app=row['app']
         if row.get('signed_release') is not True or row.get('package')!=profile[app+'_package']:
@@ -54,6 +56,9 @@ def stage(profile, build_results, output, build_number, *, apksigner='apksigner'
         expected=os.environ.get('CUSTOMER_'+app.upper()+'_CERT_SHA256','')
         if not match or not expected or match.group(1).lower()!=expected.lower():
             raise ValueError('Release signer changed or is not enrolled')
+        if expected.lower()==production_cert or expected.lower() in enrolled:
+            raise ValueError('Buyer signing certificate must differ from NCA and the other app')
+        enrolled.add(expected.lower())
         badging=subprocess.check_output([aapt,'dump','badging',str(path)],text=True)
         expected_version=version_from_pubspec(report_file.parent/('user_app' if app=='viewer' else 'admin_app')/'pubspec.yaml')
         if (f"name='{profile[app+'_package']}'" not in badging or
