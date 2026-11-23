@@ -14,7 +14,12 @@ def android(app,kind,p,mode):
  dest=android/'app/src/main/kotlin'/package.replace('.','/');dest.mkdir(parents=True,exist_ok=True)
  if kind=='viewer':
   for f in (app/'android_patch').glob('*'):
-   if f.suffix in ('.kt','.java'):shutil.copy2(f,dest/f.name)
+   if f.suffix in ('.kt','.java'):
+    # Source-export happens before Android platform generation. Patch files
+    # are copied only now, so their package headers must be transformed HERE.
+    # Otherwise the APK can compile but Android cannot find MainActivity.
+    source=f.read_text().replace('com.example.football_viewer',package)
+    (dest/f.name).write_text(source)
  else:
   (dest/'MainActivity.kt').write_text(f'package {package}\nimport io.flutter.embedding.android.FlutterActivity\nclass MainActivity: FlutterActivity()\n')
  manifest=android/'app/src/main/AndroidManifest.xml';ns='{http://schemas.android.com/apk/res/android}'
