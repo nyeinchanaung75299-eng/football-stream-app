@@ -5,12 +5,21 @@ import {mpdIdentity,MPD_REPOSITORIES} from './repository_mpd.mjs';
 import {englishFootballName} from './football_names.mjs';
 import {NEW_GITHUB_SOURCES,readGithubDocuments} from './github_source_formats.mjs';
 const clean=x=>String(x??'').replace(/<[^>]*>/g,' ').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim();
-const key=x=>clean(x).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+// Source names can contain already-corrupted UTF-8 (e.g. BodÃ¸/Glimt).
+// Repair only known mojibake sequences, never try to infer unrelated teams.
+const repairName=x=>clean(x).replace(/Ã¸/g,'ø').replace(/Ã˜/g,'Ø').replace(/Ã¶/g,'ö')
+ .replace(/Ã¼/g,'ü').replace(/Ã©/g,'é').replace(/Ã±/g,'ñ').replace(/Ã¥/g,'å');
+const key=x=>repairName(x).normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+ .replace(/[øØ]/g,'o').replace(/[æÆ]/g,'ae').replace(/ß/g,'ss')
+ .toLowerCase().replace(/[^a-z0-9]/g,'');
 const aliases=new Map(Object.entries({manutd:'Manchester United',manchesterutd:'Manchester United',manunited:'Manchester United',
  mancity:'Manchester City',spurs:'Tottenham Hotspur',tottenham:'Tottenham Hotspur',psg:'Paris Saint-Germain',
- intermilan:'Inter Milan',inter:'Inter Milan',bayernmunchen:'Bayern Munich',newcastleutd:'Newcastle United'}));
+ intermilan:'Inter Milan',inter:'Inter Milan',bayernmunchen:'Bayern Munich',newcastleutd:'Newcastle United',
+ porto:'FC Porto',fcporto:'FC Porto',ceuta:'AD Ceuta',adceuta:'AD Ceuta',
+ bodoglimt:'Bodø/Glimt',liverpool:'Liverpool FC',liverpoolfc:'Liverpool FC',
+ lask:'LASK Linz',lasklinz:'LASK Linz'}));
 const team=x=>{
- const value=englishFootballName(clean(x),'team');
+ const value=englishFootballName(repairName(x),'team');
  const suffix=value.match(/\s+(?:(?:Women|Ladies|U\d{1,2}|Reserves|II|B)\s*)+$/i)?.[0]||'';
  const base=suffix?value.slice(0,-suffix.length):value;
  return (aliases.get(key(base))||base)+suffix;
