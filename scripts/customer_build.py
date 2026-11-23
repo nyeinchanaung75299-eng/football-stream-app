@@ -4,7 +4,14 @@ import argparse,hashlib,json,os,re,shutil,subprocess,xml.etree.ElementTree as ET
 from pathlib import Path
 from customer_profile import prepare,load_profile
 
-def run(args,cwd):subprocess.run([str(x) for x in args],cwd=cwd,check=True)
+def run(args,cwd):
+ cmd=[str(x) for x in args]
+ if len(cmd)>=3 and cmd[0].endswith('flutter') and cmd[1:3]==['build','apk']:
+  # Customer-specific APK builds can hit the same ephemeral GitHub runner
+  # Maven/SDK download failures. Retry only known network/NDK failures.
+  retry=Path(__file__).resolve().with_name('ci_retry_gradle_429.sh')
+  cmd=['bash',str(retry),*cmd]
+ subprocess.run(cmd,cwd=cwd,check=True)
 def android(app,kind,p,mode):
  package=p[kind+'_package'];name=p[kind+'_name'];android=app/'android'
  for f in android.rglob('*'):
