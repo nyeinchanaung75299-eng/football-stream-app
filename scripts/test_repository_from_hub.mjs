@@ -76,3 +76,47 @@ test('corroborates an offset-free source clock and keeps one line per complete D
  assert.equal(result.entries[0].streams.length,2);
  assert.equal(result.entries[0].streams[0].label,result.entries[0].streams[1].label);
 });
+
+test('Feyenoord vs FC Porto and Porto merge without losing distinct HLS lines',async()=>{
+ const at='2026-11-24T20:00:00Z',now=Date.parse('2026-11-24T19:00:00Z');
+ const make=(repository,away_team,streams)=>({...entry,streams,event_meta:{...entry.event_meta,
+  source_repository:repository,home_team:'Feyenoord',away_team,league:'UEFA Champions League',
+  source_category:'Football',kickoff_at:at}});
+ const stream=(url)=>({label:'HD',stream_type:'hls',stream_url:url});
+ const result=await repositoryMatchesFromHub([
+  make('dilzyking/allrounderlive','FC Porto',[]),
+  make('darkbyteprojects/iptv_png','Porto',[stream('https://fixtures.example.org/a.m3u8'),
+   stream('https://fixtures.example.org/a.m3u8'),stream('https://fixtures.example.org/b.m3u8')]),
+ ],{now});
+ assert.equal(result.entries.length,1);
+ assert.equal(result.entries[0].streams.length,2);
+ assert.deepEqual(new Set(result.entries[0].event_meta.repositories),
+  new Set(['dilzyking/allrounderlive','darkbyteprojects/iptv_png']));
+});
+test('Bodø/Glimt mojibake, undated alias and same kickoff collapse into one match',async()=>{
+ const now=Date.parse('2026-11-24T16:00:00Z'),kickoff='2026-11-24T17:45:00Z';
+ const make=(home,source,kickoff_at,streams=[])=>({...entry,streams,event_meta:{...entry.event_meta,
+  home_team:home,away_team:'LASK',source_repository:source,source_category:'Football',
+  league:'UEFA Champions League',kickoff_at,source_time:'24/11/2026 17:45:00'}});
+ const line=(url)=>({stream_type:'hls',stream_url:url,label:'HD'});
+ const result=await repositoryMatchesFromHub([
+  make('BodÃ¸/Glimt','darkbyteprojects/iptv_png',kickoff,[line('https://fixtures.example.org/a.m3u8')]),
+  make('Bodø/Glimt','dilzyking/allrounderlive',kickoff,[line('https://fixtures.example.org/b.m3u8')]),
+  make('Bodo Glimt','sm-monirulislam/Upcoming-and-Live-Sports-Data',null),
+ ],{now});
+ assert.equal(result.entries.length,1);
+ assert.equal(result.entries[0].name,'Bodø/Glimt vs LASK Linz');
+ assert.equal(result.entries[0].streams.length,2);
+});
+test('a shared channel remains available separately for different fixtures',async()=>{
+ const now=Date.parse('2026-11-24T16:00:00Z');
+ const channel={stream_type:'hls',stream_url:'https://fixtures.example.org/bein.m3u8',label:'beIN'};
+ const make=(home,away)=>({...entry,streams:[channel],event_meta:{...entry.event_meta,
+  home_team:home,away_team:away,source_repository:'darkbyteprojects/iptv_png',
+  source_category:'Football',league:'Football',kickoff_at:'2026-11-24T18:00:00Z'}});
+ const result=await repositoryMatchesFromHub([
+  make('Liverpool','Manchester United'),make('Real Madrid','Barcelona'),
+ ],{now});
+ assert.equal(result.entries.length,2);
+ assert(result.entries.every(row=>row.streams.length===1));
+});
