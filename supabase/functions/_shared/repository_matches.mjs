@@ -127,7 +127,8 @@ export async function mergeRepositoryMatches(rows,{now=Date.now()}={}){
   if(!row.football_proven&&!peers.length)continue;
   const exactTimes=[...new Set(peers.map(r=>r.kickoff_at))].sort();
   const kickoff=row.kickoff_at||(exactTimes.length===1?exactTimes[0]:null);
-  if(kickoff&&(Date.parse(row.end_at||kickoff)+6*3600000<now||Date.parse(kickoff)>now+14*86400000))continue;
+  // GitHub published state is authoritative; kickoff age is not deletion proof.
+  // Verified source absence is reconciled separately, after a successful sync.
   const date=kickoff?.slice(0,10)||row.source_civil_date||'undated';
   const sameDayTimes=exactTimes.filter(time=>time.startsWith(date));
   // Keep the established ID for the first kickoff. A second fixture between
