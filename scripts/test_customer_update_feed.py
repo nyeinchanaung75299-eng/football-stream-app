@@ -75,6 +75,7 @@ class FeedTests(unittest.TestCase):
    stage(self.profile,self.report,self.dir/'not-created',43)
   self.assertFalse((self.dir/'not-created').exists())
   self.rows[0]['signed_release']=True
+  self.report.write_text(json.dumps({'customer':'customer-a','published':False,'builds':self.rows}))
   self.apks['viewer'].write_bytes(b'changed')
   with self.assertRaisesRegex(ValueError,'hash differs'):
    stage(self.profile,self.report,self.dir/'not-created',43)
