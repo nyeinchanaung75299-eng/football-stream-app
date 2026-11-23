@@ -25,6 +25,8 @@ import 'telegram_setup_page.dart';
 import 'repository_matches_page.dart';
 import 'epg_discrepancies_page.dart';
 import 'suppressed_source_lines_page.dart';
+import 'system_health_page.dart';
+import 'source_sync_health_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -327,6 +329,22 @@ class _DashboardPageState extends State<DashboardPage> {
                 ?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -.4),
           ),
           const SizedBox(height: 12),
+          _ActionCard(
+            icon: Icons.monitor_heart_outlined,
+            title: 'System Health',
+            iconColor: colors.primary,
+            onTap: () => open(context, const SystemHealthPage(active: true),
+                'system-health'),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.sync_problem_outlined,
+            title: 'Source Sync Health',
+            iconColor: const Color(0xFFF59E0B),
+            onTap: () => open(context, const SourceSyncHealthPage(),
+                'source-sync-health'),
+          ),
+          const SizedBox(height: 8),
           _ActionCard(
             icon: Icons.sports_soccer_rounded,
             title: 'Repository Matches',
