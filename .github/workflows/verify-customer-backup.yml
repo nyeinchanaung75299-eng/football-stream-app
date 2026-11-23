@@ -3,6 +3,9 @@ on:
   pull_request:
     paths: ['customer_profiles/**', 'scripts/customer_*.py', 'scripts/test_customer_update_feed.py', 'scripts/project_backup.py', 'scripts/verify_project_backup.py', 'scripts/test_customer_profile.py', 'scripts/test_project_backup.py', 'supabase/functions/_shared/telegram_project_backup.mjs', 'scripts/test_telegram_project_backup.mjs', 'supabase/functions/_shared/repository_snapshot_removals.mjs', 'scripts/test_repository_snapshot_removals.*', '.github/workflows/verify-customer-backup.yml']
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
