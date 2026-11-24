@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {footballHighlights} from '../supabase/functions/_shared/football_highlights.mjs';
+import {footballHighlights,highlightCatalogueFreshness} from '../supabase/functions/_shared/football_highlights.mjs';
 import {publicHighlightsRequest} from '../supabase/functions/_shared/public_highlights.mjs';
 test('publisher cursor pages remain finite, preserve metadata and drop duplicate cards',async()=>{
  const fetcher=async address=>{
@@ -73,4 +73,14 @@ test('highlights search accepts published post cards without leaking team result
  assert.equal(calls.length,1);
  assert.equal(data.entries.length,3);
  assert(data.entries.every(row=>row.source_page_url.startsWith('https://dasfootball.com/')));
+});
+
+test('highlight freshness never mistakes the refresh clock for a new publisher date',()=>{
+ const now=Date.parse('2026-11-24T08:00:00Z');
+ const old=highlightCatalogueFreshness([{published_at:'2026-11-21T22:43:00Z'},{published_at:'invalid'},{published_at:'2026-11-25T00:00:00Z'}],now);
+ assert.equal(old.latest_published_at,'2026-11-21T22:43:00.000Z');
+ assert.equal(old.publisher_age_hours,57);
+ assert.equal(old.warnings.length,1);
+ assert.equal(highlightCatalogueFreshness([{published_at:'2026-11-24T06:00:00Z'}],now).warnings.length,0);
+ assert.equal(highlightCatalogueFreshness([],now).latest_published_at,null);
 });
