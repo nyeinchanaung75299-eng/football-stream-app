@@ -67,7 +67,7 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     if (body.source === 'highlights') {
-      return json(await footballHighlights(body));
+      return json(await footballHighlights(body, { includeDateCatalogue: true }));
     }
     const source = normalizeSource(body.source);
     if (source === null) {
