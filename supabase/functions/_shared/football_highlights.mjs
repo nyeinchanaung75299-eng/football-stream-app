@@ -93,11 +93,19 @@ function cardEntry(card,force=false){
     links_checked_at:force?null:old?.links_checked_at};
   entryCache.set(id,entry);return entry;
 }
+// A successful HTTP request does not prove the publisher added a new highlight.
+export function highlightCatalogueFreshness(entries, now=Date.now()) {
+  const times=entries.map(row=>Date.parse(row.published_at || '')).filter(time=>Number.isFinite(time)&&time<=now);
+  const latest=times.length?Math.max(...times):null;
+  const latest_published_at=latest===null?null:new Date(latest).toISOString();
+  const publisher_age_hours=latest===null?null:Math.floor((now-latest)/3600000);
+  const warnings=publisher_age_hours!==null&&publisher_age_hours>=36
+    ? ['Latest dated highlight in this source page: '+latest_published_at.slice(0,10)+' UTC. Refresh succeeded, but no newer published highlight was verified in this response.']
+    : [];
+  return {latest_published_at,publisher_age_hours,warnings};
+}
 async function catalogue(fetcher,force=false,{offset=0,query=''}={}) {
   const key=query+'|'+offset,previous=cache.get(key);
-  if(force && offset===0) {
-    for(const cachedKey of cache.keys())if(cachedKey.startsWith(query+'|'))cache.delete(cachedKey);
-  }
   if (!force && previous && Date.now()-Date.parse(previous.updated_at)<300000) return previous;
   if (inFlight.has(key)) return inFlight.get(key);
   const work=(async()=>{
@@ -123,7 +131,13 @@ async function catalogue(fetcher,force=false,{offset=0,query=''}={}) {
         cards=payload.cards;nextOffset=offset+cards.length;hasMore=payload.hasMore&&cards.length>0;
       }
       const entries=[...new Map(cards.map(card=>cardEntry(card,force)).filter(Boolean).map(e=>[e.id,e])).values()];
-      const data={entries,warnings:[],updated_at:new Date().toISOString(),has_more:hasMore&&nextOffset<5000,next_offset:nextOffset};
+      const freshness=!query&&offset===0?highlightCatalogueFreshness(entries):{warnings:[]};
+      const data={entries,...freshness,updated_at:new Date().toISOString(),has_more:hasMore&&nextOffset<5000,next_offset:nextOffset};
+      // Invalidate subsequent cursors only after the first-page refresh succeeds.
+      // A failed refresh must not erase the last known catalogue.
+      if(force && offset===0) {
+        for(const cachedKey of cache.keys())if(cachedKey.startsWith(query+'|'))cache.delete(cachedKey);
+      }
       cache.set(key,data);
       if(cache.size>200)cache.delete(cache.keys().next().value);
       if(searchCache.size>50)searchCache.delete(searchCache.keys().next().value);
@@ -131,7 +145,7 @@ async function catalogue(fetcher,force=false,{offset=0,query=''}={}) {
       return data;
     } catch(error) {
       const warnings=[clean(error.message) || 'Could not extract highlight links.'];
-      return previous?{...previous,stale:true,warnings}:
+      return previous?{...previous,stale:true,warnings:[...new Set([...(previous.warnings||[]),...warnings])]}:
         {entries:[],updated_at:null,unavailable:true,warnings,has_more:false,next_offset:offset};
     }
   })();
