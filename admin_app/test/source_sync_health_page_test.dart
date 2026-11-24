@@ -30,10 +30,15 @@ void main() {
     expect(find.text('Source Sync Health'), findsOneWidget);
     expect(find.text('Stream Hub'), findsOneWidget);
     expect(find.text('Repository Match / Live 2'), findsOneWidget);
-    expect(find.text('Admin HL · DasFootball'), findsOneWidget);
     expect(find.text('PARTIAL'), findsOneWidget);
-    expect(find.text('UNAVAILABLE'), findsOneWidget);
     expect(find.textContaining('rohmanabdu/lian'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Admin HL · DasFootball'), 200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Admin HL · DasFootball'), findsOneWidget);
+    expect(find.text('UNAVAILABLE'), findsOneWidget);
     expect(find.textContaining('Existing highlights are not deleted'),
         findsOneWidget);
   });
@@ -46,8 +51,23 @@ void main() {
       }),
     ));
     await tester.pumpAndSettle();
-    expect(find.text('UNKNOWN'), findsNWidgets(4));
-    expect(find.textContaining('No deletion is inferred'), findsNWidgets(4));
-    expect(find.text('Source entries: 0'), findsNothing);
+    for (final title in [
+      'Stream Hub', 'Repository Match / Live 2',
+      'Repository Link Updates', 'Admin HL · DasFootball',
+    ]) {
+      await tester.scrollUntilVisible(find.text(title), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      final card = find.ancestor(of: find.text(title),
+          matching: find.byType(Card));
+      expect(card, findsOneWidget);
+      expect(find.descendant(of: card, matching: find.text('UNKNOWN')),
+          findsOneWidget);
+      expect(find.descendant(of: card,
+          matching: find.textContaining('No deletion is inferred')),
+          findsOneWidget);
+      expect(find.descendant(of: card,
+          matching: find.text('Source entries: 0')), findsNothing);
+    }
   });
 }
