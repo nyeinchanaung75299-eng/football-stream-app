@@ -85,7 +85,7 @@ test('highlight freshness never mistakes the refresh clock for a new publisher d
  assert.equal(highlightCatalogueFreshness([],now).latest_published_at,null);
 });
 
-test('new match URL catalogue lists Normal HL metadata and never invents a native link',async()=>{
+test('normal match metadata stays separate from the legacy catalogue and never invents a native link',async()=>{
  const page='https://dasfootball.com/match/brentford-vs-everton-2026-11-23-209637/';
  const extended='https://dasfootball.com/match/other-vs-team-2026-11-23-209638/';
  const home='<a href="'+page+'">Brentford vs Everton</a><a href="'+page+'?ref=home">duplicate</a><a href="'+extended+'">Other fixture</a><a href="https://other.example.org/match/team-vs-team-2026-11-23-9/">untrusted</a>';
@@ -109,13 +109,14 @@ test('new match URL catalogue lists Normal HL metadata and never invents a nativ
   throw Error('Unexpected request: '+address);
  };
  const list=await footballHighlights({force:true},{fetcher});
- assert.equal(list.entries.length,2);
- assert.equal(list.entries[0].source_page_url,page);
- assert.equal(list.entries[0].source_page_only,true);
- const details=await footballHighlights({action:'details',entry_id:list.entries[0].id},{fetcher});
+ assert.equal(list.entries.length,1);
+ assert.equal(list.entries[0].title,'Older fixture');
+ assert.equal(calls.length,1);
+ const details=await footballHighlights({action:'details',entry_id:'dasfootball:'+page},{fetcher});
  assert.equal(details.entry.source_page_url,page);
+ assert.equal(details.entry.source_page_only,true);
  assert.deepEqual(details.entry.lines,[]);
- assert.equal(calls.length,4);
+ assert.equal(calls.length,2);
 });
 
 test('normal match MP4 requires explicit reusable public media metadata, never Extended HL',()=>{
@@ -129,4 +130,25 @@ test('normal match MP4 requires explicit reusable public media metadata, never E
  assert.equal(entry.source_page_only,false);
  assert.equal(entry.lines[0].stream_type,'mp4');
  assert.equal(entry.lines[0].playback_verified,false);
+});
+
+test('empty or failed first-page refresh retains last populated catalogue',async()=>{
+ const query='unique-catalogue-preservation';
+ let mode='populated';
+ const fetcher=async address=>{
+  assert(address.includes('/api/search/'));
+  if(mode==='error')throw Error('Fixture upstream failed');
+  return Response.json(mode==='empty'?[]:[{type:'article',slug:'catalogue-preservation-highlights',title:'Saved catalogue fixture'}]);
+ };
+ const first=await footballHighlights({query,force:true},{fetcher});
+ assert.equal(first.entries.length,1);
+ mode='empty';
+ const empty=await footballHighlights({query,force:true},{fetcher});
+ assert.equal(empty.stale,true);
+ assert.deepEqual(empty.entries,first.entries);
+ assert.equal(empty.updated_at,first.updated_at);
+ mode='error';
+ const failed=await footballHighlights({query,force:true},{fetcher});
+ assert.equal(failed.stale,true);
+ assert.deepEqual(failed.entries,first.entries);
 });
