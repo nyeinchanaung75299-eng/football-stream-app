@@ -56,3 +56,21 @@ test('refreshing the first Highlights page invalidates later cached cursors',asy
  const later=await footballHighlights({offset:9},{fetcher});
  assert(later.entries.every(row=>row.title.startsWith('Generation 1')));assert.deepEqual(calls,[0,9,0,9]);
 });
+
+test('highlights search accepts published post cards without leaking team results',async()=>{
+ const calls=[];
+ const fetcher=async url=>{
+  calls.push(url);
+  return Response.json([
+   {type:'article',slug:'liverpool-manchester-united-match-highlights-2026-11-22',title:'Liverpool vs Manchester United'},
+   {type:'post',href:'/manchester-city-liverpool-highlights-2026-11-22/',title:'Manchester City vs Liverpool'},
+   {slug:'juventus-venezia-highlights-2026-11-22',title:'Juventus vs Venezia'},
+   {type:'team',slug:'manchester-united-highlights-2026-11-22',title:'Manchester United team'},
+   {type:'post',slug:'liverpool-full-match-2026-11-22',title:'Liverpool FULL MATCH'},
+  ]);
+ };
+ const data=await footballHighlights({query:'nov2026-variant-highlights',force:true},{fetcher});
+ assert.equal(calls.length,1);
+ assert.equal(data.entries.length,3);
+ assert(data.entries.every(row=>row.source_page_url.startsWith('https://dasfootball.com/')));
+});

@@ -17,6 +17,7 @@ on:
 permissions:
   actions: write
   contents: read
+  pull-requests: read
 
 concurrency:
   group: workflow-run-cleanup
@@ -54,11 +55,21 @@ jobs:
                 new Date(a.created_at).getTime(),
             );
 
+            // Retain verification evidence for the latest head of every open PR.
+            // Production refreshes must not erase tests needed for release review.
+            const openPulls = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: 'open', per_page: 100,
+            });
+            const openHeadShas = new Set(openPulls.map(pr => pr.head.sha));
             const keep = new Set([currentRunId]);
             const latestCompletedByPath = new Map();
             const latestSuccessByPath = new Map();
 
             for (const run of runs) {
+              if (run.event === 'pull_request' && openHeadShas.has(run.head_sha)) {
+                keep.add(run.id);
+                continue;
+              }
               // Never delete queued/in-progress runs.
               if (run.status !== 'completed') {
                 keep.add(run.id);

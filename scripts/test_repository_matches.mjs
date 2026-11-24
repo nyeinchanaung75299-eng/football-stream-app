@@ -128,3 +128,14 @@ test('missing upstream fixture repository does not prevent a verified Darkbyte u
  assert.equal(rawCalls,1);
  assert(snapshot.entries.some(entry=>entry.name==='Wales vs Portugal'&&entry.streams.length===1));
 });
+
+test('GitHub source presence wins over old kickoff age',async()=>{
+ const old={home_team:'Chapecoense',away_team:'Cruzeiro',league:'Brazil Serie A',
+  football_proven:true,kickoff_at:'2026-11-22T17:00:00.000Z',
+  repository:'dilzyking/allrounderlive',
+  streams:[{stream_type:'hls',stream_url:'https://example.org/old-match.m3u8',label:'HD'}]};
+ const result=await mergeRepositoryMatches([old],{now:Date.parse('2026-11-24T17:00:00Z')});
+ assert.equal(result.length,1);
+ assert.equal(result[0].name,'Chapecoense vs Cruzeiro');
+ assert.equal(result[0].streams.length,1);
+});

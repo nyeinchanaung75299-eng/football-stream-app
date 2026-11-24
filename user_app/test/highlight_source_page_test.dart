@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:football_viewer/highlight_source_service.dart';
 import 'package:football_viewer/screens/highlight_source_page.dart';
+import 'package:football_viewer/widgets/premium_match_card.dart';
 
 class FakeHighlights extends PublicHighlightsService {
   @override
@@ -43,10 +44,23 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(AppBar), findsNothing);
-    expect(find.byType(TextField), findsNothing);
-    expect(find.text('2–2'), findsOneWidget);
-    expect(find.text('FT'), findsOneWidget);
-    expect(find.text('Highlights not available yet'), findsOneWidget);
-    expect(find.text('Watch Highlights'), findsNothing);
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.byType(PremiumMatchCard), findsOneWidget);
+    expect(find.text('2–2 • FT'), findsOneWidget);
+    expect(find.text('HIGHLIGHTS NOT READY'), findsOneWidget);
+    expect(find.text('WATCH HIGHLIGHTS'), findsNothing);
   });
+  testWidgets('HL search filters the shared match-card list', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(home: HighlightsSourcePage(service: FakeHighlights())),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Barcelona');
+    await tester.pumpAndSettle();
+    expect(find.text('No highlights for these filters.'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'Juventus');
+    await tester.pumpAndSettle();
+    expect(find.byType(PremiumMatchCard), findsOneWidget);
+  });
+
 }

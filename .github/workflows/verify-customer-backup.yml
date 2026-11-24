@@ -1,8 +1,11 @@
 name: Verify Customer Profiles and Project Backups
 on:
   pull_request:
-    paths: ['customer_profiles/**', 'scripts/customer_*.py', 'scripts/project_backup.py', 'scripts/test_customer_profile.py', 'scripts/test_project_backup.py', 'supabase/functions/_shared/telegram_project_backup.mjs', 'scripts/test_telegram_project_backup.mjs', 'supabase/functions/_shared/repository_snapshot_removals.mjs', 'scripts/test_repository_snapshot_removals.*', '.github/workflows/verify-customer-backup.yml']
+    paths: ['customer_profiles/**', 'scripts/customer_*.py', 'scripts/test_customer_update_feed.py', 'scripts/project_backup.py', 'scripts/verify_project_backup.py', 'scripts/test_customer_profile.py', 'scripts/test_project_backup.py', 'supabase/functions/_shared/telegram_project_backup.mjs', 'scripts/test_telegram_project_backup.mjs', 'supabase/functions/_shared/repository_snapshot_removals.mjs', 'scripts/test_repository_snapshot_removals.*', '.github/workflows/verify-customer-backup.yml']
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -15,8 +18,10 @@ jobs:
           node-version: '24'
       - run: |
           python3 -m unittest discover -s scripts -p 'test_customer_profile.py'
+          python3 -m unittest discover -s scripts -p 'test_customer_update_feed.py'
           python3 -m unittest discover -s scripts -p 'test_project_backup.py'
           python3 scripts/project_backup.py --output /tmp/verified-backup
+          python3 scripts/verify_project_backup.py --archive /tmp/verified-backup/NCA-project-source.zip
           node --test scripts/test_telegram_project_backup.mjs scripts/test_repository_snapshot_removals.mjs scripts/test_repository_trees.mjs scripts/test_repository_matches.mjs
           node --test scripts/test_connected_github_sources.mjs
   customer-android:
@@ -44,6 +49,18 @@ jobs:
           "$tools/aapt" dump badging /tmp/customer-${{ matrix.customer }}/admin_app/build/app/outputs/flutter-apk/app-debug.apk > /tmp/customer-admin-identity.txt
           head -n 1 /tmp/customer-viewer-identity.txt | grep "name='com.demo${{ matrix.customer }}.viewer'"
           head -n 1 /tmp/customer-admin-identity.txt | grep "name='com.demo${{ matrix.customer }}.admin'"
+      - name: Verify native Viewer activity identity before distributing QA APKs
+        run: |
+          PACKAGE="com.demo${{ matrix.customer }}.viewer"
+          BASE="/tmp/customer-${{ matrix.customer }}/user_app/android/app/src/main/kotlin/com/demo${{ matrix.customer }}/viewer"
+          for file in MainActivity.kt NativePlayerActivity.kt PlaybackSourceSessions.java; do
+            test -f "$BASE/$file"
+            grep -q "package $PACKAGE" "$BASE/$file"
+            if grep -q 'package com.example.football_viewer' "$BASE/$file"; then
+              echo "Native activity still uses production template package." >&2
+              exit 1
+            fi
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: customer-${{ matrix.customer }}-qa-only

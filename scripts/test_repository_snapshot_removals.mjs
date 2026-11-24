@@ -9,3 +9,22 @@ test('a missing unrelated repository does not preserve obsolete URLs from health
  const rows=[{id:'healthy',event_meta:{repositories:['darkbyteprojects/iptv_png']}},{id:'uncertain',event_meta:{repositories:['rohmanabdu/lian']}}];
  assert.deepEqual(unobservedRepositoryEntries({missingRepositories:['rohmanabdu/lian']},rows).map(x=>x.id),['uncertain']);
 });
+
+test('unknown incomplete snapshot never verifies deletion of any old match',()=>{
+ const previous=[
+  {id:'old-a',event_meta:{repositories:['darkbyteprojects/iptv_png']}},
+  {id:'old-b',event_meta:{repositories:['Roshavarma/cfy']}},
+ ];
+ const snapshot={entries:[],complete:false,missingRepositories:[]};
+ assert.deepEqual(confirmedRepositoryRemovals(snapshot,previous),[]);
+ assert.deepEqual(unobservedRepositoryEntries(snapshot,previous),previous);
+});
+test('unavailable source never proves removal; healthy origin can still confirm',()=>{
+ const previous=[
+  {id:'unavailable',event_meta:{repositories:['rohmanabdu/lian']}},
+  {id:'verified-absent',event_meta:{repositories:['Roshavarma/cfy']}},
+ ];
+ const snapshot={entries:[],complete:false,missingRepositories:['rohmanabdu/lian']};
+ assert.deepEqual(confirmedRepositoryRemovals(snapshot,previous),['verified-absent']);
+ assert.deepEqual(unobservedRepositoryEntries(snapshot,previous),[previous[0]]);
+});

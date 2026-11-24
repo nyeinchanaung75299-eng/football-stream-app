@@ -108,7 +108,13 @@ async function catalogue(fetcher,force=false,{offset=0,query=''}={}) {
         if(force||!found||Date.now()-found.time>300000){
           const {text}=await readPublicSource('https://dasfootball.com/api/search/?q='+encodeURIComponent(query),{fetcher,kind:'json',timeoutMs:5500,allowedHosts:['dasfootball.com']});
           const rows=JSON.parse(text);if(!Array.isArray(rows))throw Error('Invalid highlights search');
-          found={time:Date.now(),rows:rows.filter(r=>r.type==='article')};searchCache.set(query,found);
+          // Search API variants may call public highlights "article", "post",
+          // or omit type. Never admit team/category results: cardEntry still
+          // enforces a DasFootball /highlights/ article URL and safe title.
+          const published=rows.filter(r=>
+            ['article','post','highlight',undefined,null,''].includes(r.type) &&
+            Boolean(cardEntry(r)));
+          found={time:Date.now(),rows:published};searchCache.set(query,found);
         }
         cards=found.rows.slice(offset,offset+9);nextOffset=offset+cards.length;hasMore=nextOffset<found.rows.length;
       }else{

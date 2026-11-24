@@ -58,6 +58,7 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_configure_android_permissions.py'
           node --test scripts/test_detector_resource_observer.mjs
+          bash scripts/test_ci_retry_gradle_429.sh
           python3 -m unittest discover -s scripts -p 'test_configure_gradle_distribution.py'
           node --test scripts/test_website_stream_scanner.mjs
           node --test scripts/test_browser_stream_scanner.mjs
@@ -133,7 +134,7 @@ jobs:
         # Web-only PRs must not build any APK, even a debug artifact.
         if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.pull_request.title, '[admin-web-only]') }}
         working-directory: admin_app
-        run: flutter build apk --debug
+        run: bash ../scripts/ci_retry_gradle_429.sh flutter build apk --debug
 
   viewer-check:
     # These changes touch only Admin Web; skip native Viewer generation/build.
@@ -208,4 +209,4 @@ jobs:
           flutter test
       - name: Compile Viewer debug APK
         working-directory: user_app
-        run: flutter build apk --debug
+        run: bash ../scripts/ci_retry_gradle_429.sh flutter build apk --debug
