@@ -8,6 +8,7 @@ class FakeHighlights extends HighlightsService {
   final requests = <String>[];
   bool fail = false;
   bool noLinks = false;
+  bool sourcePageOnly = false;
   final savedLines = <Map<String, dynamic>>[];
   @override
   Future<List<Map<String, dynamic>>> destinations() async => [];
@@ -44,7 +45,15 @@ class FakeHighlights extends HighlightsService {
       };
     if (action == 'details')
       return {
-        'entry': noLinks ? {...entry, 'lines': []} : entry
+        'entry': {
+          ...entry,
+          if (sourcePageOnly)
+            'source_page_only': true,
+          if (sourcePageOnly)
+            'source_page_url':
+                'https://dasfootball.com/match/home-vs-away-2026-11-23-209637/',
+          'lines': noLinks || sourcePageOnly ? [] : entry['lines'],
+        }
       };
     return {
       'source': 'highlights',
@@ -108,6 +117,22 @@ void main() {
     expect(find.text('Home vs Away'), findsOneWidget);
     expect(find.text('Copy URL'), findsNothing);
     expect(find.textContaining('No working direct link'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'source-only Normal HL opens the existing detector without inventing MP4',
+      (tester) async {
+    final service = FakeHighlights()..sourcePageOnly = true;
+    await tester.pumpWidget(
+        MaterialApp(home: HighlightsPage(service: service)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Home vs Away'));
+    await tester.pumpAndSettle();
+    expect(find.text('Open in Stream Detector'), findsOneWidget);
+    expect(find.text('Copy source page URL'), findsOneWidget);
+    expect(find.text('Select Stream Quality'), findsNothing);
+    expect(find.textContaining('Only save or publish media'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
