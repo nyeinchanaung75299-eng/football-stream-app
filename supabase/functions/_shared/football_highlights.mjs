@@ -189,14 +189,11 @@ async function catalogue(fetcher,force=false,{offset=0,query=''}={}) {
   if (inFlight.has(key)) return inFlight.get(key);
   const work=(async()=>{
     try {
-      // Keep all source reads inside the client's 8-second per-route limit.
-      const deadline=Date.now()+6000;
-      let cards,hasMore,nextOffset,legacyError=null;
-      try {
+      let cards,hasMore,nextOffset;
       if(query){
         let found=searchCache.get(query);
         if(force||!found||Date.now()-found.time>300000){
-          const {text}=await readPublicSource('https://dasfootball.com/api/search/?q='+encodeURIComponent(query),{fetcher,kind:'json',timeoutMs:3800,allowedHosts:['dasfootball.com']});
+          const {text}=await readPublicSource('https://dasfootball.com/api/search/?q='+encodeURIComponent(query),{fetcher,kind:'json',timeoutMs:5500,allowedHosts:['dasfootball.com']});
           const rows=JSON.parse(text);if(!Array.isArray(rows))throw Error('Invalid highlights search');
           // Search API variants may call public highlights "article", "post",
           // or omit type. Never admit team/category results: cardEntry still
@@ -208,30 +205,14 @@ async function catalogue(fetcher,force=false,{offset=0,query=''}={}) {
         }
         cards=found.rows.slice(offset,offset+9);nextOffset=offset+cards.length;hasMore=nextOffset<found.rows.length;
       }else{
-        const {text}=await readPublicSource('https://dasfootball.com/api/homepage-posts/?offset='+offset,{fetcher,kind:'json',timeoutMs:3800,allowedHosts:['dasfootball.com']});
+        const {text}=await readPublicSource('https://dasfootball.com/api/homepage-posts/?offset='+offset,{fetcher,kind:'json',timeoutMs:5500,allowedHosts:['dasfootball.com']});
         const payload=JSON.parse(text);if(!Array.isArray(payload.cards)||typeof payload.hasMore!=='boolean')throw Error('Invalid highlights catalogue');
         cards=payload.cards;nextOffset=offset+cards.length;hasMore=payload.hasMore&&cards.length>0;
       }
-      } catch(error) {
-        legacyError=error;cards=[];hasMore=false;nextOffset=offset;
-      }
-      let entries=[...new Map(cards.map(card=>cardEntry(card,force)).filter(Boolean).map(e=>[e.id,e])).values()];
-      const legacyFreshness=highlightCatalogueFreshness(entries);
-      let matchPages=[];
-      if(offset===0&&(!entries.length||(!query&&legacyFreshness.publisher_age_hours!==null&&legacyFreshness.publisher_age_hours>=36))){
-        try{matchPages=await discoverNormalMatchPages(fetcher,query,deadline);}catch{/* retain legacy results */}
-      }
-      if(legacyError && !matchPages.length)throw legacyError;
-      // A failed legacy read or transient empty page must not erase usable cache.
-      if(previous?.entries?.length&&(legacyError||(!entries.length&&!matchPages.length))){
-        const merged=[...new Map([...matchPages,...previous.entries].map(row=>[row.id,row])).values()];
-        for(const row of matchPages)entryCache.set(row.id,row);
-        return {...previous,entries:merged,stale:true,warnings:['Source refresh incomplete; retaining last successful catalogue.']};
-      }
-      for(const row of matchPages)entryCache.set(row.id,row);
-      entries=[...new Map([...matchPages,...entries].map(e=>[e.id,e])).values()];
+      const entries=[...new Map(cards.map(card=>cardEntry(card,force)).filter(Boolean).map(e=>[e.id,e])).values()];
+      // Preserve a previously populated catalogue when the upstream briefly returns an empty page.
+      if(!entries.length && previous?.entries?.length) return {...previous,stale:true,warnings:[...new Set([...(previous.warnings||[]),'Source returned an empty page; retaining the last successful catalogue.'])]};
       const freshness=!query&&offset===0?highlightCatalogueFreshness(entries):{warnings:[]};
-      if(matchPages.length)freshness.warnings=['Normal HL match pages listed separately; upload dates and playback remain unverified.'];
       const data={entries,...freshness,updated_at:new Date().toISOString(),has_more:hasMore&&nextOffset<5000,next_offset:nextOffset};
       // Invalidate subsequent cursors only after the first-page refresh succeeds.
       // A failed refresh must not erase the last known catalogue.
