@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {footballHighlights,highlightCatalogueFreshness,publicNormalMatchCandidates,publicNormalMatchMetadata,highlightLine} from '../supabase/functions/_shared/football_highlights.mjs';
+import {footballHighlights,highlightCatalogueFreshness,publicNormalMatchCandidates,publicNormalMatchMetadata,highlightLine,licensedNormalMp4} from '../supabase/functions/_shared/football_highlights.mjs';
 import {publicHighlightsRequest} from '../supabase/functions/_shared/public_highlights.mjs';
 test('publisher cursor pages remain finite, preserve metadata and drop duplicate cards',async()=>{
  const fetcher=async address=>{
@@ -116,4 +116,17 @@ test('new match URL catalogue lists Normal HL metadata and never invents a nativ
  assert.equal(details.entry.source_page_url,page);
  assert.deepEqual(details.entry.lines,[]);
  assert.equal(calls.length,4);
+});
+
+test('normal match MP4 requires explicit reusable public media metadata, never Extended HL',()=>{
+ const page='https://dasfootball.com/match/brentford-vs-everton-2026-11-23-209637/';
+ const sample='https://dasfootball.com/media/test-fixture.mp4';
+ const record={'@type':'VideoObject',name:'Normal Highlights',url:page,contentUrl:sample,isAccessibleForFree:true,license:'https://creativecommons.org/licenses/by/4.0/'};
+ const html=rows=>'<button>Highlights</button><script type="application/ld+json">'+JSON.stringify({'@graph':rows})+'</script>';
+ assert.equal(licensedNormalMp4(html([record]),page)[0].stream_url,sample);
+ assert.deepEqual(licensedNormalMp4(html([{...record,name:'Extended HL'},{...record,license:null},{...record,requiresSubscription:true},{...record,contentUrl:sample+'?token=x'},{...record,contentUrl:'https://other.example.org/media.mp4'},{...record,isAccessibleForFree:false}]),page),[]);
+ const entry=publicNormalMatchMetadata(html([record]),page);
+ assert.equal(entry.source_page_only,false);
+ assert.equal(entry.lines[0].stream_type,'mp4');
+ assert.equal(entry.lines[0].playback_verified,false);
 });
