@@ -214,3 +214,41 @@ test('dated JSON-LD ItemList supports the observed fixture shape, not media deli
  assert.equal(fallback.stale,true);
  assert(!JSON.stringify(fallback).includes('test-only.mp4'));
 });
+
+test('date catalogue metadata can be upgraded only by explicitly licensed normal MP4 on details',async()=>{
+ const now=Date.parse('2026-11-24T19:00:00Z');
+ const page='https://dasfootball.com/match/test-home-vs-test-away-2026-11-23-99000001/';
+ const media='https://dasfootball.com/media/authorized-test-only.mp4';
+ const record={'@type':'VideoObject',name:'Test Home vs Test Away highlights',url:page,uploadDate:'2026-11-23T22:00:00Z',description:'Test Home vs Test Away highlights, Test League'};
+ const schema=value=>'<script type="application/ld+json">'+JSON.stringify(value)+'</script>';
+ const dated=schema({'@type':'ItemList',name:'Football highlights Tuesday, 24 November 2026',itemListElement:[record]});
+ const licensed={'@type':'VideoObject',name:'Normal Highlights',url:page,contentUrl:media,isAccessibleForFree:true,license:'https://creativecommons.org/licenses/by/4.0/'};
+ let authorized=true,mediaRequests=0;
+ const fetcher=async address=>{
+   if(address.includes('/api/homepage-posts/'))return Response.json({cards:[],hasMore:false});
+   if(address.includes('?date='))return new Response(dated,{headers:{'Content-Type':'text/html'}});
+   if(address===page)return new Response('<button>Highlights</button>'+schema(authorized?licensed:{...licensed,license:null}),{headers:{'Content-Type':'text/html'}});
+   if(address===media){mediaRequests++;return new Response(new Uint8Array([0,0,0,24,102,116,121,112]),{status:206});}
+   throw Error('Unexpected fixture request');
+ };
+ const catalog=await footballHighlights({force:true},{fetcher,includeDateCatalogue:true,now});
+ assert.equal(catalog.entries[0].source_page_only,true);
+ const entry_id=catalog.entries[0].id;
+ const detail=await footballHighlights({action:'details',entry_id},{fetcher});
+ assert.equal(detail.entry.source_page_only,false);
+ assert.equal(detail.entry.league,'Test League');
+ assert.equal(detail.entry.published_at,record.uploadDate.replace('Z','.000Z'));
+ assert.equal(detail.entry.lines[0].stream_url,media);
+ assert.equal(mediaRequests,0);
+ const check=await footballHighlights({action:'check',entry_id,line_id:detail.entry.lines[0].id},{fetcher});
+ assert.equal(check.check.status,'reachable');
+ assert.equal(check.check.playback_verified,false);
+ assert.equal(mediaRequests,1);
+ authorized=false;
+ await footballHighlights({force:true},{fetcher,includeDateCatalogue:true,now});
+ const denied=await footballHighlights({action:'details',entry_id},{fetcher});
+ assert.equal(denied.entry.source_page_only,true);
+ assert.equal(denied.entry.lines.length,0);
+ await assert.rejects(footballHighlights({action:'check',entry_id,line_id:detail.entry.lines[0].id},{fetcher}),/No authorized MP4/);
+ assert.equal(mediaRequests,1);
+});
