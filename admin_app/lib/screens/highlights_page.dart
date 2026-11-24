@@ -153,6 +153,47 @@ class _HighlightsPageState extends State<HighlightsPage> {
         ]
       };
     });
+    if (entry['source_page_only'] == true) {
+      final sourcePage = entry['source_page_url']?.toString() ?? '';
+      final uri = Uri.tryParse(sourcePage);
+      if (uri == null || uri.scheme != 'https' ||
+          uri.host != 'dasfootball.com' || uri.userInfo.isNotEmpty ||
+          uri.hasPort || !uri.path.startsWith('/match/')) {
+        _notice('Normal highlights page could not be verified.');
+        return;
+      }
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        useSafeArea: true,
+        builder: (sheet) => Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(entry['title']?.toString() ?? 'Highlights',
+                  style: Theme.of(sheet).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              const Text('Normal HL · publisher page'),
+              const SizedBox(height: 8),
+              const Text('No verified direct video link. Watch on the original source page. Extended HL is not imported.'),
+              const SizedBox(height: 8),
+              SelectableText(sourcePage),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                icon: const Icon(Icons.copy),
+                onPressed: () {
+                  Navigator.pop(sheet);
+                  _copy(sourcePage);
+                },
+                label: const Text('Copy source page URL'),
+              ),
+            ],
+          ),
+        ),
+      );
+      return;
+    }
     if (lines.isEmpty) {
       _notice(
           'No working direct link was returned by this source. Refresh later to try again.');
@@ -442,6 +483,7 @@ class _HighlightsPageState extends State<HighlightsPage> {
                               : 'Load more highlights'));
                     final row = rows[index];
                     final count = highlightMaps(row['lines']).length;
+                    final pageOnly = row['source_page_only'] == true;
                     final published =
                         DateTime.tryParse(row['published_at']?.toString() ?? '')
                             ?.toLocal();
@@ -468,7 +510,9 @@ class _HighlightsPageState extends State<HighlightsPage> {
                             subtitle: Padding(
                                 padding: const EdgeInsets.only(top: 6),
                                 child: Text(
-                                    'Get links • $count extracted${published == null ? '' : '\n${DateFormat('dd MMM, h:mm a').format(published)}'}')),
+                                    pageOnly
+                                        ? "Normal HL · Source page\n${row['match_date'] ?? ''}"
+                                        : 'Get links • $count extracted${published == null ? '' : '\n${DateFormat('dd MMM, h:mm a').format(published)}'}')),
                             trailing: const Icon(Icons.chevron_right),
                             onTap: _opening ? null : () => _details(row)));
                   },

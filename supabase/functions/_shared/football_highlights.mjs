@@ -7,7 +7,7 @@ export const highlightSources = [
 const cache = new Map(), inFlight = new Map(), entryCache=new Map(), searchCache=new Map();
 const clean = value => String(value || '').replace(/<[^>]*>/g,' ').replace(/&amp;/gi,'&')
   .replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/\s+/g,' ').trim();
-const excluded = /\b(?:full\s*match|(?:1st|2nd|first|second)\s*half|extra\s*time|ceremony|half\s*time\s*show|interview|press\s*conference)\b/i;
+const excluded = /\b(?:extended\s*(?:hl|highlights?)|full\s*match|(?:1st|2nd|first|second)\s*half|extra\s*time|ceremony|half\s*time\s*show|interview|press\s*conference)\b/i;
 
 export function highlightLine(item, fallbackLabel='Highlights') {
   if (!item || typeof item !== 'object') return null;
@@ -104,6 +104,82 @@ export function highlightCatalogueFreshness(entries, now=Date.now()) {
     : [];
   return {latest_published_at,publisher_age_hours,warnings};
 }
+// Normal match pages support metadata and explicitly licensed public MP4 records.
+function matchPage(value) {
+  const address=publicSourceUrl(value,'https://dasfootball.com/');
+  if(!address)return null;
+  const url=new URL(address);
+  if(url.protocol!=='https:'||url.hostname!=='dasfootball.com'||
+     !/^\/match\/[a-z0-9-]+-\d{4}-\d{2}-\d{2}-\d+\/?$/i.test(url.pathname))return null;
+  url.search='';url.pathname=url.pathname.replace(/\/+$/,'')+'/';
+  return url.toString();
+}
+function normalLabel(value){
+  return /^(?:watch\s+)?(?:normal\s+)?highlights?$/i.test(clean(value));
+}
+export function publicNormalMatchCandidates(html){
+  const pages=new Set();
+  for(const hit of html.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>/gi)){
+    const page=matchPage(hit[1]);if(!page)continue;
+    pages.add(page);
+    if(pages.size>=12)break;
+  }
+  return [...pages];
+}
+// Accept a direct MP4 only when the publisher explicitly labels it Normal HL
+// and publishes reusable media metadata. No player internals, tokens or embeds.
+export function licensedNormalMp4(html,page){
+  const source=matchPage(page);
+  if(!source)return [];
+  const licenses=new Set(['https://creativecommons.org/licenses/by/4.0/','https://creativecommons.org/licenses/by-sa/4.0/','https://creativecommons.org/publicdomain/zero/1.0/']);
+  const lines=[];
+  for(const video of structuredVideos(html)){
+    if(!normalLabel(video.name)||!licenses.has(video.license)||video.isAccessibleForFree!==true)continue;
+    if(video.requiresSubscription===true||video.drm_key||video.drm_scheme||video.key_data)continue;
+    if(video.url&&matchPage(video.url)!==source)continue;
+    const url=publicSourceUrl(video.contentUrl);
+    if(!url)continue;
+    const media=new URL(url);
+    // Restrict to the publisher's own HTTPS host and an ordinary MP4 URL.
+    // Other hosts require a separately approved integration contract.
+    if(media.protocol!=='https:'||media.hostname!=='dasfootball.com'||media.search||
+      !/\.mp4$/i.test(media.pathname))continue;
+    const line=highlightLine({link:url,title:'Normal Highlights'});
+    if(line&&line.stream_type==='mp4')lines.push({...line,license:video.license,source_page_url:source});
+  }
+  return uniqueLines(lines);
+}
+
+export function publicNormalMatchMetadata(html,page){
+  page=matchPage(page);if(!page)return null;
+  const visible=html.replace(/<script\b[\s\S]*?<\/script>/gi,'').replace(/<style\b[\s\S]*?<\/style>/gi,'');
+  // A finished fixture alone does not establish Normal HL availability.
+  const normal=[...visible.matchAll(/<(button|a)\b[^>]*>([\s\S]*?)<\/\1>/gi)].some(hit=>normalLabel(hit[2])) ||
+    [...visible.matchAll(/\b(?:aria-label|title)\s*=\s*["']([^"']+)["']/gi)].some(hit=>normalLabel(hit[1]));
+  if(!normal)return null;
+  const match=new URL(page).pathname.match(/^\/match\/(.+)-(\d{4}-\d{2}-\d{2})-\d+\/$/i);
+  const rawTitle=clean(visible.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'')
+    .replace(/\s*(?:[|–—-]\s*DasFootball.*|\bHighlights(?:\s+and\s+Goals)?\b.*)$/i,'').trim();
+  const title=/\bvs\.?\b/i.test(rawTitle)?rawTitle:match[1].replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()).replace(/\bVs\b/,'vs');
+  // Match date is distinct from a verified upload time.
+  const lines=licensedNormalMp4(html,page);
+  return {id:'dasfootball:'+page,provider:'dasfootball',title:title.slice(0,240),
+    source_page_url:page,match_date:match[2],published_at:null,
+    highlight_variant:'normal',source_page_only:lines.length===0,lines};
+}
+async function discoverNormalMatchPages(fetcher,query=''){
+  const {text}=await readPublicSource('https://dasfootball.com/',{fetcher,kind:'html',timeoutMs:3000,allowedHosts:['dasfootball.com']});
+  const words=query.toLowerCase().split(/\s+/).filter(Boolean);
+  const pages=publicNormalMatchCandidates(text).filter(page=>words.every(word=>page.toLowerCase().includes(word))).slice(0,6);
+  const rows=await Promise.all(pages.map(async page=>{
+    try{
+      const {text}=await readPublicSource(page,{fetcher,kind:'html',timeoutMs:2500,allowedHosts:['dasfootball.com']});
+      return publicNormalMatchMetadata(text,page);
+    }catch{return null;}
+  }));
+  return rows.filter(Boolean).sort((a,b)=>b.match_date.localeCompare(a.match_date));
+}
+
 async function catalogue(fetcher,force=false,{offset=0,query=''}={}) {
   const key=query+'|'+offset,previous=cache.get(key);
   if (!force && previous && Date.now()-Date.parse(previous.updated_at)<300000) return previous;
@@ -130,8 +206,16 @@ async function catalogue(fetcher,force=false,{offset=0,query=''}={}) {
         const payload=JSON.parse(text);if(!Array.isArray(payload.cards)||typeof payload.hasMore!=='boolean')throw Error('Invalid highlights catalogue');
         cards=payload.cards;nextOffset=offset+cards.length;hasMore=payload.hasMore&&cards.length>0;
       }
-      const entries=[...new Map(cards.map(card=>cardEntry(card,force)).filter(Boolean).map(e=>[e.id,e])).values()];
+      let entries=[...new Map(cards.map(card=>cardEntry(card,force)).filter(Boolean).map(e=>[e.id,e])).values()];
+      const legacyFreshness=highlightCatalogueFreshness(entries);
+      let matchPages=[];
+      if(offset===0&&(!entries.length||(!query&&legacyFreshness.publisher_age_hours!==null&&legacyFreshness.publisher_age_hours>=36))){
+        try{matchPages=await discoverNormalMatchPages(fetcher,query);}catch{/* retain legacy results */}
+      }
+      for(const row of matchPages)entryCache.set(row.id,row);
+      entries=[...new Map([...matchPages,...entries].map(e=>[e.id,e])).values()];
       const freshness=!query&&offset===0?highlightCatalogueFreshness(entries):{warnings:[]};
+      if(matchPages.length)freshness.warnings=['Normal HL match pages listed separately; upload dates and playback remain unverified.'];
       const data={entries,...freshness,updated_at:new Date().toISOString(),has_more:hasMore&&nextOffset<5000,next_offset:nextOffset};
       // Invalidate subsequent cursors only after the first-page refresh succeeds.
       // A failed refresh must not erase the last known catalogue.
@@ -197,6 +281,19 @@ export async function footballHighlights(body,{fetcher=fetch}={}) {
     return {ok:true,source:'highlights',provider,sources:highlightSources,...data,entries,total:entries.length};
   }
   const page=typeof body.entry_id==='string'&&body.entry_id.startsWith('dasfootball:')?publicSourceUrl(body.entry_id.slice(12)):null;
+  const modernPage=matchPage(page);
+  if(modernPage){
+    let entry=entryCache.get('dasfootball:'+modernPage);
+    if(!entry){
+      const {text}=await readPublicSource(modernPage,{fetcher,kind:'html',timeoutMs:3500,allowedHosts:['dasfootball.com']});
+      entry=publicNormalMatchMetadata(text,modernPage);
+    }
+    if(!entry)throw Error('Normal highlights were not confirmed by this page');
+    // Only publisher-authorized normal MP4 metadata is returned; never probe
+    // or resolve video delivery URLs that the publisher has not exported.
+    if(action==='check')throw Error('Playback is not verified for this source');
+    return {ok:true,source:'highlights',provider,entry};
+  }
   if(!page||new URL(page).hostname!=='dasfootball.com'||!/^[\w/-]+highlights[\w/-]*\/?$/i.test(new URL(page).pathname))throw Error('Invalid highlight entry');
   let entry=entryCache.get(body.entry_id);
   if(!entry||!entry.lines.length&&!entry.links_checked_at||entry.links_checked_at&&Date.now()-Date.parse(entry.links_checked_at)>300000){
