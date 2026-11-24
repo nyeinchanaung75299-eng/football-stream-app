@@ -386,15 +386,34 @@ export async function footballHighlights(body,{fetcher=fetch,includeDateCatalogu
   const page=typeof body.entry_id==='string'&&body.entry_id.startsWith('dasfootball:')?publicSourceUrl(body.entry_id.slice(12)):null;
   const modernPage=matchPage(page);
   if(modernPage){
-    let entry=entryCache.get('dasfootball:'+modernPage);
-    if(!entry){
-      const {text}=await readPublicSource(modernPage,{fetcher,kind:'html',timeoutMs:3500,allowedHosts:['dasfootball.com']});
-      entry=publicNormalMatchMetadata(text,modernPage);
+    const id='dasfootball:'+modernPage;
+    let entry=entryCache.get(id);
+    const checked=Date.parse(entry?.license_checked_at||'');
+    // Catalogue metadata is not a media authorization decision. Re-evaluate
+    // explicit publisher license metadata when details are requested.
+    if(!entry||!Number.isFinite(checked)||Date.now()-checked>=300000){
+      let fresh=null;
+      try{
+        const {text}=await readPublicSource(modernPage,{fetcher,kind:'html',timeoutMs:3500,allowedHosts:['dasfootball.com']});
+        fresh=publicNormalMatchMetadata(text,modernPage);
+      }catch{/* Keep known fixture metadata, not old media authorization. */}
+      if(!entry&&!fresh)throw Error('Normal highlights were not confirmed by this page');
+      const lines=fresh?.lines||[];
+      entry={...fresh,...entry,id,source_page_url:modernPage,
+        source_page_only:lines.length===0,lines,license_checked_at:new Date().toISOString()};
+      entryCache.set(id,entry);
     }
-    if(!entry)throw Error('Normal highlights were not confirmed by this page');
-    // Only publisher-authorized normal MP4 metadata is returned; never probe
-    // or resolve video delivery URLs that the publisher has not exported.
-    if(action==='check')throw Error('Playback is not verified for this source');
+    if(action==='check'){
+      const line=entry.lines.find(item=>item.id===body.line_id);
+      if(!line)throw Error('No authorized MP4 for this entry');
+      // Reachability is not playback verification. Do not follow redirects
+      // to a host outside the approved publisher origin.
+      const approvedFetch=async(url,options)=>{
+        if(new URL(url).origin!=='https://dasfootball.com')throw Error('Unapproved media origin');
+        return fetcher(url,options);
+      };
+      return {ok:true,source:'highlights',provider,check:await checkHighlightLine(line,{fetcher:approvedFetch})};
+    }
     return {ok:true,source:'highlights',provider,entry};
   }
   if(!page||new URL(page).hostname!=='dasfootball.com'||!/^[\w/-]+highlights[\w/-]*\/?$/i.test(new URL(page).pathname))throw Error('Invalid highlight entry');
