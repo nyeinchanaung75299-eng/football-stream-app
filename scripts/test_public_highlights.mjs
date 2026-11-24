@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {footballHighlights,highlightCatalogueFreshness} from '../supabase/functions/_shared/football_highlights.mjs';
+import {footballHighlights,highlightCatalogueFreshness,publicNormalMatchCandidates,publicNormalMatchMetadata,highlightLine} from '../supabase/functions/_shared/football_highlights.mjs';
 import {publicHighlightsRequest} from '../supabase/functions/_shared/public_highlights.mjs';
 test('publisher cursor pages remain finite, preserve metadata and drop duplicate cards',async()=>{
  const fetcher=async address=>{
@@ -83,4 +83,37 @@ test('highlight freshness never mistakes the refresh clock for a new publisher d
  assert.equal(old.warnings.length,1);
  assert.equal(highlightCatalogueFreshness([{published_at:'2026-11-24T06:00:00Z'}],now).warnings.length,0);
  assert.equal(highlightCatalogueFreshness([],now).latest_published_at,null);
+});
+
+test('new match URL catalogue lists Normal HL metadata and never invents a native link',async()=>{
+ const page='https://dasfootball.com/match/brentford-vs-everton-2026-11-23-209637/';
+ const extended='https://dasfootball.com/match/other-vs-team-2026-11-23-209638/';
+ const home='<a href="'+page+'">Brentford vs Everton</a><a href="'+page+'?ref=home">duplicate</a><a href="'+extended+'">Other fixture</a><a href="https://other.example.org/match/team-vs-team-2026-11-23-9/">untrusted</a>';
+ const normalHtml='<title>Brentford vs Everton | DasFootball</title><h2>Highlights</h2><button><svg></svg>Highlights</button><button>Extended HL</button>';
+ assert.deepEqual(publicNormalMatchCandidates(home),[page,extended]);
+ const normal=publicNormalMatchMetadata(normalHtml,page);
+ assert.equal(normal.title,'Brentford vs Everton');
+ assert.equal(normal.match_date,'2026-11-23');
+ assert.equal(normal.published_at,null);
+ assert.equal(normal.highlight_variant,'normal');
+ assert.deepEqual(normal.lines,[]);
+ assert.equal(publicNormalMatchMetadata('<h2>Highlights</h2><button>Extended HL</button>',extended),null);
+ assert.equal(highlightLine({title:'Extended HL',link:'https://example.org/extended.mp4'}),null);
+ const calls=[];
+ const fetcher=async address=>{
+  calls.push(address);
+  if(address.includes('/api/homepage-posts/'))return Response.json({cards:[{slug:'old-normal-highlights',title:'Older fixture',publishedAt:'2020-01-01T00:00:00Z'}],hasMore:false});
+  if(address==='https://dasfootball.com/')return new Response(home,{headers:{'Content-Type':'text/html'}});
+  if(address===page)return new Response(normalHtml,{headers:{'Content-Type':'text/html'}});
+  if(address===extended)return new Response('<button>Extended HL</button>',{headers:{'Content-Type':'text/html'}});
+  throw Error('Unexpected request: '+address);
+ };
+ const list=await footballHighlights({force:true},{fetcher});
+ assert.equal(list.entries.length,2);
+ assert.equal(list.entries[0].source_page_url,page);
+ assert.equal(list.entries[0].source_page_only,true);
+ const details=await footballHighlights({action:'details',entry_id:list.entries[0].id},{fetcher});
+ assert.equal(details.entry.source_page_url,page);
+ assert.deepEqual(details.entry.lines,[]);
+ assert.equal(calls.length,4);
 });
