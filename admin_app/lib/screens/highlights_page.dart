@@ -1,4 +1,5 @@
 import 'highlight_matches_page.dart';
+import 'stream_detector_page.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -187,6 +188,25 @@ class _HighlightsPageState extends State<HighlightsPage> {
                   _copy(sourcePage);
                 },
                 label: const Text('Copy source page URL'),
+              ),
+              const SizedBox(height: 8),
+              // A one-tap Admin workflow, not an automatic HL media import.
+              // The detector may show media only for authorized source pages.
+              OutlinedButton.icon(
+                icon: const Icon(Icons.travel_explore),
+                label: const Text('Open in Stream Detector'),
+                onPressed: () {
+                  Navigator.pop(sheet);
+                  Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(
+                      builder: (_) => StreamDetectorPage(initialUrl: sourcePage),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Only save or publish media you have permission to distribute.',
               ),
             ],
           ),
