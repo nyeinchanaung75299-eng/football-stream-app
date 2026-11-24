@@ -1,447 +1,630 @@
-// Direct-link extraction only. No embedded websites or video player adapters.
-import {publicSourceUrl, readPublicSource} from './public_source_media.mjs';
+import 'highlight_matches_page.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
-export const highlightSources = [
-  {id:'dasfootball',name:'DasFootball',url:'https://dasfootball.com/',mode:'feed'},
-];
-const cache = new Map(), inFlight = new Map(), entryCache=new Map(), searchCache=new Map();
-const clean = value => String(value || '').replace(/<[^>]*>/g,' ').replace(/&amp;/gi,'&')
-  .replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/\s+/g,' ').trim();
-const excluded = /\b(?:extended\s*(?:hl|highlights?)|full\s*match|(?:1st|2nd|first|second)\s*half|extra\s*time|ceremony|half\s*time\s*show|interview|press\s*conference)\b/i;
+import '../services/highlights_service.dart';
 
-export function highlightLine(item, fallbackLabel='Highlights') {
-  if (!item || typeof item !== 'object') return null;
-  const label=clean(item.title || item.name || item.label || fallbackLabel).slice(0,150);
-  if (excluded.test(label) || item.visible===false || item.publish===0 || item.publish==='0' ||
-      item.drm_key || item.key_data || item.drm_scheme || String(item.type)==='1') return null;
-  const [address,...suffix]=String(item.link || item.stream_url || item.url || '').split('|');
-  const url=publicSourceUrl(address); if (!url) return null;
-  const ext=new URL(url).pathname.match(/\.(m3u8|mp4)$/i)?.[1]?.toLowerCase();
-  if (!ext) return null;
-  const headers={};
-  // Only non-secret playback headers. Never copy Cookie/accountToken/auth.
-  for (const [key,value] of new URLSearchParams(suffix.join('&'))) {
-    const field=key.toLowerCase();
-    if (['referer','referrer','origin','user-agent'].includes(field) && !/[\r\n]/.test(value)) {
-      if (field==='user-agent') headers.user_agent=value.slice(0,512);
-      else headers[field==='referrer'?'referer':field]=value;
+/// Session-scoped, lazy direct-link catalogue. No media is downloaded until
+/// the Admin requests extracted links or an explicit first-byte link recheck.
+class HighlightsPage extends StatefulWidget {
+  const HighlightsPage({super.key, this.service = const HighlightsService()});
+  final HighlightsService service;
+
+  @override
+  State<HighlightsPage> createState() => _HighlightsPageState();
+}
+
+class _HighlightsPageState extends State<HighlightsPage> {
+  final _search = TextEditingController();
+  Map<String, dynamic>? _data;
+  Future<void>? _inFlight;
+  DateTime? _loadedAt;
+  String? _error;
+  bool _opening = false;
+  final _scroll = ScrollController();
+  Timer? _debounce;
+  int _epoch = 0, _nextOffset = 0;
+  bool _hasMore = true;
+  String _loadedQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_loadNearEnd);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    _debounce?.cancel();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _loadNearEnd() {
+    if (_scroll.hasClients &&
+        _scroll.position.extentAfter < 300 &&
+        _hasMore &&
+        _inFlight == null &&
+        _error == null) _load(more: true);
+  }
+
+  Future<void> _load({bool force = false, bool more = false}) {
+    if (_inFlight != null && more) return _inFlight!;
+    if (!force &&
+        !more &&
+        _loadedQuery == _search.text.trim() &&
+        _loadedAt != null &&
+        DateTime.now().difference(_loadedAt!) < const Duration(minutes: 5)) {
+      return Future.value();
     }
-  }
-  for (const field of ['referer','origin']) {
-    const value=item[field] || item.headers?.[field] || headers[field];
-    const valid=publicSourceUrl(value);
-    headers[field]=valid ? (field==='origin'?new URL(valid).origin:valid) : null;
-  }
-  const fingerprint=JSON.stringify([url,headers.referer,headers.origin,headers.user_agent || '']);
-  return {id:fingerprint,label,stream_url:url,stream_type:ext==='m3u8'?'hls':'mp4',
-    referer:headers.referer,origin:headers.origin,user_agent:headers.user_agent || null,
-    health_status:'not_checked',playback_verified:false};
-}
-
-function uniqueLines(lines) {
-  return [...new Map(lines.filter(Boolean).map(line=>[line.id,line])).values()];
-}
-function structuredVideos(html) {
-  const videos=[];
-  function visit(value,depth=0) {
-    if (!value || typeof value!=='object' || depth>12) return;
-    if (Array.isArray(value)) {for (const item of value) visit(item,depth+1);return;}
-    if (value['@type']==='VideoObject') videos.push(value);
-    for (const key of ['@graph','itemListElement','item','video','subjectOf']) visit(value[key],depth+1);
-  }
-  for (const hit of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
-    try {visit(JSON.parse(hit[1]));} catch (_) { /* An unrelated invalid schema must not hide other videos. */ }
-  }
-  return videos;
-}
-function streamableId(value){
- const address=publicSourceUrl(value);if(!address)return null;
- const url=new URL(address);if(url.protocol!=='https:'||!['streamable.com','www.streamable.com'].includes(url.hostname))return null;
- return url.pathname.match(/^\/(?:e\/)?([a-zA-Z0-9]{3,32})\/?$/)?.[1]||null;
-}
-export function parseDasHighlights(html,{includeEmbeds=false,sourcePage=null}={}) {
-  const entries=new Map();
-  for (const video of structuredVideos(html).slice(0,150)) {
-    const page=publicSourceUrl(video.url||sourcePage,'https://dasfootball.com/');
-    const title=clean(video.name);
-    if (!page || new URL(page).hostname!=='dasfootball.com' || !/highlights/i.test(new URL(page).pathname) || !title || excluded.test(title)) continue;
-    const lines=uniqueLines([video.contentUrl,video.embedUrl].map(link=>highlightLine({link,title:'Highlights'})));
-    // Never list a website player as an extracted video URL.
-    const embedId=includeEmbeds?streamableId(video.embedUrl):null;
-    if (!lines.length&&!embedId) continue;
-    const previous=entries.get(page);
-    if (previous) {previous.lines=uniqueLines([...previous.lines,...lines]);continue;}
-    const date=Date.parse(video.uploadDate || '');
-    entries.set(page,{id:'dasfootball:'+page,provider:'dasfootball',title:title.slice(0,240),source_page_url:page,
-      thumbnail_url:publicSourceUrl(Array.isArray(video.thumbnailUrl)?video.thumbnailUrl[0]:video.thumbnailUrl),
-      published_at:Number.isFinite(date)?new Date(date).toISOString():null,lines,...(embedId?{embed_id:embedId}:{})});
-  }
-  return [...entries.values()];
-}
-
-function cardEntry(card,force=false){
-  const address=card.slug?'/'+card.slug+'/':card.href;
-  const page=publicSourceUrl(address,'https://dasfootball.com/');
-  const title=clean(card.title);
-  if(!page||new URL(page).hostname!=='dasfootball.com'||!/highlights/i.test(new URL(page).pathname)||!title||excluded.test(title))return null;
-  const id='dasfootball:'+page,old=entryCache.get(id);
-  const logo=card.thumbnailUrl||card.thumbnail_url||card.homeTeam?.logoUrl;
-  const entry={...old,id,provider:'dasfootball',title,source_page_url:page,
-    league:clean(card.categoryName)||old?.league||null,
-    thumbnail_url:publicSourceUrl(logo,'https://dasfootball.com/')||old?.thumbnail_url||null,
-    published_at:card.publishedAt||old?.published_at||null,lines:force?[]:old?.lines||[],
-    links_checked_at:force?null:old?.links_checked_at};
-  entryCache.set(id,entry);return entry;
-}
-// A successful HTTP request does not prove the publisher added a new highlight.
-export function highlightCatalogueFreshness(entries, now=Date.now()) {
-  const times=entries.map(row=>Date.parse(row.published_at || '')).filter(time=>Number.isFinite(time)&&time<=now);
-  const latest=times.length?Math.max(...times):null;
-  const latest_published_at=latest===null?null:new Date(latest).toISOString();
-  const publisher_age_hours=latest===null?null:Math.floor((now-latest)/3600000);
-  const warnings=publisher_age_hours!==null&&publisher_age_hours>=36
-    ? ['Latest dated highlight in this source page: '+latest_published_at.slice(0,10)+' UTC. Refresh succeeded, but no newer published highlight was verified in this response.']
-    : [];
-  return {latest_published_at,publisher_age_hours,warnings};
-}
-// Normal match pages support metadata and public MP4 records.
-function matchPage(value) {
-  const address=publicSourceUrl(value,'https://dasfootball.com/');
-  if(!address)return null;
-  const url=new URL(address);
-  if(url.protocol!=='https:'||url.hostname!=='dasfootball.com'||
-     !/^\/match\/[a-z0-9-]+-\d{4}-\d{2}-\d{2}-\d+\/?$/i.test(url.pathname))return null;
-  url.search='';url.pathname=url.pathname.replace(/\/+$/,'')+'/';
-  return url.toString();
-}
-function normalLabel(value){
-  return /^(?:watch\s+)?(?:normal\s+)?highlights?$/i.test(clean(value));
-}
-export function publicNormalMatchCandidates(html){
-  const pages=new Set();
-  for(const hit of html.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>/gi)){
-    const page=matchPage(hit[1]);if(!page)continue;
-    pages.add(page);
-    if(pages.size>=12)break;
-  }
-  return [...pages];
-}
-// Extract direct MP4 links published on normal match pages without blocking external media hosts.
-export function licensedNormalMp4(html,page){
-  const source=matchPage(page);
-  if(!source)return [];
-  const lines=[];
-  for(const video of structuredVideos(html)){
-    if(!normalLabel(video.name))continue;
-    if(video.requiresSubscription===true||video.drm_key||video.drm_scheme||video.key_data)continue;
-    if(video.url&&matchPage(video.url)!==source)continue;
-    const url=publicSourceUrl(video.contentUrl);
-    if(!url)continue;
-    const media=new URL(url);
-    if(!['https:','http:'].includes(media.protocol)||!/\.mp4$/i.test(media.pathname))continue;
-    const line=highlightLine({link:url,title:'Normal Highlights'});
-    if(line&&line.stream_type==='mp4')lines.push({...line,source_page_url:source});
-  }
-  return uniqueLines(lines);
-}
-
-export function publicNormalMatchMetadata(html,page){
-  page=matchPage(page);if(!page)return null;
-  const visible=html.replace(/<script\b[\s\S]*?<\/script>/gi,'').replace(/<style\b[\s\S]*?<\/style>/gi,'');
-  // A finished fixture alone does not establish Normal HL availability.
-  const normal=[...visible.matchAll(/<(button|a)\b[^>]*>([\s\S]*?)<\/\1>/gi)].some(hit=>normalLabel(hit[2])) ||
-    [...visible.matchAll(/\b(?:aria-label|title)\s*=\s*["']([^"']+)["']/gi)].some(hit=>normalLabel(hit[1]));
-  if(!normal)return null;
-  const match=new URL(page).pathname.match(/^\/match\/(.+)-(\d{4}-\d{2}-\d{2})-\d+\/$/i);
-  const rawTitle=clean(visible.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'')
-    .replace(/\s*(?:[|–—-]\s*DasFootball.*|\bHighlights(?:\s+and\s+Goals)?\b.*)$/i,'').trim();
-  const title=/\bvs\.?\b/i.test(rawTitle)?rawTitle:match[1].replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()).replace(/\bVs\b/,'vs');
-  // Match date is distinct from a verified upload time.
-  const lines=licensedNormalMp4(html,page);
-  return {id:'dasfootball:'+page,provider:'dasfootball',title:title.slice(0,240),
-    source_page_url:page,match_date:match[2],published_at:null,
-    highlight_variant:'normal',source_page_only:lines.length===0,lines};
-}
-async function discoverNormalMatchPages(fetcher,query='',deadline=Date.now()+5500){
-  const remaining=()=>Math.max(0,deadline-Date.now());
-  if(remaining()<100)return [];
-  const {text}=await readPublicSource('https://dasfootball.com/',{fetcher,kind:'html',timeoutMs:Math.min(1800,remaining()),allowedHosts:['dasfootball.com']});
-  const words=query.toLowerCase().split(/\s+/).filter(Boolean);
-  const pages=publicNormalMatchCandidates(text).filter(page=>words.every(word=>page.toLowerCase().includes(word))).slice(0,6);
-  if(remaining()<100)return [];
-  const rows=await Promise.all(pages.map(async page=>{
-    try{
-      const {text}=await readPublicSource(page,{fetcher,kind:'html',timeoutMs:Math.min(2200,remaining()),allowedHosts:['dasfootball.com']});
-      return publicNormalMatchMetadata(text,page);
-    }catch{return null;}
-  }));
-  return rows.filter(Boolean).sort((a,b)=>b.match_date.localeCompare(a.match_date));
-}
-
-// Dated pages expose a public Schema.org ItemList of highlighted fixtures,
-// including direct contentUrl media links when published.
-export function parseDateHighlightMetadata(html,{now=Date.now()}={}){
-  const rows=new Map();
-  const record=video=>{
-    if(video?.['@type']!=='VideoObject')return;
-    const page=matchPage(video.url);
-    const label=clean(video.name);
-    if(!page||excluded.test(label)||!/\s+highlights?$/i.test(label))return;
-    const title=label.replace(/\s+highlights?$/i,'').trim();
-    if(!title||!/\s+vs\.?\s+/i.test(title))return;
-    const parts=new URL(page).pathname.match(/-(\d{4}-\d{2}-\d{2})-(\d+)\/$/);
-    if(!parts)return;
-    const stamp=Date.parse(video.uploadDate||'');
-    if(!Number.isFinite(stamp)||stamp>now)return;
-    const line=video.requiresSubscription===true||video.drm_key||video.drm_scheme||video.key_data
-      ? null
-      : highlightLine({link:video.contentUrl,title:'Highlights'});
-    const lines=uniqueLines(line?[line]:[]);
-    const about=Array.isArray(video.about)?video.about:[];
-    const teams=about.filter(x=>x?.['@type']==='SportsTeam').map(x=>clean(x.name)).filter(Boolean);
-    const description=clean(video.description);
-    const league=description.match(/\bhighlights\s*,\s*([^,]{1,100})$/i)?.[1]?.trim()||null;
-    const row={id:'dasfootball:'+page,provider:'dasfootball',title:title.slice(0,240),
-      source_page_url:page,match_date:parts[1],match_id:parts[2],
-      published_at:new Date(stamp).toISOString(),league,
-      ...(teams.length===2?{home_team:teams[0],away_team:teams[1]}:{}),
-      thumbnail_url:publicSourceUrl(Array.isArray(video.thumbnailUrl)?video.thumbnailUrl[0]:video.thumbnailUrl),
-      highlight_variant:'normal',source_page_only:lines.length===0,lines};
-    const old=rows.get(row.match_id);
-    if(!old||old.published_at<row.published_at)rows.set(row.match_id,row);
-  };
-  function visit(value,depth=0){
-    if(!value||typeof value!=='object'||depth>8||rows.size>=100)return;
-    if(Array.isArray(value)){for(const item of value.slice(0,150))visit(item,depth+1);return;}
-    if(value['@type']==='ItemList'&&/\bfootball highlights\b/i.test(clean(value.name))){
-      if(Array.isArray(value.itemListElement))for(const item of value.itemListElement.slice(0,100)){
-        record(item?.['@type']==='ListItem'?item.item:item);
+    if (!more) _epoch++;
+    final operation = _fetch(
+        force, more, more ? _nextOffset : 0, _search.text.trim(), _epoch);
+    _inFlight = operation;
+    operation.whenComplete(() {
+      if (identical(_inFlight, operation)) _inFlight = null;
+      if (mounted) {
+        setState(() {});
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadNearEnd();
+        });
       }
-    }
-    if(value['@graph'])visit(value['@graph'],depth+1);
+    });
+    return operation;
   }
-  for(const hit of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)){
-    try{visit(JSON.parse(hit[1]));}catch{/* unrelated or invalid schema */}
-  }
-  return [...rows.values()].sort((a,b)=>b.published_at.localeCompare(a.published_at));
-}
-const dailyMetadataCache=new Map(),dailyMetadataFlights=new Map();
-async function dateMetadataPage(date,fetcher,force,now){
-  const previous=dailyMetadataCache.get(date);
-  if(!force&&previous&&now-previous.time<300000)return {...previous,stale:false};
-  if(dailyMetadataFlights.has(date))return dailyMetadataFlights.get(date);
-  const task=(async()=>{
-    try{
-      const {text}=await readPublicSource('https://dasfootball.com/?date='+date,
-        {fetcher,kind:'html',timeoutMs:3000,allowedHosts:['dasfootball.com']});
-      const rows=parseDateHighlightMetadata(text,{now});
-      if(!rows.length&&previous?.rows.length)return {...previous,stale:true};
-      const result={rows,time:now,stale:false};
-      dailyMetadataCache.set(date,result);
-      while(dailyMetadataCache.size>8)dailyMetadataCache.delete(dailyMetadataCache.keys().next().value);
-      return result;
-    }catch{return previous?{...previous,stale:true}:{rows:[],stale:true};}
-  })();
-  dailyMetadataFlights.set(date,task);
-  try{return await task;}finally{if(dailyMetadataFlights.get(date)===task)dailyMetadataFlights.delete(date);}
-}
-async function adminDateCatalogue(fetcher,force,{offset,query,now}){
-  // Existing pages after the first retain their original pagination.
-  if(offset!==0)return catalogue(fetcher,force,{offset,query});
-  // Date pages and old feed are fetched concurrently, not sequentially.
-  // UTC+06:30 calendar matches the Admin's reported dated-page convention.
-  const day=now+390*60000;
-  const dates=[0,1,2].map(delta=>new Date(day-delta*86400000).toISOString().slice(0,10));
-  const [legacy,...pages]=await Promise.all([
-    catalogue(fetcher,force,{offset,query}),
-    ...dates.map(date=>dateMetadataPage(date,fetcher,force,now)),
-  ]);
-  const words=query.toLowerCase().split(/\s+/).filter(Boolean);
-  const matches=new Map();
-  for(const row of pages.flatMap(p=>p.rows)){
-    if(!words.every(word=>row.title.toLowerCase().includes(word)))continue;
-    const old=matches.get(row.match_id);
-    if(!old||old.published_at<row.published_at)matches.set(row.match_id,row);
-  }
-  const modern=[...matches.values()].sort((a,b)=>b.published_at.localeCompare(a.published_at));
-  if(!modern.length)return legacy;
-  for(const row of modern)entryCache.set(row.id,row);
-  // Deduplicate old article and new match metadata only on title AND fixture date.
-  // Keep old entry (and its existing links) when the same fixture is already present.
-  const key=(title,date)=>clean(title).toLowerCase().replace(/[^a-z0-9]+/g,'')+'|'+date;
-  const oldFixtures=new Set(legacy.entries.map(row=>{
-    const date=new URL(row.source_page_url).pathname.match(/-(\d{4}-\d{2}-\d{2})\/?$/)?.[1];
-    return key(row.title,date||'');
-  }));
-  const entries=[...modern.filter(row=>!oldFixtures.has(key(row.title,row.match_date))),...legacy.entries]
-    .sort((a,b)=>(Date.parse(b.published_at||'')||0)-(Date.parse(a.published_at||'')||0));
-  const freshness=highlightCatalogueFreshness(entries,now);
-  const warnings=[...freshness.warnings];
-  if(legacy.unavailable||legacy.stale)warnings.push('Legacy catalogue refresh incomplete.');
-  if(pages.some(p=>p.stale))warnings.push('One or more date pages could not be refreshed; cached metadata retained when available.');
-  return {...legacy,...freshness,entries,warnings,unavailable:false,
-    stale:Boolean(legacy.unavailable||legacy.stale||pages.some(p=>p.stale)),
-    updated_at:pages.some(p=>!p.stale&&p.rows.length)?new Date(now).toISOString():legacy.updated_at};
-}
 
-async function catalogue(fetcher,force=false,{offset=0,query=''}={}) {
-  const key=query+'|'+offset,previous=cache.get(key);
-  if (!force && previous && Date.now()-Date.parse(previous.updated_at)<300000) return previous;
-  if (inFlight.has(key)) return inFlight.get(key);
-  const work=(async()=>{
+  Future<void> _fetch(
+      bool force, bool more, int offset, String query, int epoch) async {
     try {
-      let cards,hasMore,nextOffset;
-      if(query){
-        let found=searchCache.get(query);
-        if(force||!found||Date.now()-found.time>300000){
-          const {text}=await readPublicSource('https://dasfootball.com/api/search/?q='+encodeURIComponent(query),{fetcher,kind:'json',timeoutMs:5500,allowedHosts:['dasfootball.com']});
-          const rows=JSON.parse(text);if(!Array.isArray(rows))throw Error('Invalid highlights search');
-          // Search API variants may call public highlights "article", "post",
-          // or omit type. Never admit team/category results: cardEntry still
-          // enforces a DasFootball /highlights/ article URL and safe title.
-          const published=rows.filter(r=>
-            ['article','post','highlight',undefined,null,''].includes(r.type) &&
-            Boolean(cardEntry(r)));
-          found={time:Date.now(),rows:published};searchCache.set(query,found);
+      final data = await widget.service.request(
+          'catalog', {'force': force, 'offset': offset, 'query': query});
+      if (!mounted || epoch != _epoch) return;
+      setState(() {
+        _error = null;
+        if (data['unavailable'] != true || _data == null) {
+          final entries = <String, Map<String, dynamic>>{
+            if (more)
+              for (final row in highlightMaps(_data?['entries']))
+                row['id'].toString(): row,
+            for (final row in highlightMaps(data['entries']))
+              row['id'].toString(): row,
+          };
+          _data = {...data, 'entries': entries.values.toList()};
+          _hasMore = data['has_more'] == true;
+          _nextOffset = (data['next_offset'] as num?)?.toInt() ?? offset;
+          _loadedQuery = query;
         }
-        cards=found.rows.slice(offset,offset+9);nextOffset=offset+cards.length;hasMore=nextOffset<found.rows.length;
-      }else{
-        const {text}=await readPublicSource('https://dasfootball.com/api/homepage-posts/?offset='+offset,{fetcher,kind:'json',timeoutMs:5500,allowedHosts:['dasfootball.com']});
-        const payload=JSON.parse(text);if(!Array.isArray(payload.cards)||typeof payload.hasMore!=='boolean')throw Error('Invalid highlights catalogue');
-        cards=payload.cards;nextOffset=offset+cards.length;hasMore=payload.hasMore&&cards.length>0;
-      }
-      const entries=[...new Map(cards.map(card=>cardEntry(card,force)).filter(Boolean).map(e=>[e.id,e])).values()];
-      // Preserve a previously populated catalogue when the upstream briefly returns an empty page.
-      if(!entries.length && previous?.entries?.length) return {...previous,stale:true,warnings:[...new Set([...(previous.warnings||[]),'Source returned an empty page; retaining the last successful catalogue.'])]};
-      const freshness=!query&&offset===0?highlightCatalogueFreshness(entries):{warnings:[]};
-      const data={entries,...freshness,updated_at:new Date().toISOString(),has_more:hasMore&&nextOffset<5000,next_offset:nextOffset};
-      // Invalidate subsequent cursors only after the first-page refresh succeeds.
-      // A failed refresh must not erase the last known catalogue.
-      if(force && offset===0) {
-        for(const cachedKey of cache.keys())if(cachedKey.startsWith(query+'|'))cache.delete(cachedKey);
-      }
-      cache.set(key,data);
-      if(cache.size>200)cache.delete(cache.keys().next().value);
-      if(searchCache.size>50)searchCache.delete(searchCache.keys().next().value);
-      if(entryCache.size>3000)entryCache.delete(entryCache.keys().next().value);
-      return data;
-    } catch(error) {
-      const warnings=[clean(error.message) || 'Could not extract highlight links.'];
-      return previous?{...previous,stale:true,warnings:[...new Set([...(previous.warnings||[]),...warnings])]}:
-        {entries:[],updated_at:null,unavailable:true,warnings,has_more:false,next_offset:offset};
+        if (data['unavailable'] == true) {
+          _error = (data['warnings'] as List? ??
+                  ['Could not extract highlight links.'])
+              .join(' ');
+        } else if (data['stale'] != true) {
+          _loadedAt = DateTime.now();
+        }
+      });
+    } catch (_) {
+      if (mounted && epoch == _epoch)
+        setState(() => _error =
+            'Could not refresh. Showing the last successful links, if available.');
     }
-  })();
-  inFlight.set(key,work);
-  try {return await work;}
-  finally {if (inFlight.get(key)===work) inFlight.delete(key);}
-}
-
-// Bounded first-byte test only. No public arbitrary-URL checker: callers must
-// select a line that the provider actually published in this catalogue.
-export async function checkHighlightLine(line,{fetcher=fetch}={}) {
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
-  const start=Date.now();let url=publicSourceUrl(line.stream_url);
-  try {
-    for(let hop=0;hop<4;hop++) {
-      if (!url) throw Error('Invalid media URL');
-      const response=await fetcher(url,{signal:controller.signal,redirect:'manual',headers:{
-        Accept:'*/*',Range:'bytes=0-4095',...(line.referer?{Referer:line.referer}:{}),
-        ...(line.origin?{Origin:line.origin}:{}),...(line.user_agent?{'User-Agent':line.user_agent}:{})}});
-      if(response.status>=300&&response.status<400) {
-        const location=response.headers.get('location');await response.body?.cancel();
-        url=location?publicSourceUrl(location,url):null;continue;
-      }
-      if (!response.ok) {await response.body?.cancel();return {status:'failed',http:response.status,ms:Date.now()-start,playback_verified:false};}
-      const reader=response.body?.getReader();if (!reader) throw Error('Empty media');
-      const chunks=[];let size=0;
-      try {while(size<4096) {const {value,done}=await reader.read();if(done)break;chunks.push(value);size+=value.length;}}
-      finally {await reader.cancel().catch(()=>{});}
-      const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
-      const valid=line.stream_type==='hls'?new TextDecoder().decode(bytes).trimStart().startsWith('#EXTM3U'):
-        bytes.length>=8 && new TextDecoder().decode(bytes.slice(4,8))==='ftyp';
-      return {status:valid?'reachable':'invalid_media',http:response.status,ms:Date.now()-start,playback_verified:false};
-    }
-    throw Error('Too many media redirects');
-  } catch (_) {return {status:'failed',http:0,ms:Date.now()-start,playback_verified:false};}
-  finally {clearTimeout(timer);controller.abort();}
-}
-
-export async function footballHighlights(body,{fetcher=fetch,includeDateCatalogue=false,now=Date.now()}={}) {
-  const provider=String(body.provider || 'dasfootball');
-  if (provider!=='dasfootball') throw Error('Unsupported highlights provider');
-  const action=String(body.action || 'catalog');
-  if (!['catalog','details','check'].includes(action)) throw Error('Unsupported highlights action');
-  if (action==='catalog') {
-    const offset=Number(body.offset??0),query=clean(body.query).slice(0,80);
-    if(!Number.isInteger(offset)||offset<0||offset>5000)throw Error('Invalid highlights offset');
-    const data=includeDateCatalogue
-      ? await adminDateCatalogue(fetcher,body.force===true,{offset,query,now})
-      : await catalogue(fetcher,body.force===true,{offset,query});
-    const entries=data.entries;
-    return {ok:true,source:'highlights',provider,sources:highlightSources,...data,entries,total:entries.length};
   }
-  const page=typeof body.entry_id==='string'&&body.entry_id.startsWith('dasfootball:')?publicSourceUrl(body.entry_id.slice(12)):null;
-  const modernPage=matchPage(page);
-  if(modernPage){
-    const id='dasfootball:'+modernPage;
-    let entry=entryCache.get(id);
-    const checked=Date.parse(entry?.license_checked_at||'');
-    if(!entry||!Number.isFinite(checked)||Date.now()-checked>=300000){
-      let fresh=null;
-      try{
-        const {text}=await readPublicSource(modernPage,{fetcher,kind:'html',timeoutMs:3500,allowedHosts:['dasfootball.com']});
-        fresh=publicNormalMatchMetadata(text,modernPage);
-      }catch{/* Keep known fixture metadata if page fetch fails. */}
-      if(!entry&&!fresh)throw Error('Normal highlights were not confirmed by this page');
-      const lines=uniqueLines([...(fresh?.lines||[]),...(entry?.lines||[])]);
-      entry={...fresh,...entry,id,source_page_url:modernPage,
-        source_page_only:lines.length===0,lines,license_checked_at:new Date().toISOString()};
-      entryCache.set(id,entry);
+
+  void _notice(String message) {
+    if (mounted)
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _copy(String value) async {
+    try {
+      await Clipboard.setData(ClipboardData(text: value));
+      _notice('Copied.');
+    } catch (_) {
+      _notice('Copy failed. Select and copy the URL shown in the details.');
     }
-    if(action==='check'){
-      const line=entry.lines.find(item=>item.id===body.line_id);
-      if(!line)throw Error('No MP4 link found for this entry');
-      const mediaFetch=async(url,options)=>{
-        const valid=publicSourceUrl(url);
-        if(!valid)throw Error('Invalid media URL');
-        return fetcher(valid,options);
+  }
+
+  Future<void> _details(Map<String, dynamic> row) async {
+    if (_opening) return;
+    setState(() => _opening = true);
+    Map<String, dynamic> entry;
+    try {
+      final result =
+          await widget.service.request('details', {'entry_id': row['id']});
+      entry = Map<String, dynamic>.from(result['entry'] as Map);
+    } catch (_) {
+      _notice('Could not extract links. Please retry.');
+      return;
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
+    if (!mounted) return;
+    final lines = highlightMaps(entry['lines']);
+    setState(() {
+      final entries = highlightMaps(_data?['entries']);
+      _data = {
+        ...?_data,
+        'entries': [
+          for (final item in entries) item['id'] == entry['id'] ? entry : item
+        ]
       };
-      return {ok:true,source:'highlights',provider,check:await checkHighlightLine(line,{fetcher:mediaFetch})};
+    });
+    if (entry['source_page_only'] == true) {
+      final sourcePage = entry['source_page_url']?.toString() ?? '';
+      final uri = Uri.tryParse(sourcePage);
+      if (uri == null || uri.scheme != 'https' ||
+          uri.host != 'dasfootball.com' || uri.userInfo.isNotEmpty ||
+          uri.hasPort || !uri.path.startsWith('/match/')) {
+        _notice('Normal highlights page could not be verified.');
+        return;
+      }
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        useSafeArea: true,
+        builder: (sheet) => Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(entry['title']?.toString() ?? 'Highlights',
+                  style: Theme.of(sheet).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              const Text('Normal HL · publisher page'),
+              const SizedBox(height: 8),
+              const Text('No verified direct video link. Watch on the original source page. Extended HL is not imported.'),
+              const SizedBox(height: 8),
+              SelectableText(sourcePage),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                icon: const Icon(Icons.copy),
+                onPressed: () {
+                  Navigator.pop(sheet);
+                  _copy(sourcePage);
+                },
+                label: const Text('Copy source page URL'),
+              ),
+            ],
+          ),
+        ),
+      );
+      return;
     }
-    return {ok:true,source:'highlights',provider,entry};
-  }
-  if(!page||new URL(page).hostname!=='dasfootball.com'||!/^[\w/-]+highlights[\w/-]*\/?$/i.test(new URL(page).pathname))throw Error('Invalid highlight entry');
-  let entry=entryCache.get(body.entry_id);
-  if(!entry||!entry.lines.length&&!entry.links_checked_at||entry.links_checked_at&&Date.now()-Date.parse(entry.links_checked_at)>300000){
-    const {text}=await readPublicSource(page,{fetcher,kind:'html',timeoutMs:5500,allowedHosts:['dasfootball.com']});
-    const extracted=parseDasHighlights(text,{includeEmbeds:true,sourcePage:page}).find(row=>row.source_page_url.replace(/\/+$/,'')===page.replace(/\/+$/,''));
-    if(!extracted)throw Error('No native highlight link published for this entry');
-    entry={...entry,...extracted,id:body.entry_id,source_page_url:page};
-    if(!entry.lines.length&&entry.embed_id){
-      try{
-        const {text}=await readPublicSource('https://api.streamable.com/videos/'+entry.embed_id,{fetcher,kind:'json',timeoutMs:5000,allowedHosts:['api.streamable.com']});
-        const media=JSON.parse(text);entry.lines=uniqueLines(['mp4','mp4-mobile'].map(key=>{
-          const file=media.files?.[key],address=publicSourceUrl(file?.url,'https://streamable.com/');
-          if(!address||!/(^|\.)streamable\.com$/i.test(new URL(address).hostname))return null;
-          if(Number.isFinite(file.duration))entry.duration=file.duration;
-          return highlightLine({link:address,title:file.height?`${file.height}p`:'Highlights'});
-        }));
-      }catch{entry.lines=[];}
+    if (lines.isEmpty) {
+      _notice(
+          'No working direct link was returned by this source. Refresh later to try again.');
+      return;
     }
-    entryCache.set(body.entry_id,entry);
+    final checks = <String, String>{};
+    final checking = <String>{};
+    final adding = <String>{}, added = <String>{};
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheet) => StatefulBuilder(
+          builder: (_, update) => ConstrainedBox(
+                constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(sheet).height * .85),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Select Stream Quality',
+                            style: Theme.of(sheet).textTheme.titleLarge),
+                        Text(entry['title']?.toString() ?? 'Highlights',
+                            style: Theme.of(sheet).textTheme.titleLarge),
+                        const SizedBox(height: 8),
+                        Text('${lines.length} extracted links • DasFootball'),
+                        const Text(
+                            'ADD saves to Highlights. Video playback is not verified.',
+                            style: TextStyle(fontSize: 12)),
+                        for (final line in lines)
+                          Card(
+                            margin: const EdgeInsets.only(top: 12),
+                            child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(children: [
+                                        Expanded(
+                                            child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                              Text(
+                                                  '${line['label']} • ${line['stream_type'].toString().toUpperCase()}',
+                                                  style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.bold)),
+                                              const SizedBox(height: 6),
+                                              SelectableText(
+                                                  line['stream_url'].toString(),
+                                                  maxLines: 1),
+                                              for (final field in [
+                                                'referer',
+                                                'origin',
+                                                'user_agent'
+                                              ])
+                                                if (line[field] != null)
+                                                  SelectableText(
+                                                      '$field: ${line[field]}',
+                                                      style: const TextStyle(
+                                                          fontSize: 10.5),
+                                                      maxLines: 1),
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                  checks[line['id']] ??
+                                                      (line['link_check'] is Map
+                                                          ? 'Link reachable • HTTP ${(line['link_check'] as Map)['http']}'
+                                                          : 'Link not checked'),
+                                                  style: const TextStyle(
+                                                      fontSize: 10.5)),
+                                            ])),
+                                        IconButton(
+                                            tooltip: 'Copy URL',
+                                            icon:
+                                                const Icon(Icons.copy_rounded),
+                                            onPressed: () => _copy(
+                                                line['stream_url'].toString())),
+                                        FilledButton(
+                                            onPressed: adding
+                                                    .contains(line['id'])
+                                                ? null
+                                                : () async {
+                                                    final id =
+                                                        line['id'].toString();
+                                                    update(
+                                                        () => adding.add(id));
+                                                    try {
+                                                      final destinations = await widget.service.destinations();
+                                                      if (!sheet.mounted) return;
+                                                      final matchId = await chooseHighlightMatch(sheet, destinations);
+                                                      if (matchId == null || !sheet.mounted) return;
+                                                      if (matchId.isEmpty) {
+                                                        await widget.service.save(entry, line);
+                                                      } else {
+                                                        await widget.service.save(entry, line, matchId: matchId);
+                                                      }
+                                                      if (sheet.mounted)
+                                                        update(() =>
+                                                            added.add(id));
+                                                      _notice(
+                                                          'Added to Highlights.');
+                                                    } catch (_) {
+                                                      _notice(
+                                                          'Could not add highlight. Please retry.');
+                                                    } finally {
+                                                      if (sheet.mounted)
+                                                        update(() =>
+                                                            adding.remove(id));
+                                                    }
+                                                  },
+                                            child:
+                                                Text(adding.contains(line['id'])
+                                                    ? 'ADDING…'
+                                                    : added.contains(line['id'])
+                                                        ? 'ADDED ✓'
+                                                        : 'ADD')),
+                                      ]),
+                                      Wrap(spacing: 6, children: [
+                                        TextButton.icon(
+                                            icon: const Icon(
+                                                Icons.content_paste,
+                                                size: 18),
+                                            label: const Text('Copy details'),
+                                            onPressed: () => _copy(
+                                                highlightCopyDetails(line))),
+                                        TextButton.icon(
+                                            icon: const Icon(
+                                                Icons.fact_check_outlined,
+                                                size: 18),
+                                            label: Text(
+                                                checking.contains(line['id'])
+                                                    ? 'Checking…'
+                                                    : 'Check link'),
+                                            onPressed: checking
+                                                    .contains(line['id'])
+                                                ? null
+                                                : () async {
+                                                    final id =
+                                                        line['id'].toString();
+                                                    update(
+                                                        () => checking.add(id));
+                                                    try {
+                                                      final response =
+                                                          await widget.service
+                                                              .request(
+                                                                  'check', {
+                                                        'entry_id': entry['id'],
+                                                        'line_id': id
+                                                      });
+                                                      final check =
+                                                          response['check']
+                                                              as Map;
+                                                      if (sheet.mounted)
+                                                        update(() => checks[
+                                                                id] =
+                                                            '${check['status'] == 'reachable' ? 'Link reachable' : 'Failed / invalid link'} • HTTP ${check['http']} • ${check['ms']} ms');
+                                                    } catch (_) {
+                                                      if (sheet.mounted)
+                                                        update(() => checks[
+                                                                id] =
+                                                            'Check failed. Refresh the list if this link changed.');
+                                                    } finally {
+                                                      if (sheet.mounted)
+                                                        update(() => checking
+                                                            .remove(id));
+                                                    }
+                                                  }),
+                                      ]),
+                                    ])),
+                          ),
+                        if (lines.isEmpty)
+                          const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Text(
+                                  'No direct HLS / MP4 link was extracted. Refresh the list.')),
+                      ]),
+                ),
+              )),
+    );
   }
-  if (action==='details') {
-    if (!entry.links_checked_at || Date.now()-Date.parse(entry.links_checked_at)>300000) {
-      const checks=await Promise.all(entry.lines.slice(0,8).map(async line=>{
-        const link_check=await checkHighlightLine(line,{fetcher});
-        return link_check.status==='reachable'?{...line,health_status:'reachable',link_check}:null;
-      }));
-      entry.lines=checks.filter(Boolean);
-      entry.links_checked_at=new Date().toISOString();
+
+  @override
+  Widget build(BuildContext context) {
+    final loading = _inFlight != null;
+    final rows = highlightMaps(_data?['entries'])
+        .where((row) => highlightMatchesQuery(row, _search.text))
+        .toList();
+    final warnings = (_data?['warnings'] as List? ?? [])
+        .map((value) => value.toString())
+        .toSet();
+    if (_error != null) warnings.add(_error!);
+    final updated =
+        DateTime.tryParse(_data?['updated_at']?.toString() ?? '')?.toLocal();
+    return Scaffold(
+      appBar: AppBar(title: const Text('Highlights'), actions: [
+        IconButton(
+            tooltip: 'Saved highlights',
+            icon: const Icon(Icons.video_library_outlined),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => SavedHighlightsPage(service: widget.service)))),
+        IconButton(
+            tooltip: 'Refresh highlights',
+            onPressed: loading
+                ? null
+                : () {
+                    _load(force: true);
+                    setState(() {});
+                  },
+            icon: const Icon(Icons.refresh)),
+      ]),
+      body: Column(children: [
+        Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+            child: TextField(
+                controller: _search,
+                onChanged: (_) {
+                  setState(() {
+                    _hasMore = false;
+                    _epoch++;
+                  });
+                  _debounce?.cancel();
+                  _debounce = Timer(const Duration(milliseconds: 350),
+                      () => _load(force: true));
+                },
+                decoration: InputDecoration(
+                    hintText: 'Search teams or highlights',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _search.text.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear search',
+                            icon: const Icon(Icons.close),
+                            onPressed: () {
+                              setState(() => _search.clear());
+                              _load(force: true);
+                            })))),
+        Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                    'DasFootball • ${rows.length} highlights${updated == null ? '' : ' • ${DateFormat('dd MMM, h:mm a').format(updated)}'}',
+                    style: const TextStyle(fontSize: 12)))),
+        if (loading || _opening) const LinearProgressIndicator(),
+        if (warnings.isNotEmpty)
+          Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(children: [
+                Text(warnings.join(' '),
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error)),
+                TextButton(
+                    onPressed: loading
+                        ? null
+                        : () {
+                            _load(force: true);
+                            setState(() {});
+                          },
+                    child: const Text('Retry')),
+              ])),
+        Expanded(
+            child: RefreshIndicator(
+                onRefresh: () => _load(force: true),
+                child: ListView.builder(
+                  controller: _scroll,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  key: const PageStorageKey('highlights-dasfootball'),
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+                  itemCount:
+                      rows.isEmpty ? 1 : rows.length + (_hasMore ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (rows.isEmpty)
+                      return Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Text(loading
+                              ? 'Extracting highlight links…'
+                              : 'No extracted links to show. Refresh or clear your search.'));
+                    if (index >= rows.length)
+                      return TextButton(
+                          onPressed: loading ? null : () => _load(more: true),
+                          child: Text(loading
+                              ? 'Loading more…'
+                              : 'Load more highlights'));
+                    final row = rows[index];
+                    final count = highlightMaps(row['lines']).length;
+                    final pageOnly = row['source_page_only'] == true;
+                    final published =
+                        DateTime.tryParse(row['published_at']?.toString() ?? '')
+                            ?.toLocal();
+                    return Card(
+                        child: ListTile(
+                            contentPadding: const EdgeInsets.all(12),
+                            leading: row['thumbnail_url'] == null
+                                ? const Icon(Icons.link)
+                                : ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(
+                                        row['thumbnail_url'].toString(),
+                                        width: 64,
+                                        height: 48,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) =>
+                                            const SizedBox(
+                                                width: 64,
+                                                height: 48,
+                                                child: Icon(Icons.link)))),
+                            title: Text(
+                                row['title']?.toString() ?? 'Highlights',
+                                maxLines: 3),
+                            subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(
+                                    pageOnly
+                                        ? "Normal HL · Source page\n${row['match_date'] ?? ''}"
+                                        : 'Get links • $count extracted${published == null ? '' : '\n${DateFormat('dd MMM, h:mm a').format(published)}'}')),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: _opening ? null : () => _details(row)));
+                  },
+                ))),
+      ]),
+    );
+  }
+}
+
+class SavedHighlightsPage extends StatefulWidget {
+  const SavedHighlightsPage({super.key, required this.service});
+  final HighlightsService service;
+  @override
+  State<SavedHighlightsPage> createState() => _SavedHighlightsPageState();
+}
+
+class _SavedHighlightsPageState extends State<SavedHighlightsPage> {
+  final items = <Map<String, dynamic>>[];
+  String? deleting, error;
+  bool loading = false, hasMore = true;
+  @override
+  void initState() {
+    super.initState();
+    reload();
+  }
+
+  Future<void> reload({bool more = false}) async {
+    if (loading) return;
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final next = await widget.service.saved(offset: more ? items.length : 0);
+      if (!mounted) return;
+      setState(() {
+        if (!more) items.clear();
+        final ids = items.map((r) => r['id']).toSet();
+        items.addAll(next.where((r) => ids.add(r['id'])));
+        hasMore = next.length == 50;
+      });
+    } catch (_) {
+      if (mounted) setState(() => error = 'Could not load. Retry');
+    } finally {
+      if (mounted) setState(() => loading = false);
     }
-    return {ok:true,source:'highlights',provider,entry};
   }
-  const line=entry.lines.find(item=>item.id===body.line_id);
-  if (!line) throw Error('This video link changed. Reopen the highlight.');
-  return {ok:true,source:'highlights',provider,check:await checkHighlightLine(line,{fetcher})};
+
+  Future<void> remove(Map<String, dynamic> row) async {
+    final yes = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+                title: const Text('Delete highlight?'),
+                content: Text(row['title']?.toString() ?? 'Highlight'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialog, false),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(dialog, true),
+                      child: const Text('Delete'))
+                ]));
+    if (yes != true || !mounted) return;
+    setState(() => deleting = row['id'].toString());
+    try {
+      await widget.service.remove(row['id'].toString());
+      if (mounted) reload();
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Delete failed. Refresh and retry.')));
+    } finally {
+      if (mounted) setState(() => deleting = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+      appBar: AppBar(title: const Text('Saved highlights'), actions: [
+        IconButton(
+            onPressed: loading ? null : reload, icon: const Icon(Icons.refresh))
+      ]),
+      body: RefreshIndicator(
+          onRefresh: reload,
+          child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                if (loading) const LinearProgressIndicator(),
+                if (error != null)
+                  TextButton(
+                      onPressed:
+                          loading ? null : () => reload(more: items.isNotEmpty),
+                      child: Text(error!)),
+                if (!loading && items.isEmpty && error == null)
+                  const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                          'No saved highlights. Use ADD on a source link.')),
+                for (final row in items)
+                  ListTile(
+                      title: Text(row['title']?.toString() ?? 'Highlight'),
+                      subtitle: Text(row['video_url']?.toString() ?? '',
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      trailing: IconButton(
+                          tooltip: 'Delete highlight',
+                          onPressed: deleting == null && !loading
+                              ? () => remove(row)
+                              : null,
+                          icon: const Icon(Icons.delete_outline))),
+                if (hasMore && items.isNotEmpty)
+                  OutlinedButton(
+                      onPressed: loading ? null : () => reload(more: true),
+                      child: const Text('Load more highlights')),
+              ])));
 }
