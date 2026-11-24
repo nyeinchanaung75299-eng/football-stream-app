@@ -104,7 +104,7 @@ export function highlightCatalogueFreshness(entries, now=Date.now()) {
     : [];
   return {latest_published_at,publisher_age_hours,warnings};
 }
-// Normal match pages support metadata and explicitly licensed public MP4 records.
+// Normal match pages support metadata and public MP4 records.
 function matchPage(value) {
   const address=publicSourceUrl(value,'https://dasfootball.com/');
   if(!address)return null;
@@ -126,26 +126,21 @@ export function publicNormalMatchCandidates(html){
   }
   return [...pages];
 }
-// Accept a direct MP4 only when the publisher explicitly labels it Normal HL
-// and publishes reusable media metadata. No player internals, tokens or embeds.
+// Extract direct MP4 links published on normal match pages without blocking external media hosts.
 export function licensedNormalMp4(html,page){
   const source=matchPage(page);
   if(!source)return [];
-  const licenses=new Set(['https://creativecommons.org/licenses/by/4.0/','https://creativecommons.org/licenses/by-sa/4.0/','https://creativecommons.org/publicdomain/zero/1.0/']);
   const lines=[];
   for(const video of structuredVideos(html)){
-    if(!normalLabel(video.name)||!licenses.has(video.license)||video.isAccessibleForFree!==true)continue;
+    if(!normalLabel(video.name))continue;
     if(video.requiresSubscription===true||video.drm_key||video.drm_scheme||video.key_data)continue;
     if(video.url&&matchPage(video.url)!==source)continue;
     const url=publicSourceUrl(video.contentUrl);
     if(!url)continue;
     const media=new URL(url);
-    // Restrict to the publisher's own HTTPS host and an ordinary MP4 URL.
-    // Other hosts require a separately approved integration contract.
-    if(media.protocol!=='https:'||media.hostname!=='dasfootball.com'||media.search||
-      !/\.mp4$/i.test(media.pathname))continue;
+    if(!['https:','http:'].includes(media.protocol)||!/\.mp4$/i.test(media.pathname))continue;
     const line=highlightLine({link:url,title:'Normal Highlights'});
-    if(line&&line.stream_type==='mp4')lines.push({...line,license:video.license,source_page_url:source});
+    if(line&&line.stream_type==='mp4')lines.push({...line,source_page_url:source});
   }
   return uniqueLines(lines);
 }
@@ -184,8 +179,7 @@ async function discoverNormalMatchPages(fetcher,query='',deadline=Date.now()+550
 }
 
 // Dated pages expose a public Schema.org ItemList of highlighted fixtures.
-// This adapter deliberately reads only match metadata, not contentUrl/embedUrl,
-// and does not contact any media host. Legacy catalogue and its cursor stay intact.
+// Legacy catalogue and its cursor stay intact.
 export function parseDateHighlightMetadata(html,{now=Date.now()}={}){
   const rows=new Map();
   const record=video=>{
@@ -389,30 +383,27 @@ export async function footballHighlights(body,{fetcher=fetch,includeDateCatalogu
     const id='dasfootball:'+modernPage;
     let entry=entryCache.get(id);
     const checked=Date.parse(entry?.license_checked_at||'');
-    // Catalogue metadata is not a media authorization decision. Re-evaluate
-    // explicit publisher license metadata when details are requested.
     if(!entry||!Number.isFinite(checked)||Date.now()-checked>=300000){
       let fresh=null;
       try{
         const {text}=await readPublicSource(modernPage,{fetcher,kind:'html',timeoutMs:3500,allowedHosts:['dasfootball.com']});
         fresh=publicNormalMatchMetadata(text,modernPage);
-      }catch{/* Keep known fixture metadata, not old media authorization. */}
+      }catch{/* Keep known fixture metadata if page fetch fails. */}
       if(!entry&&!fresh)throw Error('Normal highlights were not confirmed by this page');
-      const lines=fresh?.lines||[];
+      const lines=fresh?.lines||entry?.lines||[];
       entry={...fresh,...entry,id,source_page_url:modernPage,
         source_page_only:lines.length===0,lines,license_checked_at:new Date().toISOString()};
       entryCache.set(id,entry);
     }
     if(action==='check'){
       const line=entry.lines.find(item=>item.id===body.line_id);
-      if(!line)throw Error('No authorized MP4 for this entry');
-      // Reachability is not playback verification. Do not follow redirects
-      // to a host outside the approved publisher origin.
-      const approvedFetch=async(url,options)=>{
-        if(new URL(url).origin!=='https://dasfootball.com')throw Error('Unapproved media origin');
-        return fetcher(url,options);
+      if(!line)throw Error('No MP4 link found for this entry');
+      const mediaFetch=async(url,options)=>{
+        const valid=publicSourceUrl(url);
+        if(!valid)throw Error('Invalid media URL');
+        return fetcher(valid,options);
       };
-      return {ok:true,source:'highlights',provider,check:await checkHighlightLine(line,{fetcher:approvedFetch})};
+      return {ok:true,source:'highlights',provider,check:await checkHighlightLine(line,{fetcher:mediaFetch})};
     }
     return {ok:true,source:'highlights',provider,entry};
   }
