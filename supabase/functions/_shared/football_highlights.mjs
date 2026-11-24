@@ -389,7 +389,19 @@ export async function footballHighlights(body,{fetcher=fetch,includeDateCatalogu
         const {text}=await readPublicSource(modernPage,{fetcher,kind:'html',timeoutMs:3500,allowedHosts:['dasfootball.com']});
         fresh=publicNormalMatchMetadata(text,modernPage);
       }catch{/* Keep known fixture metadata if page fetch fails. */}
-      if(!entry&&!fresh)throw Error('Normal highlights were not confirmed by this page');
+      if(!entry&&!fresh){
+        // A cold isolate can lack the catalogue entry. An unavailable source
+        // must not become a fabricated or cached media link.
+        if(action!=='details')throw Error('Normal highlights were not confirmed by this page');
+        const fixture=new URL(modernPage).pathname.match(/^\/match\/(.+)-(\d{4}-\d{2}-\d{2})-\d+\/$/i);
+        const title=fixture[1].replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()).replace(/\bVs\b/,'vs');
+        console.warn('Highlights details unavailable: source metadata could not be confirmed');
+        return {ok:true,source:'highlights',provider,entry:{
+          id,provider,title:title.slice(0,240),source_page_url:modernPage,
+          match_date:fixture[2],published_at:null,source_page_only:true,
+          lines:[],details_status:'unavailable'
+        }};
+      }
       const lines=fresh?.lines||entry?.lines||[];
       entry={...fresh,...entry,id,source_page_url:modernPage,
         source_page_only:lines.length===0,lines,license_checked_at:new Date().toISOString()};
