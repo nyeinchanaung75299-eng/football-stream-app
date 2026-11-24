@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {footballHighlights,highlightCatalogueFreshness,publicNormalMatchCandidates,publicNormalMatchMetadata,highlightLine,licensedNormalMp4} from '../supabase/functions/_shared/football_highlights.mjs';
+import {footballHighlights,highlightCatalogueFreshness,publicNormalMatchCandidates,publicNormalMatchMetadata,highlightLine,licensedNormalMp4,parseDateHighlightMetadata} from '../supabase/functions/_shared/football_highlights.mjs';
 import {publicHighlightsRequest} from '../supabase/functions/_shared/public_highlights.mjs';
 test('publisher cursor pages remain finite, preserve metadata and drop duplicate cards',async()=>{
  const fetcher=async address=>{
@@ -151,4 +151,66 @@ test('empty or failed first-page refresh retains last populated catalogue',async
  const failed=await footballHighlights({query,force:true},{fetcher});
  assert.equal(failed.stale,true);
  assert.deepEqual(failed.entries,first.entries);
+});
+
+test('dated JSON-LD ItemList supports the observed fixture shape, not media delivery',async()=>{
+ const now=Date.parse('2026-11-24T19:00:00Z');
+ const fixture=(name,slug,id,league,stamp='2026-11-23T22:44:35.930Z')=>({
+  '@type':'VideoObject',name:name+' highlights',description:name+' highlights, '+league,
+  url:'https://dasfootball.com/match/'+slug+'-2026-11-23-'+id+'/',
+  uploadDate:stamp,about:name.split(' vs ').map(name=>({'@type':'SportsTeam',name})),
+  contentUrl:'https://example.org/test-only.mp4'
+ });
+ const brentford=fixture('Brentford vs Everton','brentford-vs-everton',209637,'Premier League');
+ const monza=fixture('Monza vs Fiorentina','monza-vs-fiorentina',210173,'Serie A');
+ const levante=fixture('Levante UD vs Elche','levante-ud-vs-elche',213644,'La Liga');
+ const extended={...brentford,name:'Brentford vs Everton Extended Highlights'};
+ const badHost={...monza,url:'https://example.org/match/monza-vs-fiorentina-2026-11-23-210173/'};
+ const future={...fixture('Future vs Team','future-vs-team',9,'League'),'uploadDate':'2026-11-27T00:00:00Z'};
+ const html=rows=>'<script type="application/ld+json">'+JSON.stringify([
+ {'@type':'WebSite',name:'Football highlights'},
+ {'@type':'ItemList',name:'Football highlights Tuesday, 24 November 2026',numberOfItems:rows.length,itemListElement:rows}
+ ])+'</script>';
+ const data=html([brentford,monza,levante,{...brentford,url:brentford.url+'?ref=duplicate'},extended,badHost,future]);
+ const parsed=parseDateHighlightMetadata(data,{now});
+ assert.equal(parsed.length,3);
+ assert.equal(parsed[0].league,'Premier League');
+ assert.equal(parsed[0].match_date,'2026-11-23');
+ assert.equal(parsed[0].match_id,'209637');
+ assert.equal(parsed[0].home_team,'Brentford');
+ assert(parsed.every(row=>row.source_page_only&&row.lines.length===0));
+ assert(!JSON.stringify(parsed).includes('test-only.mp4'));
+ const calls=[];
+ let failDates=false;
+ const fetcher=async address=>{
+  calls.push(address);
+  if(address.includes('/api/homepage-posts/')){
+   const offset=Number(new URL(address).searchParams.get('offset'));
+   return Response.json({cards:[{slug:'legacy-'+offset+'-highlights-2026-11-21',title:'Legacy '+offset,publishedAt:'2026-11-21T22:43:00Z'}],hasMore:offset===0});
+  }
+  if(address.includes('/api/search/'))return Response.json([]);
+  if(address.includes('?date=')){
+   if(failDates)throw Error('Fixture source unavailable');
+   return new Response(address.endsWith('2026-11-24')?data:html([]),{headers:{'Content-Type':'text/html'}});
+  }
+  throw Error('Unexpected request '+address);
+ };
+ const result=await footballHighlights({force:true},{fetcher,includeDateCatalogue:true,now});
+ assert.equal(result.entries.length,4);
+ assert.equal(result.entries[0].title,'Brentford vs Everton');
+ assert.equal(result.next_offset,1);
+ assert.equal(result.has_more,true);
+ assert.equal(calls.length,4);
+ const second=await footballHighlights({force:true,offset:1},{fetcher,includeDateCatalogue:true,now});
+ assert.equal(second.entries.length,1);
+ assert.equal(second.has_more,false);
+ assert.equal(calls.length,5);
+ const search=await footballHighlights({force:true,query:'Brentford'},{fetcher,includeDateCatalogue:true,now});
+ assert.equal(search.entries.length,1);
+ assert.equal(search.entries[0].match_id,'209637');
+ failDates=true;
+ const fallback=await footballHighlights({force:true},{fetcher,includeDateCatalogue:true,now});
+ assert.equal(fallback.entries.length,4);
+ assert.equal(fallback.stale,true);
+ assert(!JSON.stringify(fallback).includes('test-only.mp4'));
 });
