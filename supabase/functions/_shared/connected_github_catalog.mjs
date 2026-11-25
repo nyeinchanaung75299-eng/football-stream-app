@@ -1,5 +1,6 @@
 import {fetchDarkbyteCatalog,configuration,publicSourceUrl,sourceHash} from './darkbyte_catalog.mjs';
 import {readRepositoryTrees} from './repository_trees.mjs';
+import {darkbyteFixtureScopeVerified,scopedHubRevision} from './repository_snapshot_removals.mjs';
 import {HUB_GITHUB_SOURCES,readGithubDocuments,publishedEventMeta} from './github_source_formats.mjs';
 import {mpdIdentity} from './repository_mpd.mjs';
 const legacy='darkbyteprojects/iptv_png';
@@ -41,7 +42,7 @@ export async function fetchConnectedGithubCatalog({fetcher=fetch,revision=null,p
   const trees=await readRepositoryTrees(repositories,{fetcher,signal:controller.signal,allowMissing:true,isolateFailures:true});
   const digest=await sourceHash('catalog-v4:'+trees.map(x=>x?.sha||'missing').join(':'));
   let complete=trees.every(Boolean);
-  let partialDarkbytePaths=[];
+  let partialDarkbytePaths=[],darkbyteFixturesVerified=false;
   const failed=new Set(repositories.filter((_,i)=>!trees[i]));
   const fresh=repositories.every((repo,i)=>{const saved=previous.filter(row=>row.event_meta?.source_repository===repo);return saved.length&&saved.every(row=>row.event_meta?.source_revision===trees[i]?.sha&&row.event_meta?.catalog_schema_version===3&&!row.event_meta?.source_partial_fresh);});
   if(complete&&fresh&&digest===revision)return {revision:digest,unchanged:true,complete:true,entries:[],missingRepositories:[]};
@@ -56,6 +57,7 @@ export async function fetchConnectedGithubCatalog({fetcher=fetch,revision=null,p
      complete=false;
      failed.add(repo);
      partialDarkbytePaths=snapshot.failed_paths;
+     darkbyteFixturesVerified=darkbyteFixtureScopeVerified(tree,partialDarkbytePaths);
      console.warn('Darkbyte exports partially available',{failed_paths:partialDarkbytePaths});
     }
     const fresh=snapshot.entries.map(row=>({...row,event_meta:{...row.event_meta,repositories:[repo],source_repository:repo,source_revision:tree.sha,catalog_schema_version:3,source_partial_fresh:!snapshot.complete}}));
@@ -69,11 +71,12 @@ export async function fetchConnectedGithubCatalog({fetcher=fetch,revision=null,p
    const documents=await readGithubDocuments(repo,tree,{fetcher,signal:controller.signal});
    return await githubCatalogEntries(source,documents,tree.sha);
    }catch(error){
+    if(repo===legacy)darkbyteFixturesVerified=false;
     console.warn('Published repository data failed',{repository:repo,code:error?.code||error?.name||'invalid_export'});
     complete=false;failed.add(repo);return old;
    }
   }));
   const snapshotRevision=partialDarkbytePaths.length?await sourceHash(digest+':'+partialDarkbytePaths.join(',')):digest;
-  return {revision:snapshotRevision,unchanged:false,complete,entries:batches.flat(),missingRepositories:repositories.filter(repo=>failed.has(repo))};
+  return {revision:scopedHubRevision(snapshotRevision,darkbyteFixturesVerified),unchanged:false,complete,entries:batches.flat(),missingRepositories:repositories.filter(repo=>failed.has(repo))};
  }finally{clearTimeout(timer);controller.abort();}
 }

@@ -1,4 +1,4 @@
-import {confirmedRepositoryRemovals,unobservedRepositoryEntries} from '../_shared/repository_snapshot_removals.mjs';
+import {confirmedRepositoryRemovals,unobservedRepositoryEntries,repositoryFixtureScope} from '../_shared/repository_snapshot_removals.mjs';
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {createClient} from "jsr:@supabase/supabase-js@2";
 import {sourceHash} from "../_shared/darkbyte_catalog.mjs";
@@ -78,7 +78,7 @@ async function synchronize(client:any,force:boolean,source:string){
    const hub=await readStreamHub(client);
    if(!['ok','partial'].includes(hub.state.status))throw Error('Stream Hub snapshot unavailable; retry after refresh');
    snapshot=await repositoryMatchesFromHub(hub.entries,{revision:hub.state.revision+'|'+hub.state.last_checked_at,
-    complete:hub.state.status==='ok',missingRepositories:hub.state.unavailable_repositories||[]});
+    ...repositoryFixtureScope(hub.state)});
   }else if(source==='livetv')snapshot=await fetchLiveTvSports({revision:force?null:begun.revision,channels});
   else snapshot=await fetchConnectedGithubCatalog({revision:force?null:begun.revision,previous:previousCatalog});
   let removedRepositoryIds:string[]=[];
