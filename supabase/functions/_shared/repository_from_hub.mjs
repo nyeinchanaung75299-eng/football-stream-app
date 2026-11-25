@@ -8,6 +8,18 @@ const leagues = new Map([
  ['laliga', 'LaLiga'], ['la liga', 'LaLiga'],
  ['laliga 2', 'LaLiga 2'], ['la liga 2', 'LaLiga 2'],
  ['ligue 1', 'Ligue 1'], ['serie a', 'Serie A'], ['bundesliga', 'Bundesliga'],
+ ["ucl","UEFA Champions League"],
+ ["uefa champions league","UEFA Champions League"],
+ ["uel","UEFA Europa League"],
+ ["uefa europa league","UEFA Europa League"],
+ ["uecl","UEFA Conference League"],
+ ["uefa conference league","UEFA Conference League"],
+ ["uefa europa conference league","UEFA Conference League"],
+ ["uefa youth","UEFA Youth League"],
+ ["uefa youth league","UEFA Youth League"],
+ ["afc champions league two","AFC Champions League Two"],
+ ["afc champions league 2","AFC Champions League Two"],
+ ["afc champions league elite","AFC Champions League Elite"],
 ]);
 function reviewedLeague(value) {
  return leagues.get(String(value || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').trim());
@@ -15,11 +27,29 @@ function reviewedLeague(value) {
 function badgeId(value) {
  return /^https:\/\/img\.sofascore\.com\/api\/v1\/team\/(\d+)\/image(?:[?].*)?$/.exec(value || '')?.[1];
 }
-function fixtureEvidence(row, kickoff = row.kickoff_at) {
- const home = badgeId(row.home_logo_url), away = badgeId(row.away_logo_url);
- const league = reviewedLeague(row.league);
- return home && away && home !== away && league && kickoff
-  ? JSON.stringify([league, home, away, kickoff, row.competition_tag || ''])
+function fixtureLeague(value) {
+ const reviewed=reviewedLeague(value);
+ if(reviewed)return reviewed;
+ // New named competitions may be corroborated without a hard-coded alias,
+ // but generic labels and match titles are never competition evidence.
+ const text=String(value||'').normalize('NFKC').trim().toLowerCase().replace(/\s+/g,' ');
+ if(!text||/\b(?:vs\.?|versus)\b/.test(text)||!/\b(?:league|cup|championship|division|premiership|liga|ligue)\b/.test(text))return null;
+ if(/^(?:league|cup|championship|division|champions league|europa league|live league)$/.test(text))return null;
+ return text;
+}
+function teamClass(value) {
+ const name=String(value||'').normalize('NFKC').toLowerCase();
+ const age=name.match(/\bu[\s-]?(\d{1,2})\b/);
+ const women=/\b(?:women(?:'s)?|ladies|female|frauen|femenino|femenina|femminile)\b/.test(name);
+ const reserve=/(?:\b(?:reserves?|reserve team)|\s(?:ii|b))\s*$/.test(name);
+ return [age?.[1]||'',women?'women':'',reserve?'reserve':''].join(':');
+}
+function fixtureEvidence(row,kickoff=row.kickoff_at) {
+ const home=badgeId(row.home_logo_url),away=badgeId(row.away_logo_url);
+ const league=fixtureLeague(row.league);
+ const when=Date.parse(kickoff||'');
+ return home&&away&&home!==away&&league&&Number.isFinite(when)
+  ? JSON.stringify([league,home,away,new Date(when).toISOString(),row.competition_tag||'',teamClass(row.home_team),teamClass(row.away_team)])
   : null;
 }
 // Only corroborate the literal clock and date against an independently
@@ -47,7 +77,9 @@ function mergeVerifiedAliases(rows) {
   confirmed.push(row);
  }
  for (const group of groups.values()) {
-  if (new Set(group.map(row => row.repository)).size < 2) continue;
+  // Dated rows may be duplicate provider exports from the same repository.
+  // Both ordered team IDs, named competition and exact kickoff must agree.
+  if (group.length < 2) continue;
   const canonical = [...group].sort((a, b) =>
    Number(Boolean(a.corroborated_clock))-Number(Boolean(b.corroborated_clock)) ||
    Number(a.repository === 'mdjamsad9/dudetvapi') - Number(b.repository === 'mdjamsad9/dudetvapi') ||
@@ -100,6 +132,6 @@ export async function repositoryMatchesFromHub(entries,{revision='',missingRepos
    resolved_streams:(entry.streams||[]).map(line=>({...line,title:line.label}))};
   rows.push(...parseRepositoryMatches(JSON.stringify([event]),{repository,source_file:entry.source_file}));
  }
- return {revision:await sourceHash('hub-repository-v3:'+revision),unchanged:false,
+ return {revision:await sourceHash('hub-repository-v4:'+revision),unchanged:false,
   entries:await mergeRepositoryMatches(mergeVerifiedAliases(rows),{now}),complete,missingRepositories:[...missing]};
 }
