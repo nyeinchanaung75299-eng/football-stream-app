@@ -106,8 +106,7 @@ export async function fetchRepositoryMpds({fetcher=fetch,deduplicate=true,allowM
   }
   const paths=tree.tree.filter(x=>x.type==='blob'&&x.size<=3*1024*1024&&(
    repo==='darkbyteprojects/iptv_png'?/^provider_[1-6]\/(?:[\w-]+\.json|categories\/[\w-]+\.json)$/.test(x.path):
-   repo==='Roshavarma/cfy'?x.path==='api/events.json':
-   /^(?:hasill|finall(?:\.json)?|playlist_final\.json|(?:pl|pll)\/rama+a?2(?:\.json)?|config\d*\.json)$/.test(x.path)
+   repo==='Roshavarma/cfy'&&x.path==='api/events.json'
   )).map(x=>x.path).sort();
   if(!paths.length||paths.length>250)throw new Error('Invalid published file list');
   let index=0;

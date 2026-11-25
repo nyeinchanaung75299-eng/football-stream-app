@@ -177,7 +177,7 @@ export async function channelSourceRequest(req:Request,client:any){
    return json({ok:true});
   }
   const id=String(body.entry_id||"");
-  if(!(source==='repository'?/^repo:match:[a-f\d]{28}$/:source==='livetv'?/^ltv:channel:[a-f\d]{28}$/:/^(?:db:p[1-6]:(?:channel|event|video|playlist)|gh:(?:smiptv|allrounder|smsports|dudetv|cfy|lian|deqiaa)):[a-f\d]{28}$/).test(id))return json({error:"Invalid source entry"},400);
+  if(!(source==='repository'?/^repo:match:[a-f\d]{28}$/:source==='livetv'?/^ltv:channel:[a-f\d]{28}$/:/^(?:db:p[1-6]:(?:channel|event|video|playlist)|gh:(?:smiptv|allrounder|smsports|dudetv|cfy)):[a-f\d]{28}$/).test(id))return json({error:"Invalid source entry"},400);
   if(action==="details"){
    const entry=await check(client.from("channel_source_catalog").select("id,name,kind,streams,playlist_url,is_present,event_meta").eq("id",id).eq('source_id',source).single());
    return json({ok:true,entry});

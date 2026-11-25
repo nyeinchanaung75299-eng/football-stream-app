@@ -7,8 +7,6 @@ export const NEW_GITHUB_SOURCES=[
 ];
 export const LEGACY_GITHUB_SOURCES=[
  {repository:'Roshavarma/cfy',key:'cfy',provider:13,name:'CFY'},
- {repository:'rohmanabdu/lian',key:'lian',provider:14,name:'Lian'},
- {repository:'rohmanabdu/deqiaa',key:'deqiaa',provider:15,name:'Deqiaa'},
 ];
 export const HUB_GITHUB_SOURCES=[...NEW_GITHUB_SOURCES,...LEGACY_GITHUB_SOURCES];
 const clean=x=>String(x??'').replace(/[\u0000-\u001f\u007f]/g,' ').trim();
@@ -43,7 +41,7 @@ function event(row,eventInfo,streams,category){
 export function normalizeGithubDocument(repository,path,payload,channels=new Map()){
  const source=HUB_GITHUB_SOURCES.find(x=>x.repository===repository);
  if(!source)throw Error('Unsupported connected GitHub source');
- if(['cfy','lian','deqiaa'].includes(source.key)){
+ if(source.key==='cfy'){
   if(payload?._m3u){
    const rows=[];let row;
    for(const raw of payload._m3u.split(/\r?\n/)){
@@ -116,8 +114,7 @@ export async function readGithubDocuments(repository,tree,{fetcher=fetch,signal,
   allrounder:/^api\/(?:football|cricket|world-sports|today-events|event)\.json$/,
   smsports:/^Sports_data\.json$/,
   dudetv:/^public_decrypted\/(?:events_with_channels\.json|cats\/[\w-]+\.json)$/,
-  cfy:/^api\/events\.json$/,lian:/^(?:hasill|finall(?:\.json)?|playlist_final\.json|(?:pl|pll)\/rama+a?2(?:\.json)?|config\d*\.json)$/,
-  deqiaa:/^(?:hasill|finall(?:\.json)?|playlist_final\.json|(?:pl|pll)\/rama+a?2(?:\.json)?|config\d*\.json)$/};
+  cfy:/^api\/events\.json$/};
  const paths=[...blobs.keys()].filter(path=>patterns[source.key].test(path)&&(!fixturesOnly||source.key!=='dudetv'||path.endsWith('/events_with_channels.json'))).sort();
  const required={smiptv:'output/channels.json',allrounder:'api/football.json',smsports:'Sports_data.json',dudetv:'public_decrypted/events_with_channels.json'};
  if(!paths.length||required[source.key]&&!paths.includes(required[source.key]))throw Error('Required published export missing');

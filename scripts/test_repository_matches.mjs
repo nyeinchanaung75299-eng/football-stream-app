@@ -114,7 +114,7 @@ test('missing upstream fixture repository does not prevent a verified Darkbyte u
  let rawCalls=0;
  const snapshot=await fetchRepositoryMatches({fetcher:async url=>{
   if(url.endsWith('repository-trees.json'))return Response.json({fetched_at:'2000-01-01T00:00:00Z',repositories:{}});
-  if(url.includes('/rohmanabdu/'))return new Response('',{status:404});
+  
   if(NEW_GITHUB_SOURCES.some(x=>url.includes('/'+x.repository+'/git/trees/')))return new Response('',{status:404});
   if(url.includes('/darkbyteprojects/iptv_png/git/trees/'))return Response.json(tree);
   if(url.includes('/Roshavarma/cfy/git/trees/'))return Response.json(empty);
@@ -124,7 +124,7 @@ test('missing upstream fixture repository does not prevent a verified Darkbyte u
   throw Error('Unexpected URL: '+url);
  }});
  assert.equal(snapshot.complete,false);
- assert.deepEqual(snapshot.missingRepositories,['rohmanabdu/lian','rohmanabdu/deqiaa',...NEW_GITHUB_SOURCES.map(x=>x.repository)]);
+ assert.deepEqual(snapshot.missingRepositories,NEW_GITHUB_SOURCES.map(x=>x.repository));
  assert.equal(rawCalls,1);
  assert(snapshot.entries.some(entry=>entry.name==='Wales vs Portugal'&&entry.streams.length===1));
 });

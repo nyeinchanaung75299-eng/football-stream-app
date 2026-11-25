@@ -1,4 +1,4 @@
-export const REPOSITORY_TREE_SOURCES=['rohmanabdu/lian','rohmanabdu/deqiaa','darkbyteprojects/iptv_png','Roshavarma/cfy',
+export const REPOSITORY_TREE_SOURCES=['darkbyteprojects/iptv_png','Roshavarma/cfy',
  'nehalmahamuddev/SM-IPTV-Category-Playlists-Auto-Sync','dilzyking/allrounderlive',
  'sm-monirulislam/Upcoming-and-Live-Sports-Data','mdjamsad9/dudetvapi'];
 const mirror='https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public/repository-trees.json';
