@@ -5,7 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'analytics_service.dart';
 import 'backend_endpoint.dart';
 import 'app_theme.dart';
-import 'screens/home_page.dart';
+import 'screens/viewer_tabs_page.dart';
 import 'theme_controller.dart';
 
 Future<void> main() async {
@@ -57,7 +57,7 @@ class FootballViewerApp extends StatelessWidget {
           darkTheme: AppTheme.dark(),
           themeMode: AppThemeController.instance.mode,
           navigatorObservers: [PosthogObserver()],
-          home: HomePage(backendReady: backendReady,
+          home: ViewerTabsPage(backendReady: backendReady,
             initialMatchId: Uri.base.queryParameters['match']),
         );
       },

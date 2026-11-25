@@ -12,8 +12,10 @@ class HighlightsSourcePage extends StatefulWidget {
   const HighlightsSourcePage({
     super.key,
     this.service = const PublicHighlightsService(),
+    this.onTabSelected,
   });
   final PublicHighlightsService service;
+  final ValueChanged<int>? onTabSelected;
   @override
   State<HighlightsSourcePage> createState() => _HighlightsSourcePageState();
 }
@@ -148,6 +150,7 @@ class _HighlightsSourcePageState extends State<HighlightsSourcePage> {
   }
 
   void _navigate(int index) {
+    if(index!=7 && widget.onTabSelected!=null){widget.onTabSelected!(index);return;}
     if (index == 7) {
       _load();
       return;

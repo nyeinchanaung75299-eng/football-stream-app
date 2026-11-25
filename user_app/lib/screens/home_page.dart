@@ -57,10 +57,12 @@ class _PersistedMatchCache {
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.backendReady, this.initialMatchId});
+  const HomePage({super.key, this.backendReady, this.initialMatchId, this.active = true, this.onTabSelected});
 
   final Future<void>? backendReady;
   final String? initialMatchId;
+  final bool active;
+  final ValueChanged<int>? onTabSelected;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -234,7 +236,7 @@ class _HomePageState extends State<HomePage> {
     // Keep metadata fresh even when Realtime is unavailable.
     _feedRefresh = Timer.periodic(const Duration(seconds: 60), (_) {
       final state = WidgetsBinding.instance.lifecycleState;
-      if (mounted &&
+      if (mounted && widget.active &&
           !_openingPlayer &&
           (state == null || state == AppLifecycleState.resumed) &&
           ModalRoute.of(context)?.isCurrent != false) {
@@ -254,6 +256,14 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  @override
+  void didUpdateWidget(covariant HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active && _liveNeedsRefresh) {
+      unawaited(refresh(silent: true));
+    }
+  }
+
   void _subscribeToUpdates() {
     // The HTTP backup cannot relay WebSockets; the existing 60-second poll
     // keeps matches and stream metadata fresh on this route.
@@ -264,7 +274,7 @@ class _HomePageState extends State<HomePage> {
         if (clearStreams) _streamLinkCache.clear();
         _debounce?.cancel();
         _debounce = Timer(const Duration(milliseconds: 350), () {
-          if (mounted) refresh(silent: true);
+          if (mounted && widget.active) refresh(silent: true);
         });
       }
 
@@ -1494,9 +1504,10 @@ class _HomePageState extends State<HomePage> {
           IconButton(
             tooltip: 'Highlights',
             icon: const Icon(Icons.movie_outlined),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const HighlightsSourcePage()),
-            ),
+            onPressed: () {
+              if (widget.onTabSelected != null) { widget.onTabSelected!(7); return; }
+              Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const HighlightsSourcePage()));
+            },
           ),
           IconButton(
             tooltip: 'Refresh',
@@ -1597,6 +1608,7 @@ class _HomePageState extends State<HomePage> {
       bottomNavigationBar: PremiumBottomNav(
         selectedIndex: 0,
         onSelected: (index) async {
+          if(index!=0 && widget.onTabSelected!=null){widget.onTabSelected!(index);return;}
           if(index==7){await Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>const HighlightsSourcePage()));return;}
           if (index == 0) {
             await refresh(silent: true);
