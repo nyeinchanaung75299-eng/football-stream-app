@@ -91,7 +91,7 @@ export async function repositoryMatchesFromHub(entries,{revision='',missingRepos
  for(const entry of entries){
   if(entry.kind!=='event')continue;
   const meta=entry.event_meta||{},repository=meta.source_repository;
-  if(!repository||(missing.has(repository)&&meta.source_partial_fresh!==true)||!meta.home_team||!meta.away_team)continue;
+  if(!REPOSITORY_TREE_SOURCES.includes(repository)||(missing.has(repository)&&meta.source_partial_fresh!==true)||!meta.home_team||!meta.away_team)continue;
   const event={teamA:meta.home_team,teamB:meta.away_team,cat:meta.source_category,
    unclassified_sports:meta.unclassified_sports===true,
    eventInfo:{teamA:meta.home_team,teamB:meta.away_team,teamAFlag:meta.home_logo_url,teamBFlag:meta.away_logo_url,

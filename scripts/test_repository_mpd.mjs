@@ -13,8 +13,8 @@ test('only the opt-in scheduled updater accepts explicit missing repositories',a
   fetched.push(url);
   if(url.endsWith('repository-trees.json'))return Response.json({fetched_at:new Date().toISOString(),repositories:{
    ...Object.fromEntries(NEW_GITHUB_SOURCES.map(x=>[x.repository,{status:404}])),
-   'rohmanabdu/lian':{status:404},'rohmanabdu/deqiaa':{status:404},'darkbyteprojects/iptv_png':tree,'Roshavarma/cfy':cfy}});
-  if(url.includes('api.github.com/repos/rohmanabdu/'))return new Response('',{status:404});
+   'darkbyteprojects/iptv_png':tree,'Roshavarma/cfy':cfy}});
+  if(NEW_GITHUB_SOURCES.some(x=>url.includes('api.github.com/repos/'+x.repository+'/')))return new Response('',{status:404});
   if(url.includes('api.github.com/repos/darkbyteprojects/'))return Response.json(tree);
   if(url.includes('api.github.com/repos/Roshavarma/'))return Response.json(cfy);
   return Response.json([{title:'Sports HD',link:'https://media.example.org/sports.mpd'}]);
@@ -23,7 +23,7 @@ test('only the opt-in scheduled updater accepts explicit missing repositories',a
  fetched.length=0;
  const snapshot=await repositoryChannelUpdates([],{fetcher});
  assert.equal(snapshot.complete,false);assert.equal(snapshot.entries.length,2);
- assert.deepEqual(snapshot.missingRepositories,['rohmanabdu/lian','rohmanabdu/deqiaa',...NEW_GITHUB_SOURCES.map(x=>x.repository)]);
+ assert.deepEqual(snapshot.missingRepositories,NEW_GITHUB_SOURCES.map(x=>x.repository));
  assert.equal(fetched.some(url=>url.includes('api.github.com')),false);
  assert.equal(snapshot.probed,0);
  await assert.rejects(repositoryChannelUpdates([],{fetcher:async()=>Response.json({fetched_at:new Date().toISOString(),repositories:

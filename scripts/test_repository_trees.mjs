@@ -26,7 +26,7 @@ test('opt-in partial tree sync skips only 404 repositories, never 403 or untrust
   calls.push(url);
   if(url.startsWith('https://raw.githubusercontent.com/'))
    return Response.json({fetched_at:new Date(now-3600000).toISOString(),repositories:{}});
-  if(url.includes('rohmanabdu/'))return new Response('',{status:404});
+  if(REPOSITORY_TREE_SOURCES.slice(0,2).some(repo=>url.includes('/'+repo+'/')))return new Response('',{status:404});
   return Response.json(tree);
  }});
  assert.equal(rows.length,REPOSITORY_TREE_SOURCES.length);
@@ -45,4 +45,13 @@ test('fresh explicit missing records permit partial sync without anonymous API c
  let calls=0;const repositories=Object.fromEntries(REPOSITORY_TREE_SOURCES.map((r,i)=>[r,i<2?{status:404}:tree]));
  const rows=await readRepositoryTrees(REPOSITORY_TREE_SOURCES,{now,allowMissing:true,fetcher:async()=>{calls++;return Response.json({fetched_at:new Date(now).toISOString(),repositories});}});
  assert.equal(calls,1);assert.equal(rows[0],null);assert.equal(rows[2].sha,sha);
+});
+
+test('only the six retained repository sources are scheduled; retired sources are rejected without fetching',async()=>{
+ assert.equal(REPOSITORY_TREE_SOURCES.length,6);
+ for(const repo of ['rohmanabdu/lian','rohmanabdu/deqiaa']){
+  let calls=0;
+  await assert.rejects(()=>readRepositoryTrees([repo],{fetcher:async()=>{calls++;throw Error('Unexpected fetch');}}),/Unsupported repository/);
+  assert.equal(calls,0);
+ }
 });

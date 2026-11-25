@@ -189,7 +189,7 @@ export async function fetchRepositoryMatches({fetcher=fetch,revision=null}={}){
   for(const [i,repo] of MPD_REPOSITORIES.entries())for(const item of (trees[i]?.tree||[])){
    const path=item.path;
    if(item.type!=='blob')continue;
-   const match=repo==='darkbyteprojects/iptv_png'?/^provider_[1-6]\/live_events\.json$/.test(path):repo==='Roshavarma/cfy'?path==='api/events.json':/^(?:hasill|finall(?:\.json)?|playlist_final\.json|(?:pl|pll)\/rama+a?2(?:\.json)?)$/.test(path);
+   const match=repo==='darkbyteprojects/iptv_png'?/^provider_[1-6]\/live_events\.json$/.test(path):repo==='Roshavarma/cfy'&&path==='api/events.json';
    if(match){if(item.size>3*1024*1024)throw Error('Repository fixture file exceeds budget');tasks.push({repository:repo,revision:revisions[i],source_file:path,blob_sha:item.sha});}
   }
   if((!tasks.length&&!NEW_GITHUB_SOURCES.some(source=>trees[MPD_REPOSITORIES.indexOf(source.repository)]))||tasks.length>50)throw Error('Invalid repository fixture list');

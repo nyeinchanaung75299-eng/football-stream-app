@@ -120,3 +120,9 @@ test('a shared channel remains available separately for different fixtures',asyn
  assert.equal(result.entries.length,2);
  assert(result.entries.every(row=>row.streams.length===1));
 });
+
+test('retired origins are not projected from old Hub snapshots',async()=>{
+ const rows=['rohmanabdu/lian','rohmanabdu/deqiaa'].map(repository=>({...entry,event_meta:{...entry.event_meta,source_repository:repository}}));
+ const result=await repositoryMatchesFromHub(rows);
+ assert.deepEqual(result.entries,[]);
+});

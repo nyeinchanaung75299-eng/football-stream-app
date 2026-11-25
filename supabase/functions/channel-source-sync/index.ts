@@ -76,6 +76,7 @@ async function synchronize(client:any,force:boolean,source:string){
   let snapshot:any;
   if(source==='repository'){
    const hub=await readStreamHub(client);
+   if(!['ok','partial'].includes(hub.state.status))throw Error('Stream Hub snapshot unavailable; retry after refresh');
    snapshot=await repositoryMatchesFromHub(hub.entries,{revision:hub.state.revision+'|'+hub.state.last_checked_at,
     complete:hub.state.status==='ok',missingRepositories:hub.state.unavailable_repositories||[]});
   }else if(source==='livetv')snapshot=await fetchLiveTvSports({revision:force?null:begun.revision,channels});
@@ -155,7 +156,7 @@ export async function channelSourceRequest(req:Request,client:any){
     .select("id,provider,kind,name,category,image_url,stream_count,unsupported_count,playlist_url,updated_at,epg_id,epg_source,region,event_meta",{count:"exact"})
     .eq("source_id",source)
     .eq("is_present",true);
-   if([1,2,3,4,5,6,9,10,11,12,13,14,15].includes(Number(body.provider)))query=query.eq("provider",Number(body.provider));
+   if([1,2,3,4,5,6,9,10,11,12,13].includes(Number(body.provider)))query=query.eq("provider",Number(body.provider));
    if(["channel","event","video","playlist"].includes(body.kind))query=query.eq("kind",body.kind);
    const search=String(body.query||"").trim().slice(0,120).replace(/[\\%_]/g,"\\$&");
    if(search)query=source==='repository'
@@ -177,7 +178,7 @@ export async function channelSourceRequest(req:Request,client:any){
    return json({ok:true});
   }
   const id=String(body.entry_id||"");
-  if(!(source==='repository'?/^repo:match:[a-f\d]{28}$/:source==='livetv'?/^ltv:channel:[a-f\d]{28}$/:/^(?:db:p[1-6]:(?:channel|event|video|playlist)|gh:(?:smiptv|allrounder|smsports|dudetv|cfy|lian|deqiaa)):[a-f\d]{28}$/).test(id))return json({error:"Invalid source entry"},400);
+  if(!(source==='repository'?/^repo:match:[a-f\d]{28}$/:source==='livetv'?/^ltv:channel:[a-f\d]{28}$/:/^(?:db:p[1-6]:(?:channel|event|video|playlist)|gh:(?:smiptv|allrounder|smsports|dudetv|cfy)):[a-f\d]{28}$/).test(id))return json({error:"Invalid source entry"},400);
   if(action==="details"){
    const entry=await check(client.from("channel_source_catalog").select("id,name,kind,streams,playlist_url,is_present,event_meta").eq("id",id).eq('source_id',source).single());
    return json({ok:true,entry});
