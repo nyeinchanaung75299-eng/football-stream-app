@@ -1,4 +1,4 @@
-import {fetchDarkbyteCatalog,configuration,publicSourceUrl,sourceHash} from './darkbyte_catalog.mjs';
+import {fetchDarkbyteCatalog,configuration,publicSourceUrl,sourceHash,isDarkbyteHighlightPath} from './darkbyte_catalog.mjs';
 import {readRepositoryTrees} from './repository_trees.mjs';
 import {darkbyteFixtureScopeVerified,scopedHubRevision} from './repository_snapshot_removals.mjs';
 import {HUB_GITHUB_SOURCES,readGithubDocuments,publishedEventMeta} from './github_source_formats.mjs';
@@ -36,23 +36,28 @@ export async function githubCatalogEntries(source,documents,revision){
 // Reuse each unchanged repository's persisted rows. A rotating sports feed must
 // not cause hundreds of unchanged DudeTV channel JSONs to be fetched again.
 export async function fetchConnectedGithubCatalog({fetcher=fetch,revision=null,previous=[]}={}){
+ // Highlights are intentionally outside the Stream Hub scope. Exclude old
+ // highlight rows even when the associated source is temporarily unavailable.
+ const retained=previous.filter(row=>!(row.event_meta?.source_repository===legacy&&row.kind==='video'&&isDarkbyteHighlightPath(row.source_file)));
+ const scopeChanged=retained.length!==previous.length;
+ previous=retained;
  const repositories=[legacy,...HUB_GITHUB_SOURCES.map(x=>x.repository)];
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),55000);
  try{
   const trees=await readRepositoryTrees(repositories,{fetcher,signal:controller.signal,allowMissing:true,isolateFailures:true});
-  const digest=await sourceHash('catalog-v4:'+trees.map(x=>x?.sha||'missing').join(':'));
+  const digest=await sourceHash('catalog-v5-no-highlights:'+trees.map(x=>x?.sha||'missing').join(':'));
   let complete=trees.every(Boolean);
   let partialDarkbytePaths=[],darkbyteFixturesVerified=false;
   const failed=new Set(repositories.filter((_,i)=>!trees[i]));
   const fresh=repositories.every((repo,i)=>{const saved=previous.filter(row=>row.event_meta?.source_repository===repo);return saved.length&&saved.every(row=>row.event_meta?.source_revision===trees[i]?.sha&&row.event_meta?.catalog_schema_version===3&&!row.event_meta?.source_partial_fresh);});
-  if(complete&&fresh&&digest===revision)return {revision:digest,unchanged:true,complete:true,entries:[],missingRepositories:[]};
+  if(!scopeChanged&&complete&&fresh&&digest===revision)return {revision:digest,unchanged:true,complete:true,entries:[],missingRepositories:[]};
   if(!trees.some(Boolean))throw Error('No connected GitHub source available');
   const batches=await Promise.all(repositories.map(async(repo,index)=>{
    const tree=trees[index],old=previous.filter(row=>row.event_meta?.source_repository===repo);
    if(!tree)return old;
    if(old.length&&old.every(row=>row.event_meta?.source_revision===tree.sha&&row.event_meta?.catalog_schema_version===3&&!row.event_meta?.source_partial_fresh))return old;
    try{if(repo===legacy){
-    const snapshot=await fetchDarkbyteCatalog({fetcher,tree});
+    const snapshot=await fetchDarkbyteCatalog({fetcher,tree,includeHighlights:false});
     if(!snapshot.complete){
      complete=false;
      failed.add(repo);

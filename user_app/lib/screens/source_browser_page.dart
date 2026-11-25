@@ -28,8 +28,10 @@ import '../widgets/premium_match_card.dart';
 import '../widgets/source_match_filters.dart';
 
 class SourceBrowserPage extends StatefulWidget {
-  const SourceBrowserPage({super.key, required this.source});
+  const SourceBrowserPage({super.key, required this.source, this.active = true, this.onTabSelected});
   final String source;
+  final bool active;
+  final ValueChanged<int>? onTabSelected;
 
   @override
   State<SourceBrowserPage> createState() => _SourceBrowserPageState();
@@ -131,7 +133,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
     _sourceRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       final state = WidgetsBinding.instance.lifecycleState;
-      if (mounted &&
+      if (mounted && widget.active &&
           !_openingPlayer &&
           (state == null || state == AppLifecycleState.resumed) &&
           ModalRoute.of(context)?.isCurrent != false) {
@@ -152,6 +154,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   @override
   void didUpdateWidget(covariant SourceBrowserPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active && oldWidget.source == widget.source && !ViewerTabCache.sourceFresh(source)) {
+      unawaited(_refresh(silent: true));
+    }
     if (oldWidget.source != widget.source) {
       _rememberUi(oldWidget.source.toLowerCase());
       _lastSourcePoll = null;
@@ -1003,6 +1008,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   }
 
   void _select(int index) {
+    if(index!=navIndex && widget.onTabSelected!=null){_rememberUi();widget.onTabSelected!(index);return;}
     if(index==7){Navigator.of(context).pushReplacement(MaterialPageRoute<void>(builder:(_)=>const HighlightsSourcePage()));return;}
     _rememberUi();
     if (index == navIndex) {

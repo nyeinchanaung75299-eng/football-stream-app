@@ -113,7 +113,8 @@ export async function readJson(target,{fetcher,signal,limit=3*1024*1024}){
   return JSON.parse(new TextDecoder().decode(bytes));
  }finally{clearTimeout(timer);controller.abort();}
 }
-export async function fetchDarkbyteCatalog({fetcher=fetch,revision=null,tree:providedTree=null}={}){
+export function isDarkbyteHighlightPath(path){return /highlight/i.test(String(path||''));}
+export async function fetchDarkbyteCatalog({fetcher=fetch,revision=null,tree:providedTree=null,includeHighlights=true}={}){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),28000);
  try{
   const options={fetcher,signal:controller.signal};
@@ -122,6 +123,7 @@ export async function fetchDarkbyteCatalog({fetcher=fetch,revision=null,tree:pro
   if(revision===sha)return {revision:sha,unchanged:true,entries:[],complete:true};
   if(tree?.truncated||!Array.isArray(tree?.tree))throw new Error('Incomplete channel source tree.');
   const paths=tree.tree.filter(item=>item.type==='blob'&&/^provider_[1-6]\/(?:[a-zA-Z0-9_-]+\.json|categories\/[a-zA-Z0-9_-]+\.json)$/.test(item.path))
+   .filter(item=>includeHighlights||!isDarkbyteHighlightPath(item.path))
    .map(item=>item.path).sort((a,b)=>Number(a.includes('/categories/'))-Number(b.includes('/categories/'))||a.localeCompare(b));
   if(!paths.length||paths.length>250)throw new Error('Invalid channel source file list.');
   const entries=new Map(),files=new Array(paths.length);let next=0;const failedPaths=[];

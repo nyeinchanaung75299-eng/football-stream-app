@@ -22,7 +22,9 @@ import '../viewer_navigation.dart';
 import '../viewer_tab_cache.dart';
 
 class ChannelsPage extends StatefulWidget {
-  const ChannelsPage({super.key});
+  const ChannelsPage({super.key, this.active = true, this.onTabSelected});
+  final bool active;
+  final ValueChanged<int>? onTabSelected;
   @override
   State<ChannelsPage> createState() => _ChannelsPageState();
 }
@@ -115,10 +117,20 @@ class _ChannelsPageState extends State<ChannelsPage>
   }
 
   @override
+  void didUpdateWidget(covariant ChannelsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.active) { _guideClock?.cancel(); }
+    if (widget.active && !oldWidget.active) {
+      _rebuildGuide();
+      if (!ViewerTabCache.channelsFresh()) unawaited(refresh(silent: true));
+    }
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _guideClock?.cancel();
     _foreground = state == AppLifecycleState.resumed;
-    if (_foreground) {
+    if (_foreground && widget.active) {
       _rebuildGuide();
       unawaited(_loadChannelEpg());
     }
@@ -172,7 +184,7 @@ class _ChannelsPageState extends State<ChannelsPage>
         }
       }
     }
-    if (!_foreground) return;
+    if (!_foreground || !widget.active) return;
     _guideClock = Timer(
       delay + const Duration(milliseconds: 20),
       _rebuildGuide,
@@ -509,6 +521,7 @@ class _ChannelsPageState extends State<ChannelsPage>
   }
 
   void navigate(int index) {
+    if(index!=6 && widget.onTabSelected!=null){widget.onTabSelected!(index);return;}
     if(index==7){Navigator.of(context).pushReplacement(MaterialPageRoute<void>(builder:(_)=>const HighlightsSourcePage()));return;}
     ViewerTabCache.channelUi = ViewerChannelsUiState(
       search: search.text,

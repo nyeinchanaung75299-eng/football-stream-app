@@ -85,3 +85,17 @@ test('published combat event titles survive Hub without inventing a fighter pair
   assert.equal(entries[0].kind,'event');assert.equal(entries[0].event_meta.home_team,null);assert.equal(entries[0].event_meta.kickoff_at,null);
  }
 });
+
+
+test('retired Stream Hub highlights are excluded from cached snapshots during source outages',async()=>{
+ const repositories=['darkbyteprojects/iptv_png',...HUB_GITHUB_SOURCES.map(x=>x.repository)];
+ const previous=repositories.map((repository,i)=>({id:'scope-cache-'+i,kind:'channel',source_file:'channels.json',streams:[],event_meta:{source_repository:repository,source_revision:sha,catalog_schema_version:3}}));
+ previous.push({id:'unused-hl',kind:'video',source_file:'provider_6/highlights.json',streams:[],event_meta:{source_repository:repositories[0],source_revision:sha,catalog_schema_version:3}});
+ const result=await fetchConnectedGithubCatalog({previous,fetcher:async address=>{
+  assert(address.endsWith('/repository-trees.json'));
+  return Response.json({fetched_at:new Date().toISOString(),repositories:Object.fromEntries(repositories.map((r,i)=>[r,i===0?{status:404}:{sha,truncated:false,tree:[]}]))});
+ }});
+ assert.equal(result.complete,false);
+ assert.equal(result.entries.length,repositories.length);
+ assert(!result.entries.some(row=>row.id==='unused-hl'));
+});
