@@ -71,6 +71,7 @@ export async function fetchConnectedGithubCatalog({fetcher=fetch,revision=null,p
    const documents=await readGithubDocuments(repo,tree,{fetcher,signal:controller.signal});
    return await githubCatalogEntries(source,documents,tree.sha);
    }catch(error){
+    if(repo===legacy)darkbyteFixturesVerified=false;
     console.warn('Published repository data failed',{repository:repo,code:error?.code||error?.name||'invalid_export'});
     complete=false;failed.add(repo);return old;
    }
