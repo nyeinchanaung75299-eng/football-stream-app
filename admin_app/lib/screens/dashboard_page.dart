@@ -376,7 +376,7 @@ class _DashboardPageState extends State<DashboardPage> {
             icon: Icons.monitor_heart_outlined,
             title: 'System Health',
             iconColor: colors.primary,
-            onTap: () => open(context, const Scaffold(body: SafeArea(child: SystemHealthPage(active: true))),
+            onTap: () => open(context, Scaffold(appBar: AppBar(title: const Text('System Health')), body: const SafeArea(child: SystemHealthPage(active: true))),
                 'system-health'),
           ),
           const SizedBox(height: 8),

@@ -59,6 +59,7 @@ async function synchronize(client:any,force:boolean,source:string){
    const checkedAt=new Date().toISOString();
    await check(client.from('channel_source_state').update({revision:snapshot.revision,last_checked_at:checkedAt,
     ...(snapshot.complete?{last_success_at:checkedAt}:{}),status:snapshot.complete?'ok':'partial',
+    unavailable_repositories:snapshot.missingRepositories||[],
     entry_count:imported.length,lease_id:null,lease_until:null}).eq('id',source).eq('lease_id',begun.lease));
    return {ok:true,...result,...merged,probed:snapshot.probed,repaired:snapshot.repaired,
     complete:snapshot.complete,unavailable_repositories:snapshot.missingRepositories};

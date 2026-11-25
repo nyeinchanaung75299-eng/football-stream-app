@@ -99,3 +99,17 @@ test('verified Admin adds one selected source line to a match using server-owned
  const missing=await channelSourceRequest(request({action:'add_match',entry_id:'db:p1:channel:'+'0'.repeat(28),source_line_id:'missing',match_id:match},'valid'),fake);
  assert.equal(missing.status,404);
 });
+
+
+test('Stream Hub scope omits unused highlight files without marking valid channel files partial',async()=>{
+ const calls=[];
+ const tree={sha,truncated:false,tree:[{type:'blob',path:'provider_1/channels.json'},{type:'blob',path:'provider_6/highlights.json'}]};
+ const result=await fetchDarkbyteCatalog({tree,includeHighlights:false,fetcher:async target=>{
+  calls.push(target);
+  assert(!target.includes('highlights'));
+  return Response.json([base]);
+ }});
+ assert.equal(result.complete,true);
+ assert.equal(result.entries.length,1);
+ assert.equal(calls.length,1);
+});
