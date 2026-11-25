@@ -20,3 +20,23 @@ export function unobservedRepositoryEntries(snapshot,previous){
   return !Array.isArray(origins)||origins.length===0||origins.some(repo=>!observed(repo,missing));
  });
 }
+
+const FIXTURE_SCOPE_SUFFIX=':darkbyte-fixtures-ok-v1';
+const DARKBYTE_REPOSITORY='darkbyteprojects/iptv_png';
+// Only a fully observed set of fixture files plus exclusively highlight
+// failures proves that football fixtures are complete. Never decode or
+// interpret unsupported highlight payloads, or hide their Hub failure.
+export function darkbyteFixtureScopeVerified(tree,failedPaths){
+ if(!Array.isArray(failedPaths)||!failedPaths.length||!failedPaths.every(path=>/^provider_[1-6]\/highlights\.json$/.test(path)))return false;
+ const paths=new Set((tree?.tree||[]).filter(x=>x.type==='blob').map(x=>x.path));
+ return !tree?.truncated&&Array.from({length:6},(_,i)=>'provider_'+(i+1)+'/live_events.json').every(path=>paths.has(path));
+}
+export function scopedHubRevision(revision,verified){
+ return verified?revision+FIXTURE_SCOPE_SUFFIX:revision;
+}
+export function repositoryFixtureScope(state){
+ const missing=Array.isArray(state.unavailable_repositories)?state.unavailable_repositories:[];
+ const scoped=state.status==='partial'&&typeof state.revision==='string'&&/^[a-f0-9]{64}:darkbyte-fixtures-ok-v1$/.test(state.revision)&&missing.includes(DARKBYTE_REPOSITORY);
+ const remaining=scoped?missing.filter(repo=>repo!==DARKBYTE_REPOSITORY):missing;
+ return {complete:state.status==='ok'||(scoped&&remaining.length===0),missingRepositories:remaining};
+}
