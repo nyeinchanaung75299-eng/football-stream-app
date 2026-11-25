@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:football_admin/screens/dashboard_page.dart';
+import 'package:football_admin/widgets/tab_swipe_region.dart';
 import 'package:football_admin/screens/highlights_page.dart';
 import 'package:football_admin/services/diagnostics_service.dart';
 
@@ -35,7 +36,7 @@ void main() {
       expect(find.text('My Channels'), findsWidgets);
       expect(find.text('TV Schedule'), findsWidgets);
       expect(find.text('Refresh monitor'), findsNothing);
-      await tester.tap(find.text('Sources').last);
+      await tester.drag(find.byType(TabSwipeRegion), const Offset(-240, 0));
       await tester.pumpAndSettle();
       expect(find.text('Stream Sources'), findsOneWidget);
       expect(find.text('Soco'), findsOneWidget);

@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../analytics_service.dart';
 import '../admin_update_service.dart';
 import '../widgets/theme_mode_button.dart';
+import '../widgets/tab_swipe_region.dart';
 import '../widgets/admin_version_dialog.dart';
 import 'channels_page.dart';
 import 'connected_channels_page.dart';
@@ -122,6 +123,26 @@ class _DashboardPageState extends State<DashboardPage> {
         },
       );
 
+  void _selectTab(int index) {
+    if (index < 0 || index >= 5 || index == _tab) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final section = switch (index) {
+      0 => 'controls',
+      1 => 'stream-sources',
+      2 => 'tools',
+      3 => 'tv-schedule',
+      _ => 'my-channels',
+    };
+    AnalyticsService.capture(
+      'admin section opened',
+      properties: {'section': section, 'entry': 'bottom_navigation'},
+    );
+    setState(() {
+      _tab = index;
+      _visitedTabs.add(index);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -166,24 +187,7 @@ class _DashboardPageState extends State<DashboardPage> {
           : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
-        onDestinationSelected: (index) {
-          if (index == _tab) return;
-          final section = switch (index) {
-            0 => 'controls',
-            1 => 'stream-sources',
-            2 => 'tools',
-            3 => 'tv-schedule',
-            _ => 'my-channels',
-          };
-          AnalyticsService.capture(
-            'admin section opened',
-            properties: {'section': section, 'entry': 'bottom_navigation'},
-          );
-          setState(() {
-            _tab = index;
-            _visitedTabs.add(index);
-          });
-        },
+        onDestinationSelected: _selectTab,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.dashboard_outlined),
@@ -216,7 +220,9 @@ class _DashboardPageState extends State<DashboardPage> {
       // dropdowns, scroll offsets and form state for every visited tab.
       // Using a normal eager IndexedStack here would fetch private Admin
       // guides before an authorized user explicitly enters those tabs.
-      body: Stack(
+      body: TabSwipeRegion(
+        index: _tab, count: 5, onSelected: _selectTab,
+        child: Stack(
         children: [
           for (final index in (_visitedTabs.toList()..sort()))
             Offstage(
@@ -228,6 +234,7 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
             ),
         ],
+        ),
       ),
     );
   }
@@ -330,22 +337,6 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
           const SizedBox(height: 12),
           _ActionCard(
-            icon: Icons.monitor_heart_outlined,
-            title: 'System Health',
-            iconColor: colors.primary,
-            onTap: () => open(context, const SystemHealthPage(active: true),
-                'system-health'),
-          ),
-          const SizedBox(height: 8),
-          _ActionCard(
-            icon: Icons.sync_problem_outlined,
-            title: 'Source Sync Health',
-            iconColor: const Color(0xFFF59E0B),
-            onTap: () => open(context, const SourceSyncHealthPage(),
-                'source-sync-health'),
-          ),
-          const SizedBox(height: 8),
-          _ActionCard(
             icon: Icons.sports_soccer_rounded,
             title: 'Repository Matches',
             iconColor: colors.primary,
@@ -379,6 +370,22 @@ class _DashboardPageState extends State<DashboardPage> {
             iconColor: const Color(0xFF54E6C1),
             onTap: () => open(context,
                 const ConnectedChannelsPage(sportsOnly: true), 'livetv-sports'),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.monitor_heart_outlined,
+            title: 'System Health',
+            iconColor: colors.primary,
+            onTap: () => open(context, const Scaffold(body: SafeArea(child: SystemHealthPage(active: true))),
+                'system-health'),
+          ),
+          const SizedBox(height: 8),
+          _ActionCard(
+            icon: Icons.sync_problem_outlined,
+            title: 'Source Sync Health',
+            iconColor: const Color(0xFFF59E0B),
+            onTap: () => open(context, const SourceSyncHealthPage(),
+                'source-sync-health'),
           ),
           const SizedBox(height: 8),
           _ActionCard(
