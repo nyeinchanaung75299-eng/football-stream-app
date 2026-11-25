@@ -126,3 +126,43 @@ test('retired origins are not projected from old Hub snapshots',async()=>{
  const result=await repositoryMatchesFromHub(rows);
  assert.deepEqual(result.entries,[]);
 });
+
+
+test('dated aliases use ordered team IDs, exact kickoff and reviewed league across all providers',async()=>{
+ const logo=id=>'https://img.sofascore.com/api/v1/team/'+id+'/image';
+ const make=(home,away,homeId,awayId,league,category,repository,kickoff='2026-11-25T17:45:00Z')=>({
+  ...entry,streams:[],event_meta:{...entry.event_meta,source_repository:repository,
+   home_team:home,away_team:away,home_logo_url:logo(homeId),away_logo_url:logo(awayId),
+   league,source_category:category,kickoff_at:kickoff}
+ });
+ const dark='darkbyteprojects/iptv_png',other='dilzyking/allrounderlive';
+ for(const [home,away,shortHome,shortAway,h,a,league,category] of [
+  ['Sabah FK','FC Barcelona','Sabah','Barcelona',267828,2817,'UEFA Champions League','UCL'],
+  ['SK Slavia Praha','Villarreal','Slavia Praha','Villarreal',2216,2819,'UEFA Champions League','UCL'],
+  ['Sporting CP','Manchester United','Sporting','Man Utd',3001,35,'UEFA Champions League','UCL'],
+  ['Al-Taawoun','Al Nahda SC','Al-Taawoun','Al-Nahda',56021,40648,'AFC Champions League Two','AFC Champions League 2'],
+  ['Example FC','Example Town SC','Example','Example Town',100,101,'Example Regional League','Football']
+ ]){
+  const first=make(home,away,h,a,league,'Football',other);
+  const second=make(shortHome,shortAway,h,a,home+' vs '+away,category,dark);
+  if(category==='Football')second.event_meta.league=league;
+  const projected=await repositoryMatchesFromHub([first,second]);
+  assert.equal(projected.entries.length,1,home+' vs '+away);
+  assert.equal(projected.entries[0].event_meta.repositories.length,2);
+  const sameRepo=await repositoryMatchesFromHub([first,{...second,event_meta:{...second.event_meta,source_repository:other}}]);
+  assert.equal(sameRepo.entries.length,1);
+ }
+ const senior=make('Sporting CP','Manchester United',3001,35,'UEFA Champions League','Football',other);
+ const distinct=[
+  make('Sporting U19','Manchester United U19',3001,35,'UEFA Champions League','Football',dark),
+  make('Sporting Women','Manchester United Women',3001,35,'UEFA Champions League','Football',dark),
+  make('Sporting B','Manchester United B',3001,35,'UEFA Champions League','Football',dark),
+  make('Sporting','Manchester United',3001,35,'UEFA Europa League','Football',dark),
+  make('Sporting','Manchester United',3001,35,'UEFA Champions League','Football',dark,'2026-11-25T18:45:00Z'),
+  make('Sporting','Manchester United',99999,35,'UEFA Champions League','Football',dark),
+ ];
+ for(const candidate of distinct){
+  const projected=await repositoryMatchesFromHub([senior,candidate]);
+  assert.equal(projected.entries.length,2,candidate.event_meta.home_team+' '+candidate.event_meta.league);
+ }
+});
