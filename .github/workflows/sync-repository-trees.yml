@@ -4,6 +4,10 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "3-58/5 * * * *"
+  workflow_run:
+    workflows: ["Sync Public Match Feed"]
+    types: [completed]
+    branches: [main]
   push:
     branches: [main]
     paths:
@@ -20,15 +24,35 @@ concurrency:
 
 jobs:
   refresh:
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Test metadata freshness and rate-limit handling
+        run: node --test scripts/test_repository_trees.mjs
+      - name: Check backup refresh freshness
+        id: freshness
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          echo 'skip=false' >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" != workflow_run ]; then exit 0; fi
+          git fetch origin feed
+          if git show FETCH_HEAD:public/repository-trees.json > /tmp/previous-metadata.json 2>/dev/null; then
+            node --input-type=module -e 'import fs from "node:fs"; import {REPOSITORY_TREE_SOURCES as sources} from "./supabase/functions/_shared/repository_trees.mjs"; try{const d=JSON.parse(fs.readFileSync("/tmp/previous-metadata.json","utf8"));const age=Date.now()-Date.parse(d.fetched_at);if(age>=0&&age<10*60000&&sources.every(r=>/^[a-f0-9]{40}$/.test(d.repositories?.[r]?.sha||"")&&!d.repositories[r].truncated&&Array.isArray(d.repositories[r].tree)))console.log("skip=true");}catch{}' >> "$GITHUB_OUTPUT"
+          fi
       - name: Read GitHub source trees
+        if: steps.freshness.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/publish_repository_trees.mjs /tmp/repository-trees.json
       - name: Publish metadata only
+        if: steps.freshness.outputs.skip != 'true'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"

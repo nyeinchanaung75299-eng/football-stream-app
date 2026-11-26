@@ -55,3 +55,31 @@ test('only the six retained repository sources are scheduled; retired sources ar
   assert.equal(calls,0);
  }
 });
+
+test('shared rate limits defer further anonymous requests until the reset; fresh metadata still wins',async()=>{
+ let current=now, fresh=false, blocked=true, apiCalls=0;
+ const fetcher=async url=>{
+  if(url.includes('raw.githubusercontent.com'))return Response.json({fetched_at:new Date(current-(fresh?0:3600000)).toISOString(),repositories:Object.fromEntries(REPOSITORY_TREE_SOURCES.map(repo=>[repo,tree]))});
+  apiCalls++;
+  return blocked?new Response('',{status:403,headers:{'x-ratelimit-remaining':'0','x-ratelimit-reset':String((now+1800000)/1000)}}):Response.json(tree);
+ };
+ const read=()=>readRepositoryTrees(REPOSITORY_TREE_SOURCES,{now:current,fetcher,allowMissing:true,isolateFailures:true});
+ assert((await read()).every(x=>x===null));assert.equal(apiCalls,1);
+ current+=60000;assert((await read()).every(x=>x===null));assert.equal(apiCalls,1);
+ fresh=true;assert((await read()).every(x=>x.sha===sha));assert.equal(apiCalls,1);
+ fresh=false;blocked=false;current=now+1800001;
+ assert((await read()).every(x=>x.sha===sha));assert.equal(apiCalls,7);
+});
+
+test('source-specific access denial does not block unrelated metadata or pretend it was removed',async()=>{
+ const first=REPOSITORY_TREE_SOURCES[0],second=REPOSITORY_TREE_SOURCES[1];let apiCalls=0;
+ const fetcher=async url=>{
+  if(url.includes('raw.githubusercontent.com'))return Response.json({fetched_at:new Date(now).toISOString(),repositories:{}});
+  apiCalls++;return url.includes('/'+first+'/')?new Response('',{status:403}):Response.json(tree);
+ };
+ const read=()=>readRepositoryTrees([first,second],{now,fetcher,allowMissing:true,isolateFailures:true});
+ assert.deepEqual(await read(),[null,tree]);assert.equal(apiCalls,2);
+ assert.deepEqual(await read(),[null,tree]);assert.equal(apiCalls,3);
+ await assert.rejects(()=>readRepositoryTrees([first],{now,fetcher,allowMissing:true}),e=>e.code==='repository_http_403'&&e.deferred===true);
+ assert.equal(apiCalls,3);
+});
