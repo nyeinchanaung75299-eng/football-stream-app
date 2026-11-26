@@ -108,3 +108,7 @@ The script creates a disposable `postgres:17` container, initializes test roles
 and Auth helpers, applies the base schema and every migration in filename order,
 and runs the database security checks. It removes the container afterward and
 does not connect to production or require production credentials.
+
+## Retired standalone upgrade scripts
+
+The five pre-migration standalone `supabase/upgrade_*.sql` scripts are no longer part of the supported setup. The current base schema includes their required columns, defaults, constraints and fixture index; later migrations supersede their historical access policies. For historical reference only, the original files remain available in Git at [the pre-cleanup revision](https://github.com/nyeinchanaung75299-eng/football-stream-app/tree/7affea0fbb63b32981126254ff8c86b53a8a92b6/supabase). Do not execute those historical scripts against production. The numbered migration chain and base schema are unchanged.

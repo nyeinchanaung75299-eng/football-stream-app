@@ -27,11 +27,7 @@ So API logos are optional. You can replace either logo manually later.
 ## One-time Supabase setup
 
 ### A. Database
-Run:
-
-`supabase/upgrade_fixture_import_v6_3.sql`
-
-in the Supabase SQL Editor.
+Follow [Database migrations](docs/DATABASE_MIGRATIONS.md). The current base schema includes the fixture import columns and unique index. Apply the full migration chain to a new database; for an existing project, verify its recorded migration state before making any changes. The standalone V6.3 upgrade is retired.
 
 ### B. Create an API-Football key
 Create an API-Football account and copy your API key.
