@@ -69,6 +69,10 @@ Supabase URL and publishable key are already configured in `user_app/lib/main.da
 cd user_app
 flutter pub get
 flutter run
+```
+
+For a custom backend:
+
 ```bash
 cd user_app
 flutter pub get
@@ -98,7 +102,6 @@ flutter run \
 - Player/WebView switch
 - Player notification switch
 
-If this Supabase project already used the original schema, run:
-`supabase/upgrade_stream_links_v2.sql`
+For existing projects, follow [Database migrations](docs/DATABASE_MIGRATIONS.md). The V2–V9 standalone upgrade scripts are retired; do not execute historical SQL on the current database.
 
 ClearKey is client-side DRM and is not strong key secrecy. For stronger protection use a licensed DRM system and license server.
