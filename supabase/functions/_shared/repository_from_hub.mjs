@@ -58,7 +58,37 @@ function reportedWallClock(value) {
  const parts=/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}:\d{2}:\d{2})$/.exec(value || '');
  return parts ? `${parts[3]}-${parts[2]}-${parts[1]}T${parts[4]}.000Z` : null;
 }
+// A generic sport label is not a second competition. Corroborate it only
+// against one uniquely identified named competition with exact fixture IDs,
+// kickoff and team class. Never infer a league from an ambiguous named pair.
+function fixtureIdentity(row) {
+ const home=badgeId(row.home_logo_url),away=badgeId(row.away_logo_url);
+ const when=Date.parse(row.kickoff_at||'');
+ if(!home||!away||home===away||!Number.isFinite(when))return null;
+ return JSON.stringify([home,away,new Date(when).toISOString(),row.competition_tag||'',teamClass(row.home_team),teamClass(row.away_team)]);
+}
+function genericSportLeague(value) {
+ return /^(?:football|soccer|live sports|live events)$/i.test(String(value||'').trim());
+}
+function corroborateGenericLeagues(rows) {
+ const byFixture=new Map();
+ for(const row of rows){
+  const identity=fixtureIdentity(row),league=fixtureLeague(row.league);
+  if(!identity||!league)continue;
+  const named=byFixture.get(identity)||new Map();
+  named.set(league,reviewedLeague(row.league)||row.league);
+  byFixture.set(identity,named);
+ }
+ for(const row of rows){
+  if(!genericSportLeague(row.league))continue;
+  const identity=fixtureIdentity(row);
+  const named=identity&&byFixture.get(identity);
+  if(named?.size===1)row.league=named.values().next().value;
+ }
+ return rows;
+}
 function mergeVerifiedAliases(rows) {
+ corroborateGenericLeagues(rows);
  const groups = new Map();
  for (const row of rows) {
   const evidence = fixtureEvidence(row);
@@ -132,6 +162,6 @@ export async function repositoryMatchesFromHub(entries,{revision='',missingRepos
    resolved_streams:(entry.streams||[]).map(line=>({...line,title:line.label}))};
   rows.push(...parseRepositoryMatches(JSON.stringify([event]),{repository,source_file:entry.source_file}));
  }
- return {revision:await sourceHash('hub-repository-v4:'+revision),unchanged:false,
+ return {revision:await sourceHash('hub-repository-v5:'+revision),unchanged:false,
   entries:await mergeRepositoryMatches(mergeVerifiedAliases(rows),{now}),complete,missingRepositories:[...missing]};
 }
