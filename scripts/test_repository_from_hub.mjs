@@ -166,3 +166,38 @@ test('dated aliases use ordered team IDs, exact kickoff and reviewed league acro
   assert.equal(projected.entries.length,2,candidate.event_meta.home_team+' '+candidate.event_meta.league);
  }
 });
+
+test('generic football league is corroborated only by a unique exact dated named fixture',async()=>{
+ const logo=id=>'https://img.sofascore.com/api/v1/team/'+id+'/image';
+ const make=(home,away,league,{homeId=267828,awayId=2817,kickoff='2026-11-25T17:45:00Z',repository='Roshavarma/cfy'}={})=>({
+  ...entry,streams:[],event_meta:{...entry.event_meta,source_repository:repository,
+   home_team:home,away_team:away,home_logo_url:logo(homeId),away_logo_url:logo(awayId),
+   league,source_category:'Football',kickoff_at:kickoff}
+ });
+ for(const [longHome,longAway,shortHome,shortAway,league,h,a] of [
+  ['Sabah FK','FC Barcelona','Sabah','Barcelona','UEFA Champions League',267828,2817],
+  ['SK Slavia Praha','Villarreal','Slavia Praha','Villarreal','UEFA Champions League',2216,2819],
+  ['Al-Taawoun','Al Nahda SC','Al-Taawoun','Al-Nahda','AFC Champions League Two',56021,40648]
+ ]){
+  const generic=make(longHome,longAway,'Football',{homeId:h,awayId:a});
+  const named=make(shortHome,shortAway,league,{homeId:h,awayId:a,repository:'dilzyking/allrounderlive'});
+  for(const rows of [[generic,named],[named,generic]]){
+   const projected=await repositoryMatchesFromHub(rows);
+   assert.equal(projected.entries.length,1);
+   assert.equal(projected.entries[0].event_meta.league,league);
+  }
+ }
+ const generic=make('Sabah FK','FC Barcelona','Football');
+ const named=make('Sabah','Barcelona','UEFA Champions League');
+ for(const distinct of [
+  make('Sabah','Barcelona','UEFA Champions League',{homeId:99999}),
+  make('Sabah','Barcelona','UEFA Champions League',{kickoff:'2026-11-25T18:45:00Z'}),
+  make('Sabah U19','Barcelona U19','UEFA Champions League'),
+  make('Sabah Women','Barcelona Women','UEFA Champions League'),
+  make('Sabah B','Barcelona B','UEFA Champions League'),
+ ]){
+  assert.equal((await repositoryMatchesFromHub([generic,distinct])).entries.length,2);
+ }
+ const conflicting=make('Sabah Club','Barcelona Club','UEFA Europa League');
+ assert.equal((await repositoryMatchesFromHub([generic,named,conflicting])).entries.length,3);
+});
