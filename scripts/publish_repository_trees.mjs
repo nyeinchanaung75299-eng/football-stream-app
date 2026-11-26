@@ -15,4 +15,6 @@ await Promise.all(REPOSITORY_TREE_SOURCES.map(async repo=>{
 if(!Object.values(repositories).some(entry=>entry.sha))throw Error('No GitHub repository returned a valid tree');
 const target=process.argv[2];if(!target)throw Error('Output path required');
 await writeFile(target+'.tmp',JSON.stringify({fetched_at:new Date().toISOString(),repositories}));await rename(target+'.tmp',target);
-console.log('Published complete metadata for '+Object.keys(repositories).length+' repositories; no stream configurations or credentials.');
+const valid=Object.values(repositories).filter(entry=>entry.sha).length;
+console.log('Published valid metadata for '+valid+'/'+REPOSITORY_TREE_SOURCES.length+' repositories; no stream configurations or credentials.');
+if(valid<REPOSITORY_TREE_SOURCES.length)console.warn('Partial metadata refresh; unavailable repositories: '+Object.entries(repositories).filter(([,entry])=>!entry.sha).map(([repo,entry])=>repo+' ('+entry.status+')').join(', '));
