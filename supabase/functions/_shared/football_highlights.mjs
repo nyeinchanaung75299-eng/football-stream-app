@@ -42,19 +42,20 @@ export function highlightLine(item, fallbackLabel='Highlights') {
 function uniqueLines(lines) {
   return [...new Map(lines.filter(Boolean).map(line=>[line.id,line])).values()];
 }
-function structuredVideos(html) {
-  const videos=[];
+function structuredRecords(html,type) {
+  const records=[];
   function visit(value,depth=0) {
     if (!value || typeof value!=='object' || depth>12) return;
     if (Array.isArray(value)) {for (const item of value) visit(item,depth+1);return;}
-    if (value['@type']==='VideoObject') videos.push(value);
+    if (value['@type']===type) records.push(value);
     for (const key of ['@graph','itemListElement','item','video','subjectOf']) visit(value[key],depth+1);
   }
   for (const hit of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     try {visit(JSON.parse(hit[1]));} catch (_) { /* An unrelated invalid schema must not hide other videos. */ }
   }
-  return videos;
+  return records;
 }
+const structuredVideos=html=>structuredRecords(html,'VideoObject');
 function streamableId(value){
  const address=publicSourceUrl(value);if(!address)return null;
  const url=new URL(address);if(url.protocol!=='https:'||!['streamable.com','www.streamable.com'].includes(url.hostname))return null;
@@ -127,15 +128,15 @@ export function publicNormalMatchCandidates(html){
   }
   return [...pages];
 }
+function htmlAttribute(tag,name){
+  const match=tag.match(new RegExp('(?:^|\\s)'+name+'\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')','i'));
+  return match?.[1]??match?.[2];
+}
 function normalPanelVideoUrls(visible,page){
-  const attribute=(tag,name)=>{
-    const match=tag.match(new RegExp('(?:^|\\s)'+name+'\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')','i'));
-    return match?.[1]??match?.[2];
-  };
   const panels=new Set();
   for(const [,tag,label] of visible.matchAll(/(<button\b[^>]*>)([\s\S]*?)<\/button>/gi)){
-    if(attribute(tag,'role')!=='tab'||!normalLabel(label))continue;
-    const id=attribute(tag,'aria-controls');
+    if(htmlAttribute(tag,'role')!=='tab'||!normalLabel(label))continue;
+    const id=htmlAttribute(tag,'aria-controls');
     if(id)panels.add(id);
   }
   const urls=[];
@@ -144,11 +145,11 @@ function normalPanelVideoUrls(visible,page){
     if(/^<\/div/i.test(tag)){if(depth>0)depth--;continue;}
     if(/^<div/i.test(tag)){
       if(depth>0)depth++;
-      else if(attribute(tag,'role')==='tabpanel'&&panels.has(attribute(tag,'id')))depth=1;
+      else if(htmlAttribute(tag,'role')==='tabpanel'&&panels.has(htmlAttribute(tag,'id')))depth=1;
       continue;
     }
     if(depth===0)continue;
-    const src=attribute(tag,'src');
+    const src=htmlAttribute(tag,'src');
     const url=src&&publicSourceUrl(clean(src),page);
     if(url)urls.push(url);
     if(urls.length>=8)break;
@@ -156,12 +157,29 @@ function normalPanelVideoUrls(visible,page){
   return urls;
 }
 
+// A match with a single Highlights player can publish its direct URL in
+// JSON-LD and leave the rendered video tag's src empty until Play is pressed.
+function singlePlayerFixtureName(html,visible,page){
+  for(const [,tag,section] of visible.matchAll(/(<section\b[^>]*>)([\s\S]*?)<\/section>/gi)){
+    if(htmlAttribute(tag,'id')!=='highlights'||/<[^>]*\brole=["']tab(?:list|panel)?["']/i.test(section)||
+       !/<video\b/i.test(section)||excluded.test(clean(section)))continue;
+    const headingId=htmlAttribute(tag,'aria-labelledby');
+    const hasHeading=[...section.matchAll(/(<h[1-6]\b[^>]*>)([\s\S]*?)<\/h[1-6]>/gi)]
+      .some(([,heading,label])=>headingId&&headingId===htmlAttribute(heading,'id')&&normalLabel(label));
+    if(!hasHeading)continue;
+    const event=structuredRecords(html,'SportsEvent').find(event=>matchPage(event.url)===page);
+    return clean(event?.name);
+  }
+  return '';
+}
+
 // Admin can inspect direct Normal Highlights MP4 URLs published on the source page.
-export function licensedNormalMp4(html,page,{allowPublisherMp4=false,normalPanelUrls=[]}={}){
+export function licensedNormalMp4(html,page,{allowPublisherMp4=false,normalPanelUrls=[],singlePlayerName=''}={}){
   const source=matchPage(page);
   if(!source)return [];
   const urls=new Set(allowPublisherMp4?normalPanelUrls:[]);
   const blocked=new Set();
+  const singlePlayerUrls=new Set();
   for(const video of structuredVideos(html)){
     const url=publicSourceUrl(video.contentUrl);
     if(!url)continue;
@@ -170,13 +188,20 @@ export function licensedNormalMp4(html,page,{allowPublisherMp4=false,normalPanel
       blocked.add(url);
       continue;
     }
-    if(!normalLabel(video.name)||video.url&&matchPage(video.url)!==source)continue;
+    if(video.url&&matchPage(video.url)!==source)continue;
+    if(!normalLabel(video.name)){
+      const label=clean(video.name);
+      if(allowPublisherMp4&&singlePlayerName&&/\s+highlights?$/i.test(label)&&
+         label.replace(/\s+highlights?$/i,'').toLowerCase()===singlePlayerName.toLowerCase())singlePlayerUrls.add(url);
+      continue;
+    }
     if(!allowPublisherMp4&&(video.isAccessibleForFree!==true||
        !/^https:\/\/creativecommons\.org\/(?:licenses|publicdomain)\//i.test(video.license||'')))continue;
     const media=new URL(url);
     if(!allowPublisherMp4&&(media.origin!==new URL(source).origin||media.search))continue;
     urls.add(url);
   }
+  if(singlePlayerUrls.size===1)urls.add(singlePlayerUrls.values().next().value);
   const lines=[];
   for(const url of urls){
     if(blocked.has(url))continue;
@@ -192,14 +217,15 @@ export function publicNormalMatchMetadata(html,page,options){
   // A finished fixture alone does not establish Normal HL availability.
   const normal=[...visible.matchAll(/<(button|a)\b[^>]*>([\s\S]*?)<\/\1>/gi)].some(hit=>normalLabel(hit[2])) ||
     [...visible.matchAll(/\b(?:aria-label|title)\s*=\s*["']([^"']+)["']/gi)].some(hit=>normalLabel(hit[1]));
-  if(!normal)return null;
+  const singlePlayerName=options?.allowPublisherMp4 ? singlePlayerFixtureName(html,visible,page) : '';
+  if(!normal&&!singlePlayerName)return null;
   const match=new URL(page).pathname.match(/^\/match\/(.+)-(\d{4}-\d{2}-\d{2})-\d+\/$/i);
   const rawTitle=clean(visible.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'')
     .replace(/\s*(?:[|–—-]\s*DasFootball.*|\bHighlights(?:\s+and\s+Goals)?\b.*)$/i,'').trim();
   const title=/\bvs\.?\b/i.test(rawTitle)?rawTitle:match[1].replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()).replace(/\bVs\b/,'vs');
   // Match date is distinct from a verified upload time.
   const normalPanelUrls=options?.allowPublisherMp4 ? normalPanelVideoUrls(visible,page) : [];
-  const lines=licensedNormalMp4(html,page,{...options,normalPanelUrls});
+  const lines=licensedNormalMp4(html,page,{...options,normalPanelUrls,singlePlayerName});
   return {id:'dasfootball:'+page,provider:'dasfootball',title:title.slice(0,240),
     source_page_url:page,match_date:match[2],published_at:null,
     highlight_variant:'normal',source_page_only:lines.length===0,lines};
