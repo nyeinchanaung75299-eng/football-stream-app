@@ -41,6 +41,15 @@ from (values ('old-finished','finished-key',true,'2026-11-19T21:00:00Z'),
  ('just-finished','just-finished-key',true,null)) v(id,fixture,finished,end_at);
 insert into public.repository_match_imports(entry_id,match_id)
  values('protected-finished','59000000-0000-0000-0000-000000000002');
+insert into public.channel_source_catalog(id,source_id,provider,kind,name,category,source_file,streams,revision,event_meta)
+ values('finished-civil-only','repository',8,'event','Finished civil only','Football','Hub projection','[]','test',
+ '{"fixture_key":"finished-civil-only","source_finished":true,"finished_source_date":"2026-08-28"}');
+do $$ begin
+ if not exists(select from public.repository_fixture_retention where entry_id='finished-civil-only'
+  and finished_at>now()-interval '1 minute' and expired_at is null) then
+  raise exception 'First observation must start the clock without a confirmed UTC end';
+ end if;
+end $$;
 set local role anon;
 do $$declare data jsonb;begin
  data:=public.get_repository_catalog_page_for_gateway('2026-11-20',0,1,'hub-parity-fixture');
