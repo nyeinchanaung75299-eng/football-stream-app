@@ -56,6 +56,16 @@ do $$declare data jsonb;begin
  if jsonb_array_length(data->'matches')<>1 or data->>'next_offset'<>'1' or
     data->'matches'->0->>'source_id'<>'just-finished' then raise exception 'Live 2 Yangon page order/cursor: %', data; end if;
  if data::text like '%key_data%' or data::text like '%stream_url%' then raise exception 'Page leaked metadata';end if;
+ data:=public.get_repository_metadata_for_gateway(null,'hub-parity-fixture');
+ if exists(select from jsonb_array_elements(data->'matches') m
+   where m->>'source_id' in ('unknown-result','old-finished','protected-finished')) then
+   raise exception 'Stale fixtures remained in the legacy Viewer list';
+ end if;
+ if not exists(select from jsonb_array_elements(data->'matches') m
+   where m->>'source_id'='finished-civil-only') then raise exception 'Newly confirmed finish disappeared';end if;
+ if has_table_privilege('public.repository_current_catalog','select') then
+   raise exception 'Viewer can query the raw browse view';
+ end if;
  begin
   perform public.prune_finished_repository_fixtures(false);
   raise exception 'Viewer could execute prune';
@@ -65,6 +75,12 @@ end $$;
 reset role;
 set local role service_role;
 do $$declare preview jsonb; removed jsonb;begin
+ if exists(select from public.repository_current_catalog
+   where id in ('unknown-result','old-finished','protected-finished'))
+   or not exists(select from public.channel_source_catalog where id='unknown-result' and is_present)
+   or not exists(select from public.repository_current_catalog where id='finished-civil-only') then
+  raise exception 'Admin browse filtering mutated a source row or showed a stale fixture';
+ end if;
  preview:=public.prune_finished_repository_fixtures();
  if preview->'entry_ids' <> '["old-finished"]'::jsonb
     or not exists(select from public.channel_source_catalog where id='old-finished') then
