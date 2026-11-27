@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {repositoryMatchesFromHub} from '../supabase/functions/_shared/repository_from_hub.mjs';
+import {repositoryMatchesFromHub,reconcilePriorRepositoryFixtures} from '../supabase/functions/_shared/repository_from_hub.mjs';
 const entry={id:'hub-event',kind:'event',source_file:'provider_6/live_events.json',event_meta:{source_repository:'darkbyteprojects/iptv_png',
  home_team:'Newcastle',away_team:'Arsenal',league:'Premier League',source_category:'EPL',kickoff_at:'2026-11-22T17:30:00Z'},
  streams:[{id:'one',label:'HD',stream_url:'https://hub.example.org/one.m3u8',stream_type:'hls'}]};
@@ -200,4 +200,17 @@ test('generic football league is corroborated only by a unique exact dated named
  }
  const conflicting=make('Sabah Club','Barcelona Club','UEFA Europa League');
  assert.equal((await repositoryMatchesFromHub([generic,named,conflicting])).entries.length,3);
+});
+
+test('partial Hub data combines verified duplicates into the previously mapped fixture',()=>{
+ const event_meta={...entry.event_meta,home_logo_url:'https://img.sofascore.com/api/v1/team/20/image',
+  away_logo_url:'https://img.sofascore.com/api/v1/team/40/image',league:'Premier League',repositories:['darkbyteprojects/iptv_png']};
+ const previous={id:'older',event_meta,streams:entry.streams,repository_match_imports:{entry_id:'older'}};
+ const fresh={id:'newer',event_meta:{...event_meta,fixture_key:'newer'},streams:[{stream_url:'https://hub.example.org/two.m3u8',stream_type:'hls'}]};
+ const otherLeague={...previous,id:'other',event_meta:{...event_meta,league:'FA Cup'}};
+ const result=reconcilePriorRepositoryFixtures([fresh],[previous,fresh,otherLeague],{partial:true});
+ assert.deepEqual(result.superseded,['newer']);
+ assert.deepEqual(result.entries.map(row=>[row.id,row.streams.length]),[['older',2]]);
+ const linkedTwice=reconcilePriorRepositoryFixtures([fresh],[previous,{...fresh,channel_source_match_links:[{entry_id:'newer'}]}],{partial:true});
+ assert.deepEqual(linkedTwice.superseded,[]);
 });

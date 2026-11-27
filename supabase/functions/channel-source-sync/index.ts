@@ -3,7 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {createClient} from "jsr:@supabase/supabase-js@2";
 import {sourceHash} from "../_shared/darkbyte_catalog.mjs";
 import {fetchConnectedGithubCatalog} from '../_shared/connected_github_catalog.mjs';
-import {reconcileUndatedRepositoryAliases,repositoryMatchesFromHub} from '../_shared/repository_from_hub.mjs';
+import {reconcilePriorRepositoryFixtures,repositoryMatchesFromHub} from '../_shared/repository_from_hub.mjs';
 import {combatEventsFromHub,combatMatchesQuery} from '../_shared/combat_sports.mjs';
 import {fetchLiveTvSports,sportsNeedsDrm} from "../_shared/livetv_sports.mjs";
 import {preserveRepositoryMatchLines} from '../_shared/repository_matches.mjs';
@@ -81,7 +81,7 @@ async function synchronize(client:any,force:boolean,source:string){
    if(!['ok','partial'].includes(hub.state.status))throw Error('Stream Hub snapshot unavailable; retry after refresh');
    for(let page=0;page<15;page++){
     const rows=await check(client.from('channel_source_catalog')
-     .select('id,streams,event_meta').eq('source_id','repository').eq('is_present',true).order('id').range(page*1000,page*1000+999));
+     .select('id,streams,event_meta,repository_match_imports(entry_id),channel_source_match_links(entry_id),channel_source_links(entry_id)').eq('source_id','repository').eq('is_present',true).order('id').range(page*1000,page*1000+999));
     previousRepository.push(...rows);if(rows.length<1000)break;
    }
    snapshot=await repositoryMatchesFromHub(hub.entries,{revision:hub.state.revision,
@@ -89,14 +89,15 @@ async function synchronize(client:any,force:boolean,source:string){
   }else if(source==='livetv')snapshot=await fetchLiveTvSports({revision:force?null:begun.revision,channels});
   else snapshot=await fetchConnectedGithubCatalog({revision:force?null:begun.revision,previous:previousCatalog});
   let removedRepositoryIds:string[]=[];
-  if(source==='repository'&&!snapshot.complete){
-   // A repository that now returns 404 is not proof its previously saved
-   // published streams were removed. Keep those configurations until a full
-   // authoritative snapshot succeeds, and add new verified Darkbyte/CFY
-   // event lines without multiplying duplicates.
-   const reconciled=reconcileUndatedRepositoryAliases(snapshot.entries,previousRepository);
-   snapshot.entries=preserveRepositoryMatchLines(reconciled.entries,unobservedRepositoryEntries(snapshot,previousRepository));
-   removedRepositoryIds=[...new Set([...reconciled.superseded,...confirmedRepositoryRemovals(snapshot,previousRepository)])];
+  if(source==='repository'){
+   const reconciled=reconcilePriorRepositoryFixtures(snapshot.entries,previousRepository,{partial:!snapshot.complete});
+   snapshot.entries=reconciled.entries;
+   if(!snapshot.complete){
+    // Unobserved origins retain their saved lines. The only exceptions are
+    // duplicate catalog rows corroborated by exact fixture evidence.
+    snapshot.entries=preserveRepositoryMatchLines(snapshot.entries,unobservedRepositoryEntries(snapshot,previousRepository));
+    removedRepositoryIds=[...new Set([...reconciled.superseded,...confirmedRepositoryRemovals(snapshot,previousRepository)])];
+   }
   }
 
   stage='commit';

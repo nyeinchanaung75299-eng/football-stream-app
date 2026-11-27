@@ -7,6 +7,7 @@ const leagues = new Map([
  ['epl', 'Premier League'], ['premier league', 'Premier League'],
  ['laliga', 'LaLiga'], ['la liga', 'LaLiga'],
  ['laliga 2', 'LaLiga 2'], ['la liga 2', 'LaLiga 2'],
+ ['mls', 'MLS'], ['major league soccer', 'MLS'],
  ['ligue 1', 'Ligue 1'], ['serie a', 'Serie A'], ['bundesliga', 'Bundesliga'],
  ["ucl","UEFA Champions League"],
  ["uefa champions league","UEFA Champions League"],
@@ -138,29 +139,54 @@ function mergeVerifiedAliases(rows) {
  }
  return rows;
 }
-export function reconcileUndatedRepositoryAliases(entries,previous) {
- const confirmed=new Map();
- for(const entry of entries){
-  const evidence=fixtureEvidence(entry.event_meta || {});
-  if(!evidence)continue;
-  const candidates=confirmed.get(evidence) || [];
-  candidates.push(entry.id);
-  confirmed.set(evidence,candidates);
+export function reconcilePriorRepositoryFixtures(entries,previous,{partial=false}={}){
+ const index=rows=>{
+  const groups=new Map();
+  for(const row of rows){
+   const evidence=fixtureEvidence(row.event_meta||{});
+   if(!evidence)continue;
+   const group=groups.get(evidence)||[];
+   group.push(row);
+   groups.set(evidence,group);
+  }
+  return groups;
+ };
+ const linked=row=>[row.repository_match_imports,row.channel_source_match_links,row.channel_source_links]
+  .some(value=>Array.isArray(value)?value.length>0:Boolean(value));
+ const current=index(entries),saved=index(previous),byId=new Map(entries.map(entry=>[entry.id,entry]));
+ const superseded=new Set();
+ for(const [evidence,group] of current){
+  const prior=saved.get(evidence)||[];
+  if(group.length!==1||!prior.length)continue;
+  const mapped=prior.filter(linked),legacy=prior.filter(row=>!row.event_meta.fixture_key);
+  if(mapped.length>1)continue;
+  const fresh=group[0];
+  const preferred=mapped[0]||(legacy.length===1?legacy[0]:prior.find(row=>row.id===fresh.id))||
+   (prior.length===1?prior[0]:null);
+  if(!preferred)continue;
+  let merged={...fresh,id:preferred.id};
+  for(const old of prior){
+   if(partial)[merged]=preserveRepositoryMatchLines([merged],[{...old,id:merged.id}]);
+   if(old.id!==preferred.id)superseded.add(old.id);
+  }
+  byId.delete(fresh.id);
+  byId.set(merged.id,merged);
  }
- const byId=new Map(entries.map(entry=>[entry.id,entry]));
- const superseded=[];
- for(const old of previous){
-  const meta=old.event_meta || {};
-  if(meta.kickoff_at||byId.has(old.id))continue;
-  const candidates=confirmed.get(fixtureEvidence(meta,reportedWallClock(meta.source_time)));
-  if(candidates?.length!==1)continue;
-  const candidate=byId.get(candidates[0]),origins=new Set(meta.repositories || []);
-  if(!candidate.event_meta.repositories?.some(repo=>!origins.has(repo)))continue;
-  const [merged]=preserveRepositoryMatchLines([candidate],[{...old,id:candidate.id}]);
-  byId.set(candidate.id,merged);
-  superseded.push(old.id);
+ if(partial){
+  const dated=index(byId.values());
+  for(const old of previous){
+   const meta=old.event_meta||{};
+   if(meta.kickoff_at||byId.has(old.id)||linked(old))continue;
+   const candidates=dated.get(fixtureEvidence(meta,reportedWallClock(meta.source_time)));
+   if(candidates?.length!==1)continue;
+   const candidate=byId.get(candidates[0].id),origins=new Set(meta.repositories||[]);
+   if(!candidate.event_meta.repositories?.some(repo=>!origins.has(repo)))continue;
+   const [merged]=preserveRepositoryMatchLines([candidate],[{...old,id:candidate.id}]);
+   byId.set(candidate.id,merged);
+   superseded.add(old.id);
+  }
  }
- return {entries:[...byId.values()],superseded};
+ return {entries:[...byId.values()],superseded:[...superseded]};
 }
 export async function repositoryMatchesFromHub(entries,{revision='',missingRepositories=[],complete=true,previous=[]}={}){
  const missing=new Set(!complete&&!missingRepositories.length?REPOSITORY_TREE_SOURCES:missingRepositories),rows=[];
@@ -176,6 +202,6 @@ export async function repositoryMatchesFromHub(entries,{revision='',missingRepos
    resolved_streams:(entry.streams||[]).map(line=>({...line,title:line.label}))};
   rows.push(...parseRepositoryMatches(JSON.stringify([event]),{repository,source_file:entry.source_file,source_entry_id:entry.id}));
  }
- return {revision:await sourceHash('hub-repository-v7:'+revision),unchanged:false,
+ return {revision:await sourceHash('hub-repository-v8:'+revision),unchanged:false,
   entries:await mergeRepositoryMatches(mergeVerifiedAliases(rows),{previous}),complete,missingRepositories:[...missing]};
 }
