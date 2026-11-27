@@ -165,7 +165,7 @@ export async function channelSourceRequest(req:Request,client:any){
   }
   if(action==="catalog"){
    const page=Math.max(0,Math.min(1000,Number(body.page)||0));
-   let query=client.from("channel_source_catalog")
+   let query=client.from(source==="repository"?"repository_current_catalog":"channel_source_catalog")
     .select("id,provider,kind,name,category,image_url,stream_count,unsupported_count,playlist_url,updated_at,epg_id,epg_source,region,event_meta",{count:"exact"})
     .eq("source_id",source)
     .eq("is_present",true);
