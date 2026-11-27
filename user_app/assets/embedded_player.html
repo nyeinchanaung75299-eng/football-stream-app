@@ -579,6 +579,7 @@
     let playbackToken=0;
     let playbackStartedToken=-1;
     let playbackAttemptStartedAt=0, activeBuffering=null;
+    let watchTappedAtMs=0, firstFrameReported=false, frameRequest=null;
     let startupTimer=null, stallTimer=null, fallbackTimer=null, progressTimer=null;
     let fallbackScheduledToken=-1, awaitingPlayToken=-1;
     let activePlayingHandler=null;
@@ -1405,6 +1406,7 @@
     async function destroyPlayback(){
       const previousShaka=shakaPlayer, previousMpegts=mpegtsPlayer;
       shakaPlayer=null;mpegtsPlayer=null;
+      if(frameRequest!==null){video.cancelVideoFrameCallback?.(frameRequest);frameRequest=null}
       if(activePlayingHandler){video.removeEventListener('playing',activePlayingHandler);activePlayingHandler=null}
       showMessage(''); currentTracks=[];
       qualityButton.textContent='Auto';
@@ -1479,6 +1481,15 @@
       await destroyPlayback();
       if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
       beginBuffering(index,token);
+      if(watchTappedAtMs>0&&!firstFrameReported&&typeof video.requestVideoFrameCallback==='function'){
+        frameRequest=video.requestVideoFrameCallback(()=>{
+          frameRequest=null;
+          if(!isCurrentPlayback(token)||firstFrameReported)return;
+          firstFrameReported=true;
+          const elapsed=Date.now()-watchTappedAtMs;
+          if(elapsed>=0&&elapsed<=300000)capturePlayerEvent('playback first frame',{tap_to_first_frame_ms:elapsed});
+        });
+      }
       const onPlaying=()=>{
         if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
         clearPlaybackWatchdogs();awaitingPlayToken=-1;showMessage('');
@@ -2020,7 +2031,8 @@
         .catch(()=>{});
     };
 
-    window.openFootballPlayer=async(sourcesJson,selectedIndex,title,matchId,sessionId)=>{
+    window.openFootballPlayer=async(sourcesJson,selectedIndex,title,matchId,sessionId,tappedAt)=>{
+      watchTappedAtMs=Number(tappedAt)||0;firstFrameReported=false;
       try{const parsed=JSON.parse(String(sourcesJson||'[]'));sources=Array.isArray(parsed)?parsed.filter(x=>x&&x.url):[]}catch(_){sources=[]}
       autoFallbackTried.clear();
       routeOverrides.clear();

@@ -2,8 +2,7 @@ name: Refresh GitHub source metadata
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "3-58/5 * * * *"
+  workflow_call:
   push:
     branches: [main]
     paths:

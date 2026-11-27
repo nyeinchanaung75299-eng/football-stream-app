@@ -40,6 +40,7 @@ jobs:
               '.github/workflows/deploy-web.yml',
               '.github/workflows/deploy-cloudflare-public-api.yml',
               '.github/workflows/sync-public-feed.yml',
+              '.github/workflows/sync-repository-trees.yml',
             ]);
 
             const runs = await github.paginate(

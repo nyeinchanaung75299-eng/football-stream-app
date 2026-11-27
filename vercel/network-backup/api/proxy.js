@@ -120,7 +120,7 @@ async function proxy(request) {
       /(?:^|,)\s*no-cache\b/i.test(request.headers.get('Cache-Control') || '');
     if (!backend && kind === "public" && method === "GET" && response.ok &&
         !fresh && !request.headers.has('Authorization') && !request.headers.has('Cookie')) {
-      if (path === "/tv-schedule") {
+      if (path === "/tv-schedule" || path === "/sources/repository/matches") {
         outputHeaders.set("Cache-Control",
           response.headers.get("Cache-Control")?.startsWith("public,")
             ? response.headers.get("Cache-Control")

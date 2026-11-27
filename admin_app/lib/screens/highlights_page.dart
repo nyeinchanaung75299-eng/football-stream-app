@@ -391,6 +391,16 @@ class _HighlightsPageState extends State<HighlightsPage> {
     if (_error != null) warnings.add(_error!);
     final updated =
         DateTime.tryParse(_data?['updated_at']?.toString() ?? '')?.toLocal();
+    final latestPublished = DateTime.tryParse(
+      _data?['latest_published_at']?.toString() ?? '',
+    )?.toLocal();
+    final dateFormat = DateFormat('dd MMM, h:mm a');
+    final sourceStatus = [
+      'DasFootball • ${rows.length} highlights',
+      if (latestPublished != null)
+        'Latest published: ${dateFormat.format(latestPublished)}',
+      if (updated != null) 'Last refreshed: ${dateFormat.format(updated)}',
+    ].join('\n');
     return Scaffold(
       appBar: AppBar(title: const Text('Highlights'), actions: [
         IconButton(
@@ -439,7 +449,7 @@ class _HighlightsPageState extends State<HighlightsPage> {
             child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                    'DasFootball • ${rows.length} highlights${updated == null ? '' : ' • ${DateFormat('dd MMM, h:mm a').format(updated)}'}',
+                    sourceStatus,
                     style: const TextStyle(fontSize: 12)))),
         if (loading || _opening) const LinearProgressIndicator(),
         if (warnings.isNotEmpty)

@@ -139,3 +139,20 @@ test('GitHub source presence wins over old kickoff age',async()=>{
  assert.equal(result[0].name,'Chapecoense vs Cruzeiro');
  assert.equal(result[0].streams.length,1);
 });
+
+
+test('fixture identity is stable across neighbouring kickoffs and separates leagues',async()=>{
+ const row={home_team:'Identity Alpha',away_team:'Identity Beta',league:'Premier League',
+  kickoff_at:'2026-11-27T13:00:00Z',repository:'first',football_proven:true,streams:[]};
+ const [initial]=await mergeRepositoryMatches([row]);
+ const earlier={...row,kickoff_at:'2026-11-27T12:00:00Z'};
+ const otherLeague={...row,league:'FA Cup'};
+ const unknown={...row,kickoff_at:null,source_time:'27/11/2026 19:00:00'};
+ const merged=await mergeRepositoryMatches([earlier,otherLeague,unknown,row]);
+ assert.equal(merged.length,4);
+ assert.equal(merged.find(x=>x.event_meta.league==='Premier League'&&
+  x.event_meta.kickoff_at==='2026-11-27T13:00:00.000Z').id,initial.id);
+ const previous={...initial,id:'repo:match:'+'a'.repeat(28)};
+ const [adopted]=await mergeRepositoryMatches([row],{previous:[previous]});
+ assert.equal(adopted.id,previous.id);
+});

@@ -160,6 +160,8 @@ class NativePlayerActivity : Activity() {
     private val routeOverrides = mutableMapOf<Int, String>()
     private var selectedServerIndex = 0
     private var matchId = ""
+    private var watchTappedAtMs = 0L
+    private var firstFrameReported = false
     private var sessionId = ""
     private var qualityOptions = mutableListOf<QualityOption>()
     private var forcedQualityLabel: String? = null
@@ -265,6 +267,7 @@ class NativePlayerActivity : Activity() {
     private fun createPlayerScreen() {
         // Parse the payload before doing any ExoPlayer work.
         matchId = intent.getStringExtra("matchId").orEmpty()
+        watchTappedAtMs = intent.getLongExtra("watchTappedAtMs", 0L)
         sessionId = intent.getStringExtra("sessionId").orEmpty()
         val json = intent.getStringExtra("sourcesJson").orEmpty()
         if (json.isBlank()) {
@@ -844,6 +847,13 @@ class NativePlayerActivity : Activity() {
                     val active = activityResumed && exo.playWhenReady &&
                         exo.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE
                     updatePlaybackTiming(active)
+                    if (!firstFrameReported) {
+                        firstFrameReported = true
+                        val elapsed = System.currentTimeMillis() - watchTappedAtMs
+                        if (watchTappedAtMs > 0L && elapsed in 0L..300000L) {
+                            emitPlaybackEvent("playback first frame", mapOf("tap_to_first_frame_ms" to elapsed))
+                        }
+                    }
                     progressWatchdog.rendered(SystemClock.elapsedRealtime(), exo.currentPosition)
                     if (active) reportPlaybackProgress()
                 }

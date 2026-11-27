@@ -6,7 +6,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../analytics_service.dart';
 import '../network_endpoints.dart';
@@ -17,6 +16,7 @@ import 'highlight_source_page.dart';
 import '../live_feed_controller.dart';
 import '../player_loading.dart';
 import '../source_line_loader.dart';
+import '../source_schedule_cache.dart';
 import '../widgets/compact_stream_line_title.dart';
 import '../source_match_discovery.dart';
 import '../football_english.dart';
@@ -306,6 +306,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   }
 
   bool _stale(Map<String, dynamic> m) {
+    if (source == 'repository') return false;
     final kickoff = _kickoff(m);
     if (kickoff == null) return false;
     return DateTime.now().toUtc().difference(kickoff) > _staleAfter;
@@ -419,31 +420,42 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             (m['away_team'] ?? 'Away').toString();
 
   Future<List<Map<String, dynamic>>> _loadFrom(String base) async {
-    final response = await http
-        .get(
-          Uri.parse(base + '/sources/' + source + '/matches').replace(
-            queryParameters: {
-              't': DateTime.now().millisecondsSinceEpoch.toString(),
-            },
-          ),
-          headers: publicApiHeaders(base),
-        )
-        .timeout(const Duration(seconds: 9));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('Source API HTTP ' + response.statusCode.toString());
-    }
-    final decoded = jsonDecode(response.body);
-    if (source == 'soco' && decoded is Map && decoded['ok'] == false) {
-      // An unavailable provider is not an authoritative empty schedule.
-      throw const FormatException('Soco source temporarily unavailable.');
-    }
-    final raw = decoded is Map ? decoded['matches'] : null;
-    if (raw is! List) throw const FormatException('Invalid source matches.');
-    final rows = raw
-        .map((x) => Map<String, dynamic>.from(x as Map))
-        .map((row) => englishSourceMatch(row, source))
-        .where((row) => !_stale(row))
-        .toList();
+    final requestedSource = source;
+    final catalog = Uri.parse('$base/sources/$requestedSource/matches');
+    final rows = <Map<String, dynamic>>[];
+    final seen = <String>{};
+    int? offset;
+    do {
+      final params = requestedSource == 'repository'
+          ? {'limit': '150', 'offset': (offset ?? 0).toString()}
+          : {'t': DateTime.now().millisecondsSinceEpoch.toString()};
+      final response = await http
+          .get(catalog.replace(queryParameters: params),
+              headers: publicApiHeaders(base))
+          .timeout(const Duration(seconds: 9));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Source API HTTP ${response.statusCode}');
+      }
+      final decoded = jsonDecode(response.body);
+      final raw = decoded is Map ? decoded['matches'] : null;
+      if (raw is! List || decoded['ok'] == false) {
+        throw const FormatException('Invalid or unavailable source matches.');
+      }
+      for (final row in raw.whereType<Map>()) {
+        final id = row['source_id']?.toString();
+        if (requestedSource == 'repository' && id != null && !seen.add(id)) {
+          continue;
+        }
+        final match = englishSourceMatch(Map<String, dynamic>.from(row), requestedSource);
+        if (requestedSource == 'repository' || !_stale(match)) rows.add(match);
+      }
+      final next = decoded['next_offset'];
+      if (requestedSource != 'repository' || next == null) break;
+      if (next is! int || next <= (offset ?? 0) || next > 15000) {
+        throw const FormatException('Invalid Live 2 pagination cursor.');
+      }
+      offset = next;
+    } while (true);
     _sortRows(rows);
     return rows;
   }
@@ -521,85 +533,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     return rows;
   }
 
-  String _cacheKeyFor(String name) => 'viewer_source_cache_v1_$name';
-
-  // Store public display/schedule data only. Provider stream credentials,
-  // DRM information and headers must never be written to browser storage.
-  dynamic _safeSourceCacheValue(dynamic value) {
-    if (value is List) return value.map(_safeSourceCacheValue).toList();
-    if (value is Map) {
-      const blocked = <String>{
-        'stream_url',
-        'url',
-        'key_id',
-        'key_data',
-        'token',
-        'headers',
-        'authorization',
-        'cookie',
-        'license_url',
-        'drm',
-        'stream_links',
-        'secret',
-        'access_token',
-        'refresh_token',
-      };
-      return <String, dynamic>{
-        for (final entry in value.entries)
-          if (!blocked.contains(entry.key.toString().toLowerCase()))
-            entry.key.toString(): _safeSourceCacheValue(entry.value),
-      };
-    }
-    return value;
-  }
-
-  Future<void> _saveLastGood(
-    List<Map<String, dynamic>> rows, {
-    String? forSource,
-  }) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        _cacheKeyFor(forSource ?? source),
-        jsonEncode({
-          'fetched_at': DateTime.now().toUtc().toIso8601String(),
-          'matches': _safeSourceCacheValue(rows),
-        }),
-      );
-    } catch (_) {}
-  }
-
-  Future<List<Map<String, dynamic>>?> _loadLastGood({String? forSource}) async {
-    final requested = forSource ?? source;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_cacheKeyFor(requested));
-      if (raw == null || raw.isEmpty) return null;
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map || decoded['matches'] is! List) return null;
-      final fetched = DateTime.tryParse(
-        decoded['fetched_at']?.toString() ?? '',
-      );
-      if (fetched == null ||
-          DateTime.now().toUtc().difference(fetched.toUtc()) >
-              const Duration(minutes: 20)) {
-        return null;
-      }
-      return (decoded['matches'] as List)
-          .whereType<Map>()
-          .map((row) => Map<String, dynamic>.from(row))
-          .map((row) => englishSourceMatch(row, requested))
-          .toList();
-    } catch (_) {
-      return null;
-    }
-  }
-
   Future<void> _restoreLastGood(
     String requested,
     LiveFeedController<List<Map<String, dynamic>>> expectedFeed,
   ) async {
-    final cached = await _loadLastGood(forSource: requested);
+    final cached = await SourceScheduleCache.load(requested);
     if (cached == null ||
         !mounted ||
         source != requested ||
@@ -618,7 +556,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       final rows = await _authoritativeHedged(_apiJobs(_loadFrom));
       // Previously this early return never saved a public last-good snapshot
       // in normal builds, causing a blank reload after Safari evicted memory.
-      unawaited(_saveLastGood(rows, forSource: requestedSource));
+      unawaited(SourceScheduleCache.save(requestedSource, rows));
       return rows;
     }
 
@@ -640,7 +578,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         ...workerJobs,
         () => _loadFromSupabase(),
       ]);
-      unawaited(_saveLastGood(rows, forSource: requestedSource));
+      unawaited(SourceScheduleCache.save(requestedSource, rows));
       return rows;
     } catch (error, stack) {
       authoritativeError = error;
@@ -653,10 +591,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         () => _loadFromMirror(),
         () => _loadFromMirror(_rawSourceMirrorBase),
       ]);
-      unawaited(_saveLastGood(rows, forSource: requestedSource));
+      unawaited(SourceScheduleCache.save(requestedSource, rows));
       return rows;
     } catch (_) {
-      final cached = await _loadLastGood();
+      final cached = await SourceScheduleCache.load(requestedSource);
       if (cached != null) return cached;
       Error.throwWithStackTrace(authoritativeError, authoritativeStack);
     }
@@ -808,13 +746,13 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     _openingPlayer = true;
     final generation = _sourceGeneration;
     try {
-      await _openSourcePlayer(m);
+      await _openSourcePlayer(m, DateTime.now().millisecondsSinceEpoch);
     } finally {
       if (generation == _sourceGeneration) _openingPlayer = false;
     }
   }
 
-  Future<void> _openSourcePlayer(Map<String, dynamic> m) async {
+  Future<void> _openSourcePlayer(Map<String, dynamic> m, int watchTappedAtMs) async {
     if (_anchors(m).isEmpty) return;
     final generation = _sourceGeneration;
     final selectedSource = source;
@@ -992,6 +930,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
             ':' +
             (m['source_id'] ?? m['schedule_id'] ?? '').toString(),
         sessionId: sessionId,
+        watchTappedAtMs: watchTappedAtMs,
       );
       playerOpened = true;
       publishBackups();
@@ -1053,6 +992,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                     ? 'Fawa website or source API is unreachable. Refresh later.'
                     : 'Network temporarily unavailable. Refresh to retry backup routes.',
                 onRefresh: _refresh,
+                retryLabel: 'Retry',
               );
             }
 
@@ -1095,12 +1035,13 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                     ScrollViewKeyboardDismissBehavior.onDrag,
                 slivers: [
                   if (_feed.error != null && _feed.hasData)
-                    const SliverToBoxAdapter(
+                    SliverToBoxAdapter(
                       child: Padding(
-                        padding: EdgeInsets.fromLTRB(12, 5, 12, 3),
-                        child: Text(
-                          'Offline • showing last available results',
-                          style: TextStyle(fontSize: 11),
+                        padding: const EdgeInsets.fromLTRB(12, 5, 12, 3),
+                        child: Semantics(
+                          liveRegion: true,
+                          child: const Text('Offline • showing last available results',
+                              style: TextStyle(fontSize: 11)),
                         ),
                       ),
                     ),
@@ -1245,11 +1186,13 @@ class _StateView extends StatelessWidget {
     required this.title,
     required this.text,
     required this.onRefresh,
+    this.retryLabel = 'Refresh',
   });
 
   final String title;
   final String text;
   final Future<void> Function() onRefresh;
+  final String retryLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -1303,7 +1246,7 @@ class _StateView extends StatelessWidget {
               FilledButton.icon(
                 onPressed: () => onRefresh(),
                 icon: const Icon(Icons.refresh_rounded),
-                label: const Text('REFRESH'),
+                label: Text(retryLabel),
               ),
             ],
           ),

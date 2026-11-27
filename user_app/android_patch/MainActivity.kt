@@ -64,6 +64,7 @@ class MainActivity : FlutterActivity() {
                     putExtra("title", call.argument<String>("title").orEmpty())
                     putExtra("matchId", call.argument<String>("matchId").orEmpty())
                     putExtra("sessionId", sessionId)
+                    putExtra("watchTappedAtMs", call.argument<Number>("watchTappedAtMs")?.toLong() ?: 0L)
                 })
             } catch (_: Exception) {
                 NativePlayerActivity.cancelOpeningSession(sessionId)

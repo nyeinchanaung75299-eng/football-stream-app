@@ -126,19 +126,20 @@ export function publicNormalMatchCandidates(html){
   }
   return [...pages];
 }
-// Extract direct MP4 links published on normal match pages without blocking external media hosts.
+// Accept reusable public MP4 records explicitly licensed by the publisher.
 export function licensedNormalMp4(html,page){
   const source=matchPage(page);
   if(!source)return [];
   const lines=[];
   for(const video of structuredVideos(html)){
     if(!normalLabel(video.name))continue;
-    if(video.requiresSubscription===true||video.drm_key||video.drm_scheme||video.key_data)continue;
+    if(video.isAccessibleForFree!==true||!/^https:\/\/creativecommons\.org\/(?:licenses|publicdomain)\//i.test(video.license||'')||
+       video.requiresSubscription===true||video.drm_key||video.drm_scheme||video.key_data)continue;
     if(video.url&&matchPage(video.url)!==source)continue;
     const url=publicSourceUrl(video.contentUrl);
     if(!url)continue;
     const media=new URL(url);
-    if(!['https:','http:'].includes(media.protocol)||!/\.mp4$/i.test(media.pathname))continue;
+    if(media.origin!==new URL(source).origin||media.search||!/\.mp4$/i.test(media.pathname))continue;
     const line=highlightLine({link:url,title:'Normal Highlights'});
     if(line&&line.stream_type==='mp4')lines.push({...line,source_page_url:source});
   }
@@ -260,7 +261,13 @@ async function adminDateCatalogue(fetcher,force,{offset,query,now}){
     if(!old||old.published_at<row.published_at)matches.set(row.match_id,row);
   }
   const modern=[...matches.values()].sort((a,b)=>b.published_at.localeCompare(a.published_at));
-  if(!modern.length)return legacy;
+  if(!modern.length){
+    if (offset === 0 && (legacy.unavailable || !legacy.entries.length ||
+        (!query && (legacy.publisher_age_hours === null || legacy.publisher_age_hours >= 36)))) {
+      return catalogue(fetcher,force,{offset,query,includeNormal:true,legacy});
+    }
+    return legacy;
+  }
   for(const row of modern)entryCache.set(row.id,row);
   // Deduplicate old article and new match metadata only on title AND fixture date.
   // Keep old entry (and its existing links) when the same fixture is already present.
@@ -281,41 +288,79 @@ async function adminDateCatalogue(fetcher,force,{offset,query,now}){
     updated_at:pages.some(p=>!p.stale&&p.rows.length)?new Date(now).toISOString():legacy.updated_at};
 }
 
-async function catalogue(fetcher,force=false,{offset=0,query=''}={}) {
-  const key=query+'|'+offset,previous=cache.get(key);
+async function catalogue(fetcher,force=false,{offset=0,query='',includeNormal=false,legacy=null}={}) {
+  const prefix=(includeNormal?'admin|':'public|')+encodeURIComponent(query)+'|';
+  const key=prefix+offset,previous=cache.get(key);
   if (!force && previous && Date.now()-Date.parse(previous.updated_at)<300000) return previous;
   if (inFlight.has(key)) return inFlight.get(key);
   const work=(async()=>{
     try {
-      let cards,hasMore,nextOffset;
-      if(query){
-        let found=searchCache.get(query);
-        if(force||!found||Date.now()-found.time>300000){
-          const {text}=await readPublicSource('https://dasfootball.com/api/search/?q='+encodeURIComponent(query),{fetcher,kind:'json',timeoutMs:5500,allowedHosts:['dasfootball.com']});
-          const rows=JSON.parse(text);if(!Array.isArray(rows))throw Error('Invalid highlights search');
-          // Search API variants may call public highlights "article", "post",
-          // or omit type. Never admit team/category results: cardEntry still
-          // enforces a DasFootball /highlights/ article URL and safe title.
-          const published=rows.filter(r=>
-            ['article','post','highlight',undefined,null,''].includes(r.type) &&
-            Boolean(cardEntry(r)));
-          found={time:Date.now(),rows:published};searchCache.set(query,found);
+      const useFallback=includeNormal&&offset===0;
+      const deadline=Date.now()+6000;
+      const timeoutMs=useFallback?3000:5500;
+      let cards=[],hasMore=false,nextOffset=offset,legacyError;
+      try {
+        if(legacy){
+          if(legacy.unavailable)throw Error(legacy.warnings?.[0]||'Legacy catalogue unavailable');
+          hasMore=legacy.has_more;nextOffset=legacy.next_offset;
+        }else if(query){
+          let found=searchCache.get(query);
+          if(force||!found||Date.now()-found.time>300000){
+            const {text}=await readPublicSource('https://dasfootball.com/api/search/?q='+encodeURIComponent(query),{fetcher,kind:'json',timeoutMs,allowedHosts:['dasfootball.com']});
+            const rows=JSON.parse(text);if(!Array.isArray(rows))throw Error('Invalid highlights search');
+            // Search API variants may call public highlights "article", "post",
+            // or omit type. Never admit team/category results: cardEntry still
+            // enforces a DasFootball /highlights/ article URL and safe title.
+            const published=rows.filter(r=>
+              ['article','post','highlight',undefined,null,''].includes(r.type) &&
+              Boolean(cardEntry(r)));
+            found={time:Date.now(),rows:published};searchCache.set(query,found);
+          }
+          cards=found.rows.slice(offset,offset+9);nextOffset=offset+cards.length;hasMore=nextOffset<found.rows.length;
+        }else{
+          const {text}=await readPublicSource('https://dasfootball.com/api/homepage-posts/?offset='+offset,{fetcher,kind:'json',timeoutMs,allowedHosts:['dasfootball.com']});
+          const payload=JSON.parse(text);if(!Array.isArray(payload.cards)||typeof payload.hasMore!=='boolean')throw Error('Invalid highlights catalogue');
+          cards=payload.cards;nextOffset=offset+cards.length;hasMore=payload.hasMore&&cards.length>0;
         }
-        cards=found.rows.slice(offset,offset+9);nextOffset=offset+cards.length;hasMore=nextOffset<found.rows.length;
-      }else{
-        const {text}=await readPublicSource('https://dasfootball.com/api/homepage-posts/?offset='+offset,{fetcher,kind:'json',timeoutMs:5500,allowedHosts:['dasfootball.com']});
-        const payload=JSON.parse(text);if(!Array.isArray(payload.cards)||typeof payload.hasMore!=='boolean')throw Error('Invalid highlights catalogue');
-        cards=payload.cards;nextOffset=offset+cards.length;hasMore=payload.hasMore&&cards.length>0;
+      } catch(error) {
+        if(!useFallback)throw error;
+        legacyError=error;
       }
-      const entries=[...new Map(cards.map(card=>cardEntry(card,force)).filter(Boolean).map(e=>[e.id,e])).values()];
-      // Preserve a previously populated catalogue when the upstream briefly returns an empty page.
-      if(!entries.length && previous?.entries?.length) return {...previous,stale:true,warnings:[...new Set([...(previous.warnings||[]),'Source returned an empty page; retaining the last successful catalogue.'])]};
-      const freshness=!query&&offset===0?highlightCatalogueFreshness(entries):{warnings:[]};
+      const legacyEntries=legacy?.entries||[...new Map(cards.map(card=>cardEntry(card,force)).filter(Boolean).map(e=>[e.id,e])).values()];
+      const freshness=!query&&offset===0?highlightCatalogueFreshness(legacyEntries):{warnings:[]};
+      let normal=[];
+      let fallbackFailed=false;
+      if(useFallback&&(!legacyEntries.length||(!query&&(freshness.publisher_age_hours===null||freshness.publisher_age_hours>=36)))){
+        try {
+          normal=await discoverNormalMatchPages(fetcher,query,deadline);
+        } catch {
+          fallbackFailed=true;
+        }
+        // A partial discovery can omit a previously verified match. Keep
+        // those cards while the main publisher catalogue is still stale.
+        const previousNormal=(previous?.entries||[]).filter(row=>row.highlight_variant==='normal');
+        const newestLegacyDate=freshness.latest_published_at?.slice(0,10);
+        normal=[...new Map([...previousNormal,...normal].filter(row=>
+          !newestLegacyDate||row.match_date>=newestLegacyDate).map(row=>[row.id,row])).values()]
+          .sort((a,b)=>b.match_date.localeCompare(a.match_date)).slice(0,12);
+        for(const row of normal)entryCache.set(row.id,row);
+      }
+      if(legacyError&&!normal.length)throw legacyError;
+      if(!legacyEntries.length&&previous?.entries?.length){
+        const entries=[...new Map([...previous.entries,...normal].map(row=>[row.id,row])).values()];
+        const warning=legacyError?'Source refresh incomplete; retaining the last successful catalogue.':
+          'Source returned an empty page; retaining the last successful catalogue.';
+        return {...previous,entries,stale:true,warnings:[...new Set([...(previous.warnings||[]),warning])]};
+      }
+      if(normal.length)freshness.warnings.push('Normal HL match pages show match dates. Upload times and playback may be unverified.');
+      if(fallbackFailed)freshness.warnings.push('Normal HL match pages could not be refreshed.');
+      const entries=[...normal,...legacyEntries];
       const data={entries,...freshness,updated_at:new Date().toISOString(),has_more:hasMore&&nextOffset<5000,next_offset:nextOffset};
+      if(legacyError||fallbackFailed)data.stale=true;
       // Invalidate subsequent cursors only after the first-page refresh succeeds.
       // A failed refresh must not erase the last known catalogue.
       if(force && offset===0) {
-        for(const cachedKey of cache.keys())if(cachedKey.startsWith(query+'|'))cache.delete(cachedKey);
+        for(const cachedKey of cache.keys())if(cachedKey.startsWith(prefix))cache.delete(cachedKey);
       }
       cache.set(key,data);
       if(cache.size>200)cache.delete(cache.keys().next().value);
@@ -363,7 +408,7 @@ export async function checkHighlightLine(line,{fetcher=fetch}={}) {
   finally {clearTimeout(timer);controller.abort();}
 }
 
-export async function footballHighlights(body,{fetcher=fetch,includeDateCatalogue=false,now=Date.now()}={}) {
+export async function footballHighlights(body,{fetcher=fetch,includeDateCatalogue=false,includeNormal=includeDateCatalogue,now=Date.now()}={}) {
   const provider=String(body.provider || 'dasfootball');
   if (provider!=='dasfootball') throw Error('Unsupported highlights provider');
   const action=String(body.action || 'catalog');
@@ -373,7 +418,7 @@ export async function footballHighlights(body,{fetcher=fetch,includeDateCatalogu
     if(!Number.isInteger(offset)||offset<0||offset>5000)throw Error('Invalid highlights offset');
     const data=includeDateCatalogue
       ? await adminDateCatalogue(fetcher,body.force===true,{offset,query,now})
-      : await catalogue(fetcher,body.force===true,{offset,query});
+      : await catalogue(fetcher,body.force===true,{offset,query,includeNormal});
     const entries=data.entries;
     return {ok:true,source:'highlights',provider,sources:highlightSources,...data,entries,total:entries.length};
   }
@@ -402,14 +447,14 @@ export async function footballHighlights(body,{fetcher=fetch,includeDateCatalogu
           lines:[],details_status:'unavailable'
         }};
       }
-      const lines=fresh?.lines||entry?.lines||[];
+      const lines=fresh?.lines||[];
       entry={...fresh,...entry,id,source_page_url:modernPage,
-        source_page_only:lines.length===0,lines,license_checked_at:new Date().toISOString()};
+        source_page_only:lines.length===0,lines,license_checked_at:fresh?new Date().toISOString():null};
       entryCache.set(id,entry);
     }
     if(action==='check'){
       const line=entry.lines.find(item=>item.id===body.line_id);
-      if(!line)throw Error('No MP4 link found for this entry');
+      if(!line)throw Error('No authorized MP4 link found for this entry');
       const mediaFetch=async(url,options)=>{
         const valid=publicSourceUrl(url);
         if(!valid)throw Error('Invalid media URL');

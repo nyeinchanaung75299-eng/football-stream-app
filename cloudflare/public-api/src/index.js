@@ -293,16 +293,29 @@ async function handleRepositorySource(request,env,publicOrigin,streamsOnly){
    const input=JSON.parse(await readBoundedText(request,8192));entry=input.source_id??input.schedule_id??input.room_num;
    if(typeof entry!=='string'||!/^repo:match:[a-f\d]{28}$/.test(entry))return json({error:'Invalid Live 2 fixture'},400);
   }
-  const {data}=await fetchJsonWithTimeout(base.replace(/\/+$/,'')+'/rest/v1/rpc/get_repository_metadata_for_gateway',{
+  const params=new URL(request.url).searchParams;
+  const paging=!streamsOnly&&['date','limit','offset'].some(name=>params.has(name));
+  const date=params.get('date'),limit=params.get('limit')??'150',offset=params.get('offset')??'0';
+  if(paging&&((date!==null&&(!/^\d{4}-\d{2}-\d{2}$/.test(date)||
+      !Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date))||
+      !/^\d{1,3}$/.test(limit)||Number(limit)<1||Number(limit)>200||
+      !/^\d{1,5}$/.test(offset)||Number(offset)>15000)){
+   return json({error:'Invalid Live 2 page'},400,{'Cache-Control':'no-store'});
+  }
+  const rpc=paging?'get_repository_catalog_page_for_gateway':'get_repository_metadata_for_gateway';
+  const argumentsForRpc=paging?{p_date:date,p_limit:Number(limit),p_offset:Number(offset),p_secret:secret}:{p_entry_id:entry,p_secret:secret};
+  const {data}=await fetchJsonWithTimeout(base.replace(/\/+$/,'')+'/rest/v1/rpc/'+rpc,{
    method:'POST',headers:{apikey:key,Accept:'application/json','Content-Type':'application/json'},
-   body:JSON.stringify({p_entry_id:entry,p_secret:secret})},METADATA_TIMEOUT_MS);
+   body:JSON.stringify(argumentsForRpc)},METADATA_TIMEOUT_MS);
   if(streamsOnly){
    if(!data?.match_valid)return json({error:'Live 2 fixture unavailable'},404,{'Cache-Control':'no-store'});
    const streams=await protectedClientLinks(Array.isArray(data.streams)?data.streams:[],env,publicOrigin);
    return json({ok:true,source:'repository',streams,stream_count:streams.length},200,{'Cache-Control':'no-store'});
   }
   if(!Array.isArray(data?.matches))throw Error('Invalid Live 2 catalogue');
-  return json({ok:true,source:'repository',matches:data.matches,results:data.matches.length},200,{'Cache-Control':'no-store'});
+  const fresh=params.get('fresh')==='1'||/no-cache/i.test(request.headers.get('Cache-Control')||'');
+  return json({ok:true,source:'repository',matches:data.matches,results:data.matches.length,
+   ...(paging?{next_offset:data.next_offset}:{})},200,{'Cache-Control':fresh?'no-store':'public, max-age=15'});
  }catch{return json({error:'Live 2 is temporarily unavailable'},502,{'Cache-Control':'no-store'});}
 }
 

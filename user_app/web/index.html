@@ -10,13 +10,24 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/nca_icon.png">
   <title>NCA</title>
-  <link rel="preload" href="main.dart.js" as="script">
+  <link rel="preload" href="main.dart.js" as="script" fetchpriority="high">
+  <link rel="preload" href="flutter_bootstrap.js" as="script" fetchpriority="high">
   <script>
-    !function(t,e){var o,n,p,r;e.__SV||(window.posthog&&window.posthog.__loaded)||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}p||((p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",p.onerror=function(){p=null},(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r));var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],Object.defineProperty(u,"toString",{configurable:!0,enumerable:!0,writable:!0,value:function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e}}),Object.defineProperty(u.people,"toString",{configurable:!0,enumerable:!0,writable:!0,value:function(){return u.toString(1)+".people (stub)"}}),o="init capture register register_once register_for_session unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group identify setPersonProperties setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroups onFeatureFlags addFeatureFlagsHandler onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+    !function(t,e){var o,n,p,r;e.__SV||(window.posthog&&window.posthog.__loaded)||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}p||((p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",p.onerror=function(){p=null},window.ncaLoadAnalytics=()=>t.head.appendChild(p));var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],Object.defineProperty(u,"toString",{configurable:!0,enumerable:!0,writable:!0,value:function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e}}),Object.defineProperty(u.people,"toString",{configurable:!0,enumerable:!0,writable:!0,value:function(){return u.toString(1)+".people (stub)"}}),o="init capture register register_once register_for_session unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group identify setPersonProperties setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroups onFeatureFlags addFeatureFlagsHandler onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
     posthog.init('phc_quTeE4uCQa8G5MtSoVg6tgYjWULipCWMo8R38RsnijL6', {
       api_host: 'https://us.i.posthog.com',
       defaults: '2026-05-30'
     });
+    let analyticsScheduled=false;
+    function loadAnalyticsAfterPaint(){
+      if(analyticsScheduled)return;
+      analyticsScheduled=true;
+      const load=()=>window.ncaLoadAnalytics?.();
+      if('requestIdleCallback' in window)window.requestIdleCallback(load,{timeout:1800});
+      else setTimeout(load,200);
+    }
+    window.addEventListener('flutter-first-frame',loadAnalyticsAfterPaint,{once:true});
+    setTimeout(loadAnalyticsAfterPaint,15000);
   </script>
   <style>
     html,body{margin:0;width:100%;height:100%;background:#f6f8f7}
@@ -639,6 +650,7 @@
     let playbackToken=0;
     let playbackStartedToken=-1;
     let playbackAttemptStartedAt=0, activeBuffering=null;
+    let watchTappedAtMs=0, firstFrameReported=false, frameRequest=null;
     let startupTimer=null, stallTimer=null, fallbackTimer=null, progressTimer=null;
     let fallbackScheduledToken=-1, awaitingPlayToken=-1;
     let activePlayingHandler=null;
@@ -1465,6 +1477,7 @@
     async function destroyPlayback(){
       const previousShaka=shakaPlayer, previousMpegts=mpegtsPlayer;
       shakaPlayer=null;mpegtsPlayer=null;
+      if(frameRequest!==null){video.cancelVideoFrameCallback?.(frameRequest);frameRequest=null}
       if(activePlayingHandler){video.removeEventListener('playing',activePlayingHandler);activePlayingHandler=null}
       showMessage(''); currentTracks=[];
       qualityButton.textContent='Auto';
@@ -1539,6 +1552,15 @@
       await destroyPlayback();
       if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
       beginBuffering(index,token);
+      if(watchTappedAtMs>0&&!firstFrameReported&&typeof video.requestVideoFrameCallback==='function'){
+        frameRequest=video.requestVideoFrameCallback(()=>{
+          frameRequest=null;
+          if(!isCurrentPlayback(token)||firstFrameReported)return;
+          firstFrameReported=true;
+          const elapsed=Date.now()-watchTappedAtMs;
+          if(elapsed>=0&&elapsed<=300000)capturePlayerEvent('playback first frame',{tap_to_first_frame_ms:elapsed});
+        });
+      }
       const onPlaying=()=>{
         if(!isCurrentPlayback(token) || fallbackScheduledToken===token)return;
         clearPlaybackWatchdogs();awaitingPlayToken=-1;showMessage('');
@@ -2080,7 +2102,8 @@
         .catch(()=>{});
     };
 
-    window.openFootballPlayer=async(sourcesJson,selectedIndex,title,matchId,sessionId)=>{
+    window.openFootballPlayer=async(sourcesJson,selectedIndex,title,matchId,sessionId,tappedAt)=>{
+      watchTappedAtMs=Number(tappedAt)||0;firstFrameReported=false;
       try{const parsed=JSON.parse(String(sourcesJson||'[]'));sources=Array.isArray(parsed)?parsed.filter(x=>x&&x.url):[]}catch(_){sources=[]}
       autoFallbackTried.clear();
       routeOverrides.clear();

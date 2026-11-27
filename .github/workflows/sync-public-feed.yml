@@ -31,6 +31,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-metadata:
+    uses: ./.github/workflows/sync-repository-trees.yml
   sync:
     runs-on: ubuntu-latest
     steps:
