@@ -200,11 +200,11 @@ test('dated JSON-LD ItemList supports the observed fixture shape, not media deli
  assert.equal(result.entries[0].title,'Brentford vs Everton');
  assert.equal(result.next_offset,1);
  assert.equal(result.has_more,false);
- assert.equal(calls.length,4);
+ assert.equal(calls.length,5);
  const second=await footballHighlights({force:true,offset:1},{fetcher,includeDateCatalogue:true,now});
  assert.equal(second.entries.length,0);
  assert.equal(second.has_more,false);
- assert.equal(calls.length,5);
+ assert.equal(calls.length,6);
  const search=await footballHighlights({force:true,query:'Brentford'},{fetcher,includeDateCatalogue:true,now});
  assert.equal(search.entries.length,1);
  assert.equal(search.entries[0].match_id,'209637');
@@ -390,4 +390,23 @@ test('Admin loads new publisher entries and ages older fallback pages out at Mya
  const stale=await load(second);
  assert.equal(stale.stale,true);
  assert.deepEqual(stale.entries.map(row=>row.title),['new','recent']);
+});
+
+test('Admin includes overnight highlights from the previous publisher date page',async()=>{
+ const now=Date.parse('2026-11-27T18:30:00Z'); // 28 Nov Myanmar time
+ const video={'@type':'VideoObject',name:'Home XI vs Away XI highlights',
+  url:'https://dasfootball.com/match/home-xi-vs-away-xi-2026-11-25-800012/',
+  uploadDate:'2026-11-25T22:00:00Z'};
+ const data=[video,{...video,name:'Old XI vs Away XI highlights',
+  url:video.url.replace('home-xi','old-xi').replace('800012','800013'),uploadDate:'2026-11-25T16:59:00Z'}];
+ const fetcher=async url=>{
+  if(url.includes('/api/search/'))return Response.json([]);
+  const rows=url.endsWith('?date=2026-11-25')?data:[];
+  return new Response('<script type="application/ld+json">'+JSON.stringify({
+   '@type':'ItemList',name:'Football highlights',itemListElement:rows
+  })+'</script>',{headers:{'Content-Type':'text/html'}});
+ };
+ const result=await footballHighlights({force:true,query:'XI'},{includeDateCatalogue:true,fetcher,now});
+ assert.deepEqual(result.entries.map(row=>row.title),['Home XI vs Away XI']);
+ assert.equal(result.window_days,3);
 });
