@@ -5,6 +5,7 @@ export const highlightSources = [
   {id:'dasfootball',name:'DasFootball',url:'https://dasfootball.com/',mode:'feed'},
 ];
 const cache = new Map(), inFlight = new Map(), entryCache=new Map(), searchCache=new Map();
+const normalCacheKey = (id, admin) => admin ? 'admin-normal|'+id : id;
 const clean = value => String(value || '').replace(/<[^>]*>/g,' ').replace(/&amp;/gi,'&')
   .replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/\s+/g,' ').trim();
 const excluded = /\b(?:extended\s*(?:hl|highlights?)|full\s*match|(?:1st|2nd|first|second)\s*half|extra\s*time|ceremony|half\s*time\s*show|interview|press\s*conference)\b/i;
@@ -126,27 +127,66 @@ export function publicNormalMatchCandidates(html){
   }
   return [...pages];
 }
-// Accept reusable public MP4 records explicitly licensed by the publisher.
-export function licensedNormalMp4(html,page){
+function normalPanelVideoUrls(visible,page){
+  const attribute=(tag,name)=>{
+    const match=tag.match(new RegExp('(?:^|\\s)'+name+'\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')','i'));
+    return match?.[1]??match?.[2];
+  };
+  const panels=new Set();
+  for(const [,tag,label] of visible.matchAll(/(<button\b[^>]*>)([\s\S]*?)<\/button>/gi)){
+    if(attribute(tag,'role')!=='tab'||!normalLabel(label))continue;
+    const id=attribute(tag,'aria-controls');
+    if(id)panels.add(id);
+  }
+  const urls=[];
+  let depth=0;
+  for(const [tag] of visible.matchAll(/<\/?div\b[^>]*>|<(?:video|source)\b[^>]*>/gi)){
+    if(/^<\/div/i.test(tag)){if(depth>0)depth--;continue;}
+    if(/^<div/i.test(tag)){
+      if(depth>0)depth++;
+      else if(attribute(tag,'role')==='tabpanel'&&panels.has(attribute(tag,'id')))depth=1;
+      continue;
+    }
+    if(depth===0)continue;
+    const src=attribute(tag,'src');
+    const url=src&&publicSourceUrl(clean(src),page);
+    if(url)urls.push(url);
+    if(urls.length>=8)break;
+  }
+  return urls;
+}
+
+// Admin can inspect direct Normal Highlights MP4 URLs published on the source page.
+export function licensedNormalMp4(html,page,{allowPublisherMp4=false,normalPanelUrls=[]}={}){
   const source=matchPage(page);
   if(!source)return [];
-  const lines=[];
+  const urls=new Set(allowPublisherMp4?normalPanelUrls:[]);
+  const blocked=new Set();
   for(const video of structuredVideos(html)){
-    if(!normalLabel(video.name))continue;
-    if(video.isAccessibleForFree!==true||!/^https:\/\/creativecommons\.org\/(?:licenses|publicdomain)\//i.test(video.license||'')||
-       video.requiresSubscription===true||video.drm_key||video.drm_scheme||video.key_data)continue;
-    if(video.url&&matchPage(video.url)!==source)continue;
     const url=publicSourceUrl(video.contentUrl);
     if(!url)continue;
+    if(video.isAccessibleForFree===false||video.requiresSubscription===true||
+       video.drm||video.drm_key||video.drm_scheme||video.key_data||video.key_id||excluded.test(clean(video.name))){
+      blocked.add(url);
+      continue;
+    }
+    if(!normalLabel(video.name)||video.url&&matchPage(video.url)!==source)continue;
+    if(!allowPublisherMp4&&(video.isAccessibleForFree!==true||
+       !/^https:\/\/creativecommons\.org\/(?:licenses|publicdomain)\//i.test(video.license||'')))continue;
     const media=new URL(url);
-    if(media.origin!==new URL(source).origin||media.search||!/\.mp4$/i.test(media.pathname))continue;
+    if(!allowPublisherMp4&&(media.origin!==new URL(source).origin||media.search))continue;
+    urls.add(url);
+  }
+  const lines=[];
+  for(const url of urls){
+    if(blocked.has(url))continue;
     const line=highlightLine({link:url,title:'Normal Highlights'});
-    if(line&&line.stream_type==='mp4')lines.push({...line,source_page_url:source});
+    if(line?.stream_type==='mp4')lines.push({...line,source_page_url:source});
   }
   return uniqueLines(lines);
 }
 
-export function publicNormalMatchMetadata(html,page){
+export function publicNormalMatchMetadata(html,page,options){
   page=matchPage(page);if(!page)return null;
   const visible=html.replace(/<script\b[\s\S]*?<\/script>/gi,'').replace(/<style\b[\s\S]*?<\/style>/gi,'');
   // A finished fixture alone does not establish Normal HL availability.
@@ -158,7 +198,8 @@ export function publicNormalMatchMetadata(html,page){
     .replace(/\s*(?:[|–—-]\s*DasFootball.*|\bHighlights(?:\s+and\s+Goals)?\b.*)$/i,'').trim();
   const title=/\bvs\.?\b/i.test(rawTitle)?rawTitle:match[1].replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()).replace(/\bVs\b/,'vs');
   // Match date is distinct from a verified upload time.
-  const lines=licensedNormalMp4(html,page);
+  const normalPanelUrls=options?.allowPublisherMp4 ? normalPanelVideoUrls(visible,page) : [];
+  const lines=licensedNormalMp4(html,page,{...options,normalPanelUrls});
   return {id:'dasfootball:'+page,provider:'dasfootball',title:title.slice(0,240),
     source_page_url:page,match_date:match[2],published_at:null,
     highlight_variant:'normal',source_page_only:lines.length===0,lines};
@@ -268,7 +309,7 @@ async function adminDateCatalogue(fetcher,force,{offset,query,now}){
     }
     return legacy;
   }
-  for(const row of modern)entryCache.set(row.id,row);
+  for(const row of modern)entryCache.set(normalCacheKey(row.id,true),row);
   // Deduplicate old article and new match metadata only on title AND fixture date.
   // Keep old entry (and its existing links) when the same fixture is already present.
   const key=(title,date)=>clean(title).toLowerCase().replace(/[^a-z0-9]+/g,'')+'|'+date;
@@ -426,13 +467,14 @@ export async function footballHighlights(body,{fetcher=fetch,includeDateCatalogu
   const modernPage=matchPage(page);
   if(modernPage){
     const id='dasfootball:'+modernPage;
-    let entry=entryCache.get(id);
-    const checked=Date.parse(entry?.license_checked_at||'');
-    if(!entry||!Number.isFinite(checked)||Date.now()-checked>=300000){
+    const cacheKey=normalCacheKey(id,includeDateCatalogue);
+    let entry=entryCache.get(cacheKey);
+    const checked=Date.parse(entry?.links_checked_at||'');
+    if(body.force===true||!entry||!Number.isFinite(checked)||Date.now()-checked>=300000){
       let fresh=null;
       try{
         const {text}=await readPublicSource(modernPage,{fetcher,kind:'html',timeoutMs:3500,allowedHosts:['dasfootball.com']});
-        fresh=publicNormalMatchMetadata(text,modernPage);
+        fresh=publicNormalMatchMetadata(text,modernPage,{allowPublisherMp4:includeDateCatalogue});
       }catch{/* Keep known fixture metadata if page fetch fails. */}
       if(!entry&&!fresh){
         // A cold isolate can lack the catalogue entry. An unavailable source
@@ -449,8 +491,8 @@ export async function footballHighlights(body,{fetcher=fetch,includeDateCatalogu
       }
       const lines=fresh?.lines||[];
       entry={...fresh,...entry,id,source_page_url:modernPage,
-        source_page_only:lines.length===0,lines,license_checked_at:fresh?new Date().toISOString():null};
-      entryCache.set(id,entry);
+        source_page_only:lines.length===0,lines,links_checked_at:fresh?new Date().toISOString():null};
+      entryCache.set(cacheKey,entry);
     }
     if(action==='check'){
       const line=entry.lines.find(item=>item.id===body.line_id);
