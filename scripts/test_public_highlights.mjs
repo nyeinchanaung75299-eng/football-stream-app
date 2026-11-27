@@ -236,6 +236,23 @@ test('Admin reads the MP4 in the publisher’s Normal Highlights tab only',()=>{
  assert.deepEqual(publicNormalMatchMetadata(unavailable,page,{allowPublisherMp4:true}).lines,[]);
 });
 
+test('Admin matches a single Highlights player to the fixture MP4 in public JSON-LD',()=>{
+ const page='https://dasfootball.com/match/juventus-vs-omonia-nicosia-2026-11-26-601239/';
+ const media='https://media.example.org/normal.mp4?Expires=1795992932547&Signature=fixture';
+ const fixture={'@type':'SportsEvent',name:'Juventus vs Omonia Nicosia',url:page};
+ const video={'@type':'VideoObject',name:fixture.name+' highlights',contentUrl:media};
+ const player='<section id="highlights" aria-labelledby="h-video"><h2 id="h-video">Highlights</h2><video preload="none"></video></section>';
+ const html=(records,markup=player)=>'<script type="application/ld+json">'+JSON.stringify(records)+'</script>'+markup;
+ const admin={allowPublisherMp4:true};
+ const entry=publicNormalMatchMetadata(html([fixture,video]),page,admin);
+ assert.deepEqual(entry.lines.map(line=>line.stream_url),[media]);
+ assert.equal(publicNormalMatchMetadata(html([fixture,video]),page),null);
+ assert.equal(publicNormalMatchMetadata(html([{...fixture,url:page.replace('601239','601240')},video]),page,admin),null);
+ assert.equal(publicNormalMatchMetadata(html([fixture,video],player.replace('Highlights','Extended HL')),page,admin),null);
+ assert.deepEqual(publicNormalMatchMetadata(html([fixture,{...video,requiresSubscription:true}]),page,admin).lines,[]);
+ assert.deepEqual(publicNormalMatchMetadata(html([fixture,video,{...video,contentUrl:'https://media.example.org/other.mp4'}]),page,admin).lines,[]);
+});
+
 test('Admin recovers a publisher-hosted Normal Highlights MP4 and revalidates it',async()=>{
  const now=Date.parse('2026-11-24T19:00:00Z');
  const page='https://dasfootball.com/match/test-home-vs-test-away-2026-11-23-99000001/';
