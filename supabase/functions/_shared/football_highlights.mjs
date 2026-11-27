@@ -354,11 +354,14 @@ async function adminDateCatalogue(fetcher,force,{offset,query,now}){
   // Date pages and old feed are fetched concurrently, not sequentially.
   // UTC+06:30 calendar matches the Admin's reported dated-page convention.
   const dates=[0,1,2].map(delta=>myanmarDay(now-delta*86400000));
+  // The publisher groups fixtures by match date. Its previous date page
+  // can contain the earliest Myanmar day's overnight match highlights.
+  const sourceDates=[...dates,myanmarDay(now-3*86400000)];
   const recent=data=>recentAdminHighlights(data,dates,now,query);
   if(offset!==0)return recent(await catalogue(fetcher,force,{offset,query}));
   const [legacy,...pages]=await Promise.all([
     catalogue(fetcher,force,{offset,query}).then(recent),
-    ...dates.map(date=>dateMetadataPage(date,fetcher,force,now)),
+    ...sourceDates.map(date=>dateMetadataPage(date,fetcher,force,now)),
   ]);
   const words=query.toLowerCase().split(/\s+/).filter(Boolean);
   const matches=new Map();
