@@ -61,6 +61,36 @@ function streamableId(value){
  const url=new URL(address);if(url.protocol!=='https:'||!['streamable.com','www.streamable.com'].includes(url.hostname))return null;
  return url.pathname.match(/^\/(?:e\/)?([a-zA-Z0-9]{3,32})\/?$/)?.[1]||null;
 }
+function streamableMp4Id(value){
+ const url=new URL(value);
+ return url.protocol==='https:'&&/(^|\.)streamable\.com$/i.test(url.hostname)
+  ? url.pathname.match(/^\/video\/mp4(?:-mobile)?\/([a-zA-Z0-9]{3,32})\.mp4$/)?.[1] : null;
+}
+async function streamableQualityLines(id,fetcher){
+ const {text}=await readPublicSource('https://api.streamable.com/videos/'+id,{
+  fetcher,kind:'json',timeoutMs:2200,allowedHosts:['api.streamable.com']});
+ const files=JSON.parse(text).files;
+ const lines=['mp4','mp4-mobile'].map(variant=>{
+  const file=files?.[variant],address=publicSourceUrl(file?.url,'https://streamable.com/');
+  if(!address||streamableMp4Id(address)!==id)return null;
+  const resolution=Number.isInteger(file.height)&&file.height>0 ? file.height+'p' : null;
+  const line=highlightLine({link:address,title:resolution||'Highlights'});
+  return line&&{...line,id:'streamable:'+id+':'+variant,resolution};
+ }).filter(Boolean);
+ return [...new Map(lines.map(line=>[line.stream_url,line])).values()];
+}
+async function resolveNormalQualities(lines,fetcher){
+ const clips=new Map();
+ for(const line of lines){
+  const id=streamableMp4Id(line.stream_url);
+  if(id&&!clips.has(id))clips.set(id,line);
+ }
+ const replacements=new Map(await Promise.all([...clips].slice(0,4).map(async ([id,line])=>{
+  const qualities=await streamableQualityLines(id,fetcher).catch(()=>[]);
+  return [line.id,qualities.length?qualities.map(quality=>({...quality,source_page_url:line.source_page_url})): [line]];
+ })));
+ return uniqueLines(lines.flatMap(line=>replacements.get(line.id)||[line]));
+}
 export function parseDasHighlights(html,{includeEmbeds=false,sourcePage=null}={}) {
   const entries=new Map();
   for (const video of structuredVideos(html).slice(0,150)) {
@@ -290,6 +320,17 @@ export function parseDateHighlightMetadata(html,{now=Date.now()}={}){
   return [...rows.values()].sort((a,b)=>b.published_at.localeCompare(a.published_at));
 }
 const dailyMetadataCache=new Map(),dailyMetadataFlights=new Map();
+const myanmarDay=time=>new Date(time+390*60000).toISOString().slice(0,10);
+function recentAdminHighlights(data,dates,now,query){
+ const entries=data.entries.filter(row=>{
+  const stamp=Date.parse(row.published_at||'');
+  return Number.isFinite(stamp) ? stamp<=now&&dates.includes(myanmarDay(stamp)) : dates.includes(row.match_date);
+ });
+ const freshness=highlightCatalogueFreshness(entries,now);
+ return {...data,entries,window_days:dates.length,
+  ...(!query ? {latest_published_at:freshness.latest_published_at,publisher_age_hours:freshness.publisher_age_hours} : {}),
+  has_more:Boolean(data.has_more&&(entries.length||query)&&!data.unavailable)};
+}
 async function dateMetadataPage(date,fetcher,force,now){
   const previous=dailyMetadataCache.get(date);
   if(!force&&previous&&now-previous.time<300000)return {...previous,stale:false};
@@ -310,19 +351,19 @@ async function dateMetadataPage(date,fetcher,force,now){
   try{return await task;}finally{if(dailyMetadataFlights.get(date)===task)dailyMetadataFlights.delete(date);}
 }
 async function adminDateCatalogue(fetcher,force,{offset,query,now}){
-  // Existing pages after the first retain their original pagination.
-  if(offset!==0)return catalogue(fetcher,force,{offset,query});
   // Date pages and old feed are fetched concurrently, not sequentially.
   // UTC+06:30 calendar matches the Admin's reported dated-page convention.
-  const day=now+390*60000;
-  const dates=[0,1,2].map(delta=>new Date(day-delta*86400000).toISOString().slice(0,10));
+  const dates=[0,1,2].map(delta=>myanmarDay(now-delta*86400000));
+  const recent=data=>recentAdminHighlights(data,dates,now,query);
+  if(offset!==0)return recent(await catalogue(fetcher,force,{offset,query}));
   const [legacy,...pages]=await Promise.all([
-    catalogue(fetcher,force,{offset,query}),
+    catalogue(fetcher,force,{offset,query}).then(recent),
     ...dates.map(date=>dateMetadataPage(date,fetcher,force,now)),
   ]);
   const words=query.toLowerCase().split(/\s+/).filter(Boolean);
   const matches=new Map();
   for(const row of pages.flatMap(p=>p.rows)){
+    if(!dates.includes(myanmarDay(Date.parse(row.published_at))))continue;
     if(!words.every(word=>row.title.toLowerCase().includes(word)))continue;
     const old=matches.get(row.match_id);
     if(!old||old.published_at<row.published_at)matches.set(row.match_id,row);
@@ -331,7 +372,8 @@ async function adminDateCatalogue(fetcher,force,{offset,query,now}){
   if(!modern.length){
     if (offset === 0 && (legacy.unavailable || !legacy.entries.length ||
         (!query && (legacy.publisher_age_hours === null || legacy.publisher_age_hours >= 36)))) {
-      return catalogue(fetcher,force,{offset,query,includeNormal:true,legacy});
+      const fallback=await catalogue(fetcher,force,{offset,query,includeNormal:true,legacy});
+      return recent({...fallback,stale:Boolean(fallback.stale||pages.every(page=>page.stale))});
     }
     return legacy;
   }
@@ -349,10 +391,9 @@ async function adminDateCatalogue(fetcher,force,{offset,query,now}){
   const warnings=[...freshness.warnings];
   if(legacy.unavailable||legacy.stale)warnings.push('Legacy catalogue refresh incomplete.');
   if(pages.some(p=>p.stale))warnings.push('One or more date pages could not be refreshed; cached metadata retained when available.');
-  warnings.push('New match entries show publisher metadata only; direct playback is not verified.');
-  return {...legacy,...freshness,entries,warnings,unavailable:false,
+  return recent({...legacy,...freshness,entries,warnings,unavailable:false,
     stale:Boolean(legacy.unavailable||legacy.stale||pages.some(p=>p.stale)),
-    updated_at:pages.some(p=>!p.stale&&p.rows.length)?new Date(now).toISOString():legacy.updated_at};
+    updated_at:pages.some(p=>!p.stale)?new Date(now).toISOString():legacy.updated_at});
 }
 
 async function catalogue(fetcher,force=false,{offset=0,query='',includeNormal=false,legacy=null}={}) {
@@ -515,7 +556,8 @@ export async function footballHighlights(body,{fetcher=fetch,includeDateCatalogu
           lines:[],details_status:'unavailable'
         }};
       }
-      const lines=fresh?.lines||[];
+      const lines=includeDateCatalogue&&fresh?.lines.length
+        ? await resolveNormalQualities(fresh.lines,fetcher) : fresh?.lines||[];
       entry={...fresh,...entry,id,source_page_url:modernPage,
         source_page_only:lines.length===0,lines,links_checked_at:fresh?new Date().toISOString():null};
       entryCache.set(cacheKey,entry);

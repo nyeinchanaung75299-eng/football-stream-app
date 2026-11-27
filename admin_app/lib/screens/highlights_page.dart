@@ -24,7 +24,8 @@ class _HighlightsPageState extends State<HighlightsPage> {
   String? _error;
   bool _opening = false;
   final _scroll = ScrollController();
-  Timer? _debounce;
+  Timer? _debounce, _refreshTimer;
+  AppLifecycleListener? _lifecycle;
   int _epoch = 0, _nextOffset = 0;
   bool _hasMore = true;
   String _loadedQuery = '';
@@ -34,12 +35,33 @@ class _HighlightsPageState extends State<HighlightsPage> {
     super.initState();
     _scroll.addListener(_loadNearEnd);
     _load();
+    _refreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      final state = WidgetsBinding.instance.lifecycleState;
+      if (state == null || state == AppLifecycleState.resumed) {
+        _refreshIfVisible(force: true);
+      }
+    });
+    _lifecycle = AppLifecycleListener(onResume: _refreshIfVisible);
+  }
+
+  void _refreshIfVisible({bool force = false}) {
+    if (!mounted ||
+        _inFlight != null ||
+        _opening ||
+        (_debounce?.isActive ?? false) ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
+    _load(force: force);
+    setState(() {});
   }
 
   @override
   void dispose() {
     _search.dispose();
     _debounce?.cancel();
+    _refreshTimer?.cancel();
+    _lifecycle?.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -98,18 +120,15 @@ class _HighlightsPageState extends State<HighlightsPage> {
           _nextOffset = (data['next_offset'] as num?)?.toInt() ?? offset;
           _loadedQuery = query;
         }
-        if (data['unavailable'] == true) {
-          _error = (data['warnings'] as List? ??
-                  ['Could not extract highlight links.'])
-              .join(' ');
-        } else if (data['stale'] != true) {
+        if (data['unavailable'] == true || data['stale'] == true) {
+          _error = 'Could not refresh highlights.';
+        } else {
           _loadedAt = DateTime.now();
         }
       });
     } catch (_) {
       if (mounted && epoch == _epoch)
-        setState(() => _error =
-            'Could not refresh. Showing the last successful links, if available.');
+        setState(() => _error = 'Could not refresh highlights.');
     }
   }
 
@@ -156,9 +175,12 @@ class _HighlightsPageState extends State<HighlightsPage> {
     if (entry['source_page_only'] == true) {
       final sourcePage = entry['source_page_url']?.toString() ?? '';
       final uri = Uri.tryParse(sourcePage);
-      if (uri == null || uri.scheme != 'https' ||
-          uri.host != 'dasfootball.com' || uri.userInfo.isNotEmpty ||
-          uri.hasPort || !uri.path.startsWith('/match/')) {
+      if (uri == null ||
+          uri.scheme != 'https' ||
+          uri.host != 'dasfootball.com' ||
+          uri.userInfo.isNotEmpty ||
+          uri.hasPort ||
+          !uri.path.startsWith('/match/')) {
         _notice('Normal highlights page could not be verified.');
         return;
       }
@@ -168,7 +190,8 @@ class _HighlightsPageState extends State<HighlightsPage> {
         useSafeArea: true,
         builder: (sheet) => Padding(
           padding: const EdgeInsets.all(20),
-          child: Column(mainAxisSize: MainAxisSize.min,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(entry['title']?.toString() ?? 'Highlights',
@@ -176,7 +199,8 @@ class _HighlightsPageState extends State<HighlightsPage> {
               const SizedBox(height: 8),
               const Text('Normal HL · publisher page'),
               const SizedBox(height: 8),
-              const Text('No verified direct video link. Watch on the original source page. Extended HL is not imported.'),
+              const Text(
+                  'No verified direct video link. Watch on the original source page. Extended HL is not imported.'),
               const SizedBox(height: 8),
               SelectableText(sourcePage),
               const SizedBox(height: 12),
@@ -285,14 +309,27 @@ class _HighlightsPageState extends State<HighlightsPage> {
                                                     update(
                                                         () => adding.add(id));
                                                     try {
-                                                      final destinations = await widget.service.destinations();
-                                                      if (!sheet.mounted) return;
-                                                      final matchId = await chooseHighlightMatch(sheet, destinations);
-                                                      if (matchId == null || !sheet.mounted) return;
+                                                      final destinations =
+                                                          await widget.service
+                                                              .destinations();
+                                                      if (!sheet.mounted)
+                                                        return;
+                                                      final matchId =
+                                                          await chooseHighlightMatch(
+                                                              sheet,
+                                                              destinations);
+                                                      if (matchId == null ||
+                                                          !sheet.mounted)
+                                                        return;
                                                       if (matchId.isEmpty) {
-                                                        await widget.service.save(entry, line);
+                                                        await widget.service
+                                                            .save(entry, line);
                                                       } else {
-                                                        await widget.service.save(entry, line, matchId: matchId);
+                                                        await widget.service
+                                                            .save(
+                                                                entry, line,
+                                                                matchId:
+                                                                    matchId);
                                                       }
                                                       if (sheet.mounted)
                                                         update(() =>
@@ -382,25 +419,33 @@ class _HighlightsPageState extends State<HighlightsPage> {
   @override
   Widget build(BuildContext context) {
     final loading = _inFlight != null;
-    final rows = highlightMaps(_data?['entries'])
-        .where((row) => highlightMatchesQuery(row, _search.text))
-        .toList();
-    final warnings = (_data?['warnings'] as List? ?? [])
-        .map((value) => value.toString())
-        .toSet();
-    if (_error != null) warnings.add(_error!);
-    final updated =
-        DateTime.tryParse(_data?['updated_at']?.toString() ?? '')?.toLocal();
-    final latestPublished = DateTime.tryParse(
-      _data?['latest_published_at']?.toString() ?? '',
-    )?.toLocal();
     final dateFormat = DateFormat('dd MMM, h:mm a');
-    final sourceStatus = [
-      'DasFootball • ${rows.length} highlights',
-      if (latestPublished != null)
-        'Latest published: ${dateFormat.format(latestPublished)}',
-      if (updated != null) 'Last refreshed: ${dateFormat.format(updated)}',
-    ].join('\n');
+    final now = DateTime.now().toUtc();
+    const myanmarOffset = Duration(hours: 6, minutes: 30);
+    final myanmarNow = now.add(myanmarOffset);
+    final earliest =
+        DateTime.utc(myanmarNow.year, myanmarNow.month, myanmarNow.day - 2);
+    final dayFormat = DateFormat('yyyy-MM-dd');
+    final firstDay = dayFormat.format(earliest);
+    final today = dayFormat.format(myanmarNow);
+    final rows = highlightMaps(_data?['entries']).where((row) {
+      if (!highlightMatchesQuery(row, _search.text)) return false;
+      if (_data?['window_days'] != 3) return true;
+      final published =
+          DateTime.tryParse(row['published_at']?.toString() ?? '');
+      final day = published == null
+          ? row['match_date']?.toString() ?? ''
+          : dayFormat.format(published.toUtc().add(myanmarOffset));
+      return day.compareTo(firstDay) >= 0 && day.compareTo(today) <= 0;
+    }).toList();
+    final info = [
+      for (final (key, label) in [
+        ('latest_published_at', 'Latest published'),
+        ('updated_at', 'Last refreshed'),
+      ])
+        if (DateTime.tryParse(_data?[key]?.toString() ?? '') case final time?)
+          '$label: ${dateFormat.format(time.toUtc().add(myanmarOffset))} MMT',
+    ];
     return Scaffold(
       appBar: AppBar(title: const Text('Highlights'), actions: [
         IconButton(
@@ -420,7 +465,7 @@ class _HighlightsPageState extends State<HighlightsPage> {
       ]),
       body: Column(children: [
         Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
             child: TextField(
                 controller: _search,
                 onChanged: (_) {
@@ -445,29 +490,47 @@ class _HighlightsPageState extends State<HighlightsPage> {
                               _load(force: true);
                             })))),
         Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                    sourceStatus,
-                    style: const TextStyle(fontSize: 12)))),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Row(children: [
+            Expanded(
+                child: Text('DasFootball · ${rows.length} highlights',
+                    style: const TextStyle(fontSize: 12))),
+            if (info.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.info_outline, size: 18),
+                tooltip: 'Highlight source details',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (dialog) => AlertDialog(
+                    title: const Text('DasFootball'),
+                    content: Text(info.join('\n')),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(dialog),
+                        child: const Text('Close'),
+                      )
+                    ],
+                  ),
+                ),
+              ),
+          ]),
+        ),
         if (loading || _opening) const LinearProgressIndicator(),
-        if (warnings.isNotEmpty)
+        if (_error != null)
           Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(children: [
-                Text(warnings.join(' '),
-                    style:
-                        TextStyle(color: Theme.of(context).colorScheme.error)),
-                TextButton(
-                    onPressed: loading
-                        ? null
-                        : () {
-                            _load(force: true);
-                            setState(() {});
-                          },
-                    child: const Text('Retry')),
-              ])),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(children: [
+              Expanded(
+                  child: Text(_error!,
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.error))),
+              TextButton(
+                onPressed: loading ? null : () => _load(force: true),
+                child: const Text('Retry'),
+              ),
+            ]),
+          ),
         Expanded(
             child: RefreshIndicator(
                 onRefresh: () => _load(force: true),
@@ -493,13 +556,20 @@ class _HighlightsPageState extends State<HighlightsPage> {
                               : 'Load more highlights'));
                     final row = rows[index];
                     final count = highlightMaps(row['lines']).length;
-                    final pageOnly = row['source_page_only'] == true;
                     final published =
                         DateTime.tryParse(row['published_at']?.toString() ?? '')
-                            ?.toLocal();
+                            ?.toUtc()
+                            .add(myanmarOffset);
+                    final lineLabel = count == 0
+                        ? 'Get links'
+                        : '$count ${count == 1 ? 'link' : 'links'}';
+                    final date = published == null
+                        ? row['match_date']?.toString()
+                        : dateFormat.format(published);
                     return Card(
                         child: ListTile(
-                            contentPadding: const EdgeInsets.all(12),
+                            contentPadding: const EdgeInsets.symmetric(
+                                vertical: 6, horizontal: 12),
                             leading: row['thumbnail_url'] == null
                                 ? const Icon(Icons.link)
                                 : ClipRRect(
@@ -517,12 +587,13 @@ class _HighlightsPageState extends State<HighlightsPage> {
                             title: Text(
                                 row['title']?.toString() ?? 'Highlights',
                                 maxLines: 3),
-                            subtitle: Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text(
-                                    pageOnly
-                                        ? "Normal HL · Source page\n${row['match_date'] ?? ''}"
-                                        : 'Get links • $count extracted${published == null ? '' : '\n${DateFormat('dd MMM, h:mm a').format(published)}'}')),
+                            subtitle: Text(
+                                [
+                                  lineLabel,
+                                  if (date != null && date.isNotEmpty) date,
+                                ].join(' · '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
                             trailing: const Icon(Icons.chevron_right),
                             onTap: _opening ? null : () => _details(row)));
                   },

@@ -96,6 +96,24 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('refreshes while visible and keeps status in source details',
+      (tester) async {
+    final service = FakeHighlights();
+    await tester.pumpWidget(MaterialApp(home: HighlightsPage(service: service)));
+    await tester.pumpAndSettle();
+    expect(find.text('DasFootball · 1 highlights'), findsOneWidget);
+    expect(find.textContaining('Last refreshed'), findsNothing);
+    expect(find.text('Retry'), findsNothing);
+    await tester.tap(find.byTooltip('Highlight source details'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Last refreshed'), findsOneWidget);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(minutes: 5));
+    await tester.pumpAndSettle();
+    expect(service.requests, ['catalog', 'catalog']);
+  });
+
   testWidgets(
       'an extraction with no working links keeps metadata and exposes no fallback',
       (tester) async {
