@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
@@ -107,7 +108,73 @@ void main() {
     }, () => MockClient((_) async => http.Response('{}', 503)));
   });
 
-  testWidgets('channel failure uses Vercel only after an explicit alternative-connection tap',
+  testWidgets(
+    'a slow healthy channel catalog never sends a relay request',
+    (tester) async {
+      const relay = 'nca25-live-relay.vercel.app';
+      final regular = Completer<http.Response>();
+      var relayReads = 0;
+      await http.runWithClient(
+        () async {
+          await tester.pumpWidget(const MaterialApp(home: ChannelsPage()));
+          await tester.pump(const Duration(seconds: 2));
+          expect(relayReads, 0);
+          regular.complete(http.Response(
+            '{"ok":true,"channels":[{"id":"direct","name":"Direct Channel"}]}',
+            200,
+          ));
+          await tester.pumpAndSettle();
+          expect(find.text('Direct Channel'), findsOneWidget);
+          expect(relayReads, 0);
+          await tester.pumpWidget(const SizedBox.shrink());
+        },
+        () => MockClient((request) async {
+          if (request.url.path.endsWith('/channels')) {
+            if (request.url.host != relay) return regular.future;
+            relayReads++;
+          }
+          return http.Response('{"ok":true,"channels":[],"matches":[]}', 200);
+        }),
+      );
+    },
+  );
+
+  testWidgets(
+    'an empty cache uses the relay when no direct catalog response is valid',
+    (tester) async {
+      const relay = 'nca25-live-relay.vercel.app';
+      final catalogReads = <Uri>[];
+      await http.runWithClient(
+        () async {
+          await tester.pumpWidget(const MaterialApp(home: ChannelsPage()));
+          await tester.pumpAndSettle();
+          expect(find.text('Relay Channel'), findsOneWidget);
+          expect(catalogReads.last.host, relay);
+          await tester.tap(find.byTooltip('Refresh channels'));
+          await tester.pumpAndSettle();
+          expect(catalogReads.last.host, relay);
+          expect(catalogReads.last.queryParameters['fresh'], '1');
+          expect(find.text('Relay Channel'), findsOneWidget);
+          await tester.pumpWidget(const SizedBox.shrink());
+        },
+        () => MockClient((request) async {
+          if (request.url.path.endsWith('/channels')) {
+            catalogReads.add(request.url);
+            if (request.url.host != relay) {
+              return http.Response('{"ok":true}', 200);
+            }
+            return http.Response(
+              '{"ok":true,"channels":[{"id":"relay","name":"Relay Channel"}]}',
+              200,
+            );
+          }
+          return http.Response('{"ok":true,"channels":[],"matches":[]}', 200);
+        }),
+      );
+    },
+  );
+
+  testWidgets('channel stream metadata uses the relay automatically and allows a manual retry',
       (tester) async {
     const channelId = '00000000-0000-0000-0000-000000000012';
     var vercelReads = 0;
@@ -117,11 +184,11 @@ void main() {
       await tester.tap(find.text('Offline Channel'));
       await tester.pumpAndSettle();
       expect(find.textContaining('Channel connection failed'), findsOneWidget);
-      expect(vercelReads, 0);
+      expect(vercelReads, 1);
       expect(find.text('OTHER CONNECTION'), findsOneWidget);
       await tester.tap(find.text('OTHER CONNECTION'));
       await tester.pumpAndSettle();
-      expect(vercelReads, 1);
+      expect(vercelReads, 2);
       expect(find.text('RETRY'), findsOneWidget);
       expect(find.textContaining('Channel service unavailable'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());

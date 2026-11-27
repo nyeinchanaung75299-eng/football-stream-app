@@ -289,10 +289,14 @@ class _ChannelsPageState extends State<ChannelsPage>
     String path, {
     Duration timeout = const Duration(seconds: 7),
     bool viaVercel = false,
+    String? expectedChannelList,
   }) async {
     final bases = viaVercel
         ? [vercelBackupBase]
-        : publicApiBases().where((base) => base != vercelBackupBase).toList();
+        : [
+            ...publicApiBases().where((base) => base != vercelBackupBase),
+            if (expectedChannelList != null) vercelBackupBase,
+          ];
     final result = Completer<Map<String, dynamic>>();
     Object? lastError;
     var next = 0;
@@ -300,6 +304,8 @@ class _ChannelsPageState extends State<ChannelsPage>
 
     void startNext() {
       if (result.isCompleted || next >= bases.length) return;
+      // Wait for all regular routes before using the relay for Channels.
+      if (bases[next] == vercelBackupBase && pending != 0) return;
       final base = bases[next++];
       pending++;
       () async {
@@ -311,11 +317,14 @@ class _ChannelsPageState extends State<ChannelsPage>
             throw StateError('HTTP ${response.statusCode}');
           }
           final decoded = jsonDecode(response.body);
-          if (decoded is! Map || decoded['ok'] != true) {
+          if (decoded is! Map ||
+              decoded['ok'] != true ||
+              (expectedChannelList != null &&
+                  decoded[expectedChannelList] is! List)) {
             throw const FormatException('Invalid channel response');
           }
           if (!result.isCompleted) {
-            if (!viaVercel) rememberVerifiedPublicApiBase(base);
+            if (base != vercelBackupBase) rememberVerifiedPublicApiBase(base);
             result.complete(Map<String, dynamic>.from(decoded));
           }
         } catch (error) {
@@ -400,10 +409,10 @@ class _ChannelsPageState extends State<ChannelsPage>
 
   Future<List<Map<String, dynamic>>> load({bool force = false}) async {
     final rows = await ViewerTabCache.loadChannels(() async {
-      final data = await request(force ? '/channels?fresh=1' : '/channels');
-      if (data['channels'] is! List) {
-        throw const FormatException('Invalid channel catalog');
-      }
+      final data = await request(
+        force ? '/channels?fresh=1' : '/channels',
+        expectedChannelList: 'channels',
+      );
       return (data['channels'] as List)
           .whereType<Map>()
           .map((row) => Map<String, dynamic>.from(row))
@@ -419,7 +428,9 @@ class _ChannelsPageState extends State<ChannelsPage>
   Future<void> refresh({bool silent = false}) async {
     if (!mounted) return;
     final fresh = load(force: true);
-    setState(() => catalog = fresh);
+    setState(() {
+      catalog = fresh;
+    });
     unawaited(_loadGroupPositions(force: true));
     unawaited(_loadChannelEpg(refresh: true));
     unawaited(_loadMatchChoices(force: true));
@@ -427,9 +438,14 @@ class _ChannelsPageState extends State<ChannelsPage>
       await fresh;
     } catch (_) {
       if (!silent && mounted) {
+        final hasSavedChannels = _lastChannels?.isNotEmpty ?? false;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Network unavailable. Showing saved channel list.'),
+          SnackBar(
+            content: Text(
+              hasSavedChannels
+                  ? 'Network unavailable. Showing saved channel list.'
+                  : 'Network unavailable.',
+            ),
           ),
         );
       }
@@ -447,15 +463,13 @@ class _ChannelsPageState extends State<ChannelsPage>
     setState(() => opening = true);
     try {
       // A stream-link request often needs an upstream service after the
-      // metadata API replies. Give each verified route a bounded extra window
-      // while the existing Vercel/Cloudflare hedges are still active.
+      // metadata API replies. Give each route a bounded extra window.
       final data = await request(
         '/channels/$id/streams',
         viaVercel: viaVercel,
+        expectedChannelList: 'streams',
         timeout: const Duration(seconds: 12),
       );
-      if (data['streams'] is! List)
-        throw const FormatException('Invalid channel lines');
       final lines = (data['streams'] as List)
           .whereType<Map>()
           .map((raw) {
