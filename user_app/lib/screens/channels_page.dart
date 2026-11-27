@@ -488,9 +488,11 @@ class _ChannelsPageState extends State<ChannelsPage>
         );
         return;
       }
-      // Normal channel playback does not spend Vercel video transfer.
-      // Opt in for this play attempt through the channel menu.
-      final playerLines = playbackSources(lines, useVercel: viaVercel);
+      final playerLines = playbackSources(
+        lines,
+        useVercel: viaVercel ? true : null,
+        fallbackForDrmOnly: true,
+      );
       NativePlayer.prewarm(sources: playerLines);
       unawaited(library.recordRecent(id).catchError((Object _) {}));
       await NativePlayer.open(

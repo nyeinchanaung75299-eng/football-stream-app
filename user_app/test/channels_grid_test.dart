@@ -142,7 +142,7 @@ void main() {
   });
 
   testWidgets(
-    'channel logo opens the first protected video directly in portrait',
+    'channel opens directly in portrait with a backup for configured DRM',
     (tester) async {
       Map? opened;
       const bridge = MethodChannel('football_stream/native_player');
@@ -168,6 +168,18 @@ void main() {
           expect(opened, isNotNull);
           final lines = jsonDecode(opened!['sourcesJson'] as String) as List;
           expect(lines.first['portraitStart'], true);
+          expect(
+            lines.first['url'],
+            'https://football-api.nyeinchanaung.us.ci/p/drm-token',
+          );
+          expect(
+            lines.first['routeFallbackUrl'],
+            'https://nca25-live-relay.vercel.app/p/drm-token',
+          );
+          expect(lines.first['keyId'], 'test-key-id');
+          expect(lines.first['keyData'], 'test-key-data');
+          expect(lines[1].containsKey('routeFallbackUrl'), false);
+          expect(lines[2].containsKey('routeFallbackUrl'), false);
           expect(opened!['selectedIndex'], 0);
           expect(find.byType(BottomSheet), findsNothing);
           expect(find.text('Server 1'), findsNothing);
@@ -181,10 +193,30 @@ void main() {
                       'streams': [
                         {
                           'id': 'one',
-                          'stream_url': 'https://play.example/p/token',
+                          'stream_url':
+                              'https://football-api.nyeinchanaung.us.ci/p/drm-token',
+                          'protected_proxy': true,
+                          'stream_type': 'dash',
+                          'key_id': 'test-key-id',
+                          'key_data': 'test-key-data',
+                          'label': 'Server 1',
+                        },
+                        {
+                          'id': 'two',
+                          'stream_url':
+                              'https://football-api.nyeinchanaung.us.ci/p/hls-token',
                           'protected_proxy': true,
                           'stream_type': 'hls',
-                          'label': 'Server 1',
+                          'label': 'Server 2',
+                        },
+                        {
+                          'id': 'three',
+                          'stream_url':
+                              'https://football-api.nyeinchanaung.us.ci/p/incomplete-token',
+                          'protected_proxy': true,
+                          'stream_type': 'dash',
+                          'key_id': 'test-key-id',
+                          'label': 'Server 3',
                         },
                       ],
                     }
