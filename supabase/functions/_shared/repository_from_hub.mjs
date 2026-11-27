@@ -202,6 +202,6 @@ export async function repositoryMatchesFromHub(entries,{revision='',missingRepos
    resolved_streams:(entry.streams||[]).map(line=>({...line,title:line.label}))};
   rows.push(...parseRepositoryMatches(JSON.stringify([event]),{repository,source_file:entry.source_file,source_entry_id:entry.id}));
  }
- return {revision:await sourceHash('hub-repository-v8:'+revision),unchanged:false,
+ return {revision:await sourceHash('hub-repository-v9:'+revision),unchanged:false,
   entries:await mergeRepositoryMatches(mergeVerifiedAliases(rows),{previous}),complete,missingRepositories:[...missing]};
 }

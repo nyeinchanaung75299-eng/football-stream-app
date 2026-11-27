@@ -178,11 +178,16 @@ export async function mergeRepositoryMatches(rows,{previous=[]}={}){
    source_file:'reviewed repository fixtures',image_url:null,streams:[],unsupported_count:0,
    event_meta:{home_team:row.home_team,away_team:row.away_team,home_logo_url:null,away_logo_url:null,kickoff_at:kickoff,
     source_civil_date:row.source_civil_date||null,source_time:row.source_time||null,league:row.league,repositories:[],
-    ...(kickoff?{fixture_key:canonicalId}:{})}};grouped.set(id,entry);}
+    ...(kickoff||row.source_entry_id?{fixture_key:canonicalId}:{})}};grouped.set(id,entry);}
   const meta=entry.event_meta;
-  if(kickoff&&row.source_finished&&Date.parse(kickoff)<Date.now()){
+  const civilDate=row.source_civil_date||'';
+  const civilClock=/^\d{4}-\d{2}-\d{2}$/.test(civilDate)?Date.parse(civilDate):NaN;
+  const observedCivilDate=Number.isFinite(civilClock)&&civilClock<=Date.now()&&
+   new Date(civilClock).toISOString().slice(0,10)===civilDate;
+  if(row.source_finished&&(kickoff?Date.parse(kickoff)<Date.now():row.source_entry_id&&observedCivilDate)){
    meta.source_finished=true;
-   if(row.end_at&&row.end_at>kickoff&&Date.parse(row.end_at)<=Date.now()&&(!meta.finished_at||row.end_at>meta.finished_at))meta.finished_at=row.end_at;
+   if(!kickoff)meta.finished_source_date=civilDate;
+   if(kickoff&&row.end_at&&row.end_at>kickoff&&Date.parse(row.end_at)<=Date.now()&&(!meta.finished_at||row.end_at>meta.finished_at))meta.finished_at=row.end_at;
   }
   meta.home_logo_url ||= row.home_logo_url;meta.away_logo_url ||= row.away_logo_url;
   if(row.league&&!/\s(?:vs\.?|versus)\s/i.test(row.league)&&row.league!=='Football'&&!/^live\s*(?:events?|sports)$/i.test(row.league))meta.league=row.league;

@@ -214,3 +214,15 @@ test('partial Hub data combines verified duplicates into the previously mapped f
  const linkedTwice=reconcilePriorRepositoryFixtures([fresh],[previous,{...fresh,channel_source_match_links:[{entry_id:'newer'}]}],{partial:true});
  assert.deepEqual(linkedTwice.superseded,[]);
 });
+
+test('explicit finished status with a source ID and civil date starts retention without inventing UTC kickoff',async()=>{
+ const fixture={...entry,id:'explicit-final',event_meta:{...entry.event_meta,kickoff_at:null,source_status:'FINISHED',source_civil_date:'2026-08-28'}};
+ const [row]=(await repositoryMatchesFromHub([fixture])).entries;
+ assert.equal(row.event_meta.source_finished,true);
+ assert.equal(row.event_meta.kickoff_at,null);
+ assert.equal(row.event_meta.finished_source_date,'2026-08-28');
+ assert.equal(row.event_meta.finished_at,undefined);
+ assert.equal(row.event_meta.fixture_key,row.id);
+ const [invalid]=(await repositoryMatchesFromHub([{...fixture,event_meta:{...fixture.event_meta,source_civil_date:'2026-02-31'}}])).entries;
+ assert.equal(invalid.event_meta.source_finished,undefined);
+});
