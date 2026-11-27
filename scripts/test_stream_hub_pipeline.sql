@@ -24,11 +24,25 @@ insert into private.gateway_secrets(name,secret_hash) values('cloudflare_playbac
 insert into public.channel_source_catalog(id,source_id,provider,kind,name,category,source_file,streams,revision,event_meta)
  values('repo:match:'||repeat('f',28),'repository',8,'event','Present metadata only','Football','Hub projection','[]','test',
  jsonb_build_object('home_team','Present Home','away_team','Present Away','kickoff_at',now()-interval '8 hours'));
+insert into public.channel_source_catalog(id,source_id,provider,kind,name,category,source_file,streams,revision,event_meta)
+select id,'repository',8,'event',id,'Football','Hub projection','[]','test',meta
+from (values
+ ('repo:match:'||repeat('a',28),jsonb_build_object('kickoff_at',now()-interval '10 hours')),
+ ('repo:match:'||repeat('b',28),jsonb_build_object('source_time',to_char(now() at time zone 'UTC'-interval '22 hours','DD/MM/YYYY HH24:MI:SS'))),
+ ('repo:match:'||repeat('c',28),jsonb_build_object('source_time',to_char(now() at time zone 'UTC'-interval '20 hours','DD/MM/YYYY HH24:MI:SS'))),
+ ('repo:match:'||repeat('d',28),'{}'::jsonb)
+) fixture(id,meta);
 set local role anon;
 do $$declare data jsonb;begin
  data:=public.get_repository_metadata_for_gateway(null,'hub-parity-fixture');
  if not exists(select from jsonb_array_elements(data->'matches') m where m->>'source_id'='repo:match:'||repeat('f',28) and m->>'stream_count'='0' and m->'anchors'='[]'::jsonb) then raise exception 'Live 2 differed from present Admin catalogue or advertised empty match playable';end if;
  if data::text like '%key_data%' or data::text like '%stream_url%' then raise exception 'Metadata leaked line configuration';end if;
+ if exists(select from jsonb_array_elements(data->'matches') m where m->>'source_id' in ('repo:match:'||repeat('a',28),'repo:match:'||repeat('b',28)))
+   or (select count(*) from jsonb_array_elements(data->'matches') m where m->>'source_id' in ('repo:match:'||repeat('c',28),'repo:match:'||repeat('d',28)))<>2 then
+   raise exception 'The list must drop stale UTC and wall-clock rows and preserve recent or undated rows';
+ end if;
+ data:=public.get_repository_metadata_for_gateway('repo:match:'||repeat('a',28),'hub-parity-fixture');
+ if data->>'match_valid'<>'true' then raise exception 'A stale browse row lost its existing playback reference';end if;
 end $$;
 reset role;
 insert into public.channel_source_catalog(id,source_id,provider,kind,name,category,source_file,streams,revision,event_meta)
