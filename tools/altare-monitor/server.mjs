@@ -4,6 +4,7 @@ const intervalMs = 5 * 60_000;
 const maximumAgeMinutes = 30;
 const feed = 'https://raw.githubusercontent.com/nyeinchanaung75299-eng/football-stream-app/feed/public';
 const live2 = 'https://nca25-live-relay.vercel.app/sources/repository/matches?limit=1&fresh=1';
+const channels = 'https://nca25-live-relay.vercel.app/channels?fresh=1';
 const statusFormat = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Yangon', dateStyle: 'medium', timeStyle: 'medium',
 });
@@ -52,6 +53,17 @@ const targets = [
         return report('error', 'Invalid Live 2 response');
       }
       return report('ok', data.matches.length ? 'Fixture received' : 'API returned an empty fixture list');
+    },
+  },
+  {
+    id: 'channels', label: 'Channels API', url: () => channels,
+    check(data) {
+      if (data?.ok !== true || !Array.isArray(data.channels)) {
+        return report('error', 'Invalid Channels response');
+      }
+      const count = data.channels.length;
+      return count ? report('ok', `${count} channels listed`)
+        : report('warning', 'API returned an empty channel list');
     },
   },
   {
