@@ -196,13 +196,13 @@ test('dated JSON-LD ItemList supports the observed fixture shape, not media deli
   throw Error('Unexpected request '+address);
  };
  const result=await footballHighlights({force:true},{fetcher,includeDateCatalogue:true,now});
- assert.equal(result.entries.length,4);
+ assert.equal(result.entries.length,3);
  assert.equal(result.entries[0].title,'Brentford vs Everton');
  assert.equal(result.next_offset,1);
- assert.equal(result.has_more,true);
+ assert.equal(result.has_more,false);
  assert.equal(calls.length,4);
  const second=await footballHighlights({force:true,offset:1},{fetcher,includeDateCatalogue:true,now});
- assert.equal(second.entries.length,1);
+ assert.equal(second.entries.length,0);
  assert.equal(second.has_more,false);
  assert.equal(calls.length,5);
  const search=await footballHighlights({force:true,query:'Brentford'},{fetcher,includeDateCatalogue:true,now});
@@ -210,7 +210,7 @@ test('dated JSON-LD ItemList supports the observed fixture shape, not media deli
  assert.equal(search.entries[0].match_id,'209637');
  failDates=true;
  const fallback=await footballHighlights({force:true},{fetcher,includeDateCatalogue:true,now});
- assert.equal(fallback.entries.length,4);
+ assert.equal(fallback.entries.length,3);
  assert.equal(fallback.stale,true);
  assert(!JSON.stringify(fallback).includes('test-only.mp4'));
 });
@@ -343,4 +343,51 @@ test('Admin first-page catalogue finds confirmed Normal HL when the post feed is
   const fresh = await footballHighlights({force: true}, admin);
   assert.deepEqual(fresh.entries.map(row => row.title), ['Legacy post']);
   assert.equal(calls.length, 1);
+});
+
+
+test('Admin returns both public Streamable resolutions from a publisher clip and falls back to its link',async()=>{
+ const page='https://dasfootball.com/match/juventus-vs-omonia-nicosia-2026-11-26-99000019/';
+ const host='https://cdn-cf-east.streamable.com';
+ const hd=host+'/video/mp4/testclip9.mp4?signature=primary',mobile=host+'/video/mp4-mobile/testclip9.mp4?signature=mobile';
+ const records=[{'@type':'SportsEvent',name:'Juventus vs Omonia Nicosia',url:page},{'@type':'VideoObject',name:'Juventus vs Omonia Nicosia highlights',contentUrl:hd}];
+ const html='<section id="highlights" aria-labelledby="head"><h2 id="head">Highlights</h2><video></video></section><script type="application/ld+json">'+JSON.stringify(records)+'</script>';
+ let apiOffline=false;
+ const fetcher=async url=>{
+  if(url===page)return new Response(html,{headers:{'Content-Type':'text/html'}});
+  assert.equal(url,'https://api.streamable.com/videos/testclip9');
+  if(apiOffline)throw Error('Publisher API timeout');
+  return Response.json({files:{mp4:{url:hd,height:1080},'mp4-mobile':{url:mobile,height:360},original:{url:'https://files.example.org/raw.mp4'}}});
+ };
+ const request={action:'details',entry_id:'dasfootball:'+page,force:true};
+ const options={includeDateCatalogue:true,fetcher};
+ const result=await footballHighlights(request,options);
+ assert.deepEqual(result.entry.lines.map(line=>[line.resolution,line.stream_url]),[['1080p',hd],['360p',mobile]]);
+ apiOffline=true;
+ const fallback=await footballHighlights(request,options);
+ assert.deepEqual(fallback.entry.lines.map(line=>line.stream_url),[hd]);
+});
+
+test('Admin loads new publisher entries and ages older fallback pages out at Myanmar midnight',async()=>{
+ const first=Date.parse('2026-11-27T17:00:00Z'),second=first+3600000;
+ const record=(slug,publishedAt)=>({slug:slug+'-highlights',title:slug,publishedAt});
+ let refresh=false,failure=false;
+ const fetcher=async url=>{
+  if(url.includes('?date='))throw Error('no date feed');
+  if(url.includes('/api/search/'))return Response.json([]);
+  if(url==='https://dasfootball.com/')return new Response('<html></html>',{headers:{'Content-Type':'text/html'}});
+  if(failure)throw Error('upstream failure');
+  return Response.json({cards:[
+   ...(refresh?[record('new','2026-11-27T17:30:00Z')]:[]),
+   record('recent','2026-11-25T17:31:00Z'),record('cutoff','2026-11-25T17:25:00Z'),
+  ],hasMore:false});
+ };
+ const load=now=>footballHighlights({force:true},{includeDateCatalogue:true,now,fetcher});
+ assert.deepEqual((await load(first)).entries.map(row=>row.title),['recent','cutoff']);
+ refresh=true;
+ assert.deepEqual((await load(second)).entries.map(row=>row.title),['new','recent']);
+ failure=true;
+ const stale=await load(second);
+ assert.equal(stale.stale,true);
+ assert.deepEqual(stale.entries.map(row=>row.title),['new','recent']);
 });

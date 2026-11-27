@@ -6,10 +6,10 @@ class HighlightsService {
   Future<PostgrestList> destinations() async => await Supabase.instance.client
       .from('highlight_matches')
       .select('id,home_team,away_team,league,kickoff_at')
-      .order('kickoff_at', ascending: false).limit(100);
+      .order('kickoff_at', ascending: false)
+      .limit(100);
 
-  Future<void> save(
-      Map<String, dynamic> entry, Map<String, dynamic> line,
+  Future<void> save(Map<String, dynamic> entry, Map<String, dynamic> line,
       {String? matchId}) async {
     final uri = Uri.tryParse(line['stream_url']?.toString() ?? '');
     if (uri == null ||
@@ -23,7 +23,9 @@ class HighlightsService {
         .from('highlights')
         .upsert({
           if (matchId != null) 'match_id': matchId,
-          'title': entry['title'],
+          'title': line['resolution'] == null
+              ? entry['title']
+              : "${entry['title']} · ${line['resolution']}",
           'thumbnail_url': entry['thumbnail_url'],
           'video_url': uri.toString(),
           'stream_type': line['stream_type'],
