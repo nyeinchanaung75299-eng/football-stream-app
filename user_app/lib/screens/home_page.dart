@@ -1047,6 +1047,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _openPlayer(Map<String, dynamic> match) async {
     final matchId = match['id']?.toString() ?? '';
+    final watchTappedAtMs = DateTime.now().millisecondsSinceEpoch;
     final watchToSourcesClock = Stopwatch()..start();
     unawaited(
       AnalyticsService.capture(
@@ -1346,6 +1347,7 @@ class _HomePageState extends State<HomePage> {
         selectedIndex: selectedIndex,
         title: _matchTitle(match),
         matchId: matchId,
+        watchTappedAtMs: watchTappedAtMs,
       );
       await AnalyticsService.capture(
         'player opened',

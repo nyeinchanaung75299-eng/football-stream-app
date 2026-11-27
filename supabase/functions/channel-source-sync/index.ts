@@ -75,11 +75,17 @@ async function synchronize(client:any,force:boolean,source:string){
   }
   stage='published-snapshot';
   let snapshot:any;
+  const previousRepository:any[]=[];
   if(source==='repository'){
    const hub=await readStreamHub(client);
    if(!['ok','partial'].includes(hub.state.status))throw Error('Stream Hub snapshot unavailable; retry after refresh');
-   snapshot=await repositoryMatchesFromHub(hub.entries,{revision:hub.state.revision+'|'+hub.state.last_checked_at,
-    ...repositoryFixtureScope(hub.state)});
+   for(let page=0;page<15;page++){
+    const rows=await check(client.from('channel_source_catalog')
+     .select('id,streams,event_meta').eq('source_id','repository').eq('is_present',true).order('id').range(page*1000,page*1000+999));
+    previousRepository.push(...rows);if(rows.length<1000)break;
+   }
+   snapshot=await repositoryMatchesFromHub(hub.entries,{revision:hub.state.revision,
+    ...repositoryFixtureScope(hub.state),previous:previousRepository});
   }else if(source==='livetv')snapshot=await fetchLiveTvSports({revision:force?null:begun.revision,channels});
   else snapshot=await fetchConnectedGithubCatalog({revision:force?null:begun.revision,previous:previousCatalog});
   let removedRepositoryIds:string[]=[];
@@ -88,28 +94,33 @@ async function synchronize(client:any,force:boolean,source:string){
    // published streams were removed. Keep those configurations until a full
    // authoritative snapshot succeeds, and add new verified Darkbyte/CFY
    // event lines without multiplying duplicates.
-   const previous:any[]=[];
-   for(let page=0;page<15;page++){
-    const rows=await check(client.from('channel_source_catalog')
-     .select('id,streams,event_meta').eq('source_id','repository').eq('is_present',true).order('id').range(page*1000,page*1000+999));
-    previous.push(...rows);if(rows.length<1000)break;
-   }
-   const reconciled=reconcileUndatedRepositoryAliases(snapshot.entries,previous);
-   snapshot.entries=preserveRepositoryMatchLines(reconciled.entries,unobservedRepositoryEntries(snapshot,previous));
-   removedRepositoryIds=[...new Set([...reconciled.superseded,...confirmedRepositoryRemovals(snapshot,previous)])];
+   const reconciled=reconcileUndatedRepositoryAliases(snapshot.entries,previousRepository);
+   snapshot.entries=preserveRepositoryMatchLines(reconciled.entries,unobservedRepositoryEntries(snapshot,previousRepository));
+   removedRepositoryIds=[...new Set([...reconciled.superseded,...confirmedRepositoryRemovals(snapshot,previousRepository)])];
   }
-  if(source==='repository'&&!snapshot.complete)return await check(client.rpc('commit_repository_partial_snapshot',{
-   p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,p_removed_ids:removedRepositoryIds,
-  }));
+
   stage='commit';
   if(source==='darkbyte')return await check(client.rpc('commit_stream_hub_snapshot',{
    p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,
    p_unavailable_repositories:snapshot.missingRepositories||[],
   }));
-  return await check(client.rpc("commit_connected_channel_source_sync",{
+  const result=source==='repository'&&!snapshot.complete
+   ?await check(client.rpc('commit_repository_partial_snapshot',{
+     p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,p_removed_ids:removedRepositoryIds,
+    }))
+   :await check(client.rpc("commit_connected_channel_source_sync",{
    p_source:source,p_lease:begun.lease,p_revision:snapshot.revision,p_entries:snapshot.entries,
-   p_complete:snapshot.complete,p_unchanged:snapshot.unchanged,
-  }));
+   p_complete:snapshot.complete,p_unchanged:snapshot.unchanged||source==='repository'&&snapshot.revision===begun.revision,
+    }));
+  if(source!=='repository')return result;
+  const expiry=await check(client.rpc('prune_finished_repository_fixtures',{p_preview:false})).catch(error=>{
+   console.warn('Repository retention failed',{code:error.code||'unknown'});
+   return null;
+  });
+  if(expiry===null)return {...result,retention_status:'unavailable'};
+  if(!expiry.count)return {...result,expired_count:0};
+  const state=await check(client.from('channel_source_state').select('entry_count').eq('id','repository').single());
+  return {...result,entry_count:state.entry_count,expired_count:expiry.count};
  }catch(error){
   console.error('Channel source sync failed',{source,stage,code:(error as any)?.code||'source_fetch',reason:(error as Error)?.name});
   await client.from("channel_source_state").update({status:"unavailable",last_checked_at:new Date().toISOString(),

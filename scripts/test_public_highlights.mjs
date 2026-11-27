@@ -252,3 +252,55 @@ test('date catalogue metadata can be upgraded only by explicitly licensed normal
  await assert.rejects(footballHighlights({action:'check',entry_id,line_id:detail.entry.lines[0].id},{fetcher}),/No authorized MP4/);
  assert.equal(mediaRequests,1);
 });
+
+test('Admin first-page catalogue finds confirmed Normal HL when the post feed is old and retains it during outages', async () => {
+  const root = 'https://dasfootball.com/';
+  const page = root + 'match/newcastle-vs-arsenal-2026-11-23-123/';
+  const other = root + 'match/everton-vs-chelsea-2026-11-23-124/';
+  const calls = [];
+  let mode = 'stale';
+  const fetcher = async url => {
+    calls.push(url);
+    if (url.includes('/api/homepage-posts/')) {
+      if (mode === 'outage') return new Response('', {status: 503});
+      const publishedAt = mode === 'fresh' ? new Date().toISOString() : '2020-01-01T00:00:00Z';
+      return Response.json({
+        cards: [{slug: 'legacy-highlights', title: 'Legacy post', publishedAt}],
+        hasMore: true,
+      });
+    }
+    if (url === root) {
+      if (mode === 'outage') return new Response('', {status: 403});
+      return new Response(`<a href="${page}">Match</a><a href="${other}">Other</a>`, {headers: {"content-type": "text/html"}});
+    }
+    if (url === page) return new Response('<button>Normal Highlights</button>', {headers: {"content-type": "text/html"}});
+    if (url === other) return new Response('<button>Extended Highlights</button>', {headers: {"content-type": "text/html"}});
+    throw Error('Unexpected request');
+  };
+  const admin = {fetcher, includeNormal: true};
+  const first = await footballHighlights({force: true}, admin);
+  assert.deepEqual(first.entries.map(row => row.highlight_variant), ['normal', undefined]);
+  assert.equal(first.entries[0].published_at, null);
+  assert.equal(first.entries[0].source_page_only, true);
+  assert.equal(first.latest_published_at, '2020-01-01T00:00:00.000Z');
+  assert.equal(first.next_offset, 1);
+  assert.equal(first.has_more, true);
+
+  calls.length = 0;
+  const pageTwo = await footballHighlights({offset: first.next_offset}, admin);
+  assert.equal(pageTwo.entries.length, 1);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0], /offset=1$/);
+
+  mode = 'outage';
+  const cached = await footballHighlights({force: true}, admin);
+  assert.equal(cached.stale, true);
+  assert.equal(cached.updated_at, first.updated_at);
+  assert.deepEqual(cached.entries, first.entries);
+
+  mode = 'fresh';
+  calls.length = 0;
+  const fresh = await footballHighlights({force: true}, admin);
+  assert.deepEqual(fresh.entries.map(row => row.title), ['Legacy post']);
+  assert.equal(calls.length, 1);
+});

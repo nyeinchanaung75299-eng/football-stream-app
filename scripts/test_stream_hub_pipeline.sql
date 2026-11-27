@@ -30,4 +30,47 @@ do $$declare data jsonb;begin
  if not exists(select from jsonb_array_elements(data->'matches') m where m->>'source_id'='repo:match:'||repeat('f',28) and m->>'stream_count'='0' and m->'anchors'='[]'::jsonb) then raise exception 'Live 2 differed from present Admin catalogue or advertised empty match playable';end if;
  if data::text like '%key_data%' or data::text like '%stream_url%' then raise exception 'Metadata leaked line configuration';end if;
 end $$;
+reset role;
+insert into public.channel_source_catalog(id,source_id,provider,kind,name,category,source_file,streams,revision,event_meta)
+select id,'repository',8,'event',id,'Football','Hub projection','[]','test',
+ jsonb_build_object('fixture_key',fixture,'home_team','Test Home','away_team','Test Away',
+ 'kickoff_at','2026-11-19T19:00:00Z','source_finished',finished,'finished_at',end_at)
+from (values ('old-finished','finished-key',true,'2026-11-19T21:00:00Z'),
+ ('protected-finished','protected-key',true,'2026-11-19T21:00:00Z'),
+ ('unknown-result','unknown-key',false,null),
+ ('just-finished','just-finished-key',true,null)) v(id,fixture,finished,end_at);
+insert into public.repository_match_imports(entry_id,match_id)
+ values('protected-finished','59000000-0000-0000-0000-000000000002');
+set local role anon;
+do $$declare data jsonb;begin
+ data:=public.get_repository_catalog_page_for_gateway('2026-11-20',0,1,'hub-parity-fixture');
+ if jsonb_array_length(data->'matches')<>1 or data->>'next_offset'<>'1' or
+    data->'matches'->0->>'source_id'<>'just-finished' then raise exception 'Live 2 Yangon page order/cursor: %', data; end if;
+ if data::text like '%key_data%' or data::text like '%stream_url%' then raise exception 'Page leaked metadata';end if;
+ begin
+  perform public.prune_finished_repository_fixtures(false);
+  raise exception 'Viewer could execute prune';
+ exception when insufficient_privilege then null;
+ end;
+end $$;
+reset role;
+set local role service_role;
+do $$declare preview jsonb; removed jsonb;begin
+ preview:=public.prune_finished_repository_fixtures();
+ if preview->'entry_ids' <> '["old-finished"]'::jsonb
+    or not exists(select from public.channel_source_catalog where id='old-finished') then
+  raise exception 'Unexpected dry run: %', preview;
+ end if;
+ removed:=public.prune_finished_repository_fixtures(false);
+ if removed->>'count'<>'1' or exists(select from public.channel_source_catalog where id='old-finished')
+    or (select count(*) from public.channel_source_catalog where id in ('just-finished','protected-finished','unknown-result'))<>3
+    or not exists(select from public.stream_links where stream_url='https://manual.example.org/keep.m3u8') then
+  raise exception 'Cleanup did not preserve unrelated or imported records: %',removed;
+ end if;
+ insert into public.channel_source_catalog(id,source_id,provider,kind,name,category,source_file,streams,revision,event_meta)
+  values('reissued-id','repository',8,'event','Reissued','Football','Hub projection','[]','test','{"fixture_key":"finished-key"}');
+ if exists(select from public.channel_source_catalog where id='reissued-id') then
+  raise exception 'Expired fixture reappeared with a new ID';
+ end if;
+end $$;
 rollback;

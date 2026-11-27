@@ -20,6 +20,7 @@ external void _openFootballPlayer(
   JSString title,
   JSString matchId,
   JSString sessionId,
+  JSNumber watchTappedAtMs,
 );
 
 @JS('updateFootballPlayerSources')
@@ -48,6 +49,7 @@ class NativePlayer {
     String? title,
     String? matchId,
     String? sessionId,
+    int? watchTappedAtMs,
   }) async {
     if (sources.isNotEmpty &&
         selectedIndex >= 0 &&
@@ -88,6 +90,7 @@ class NativePlayer {
       (title ?? 'Football Live').toJS,
       (matchId ?? '').toJS,
       (sessionId ?? '').toJS,
+      (watchTappedAtMs ?? 0).toJS,
     );
   }
 

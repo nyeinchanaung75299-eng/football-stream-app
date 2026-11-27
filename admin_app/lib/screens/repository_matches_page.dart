@@ -111,7 +111,16 @@ class _RepositoryMatchesPageState extends State<RepositoryMatchesPage> {
         );
       } else {
         refresh();
-        notice('Repository matches updated.');
+        if (result['busy'] == true) {
+          notice('Sync is already running. Refresh to see the result.');
+        } else if (result['retention_status'] == 'unavailable') {
+          notice('Matches synced. Finished-match cleanup will retry on the next sync.');
+        } else {
+          final expired = (result['expired_count'] as num?)?.toInt() ?? 0;
+          notice(expired > 0
+              ? 'Matches synced. Removed $expired finished repository matches.'
+              : 'Repository matches synced.');
+        }
       }
     } catch (_) {
       notice('Source check unavailable. The last complete catalog was kept.');

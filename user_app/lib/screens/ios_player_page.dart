@@ -25,6 +25,7 @@ class IOSPlayerPage extends StatefulWidget {
     required this.selectedIndex,
     required this.title,
     required this.matchId,
+    this.watchTappedAtMs,
     this.sourceUpdates,
     this.onClosed,
   });
@@ -33,6 +34,7 @@ class IOSPlayerPage extends StatefulWidget {
   final int selectedIndex;
   final String title;
   final String matchId;
+  final int? watchTappedAtMs;
   final ValueListenable<int>? sourceUpdates;
   final VoidCallback? onClosed;
 
@@ -115,6 +117,18 @@ class _IOSPlayerPageState extends State<IOSPlayerPage>
         scale: 1.0,
       ),
     );
+    if (widget.watchTappedAtMs case final tappedAt?) {
+      unawaited(_videoController.waitUntilFirstFrameRendered.then((_) {
+        if (!mounted || _disposed) return;
+        final elapsed = DateTime.now().millisecondsSinceEpoch - tappedAt;
+        if (elapsed < 0 || elapsed > 300000) return;
+        unawaited(AnalyticsService.capture(
+          'playback first frame',
+          properties: {..._eventProperties(), 'tap_to_first_frame_ms': elapsed},
+        ));
+      }).catchError((Object _) {}));
+    }
+
 
     _listenToPlayer();
     unawaited(_openLine(_selectedIndex, userSelected: true));

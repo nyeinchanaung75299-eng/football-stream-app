@@ -20,7 +20,9 @@ test('all four committed formats expose native lines through the existing catalo
   fixtures.push(...parseRepositoryMatches(JSON.stringify(rows),{repository:source.repository,source_file:'fixture.json'}));
  }
  const merged=await mergeRepositoryMatches(fixtures,{now:Date.parse('2026-11-21T17:00:00Z')});
- assert.equal(merged.length,1);assert.equal(merged[0].streams.length,1);assert.equal(merged[0].event_meta.repositories.length,4);
+ assert.equal(merged.length,1);assert.equal(merged[0].streams.length,1);
+ // The untimed SM IPTV listing supplies no independent kickoff evidence.
+ assert.equal(merged[0].event_meta.repositories.length,3);
  const row=normalizeGithubDocument(NEW_GITHUB_SOURCES[2].repository,'Sports_data.json',{matches:[{Category:'American football',eventInfo,streams:[{stream_url:url}]}]});
  assert.equal(parseRepositoryMatches(JSON.stringify(row),{repository:NEW_GITHUB_SOURCES[2].repository}).length,0);
 });

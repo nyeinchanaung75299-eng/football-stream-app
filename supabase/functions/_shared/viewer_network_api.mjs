@@ -37,7 +37,7 @@ export function createViewerNetworkApi({apiKey,fetcher=globalThis.fetch,now=Date
   if(path==='/health'&&request.method==='GET')return json({ok:true,service:'viewer-network-api'},200);
   const spec=route(path,request.method);if(!spec)return json({error:'Route not available.'},404);
   const upstream=new URL(path,PUBLIC_ORIGIN);
-  const allowed=spec.image?['v']:['date','days','fresh','source_id','schedule_id','room_num'];
+  const allowed=spec.image?['v']:['date','days','fresh','limit','offset','source_id','schedule_id','room_num'];
   for(const name of allowed)if(incoming.searchParams.has(name))upstream.searchParams.set(name,incoming.searchParams.get(name));
   const fresh=incoming.searchParams.get('fresh')==='1'||/(?:^|,)\s*no-cache\b/i.test(request.headers.get('Cache-Control')||'');
   const cacheUrl=new URL(upstream);cacheUrl.searchParams.delete('fresh');

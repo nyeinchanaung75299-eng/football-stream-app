@@ -71,6 +71,7 @@ class NativePlayer {
     String? title,
     String? matchId,
     String? sessionId,
+    int? watchTappedAtMs,
   }) async {
     if (Platform.isIOS) {
       if (context == null || !context.mounted) {
@@ -100,6 +101,7 @@ class NativePlayer {
               selectedIndex: selectedIndex,
               title: title ?? 'Football Live',
               matchId: matchId ?? '',
+              watchTappedAtMs: watchTappedAtMs,
             ),
           ),
         ),
@@ -114,6 +116,7 @@ class NativePlayer {
       'title': title ?? 'Football Live',
       'matchId': matchId ?? '',
       'sessionId': sessionId ?? '',
+      'watchTappedAtMs': watchTappedAtMs,
     });
   }
 

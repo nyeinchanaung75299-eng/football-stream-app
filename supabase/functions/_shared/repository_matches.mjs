@@ -106,41 +106,84 @@ export function parseRepositoryMatches(text,context){
    const a=team(typeof home==='object'?home?.name:e.teamA||home),b=team(typeof away==='object'?away?.name:e.teamB||away);
    if(!a||!b||key(a)===key(b))continue;
    const candidates=[row.resolved_streams,row.streams,row.channels_data,row.formats].find(x=>Array.isArray(x)&&x.length)||[];
-   rows.push({...context,home_team:a,away_team:b,home_logo_url:logo(home?.logo||e.teamAFlag),away_logo_url:logo(away?.logo||e.teamBFlag),
+   rows.push({...context,source_entry_id:context.source_entry_id||row.id||null,home_team:a,away_team:b,home_logo_url:logo(home?.logo||e.teamAFlag),away_logo_url:logo(away?.logo||e.teamBFlag),
     kickoff_at:repositoryKickoff(e.startTime||row.startTime),end_at:repositoryKickoff(e.endTime),
+    source_finished:/^(?:finished|full[ -]?time|ft|aet|after extra time|after penalties)$/i.test(clean(row.status)),
     source_civil_date:e.sourceCivilDate||null,source_time:e.sourceTime||null,
-    league:clean(e.eventName||row.eventName||category).slice(0,120),football_proven:!unclassified,
+    league:clean(/^epl\b/i.test(row.cat||'')?'Premier League':e.eventName||row.eventName||category).slice(0,120),football_proven:!unclassified,
     competition_tag:competition({league:category,home_team:a,away_team:b}),
     streams:candidates.filter(x=>x?.visible!==false&&![0,'0',false].includes(x?.publish)).map(nativeLine).filter(Boolean)});
   }
  }
  return rows;
 }
-export async function mergeRepositoryMatches(rows,{now=Date.now()}={}){
+const badgeId = value => /^https:\/\/img\.sofascore\.com\/api\/v1\/team\/(\d+)\/image(?:[?].*)?$/i.exec(value || '')?.[1];
+const leagueAliases = {epl:'premierleague',ucl:'uefachampionsleague',uel:'uefaeuropaleague',uecl:'uefaconferenceleague'};
+function fixtureKey(row, useBadges=true) {
+ const namePair=[key(team(row.home_team)),key(team(row.away_team))];
+ const badges=[badgeId(row.home_logo_url),badgeId(row.away_logo_url)];
+ const classes=[row.home_team,row.away_team].map(name=>key(String(name||'').match(/\s(?:women|ladies|u\d{1,2}|reserves?|ii|b)$/i)?.[0]));
+ const league=key(row.league);
+ const clock=repositoryKickoff(row.kickoff_at);
+ if(!clock)return JSON.stringify(['undated',row.source_entry_id||row.repository||'',namePair,league,row.source_civil_date||'',row.source_time||'']);
+ const teams=useBadges&&badges.every(Boolean)?['badge',...badges]:['name',...namePair];
+ return JSON.stringify([teams,classes,leagueAliases[league]||league,competition(row),clock]);
+}
+export async function mergeRepositoryMatches(rows,{previous=[]}={}){
  rows=rows.map(row=>({...row,home_team:team(row.home_team),away_team:team(row.away_team)}));
- const grouped=new Map(),known=new Map();
- for(const row of rows)if(row.football_proven&&row.kickoff_at){const pair=key(row.home_team)+':'+key(row.away_team)+':'+competition(row);const list=known.get(pair)||[];list.push(row);known.set(pair,list);}
+ const generic=row=>/^(?:football|soccer|live events?|live sports)$/i.test(clean(row.league));
+ const namedCompetitions=new Map();
+ const pairAndTime=row=>JSON.stringify([key(row.home_team),key(row.away_team),competition(row),repositoryKickoff(row.kickoff_at)]);
  for(const row of rows){
-  const home=key(row.home_team),away=key(row.away_team);if(!home||!away||home===away)continue;
-  const peers=(known.get(home+':'+away+':'+competition(row))||[]).filter(peer=>!row.source_civil_date||
-   Math.abs(Date.parse(peer.kickoff_at.slice(0,10))-Date.parse(row.source_civil_date))<=86400000);
-  if(!row.football_proven&&!peers.length)continue;
-  const exactTimes=[...new Set(peers.map(r=>r.kickoff_at))].sort();
-  const kickoff=row.kickoff_at||(exactTimes.length===1?exactTimes[0]:null);
-  // GitHub published state is authoritative; kickoff age is not deletion proof.
-  // Verified source absence is reconciled separately, after a successful sync.
-  const date=kickoff?.slice(0,10)||row.source_civil_date||'undated';
-  const sameDayTimes=exactTimes.filter(time=>time.startsWith(date));
-  // Keep the established ID for the first kickoff. A second fixture between
-  // the same teams on the same UTC date needs its own ID and stream list.
-  const extraKickoff=kickoff&&sameDayTimes.length>1&&kickoff!==sameDayTimes[0]?':'+kickoff:'';
-  const id='repo:match:'+(await sourceHash(home+':'+away+':'+date+(competition(row)?':'+competition(row):'')+extraKickoff)).slice(0,28);
+  if(!row.kickoff_at||generic(row))continue;
+  const k=pairAndTime(row),matches=namedCompetitions.get(k)||new Map();
+  matches.set(leagueAliases[key(row.league)]||key(row.league),row.league);
+  namedCompetitions.set(k,matches);
+ }
+ for(const row of rows){
+  if(!row.kickoff_at||!generic(row))continue;
+  const matches=namedCompetitions.get(pairAndTime(row));
+  if(matches?.size===1)row.league=matches.values().next().value;
+ }
+ const grouped=new Map(),badgeKeysByName=new Map(),previousIds=new Map();
+ for(const row of rows){
+  if(!row.kickoff_at)continue;
+  const named=fixtureKey(row,false),identified=fixtureKey(row);
+  if(named===identified)continue;
+  const keys=badgeKeysByName.get(named)||new Set();
+  keys.add(identified);badgeKeysByName.set(named,keys);
+ }
+ const identity=row=>{
+  const named=fixtureKey(row,false),identified=fixtureKey(row);
+  if(identified!==named)return identified;
+  const matches=badgeKeysByName.get(named);
+  return matches?.size===1?matches.values().next().value:named;
+ };
+ for(const entry of previous){
+  if(!repositoryKickoff(entry.event_meta?.kickoff_at))continue;
+  const k=identity(entry.event_meta),ids=previousIds.get(k)||new Set();
+  ids.add(entry.id);previousIds.set(k,ids);
+ }
+ for(const row of rows){
+  const home=key(row.home_team),away=key(row.away_team);
+  if(!home||!away||home===away)continue;
+  const kickoff=repositoryKickoff(row.kickoff_at);
+  if(!row.football_proven&&!kickoff)continue;
+  const fixture=identity(row);
+  const existing=previousIds.get(fixture);
+  const canonicalId='repo:match:'+(await sourceHash('fixture-v1:'+fixture)).slice(0,28);
+  const id=existing?.size===1?existing.values().next().value:canonicalId;
   let entry=grouped.get(id);
   if(!entry){entry={id,provider:8,kind:'event',name:(row.home_team+' vs '+row.away_team).slice(0,120),category:'Football',
    source_file:'reviewed repository fixtures',image_url:null,streams:[],unsupported_count:0,
    event_meta:{home_team:row.home_team,away_team:row.away_team,home_logo_url:null,away_logo_url:null,kickoff_at:kickoff,
-    source_civil_date:row.source_civil_date||null,source_time:row.source_time||null,league:row.league,repositories:[]}};grouped.set(id,entry);}
+    source_civil_date:row.source_civil_date||null,source_time:row.source_time||null,league:row.league,repositories:[],
+    ...(kickoff?{fixture_key:canonicalId}:{})}};grouped.set(id,entry);}
   const meta=entry.event_meta;
+  if(kickoff&&row.source_finished&&Date.parse(kickoff)<Date.now()){
+   meta.source_finished=true;
+   if(row.end_at&&row.end_at>kickoff&&Date.parse(row.end_at)<=Date.now()&&(!meta.finished_at||row.end_at>meta.finished_at))meta.finished_at=row.end_at;
+  }
   meta.home_logo_url ||= row.home_logo_url;meta.away_logo_url ||= row.away_logo_url;
   if(row.league&&!/\s(?:vs\.?|versus)\s/i.test(row.league)&&row.league!=='Football'&&!/^live\s*(?:events?|sports)$/i.test(row.league))meta.league=row.league;
   if(!meta.repositories.includes(row.repository))meta.repositories.push(row.repository);

@@ -97,14 +97,28 @@ function mergeVerifiedAliases(rows) {
   group.push(row);
   groups.set(evidence, group);
  }
+ const datedByName=new Map();
+ const namedEvidence=(row,clock)=>fixtureLeague(row.league)&&clock
+  ?JSON.stringify([row.home_team,row.away_team,fixtureLeague(row.league),row.competition_tag||'',clock]):null;
+ for(const row of rows){
+  const evidence=namedEvidence(row,row.kickoff_at);
+  if(!evidence)continue;
+  const peers=datedByName.get(evidence)||[];
+  peers.push(row);datedByName.set(evidence,peers);
+ }
  for (const row of rows) {
   if (row.kickoff_at) continue;
   const evidence=fixtureEvidence(row,reportedWallClock(row.source_time));
   const confirmed=groups.get(evidence);
-  if (!confirmed?.some(peer=>peer.repository!==row.repository)) continue;
-  row.kickoff_at=confirmed[0].kickoff_at;
+  const named=datedByName.get(namedEvidence(row,reportedWallClock(row.source_time)))||[];
+  const peer=confirmed?.find(item=>item.repository!==row.repository)||
+   named.find(item=>item.repository!==row.repository&&
+    (!row.home_logo_url||!item.home_logo_url||badgeId(row.home_logo_url)===badgeId(item.home_logo_url))&&
+    (!row.away_logo_url||!item.away_logo_url||badgeId(row.away_logo_url)===badgeId(item.away_logo_url)));
+  if(!peer)continue;
+  row.kickoff_at=peer.kickoff_at;
   row.corroborated_clock=true;
-  confirmed.push(row);
+  confirmed?.push(row);
  }
  for (const group of groups.values()) {
   // Dated rows may be duplicate provider exports from the same repository.
@@ -148,20 +162,20 @@ export function reconcileUndatedRepositoryAliases(entries,previous) {
  }
  return {entries:[...byId.values()],superseded};
 }
-export async function repositoryMatchesFromHub(entries,{revision='',missingRepositories=[],complete=true,now=Date.now()}={}){
+export async function repositoryMatchesFromHub(entries,{revision='',missingRepositories=[],complete=true,previous=[]}={}){
  const missing=new Set(!complete&&!missingRepositories.length?REPOSITORY_TREE_SOURCES:missingRepositories),rows=[];
  for(const entry of entries){
   if(entry.kind!=='event')continue;
   const meta=entry.event_meta||{},repository=meta.source_repository;
   if(!REPOSITORY_TREE_SOURCES.includes(repository)||(missing.has(repository)&&meta.source_partial_fresh!==true)||!meta.home_team||!meta.away_team)continue;
-  const event={teamA:meta.home_team,teamB:meta.away_team,cat:meta.source_category,
+  const event={status:meta.source_status,teamA:meta.home_team,teamB:meta.away_team,cat:meta.source_category,
    unclassified_sports:meta.unclassified_sports===true,
    eventInfo:{teamA:meta.home_team,teamB:meta.away_team,teamAFlag:meta.home_logo_url,teamBFlag:meta.away_logo_url,
     eventCat:meta.source_category,eventName:reviewedLeague(meta.league)||reviewedLeague(meta.source_category)||meta.league,startTime:meta.kickoff_at||meta.source_time,endTime:meta.end_at,
     sourceCivilDate:meta.source_civil_date,sourceTime:meta.source_time},
    resolved_streams:(entry.streams||[]).map(line=>({...line,title:line.label}))};
-  rows.push(...parseRepositoryMatches(JSON.stringify([event]),{repository,source_file:entry.source_file}));
+  rows.push(...parseRepositoryMatches(JSON.stringify([event]),{repository,source_file:entry.source_file,source_entry_id:entry.id}));
  }
- return {revision:await sourceHash('hub-repository-v5:'+revision),unchanged:false,
-  entries:await mergeRepositoryMatches(mergeVerifiedAliases(rows),{now}),complete,missingRepositories:[...missing]};
+ return {revision:await sourceHash('hub-repository-v7:'+revision),unchanged:false,
+  entries:await mergeRepositoryMatches(mergeVerifiedAliases(rows),{previous}),complete,missingRepositories:[...missing]};
 }
